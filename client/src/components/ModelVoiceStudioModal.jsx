@@ -25,6 +25,8 @@ export default function ModelVoiceStudioModal({
   const [cloneFile, setCloneFile] = useState(null);
   const [consent, setConsent] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  /** ISO-style code from API languageOptions, or "" for auto */
+  const [language, setLanguage] = useState("");
 
   const loadStatus = useCallback(async () => {
     setLoadingStatus(true);
@@ -46,6 +48,7 @@ export default function ModelVoiceStudioModal({
     setDescription("");
     setCloneFile(null);
     setConsent(false);
+    setLanguage("");
     setTab("design");
   }, [isOpen, model?.id, loadStatus]);
 
@@ -61,6 +64,11 @@ export default function ModelVoiceStudioModal({
     !hasVoice &&
     status.usedCustomVoices >= status.maxCustomVoices;
 
+  const languageOptions =
+    Array.isArray(status?.languageOptions) && status.languageOptions.length > 0
+      ? status.languageOptions
+      : [{ code: "", label: "Auto / not specified" }];
+
   const handleDesignPreviews = async () => {
     const d = description.trim();
     if (d.length < 20) {
@@ -73,6 +81,7 @@ export default function ModelVoiceStudioModal({
     try {
       const r = await api.post(`/models/${model.id}/voice/design-previews`, {
         voiceDescription: d,
+        ...(language ? { language } : {}),
       });
       if (r.data?.success && Array.isArray(r.data.previews)) {
         setPreviews(r.data.previews);
@@ -110,6 +119,7 @@ export default function ModelVoiceStudioModal({
         generatedVoiceId: pickedId,
         voiceDescription: d,
         consentConfirmed: true,
+        ...(language ? { language } : {}),
       });
       if (r.data?.success) {
         toast.success(`Custom voice saved · ${r.data.creditsUsed ?? designCost} credits`);
@@ -137,6 +147,7 @@ export default function ModelVoiceStudioModal({
     const fd = new FormData();
     fd.append("audio", cloneFile);
     fd.append("consent", "true");
+    if (language) fd.append("language", language);
     setSubmitting(true);
     try {
       const r = await api.post(`/models/${model.id}/voice/clone`, fd, {
@@ -238,6 +249,33 @@ export default function ModelVoiceStudioModal({
               and costs the recreate rate.
             </p>
           )}
+
+          <label className="block">
+            <span className="text-[11px] text-slate-500 uppercase tracking-wider">
+              Primary language (optional)
+            </span>
+            <select
+              value={language}
+              onChange={(e) => {
+                setLanguage(e.target.value);
+                setPreviews([]);
+                setPickedId("");
+              }}
+              disabled={isProcessing}
+              className="mt-1 w-full rounded-xl bg-white/5 border border-white/10 text-sm text-white px-3 py-2 focus:outline-none focus:ring-1 focus:ring-violet-500/50"
+            >
+              {languageOptions.map((o) => (
+                <option key={o.code || "auto"} value={o.code}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+            <p className="text-[10px] text-slate-600 mt-1 leading-snug">
+              <strong className="text-slate-500">Design:</strong> we add a language hint to your description (ElevenLabs has no separate language field).{" "}
+              <strong className="text-slate-500">Clone:</strong> sent as voice metadata (<code className="text-slate-500">labels.language</code>) to ElevenLabs.
+              Change language? Regenerate previews before confirming (design).
+            </p>
+          </label>
 
           {tab === "design" && (
             <div className="space-y-3">

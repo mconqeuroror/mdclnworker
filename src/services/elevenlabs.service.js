@@ -378,6 +378,7 @@ export async function cloneVoiceFromMp3Buffer({
   description,
   mp3Buffer,
   filename = "sample.mp3",
+  labels = null,
 }) {
   const apiKey = getElevenLabsApiKey();
   if (!apiKey) throw new Error("Voice service not configured");
@@ -386,6 +387,9 @@ export async function cloneVoiceFromMp3Buffer({
   const form = new FormData();
   form.append("name", voiceName);
   if (description) form.append("description", description);
+  if (labels && typeof labels === "object" && Object.keys(labels).length > 0) {
+    form.append("labels", JSON.stringify(labels));
+  }
   form.append("files", blob, filename.replace(/[^\w.-]/g, "_") || "sample.mp3");
 
   const response = await fetch(`${ELEVENLABS_API_URL}/voices/add`, {

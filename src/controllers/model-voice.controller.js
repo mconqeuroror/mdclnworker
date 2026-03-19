@@ -24,6 +24,11 @@ import {
   deleteElevenLabsVoice,
   deleteElevenLabsVoiceStrict,
 } from "../services/elevenlabs.service.js";
+import {
+  VOICE_STUDIO_LANGUAGE_OPTIONS,
+  normalizeVoiceStudioLanguageCode,
+  mergeVoiceDescriptionWithLanguage,
+} from "../constants/voiceStudioLanguages.js";
 
 function consentOk(value) {
   return value === true || value === "true" || value === "1" || value === 1;
@@ -80,6 +85,7 @@ export async function getVoicePlatformStatus(req, res) {
         cloneInitial: VOICE_CLONE_CREDITS_INITIAL,
         cloneRecreate: VOICE_CLONE_CREDITS_RECREATE,
       },
+      languageOptions: VOICE_STUDIO_LANGUAGE_OPTIONS,
     });
   } catch (error) {
     console.error("getVoicePlatformStatus:", error);
@@ -89,18 +95,27 @@ export async function getVoicePlatformStatus(req, res) {
 
 /**
  * POST /api/models/:modelId/voice/design-previews
- * Body: { voiceDescription: string }
+ * Body: { voiceDescription: string, language?: string } — language = ISO-style code from languageOptions (optional)
  */
 export async function postModelVoiceDesignPreviews(req, res) {
   try {
     const userId = req.user.userId;
     const { modelId } = req.params;
     const voiceDescription = String(req.body?.voiceDescription || "").trim();
+    const language = normalizeVoiceStudioLanguageCode(req.body?.language);
 
     if (voiceDescription.length < 20 || voiceDescription.length > 2000) {
       return res.status(400).json({
         success: false,
         message: "Voice description must be between 20 and 2000 characters.",
+      });
+    }
+
+    const fullDescription = mergeVoiceDescriptionWithLanguage(voiceDescription, language);
+    if (fullDescription.length > 2000) {
+      return res.status(400).json({
+        success: false,
+        message: "Description plus language hint is too long. Shorten the text (max 2000 characters total).",
       });
     }
 
@@ -118,7 +133,7 @@ export async function postModelVoiceDesignPreviews(req, res) {
       });
     }
 
-    const previews = await designVoicePreviews(voiceDescription);
+    const previews = await designVoicePreviews(fullDescription);
     if (!previews.length) {
       return res.status(502).json({
         success: false,
@@ -144,7 +159,7 @@ export async function postModelVoiceDesignPreviews(req, res) {
 
 /**
  * POST /api/models/:modelId/voice/design-confirm
- * Body: { generatedVoiceId, voiceDescription, consentConfirmed }
+ * Body: { generatedVoiceId, voiceDescription, consentConfirmed, language?: string }
  */
 export async function postModelVoiceDesignConfirm(req, res) {
   const userId = req.user.userId;
@@ -154,6 +169,9 @@ export async function postModelVoiceDesignConfirm(req, res) {
   try {
     const generatedVoiceId = String(req.body?.generatedVoiceId || "").trim();
     const voiceDescription = String(req.body?.voiceDescription || "").trim();
+    const language = normalizeVoiceStudioLanguageCode(req.body?.language);
+    const fullDescription = mergeVoiceDescriptionWithLanguage(voiceDescription, language);
+
     if (!consentOk(req.body?.consentConfirmed)) {
       return res.status(400).json({
         success: false,
@@ -164,6 +182,12 @@ export async function postModelVoiceDesignConfirm(req, res) {
       return res.status(400).json({
         success: false,
         message: "Invalid preview or description.",
+      });
+    }
+    if (fullDescription.length > 2000) {
+      return res.status(400).json({
+        success: false,
+        message: "Description plus language hint is too long (max 2000 characters total).",
       });
     }
 
@@ -211,7 +235,7 @@ export async function postModelVoiceDesignConfirm(req, res) {
     const voiceName = internalVoiceLabel(model);
     const { voiceId } = await createVoiceFromDesignPreview({
       voiceName,
-      voiceDescription,
+      voiceDescription: fullDescription,
       generatedVoiceId,
     });
 
@@ -351,12 +375,14 @@ export async function postModelVoiceClone(req, res) {
       });
     }
 
+    const lang = normalizeVoiceStudioLanguageCode(req.body?.language);
     const voiceName = internalVoiceLabel(model);
     const { voiceId } = await cloneVoiceFromMp3Buffer({
       voiceName,
       description: `Clone for model ${model.name}`,
       mp3Buffer: file.buffer,
       filename: file.originalname || "voice.mp3",
+      labels: lang ? { language: lang } : undefined,
     });
 
     let previewUrl = null;
