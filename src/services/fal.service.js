@@ -1303,7 +1303,7 @@ function buildComfyWorkflow(params) {
     const blurStrength = clamp(Number(postProcessing?.blur?.strength) || 1, 0, 1);
     const grainStrength = clamp(Number(postProcessing?.grain?.strength) || 1, 0, 1);
     if (workflow["286"]?.inputs) {
-      workflow["286"].inputs.blur_radius = blurEnabled ? Math.max(1, Math.round(2 * blurStrength)) : 0;
+      workflow["286"].inputs.blur_radius = blurEnabled ? Math.max(1, Math.round(2 * blurStrength)) : 1;
       const sigma = blurEnabled ? Number((0.3 * blurStrength).toFixed(3)) : 0;
       workflow["286"].inputs.sigma = Math.max(0.1, sigma); // RunPod ImageBlur requires sigma >= 0.1
     }
