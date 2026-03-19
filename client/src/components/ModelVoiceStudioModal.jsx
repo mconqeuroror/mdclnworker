@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { X, Loader2, Mic, Wand2, Upload } from "lucide-react";
+import { X, Loader2, Mic, Wand2, Upload, Coins } from "lucide-react";
 import toast from "react-hot-toast";
 import api from "../services/api";
 
@@ -198,15 +198,9 @@ export default function ModelVoiceStudioModal({
             <p className="text-[11px] text-slate-600 mt-2 flex items-center gap-1">
               <Loader2 className="w-3 h-3 animate-spin" /> Loading limits…
             </p>
-          ) : status ? (
-            <p className="text-[11px] text-slate-500 mt-2">
-              Platform voices:{" "}
-              <span className="text-slate-300">
-                {status.usedCustomVoices} / {status.maxCustomVoices}
-              </span>
-              {atCap && (
-                <span className="text-amber-400 ml-2">Cap reached — recreate an existing model voice or wait for admin.</span>
-              )}
+          ) : status && atCap ? (
+            <p className="text-[11px] text-amber-400 mt-2">
+              Cap reached — recreate an existing model voice or wait for admin.
             </p>
           ) : null}
         </div>
@@ -228,7 +222,7 @@ export default function ModelVoiceStudioModal({
               }`}
             >
               <Wand2 className="w-3.5 h-3.5" />
-              Design ({designCost} cr)
+              Design <span className="inline-flex items-center gap-0.5">{designCost} <Coins className="w-3 h-3 text-yellow-400" /></span>
             </button>
             <button
               type="button"
@@ -239,7 +233,7 @@ export default function ModelVoiceStudioModal({
               }`}
             >
               <Upload className="w-3.5 h-3.5" />
-              Clone MP3 ({cloneCost} cr)
+              Clone MP3 <span className="inline-flex items-center gap-0.5">{cloneCost} <Coins className="w-3 h-3 text-yellow-400" /></span>
             </button>
           </div>
 
@@ -387,18 +381,18 @@ export default function ModelVoiceStudioModal({
               type="button"
               disabled={isProcessing || submitting || atCap || !previews.length}
               onClick={handleDesignConfirm}
-              className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-40"
+              className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-40 inline-flex items-center justify-center gap-1.5"
             >
-              {submitting ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : `Create voice · ${designCost} cr`}
+              {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <>Create voice · <span className="inline-flex items-center gap-0.5">{designCost} <Coins className="w-3.5 h-3.5 text-yellow-400" /></span></>}
             </button>
           ) : (
             <button
               type="button"
               disabled={isProcessing || submitting || atCap}
               onClick={handleClone}
-              className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-40"
+              className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-40 inline-flex items-center justify-center gap-1.5"
             >
-              {submitting ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : `Clone voice · ${cloneCost} cr`}
+              {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <>Clone voice · <span className="inline-flex items-center gap-0.5">{cloneCost} <Coins className="w-3.5 h-3.5 text-yellow-400" /></span></>}
             </button>
           )}
         </div>

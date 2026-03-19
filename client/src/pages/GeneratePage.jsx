@@ -2908,9 +2908,13 @@ function VideoGeneration() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className={`text-[11px] font-medium truncate ${selectedVoice === voice.id ? 'text-white' : 'text-slate-300'}`}>
-                          {voice.name}
+                          {voice.isModelCustom ? (voice.modelName || voice.name) : voice.name}
                         </p>
-                        <p className="text-[9px] text-slate-500 truncate">{voice.labels?.accent || "AI"}</p>
+                        <p className="text-[9px] text-slate-500 truncate">
+                          {voice.isModelCustom
+                            ? (voice.voiceType === "clone" ? "Voice clone" : "Designed voice")
+                            : (voice.labels?.accent || "AI")}
+                        </p>
                       </div>
                       <div
                         onClick={(e) => { e.stopPropagation(); toggleFavorite(voice.id); }}

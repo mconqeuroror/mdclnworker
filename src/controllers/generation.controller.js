@@ -3707,6 +3707,7 @@ export async function getVoices(req, res) {
         where: { id: modelId, userId },
         select: {
           elevenLabsVoiceId: true,
+          elevenLabsVoiceType: true,
           modelVoicePreviewUrl: true,
           elevenLabsVoiceName: true,
           name: true,
@@ -3714,10 +3715,13 @@ export async function getVoices(req, res) {
       });
       if (model?.elevenLabsVoiceId) {
         const previewUrl = model.modelVoicePreviewUrl || "";
-        const displayName = model.elevenLabsVoiceName || `${model.name}'s voice`;
+        const modelName = model.name || "My model";
+        const displayName = model.elevenLabsVoiceName || `${modelName}'s voice`;
         const custom = {
           id: model.elevenLabsVoiceId,
           name: displayName,
+          modelName,
+          voiceType: model.elevenLabsVoiceType || "design",
           category: "custom",
           labels: { gender: "female", source: "model_custom" },
           languages: ["en", "sk", "cs"],
