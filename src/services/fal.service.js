@@ -1141,6 +1141,12 @@ function applyOralBlowjobLoraPolicy(aiSelection, fullPromptText) {
 const QUALITY_SUFFIX =
   "one person only, solo girl, anatomically correct, natural body proportions, realistic adult genital scale, average penis size proportional to body, not oversized, believable POV scale, shot on iPhone 15 Pro main camera, smartphone photo, slight wide-angle lens distortion, natural skin texture with visible pores and imperfections and skin folds, unedited raw photo, auto-exposure, auto white balance, slight noise in shadows, jpeg compression artifacts, phone flash harsh frontal light washing out skin slightly overexposed, slight motion blur on edges, slightly out of focus background, no color grading, no retouching, no extra limbs, no distorted hands, candid amateur nude, unedited raw smartphone photo, grainy low light photo";
 
+/** Nudes pack: short tail only — looks come from LoRA + chipSelections for the AI selector, not pasted into CLIP. */
+const NUDES_PACK_TAIL_SOLO =
+  "anatomically correct, realistic skin, solo, candid amateur photo";
+const NUDES_PACK_TAIL_COUPLE =
+  "anatomically correct, realistic skin, consensual adult, two adults";
+
 // Additive LoRAs (pose, makeup, effects) must never overpower identity LoRA.
 const MAX_ADDITIVE_LORA_STRENGTH = 0.5;
 
@@ -1472,6 +1478,7 @@ export async function submitNsfwGeneration(params) {
     adminBaseSamplerSteps = null,
     adminBaseSamplerCfg = null,
     quickFlow = false,
+    nudesPack = false,
   } = options;
   const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
   const normalizeStrength = (value, fallback) => {
@@ -1499,14 +1506,26 @@ export async function submitNsfwGeneration(params) {
     return { success: false, error: "Prompt is required. Generate a prompt first (Create Prompt)." };
   }
   const hasTriggerAnchor = basePrompt.toLowerCase().includes(String(triggerWord || "").toLowerCase());
-  const identityAnchoredPrompt = hasTriggerAnchor
-    ? basePrompt
-    : `${triggerWord}, same person, same face, same identity, ${basePrompt}`;
-  const prompt =
+  const identityAnchoredPrompt =
+    hasTriggerAnchor
+      ? basePrompt
+      : nudesPack
+        ? `${triggerWord}, ${basePrompt}`
+        : `${triggerWord}, same person, same face, same identity, ${basePrompt}`;
+
+  let prompt;
+  if (nudesPack) {
+    const isCouple = /\b(two adults|consensual couple)\b/i.test(basePrompt);
+    const tail = isCouple ? NUDES_PACK_TAIL_COUPLE : NUDES_PACK_TAIL_SOLO;
+    prompt = `${identityAnchoredPrompt}, ${tail}`;
+  } else if (
     identityAnchoredPrompt.includes("one person only") &&
     identityAnchoredPrompt.includes("anatomically correct")
-      ? identityAnchoredPrompt
-      : `${identityAnchoredPrompt}, ${QUALITY_SUFFIX}`;
+  ) {
+    prompt = identityAnchoredPrompt;
+  } else {
+    prompt = `${identityAnchoredPrompt}, ${QUALITY_SUFFIX}`;
+  }
 
   // AI decides additive LoRAs from full prompt/context (pose + makeup + effects). Quick flow: girl max 0.65, additive max 0.5.
   const aiSelection = await detectLorasWithAI({

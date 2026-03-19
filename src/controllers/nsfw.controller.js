@@ -2856,8 +2856,8 @@ export async function generateNudesPack(req, res) {
         continue;
       }
 
-      const looksTail = attributesString ? `, ${attributesString}` : "";
-      const userPrompt = `${pose.promptFragment}${looksTail}`.trim();
+      // Pose text only in CLIP — model looks stay in LoRA + chipSelections (AI LoRA picker), not pasted as a tag dump.
+      const userPrompt = pose.promptFragment.trim();
       const sceneLine = [packSceneNote.trim(), `Nudes pack ${idx + 1}/${poseIds.length}: ${pose.title}`]
         .filter(Boolean)
         .join(" · ");
@@ -2880,10 +2880,11 @@ export async function generateNudesPack(req, res) {
         loraUrl,
         triggerWord: loraTriggerWord,
         userPrompt,
-        attributes: attributesString,
+        attributes: "",
         sceneDescription: sceneLine || userPrompt,
         chipSelections: attributesDetail,
         options: {
+          nudesPack: true,
           quickFlow: options.quickFlow === true,
           loraStrength: userOverrideStrength,
           postProcessing,
