@@ -43,6 +43,7 @@ import {
 import { isR2Configured, mirrorToR2, reMirrorToR2, deleteFromR2 } from "../utils/r2.js";
 import { mirrorToBlob, isVercelBlobConfigured } from "../utils/kieUpload.js";
 import { getErrorMessageForDb } from "../lib/userError.js";
+import { cleanupOldGenerations } from "./generation.controller.js";
 
 // Models with age < 18 cannot use NSFW or LoRA (policy)
 function isMinorModel(model) {
@@ -64,31 +65,6 @@ async function ensureKieUrl(url) {
 }
 import { validateImageUrl, validateImageUrls } from "../utils/fileValidation.js";
 import { getSafeErrorMessage } from "../utils/safe-error.js";
-
-const MAX_GENERATIONS_PER_MODEL = 200;
-async function cleanupOldGenerations(userId, modelId) {
-  try {
-    if (!userId || !modelId) return;
-    const completedCount = await prisma.generation.count({
-      where: { userId, modelId, status: "completed" },
-    });
-    if (completedCount <= MAX_GENERATIONS_PER_MODEL) return;
-    const toDelete = completedCount - MAX_GENERATIONS_PER_MODEL;
-    const oldestGenerations = await prisma.generation.findMany({
-      where: { userId, modelId, status: "completed" },
-      orderBy: { createdAt: "asc" },
-      take: toDelete,
-      select: { id: true },
-    });
-    if (oldestGenerations.length > 0) {
-      const ids = oldestGenerations.map((g) => g.id);
-      await prisma.generation.deleteMany({ where: { id: { in: ids } } });
-      console.log(`🧹 Auto-cleanup: Deleted ${ids.length} old generations for model ${modelId} (kept ${MAX_GENERATIONS_PER_MODEL})`);
-    }
-  } catch (error) {
-    console.error("🧹 Auto-cleanup error:", error.message);
-  }
-}
 
 async function cleanupTrainingDataset(loraId, modelId) {
   try {

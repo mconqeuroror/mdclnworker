@@ -3,7 +3,7 @@ import {
   Users, Search, Plus, Trash2, DollarSign, Activity, Settings, Shield,
   ChevronDown, ChevronUp, RefreshCw, BarChart3, Palette, Mail, ArrowLeft,
   Copy, Check, AlertTriangle, Zap, Server, Clock, TrendingUp, TrendingDown,
-  ChevronLeft, ChevronRight, X, Send, UserX, Download, Loader2,
+  ChevronLeft, ChevronRight, X, Send, UserX, Download, Loader2, Wallet,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
@@ -94,6 +94,49 @@ const SPEND_RANGE_OPTIONS = [
 const MARKETING_LANGUAGE_OPTIONS = [
   { code: 'en', name: 'English' }, { code: 'sk', name: 'Slovenčina' }, { code: 'de', name: 'Deutsch' },
   { code: 'es', name: 'Español' }, { code: 'fr', name: 'Français' }, { code: 'pl', name: 'Polski' }, { code: 'cs', name: 'Čeština' },
+];
+
+/** Admin UI: generation credit costs (keys must match backend DEFAULT_GENERATION_PRICING) */
+const GENERATION_PRICING_GROUPS = [
+  {
+    title: 'AI model workflows',
+    fields: [
+      { key: 'modelCreateAi', label: 'Full AI model create' },
+      { key: 'modelStep1Reference', label: 'Model step 1 — reference' },
+      { key: 'modelStep2Poses', label: 'Model step 2 — poses' },
+      { key: 'modelFromPhotosAdvanced', label: 'Model from photos (advanced)' },
+    ],
+  },
+  {
+    title: 'Images',
+    fields: [
+      { key: 'imageIdentity', label: 'Image — identity' },
+      { key: 'imagePromptCasual', label: 'Image — casual prompt' },
+      { key: 'imagePromptNsfw', label: 'Image — NSFW prompt' },
+      { key: 'imageFaceSwap', label: 'Image — face swap' },
+      { key: 'analyzeLooks', label: 'Analyze looks' },
+      { key: 'describeTargetImage', label: 'Describe target image' },
+    ],
+  },
+  {
+    title: 'Prompt tools',
+    fields: [
+      { key: 'enhancePromptDefault', label: 'Enhance prompt (default)' },
+      { key: 'enhancePromptNsfw', label: 'Enhance prompt (NSFW)' },
+    ],
+  },
+  {
+    title: 'Video',
+    fields: [
+      { key: 'videoRecreateStdPerSec', label: 'Video recreate — credits / sec (std)' },
+      { key: 'videoRecreateUltraPerSec', label: 'Video recreate — credits / sec (ultra)' },
+      { key: 'videoPrompt5s', label: 'Video from prompt — 5s' },
+      { key: 'videoPrompt10s', label: 'Video from prompt — 10s' },
+      { key: 'videoFaceSwapPerSec', label: 'Video face swap — credits / sec' },
+      { key: 'talkingHeadMin', label: 'Talking head — minimum' },
+      { key: 'talkingHeadPerSecondX10', label: 'Talking head — per second ×10' },
+    ],
+  },
 ];
 
 // ── Primitive UI components ───────────────────────────────────────────────────
@@ -381,6 +424,7 @@ export default function AdminPage() {
   const [confirmSendAll, setConfirmSendAll] = useState(false);
   const [confirmRestore, setConfirmRestore] = useState(null); // backup object to restore from
   const [confirmReferralPayout, setConfirmReferralPayout] = useState(null); // { userId, email, eligibleCents }
+  const [confirmResetGenPricing, setConfirmResetGenPricing] = useState(false);
   const [advancingReferralUserId, setAdvancingReferralUserId] = useState(null); // userId being toggled
   const [emailSendResult, setEmailSendResult] = useState(null);
   const [showManagePurchases, setShowManagePurchases] = useState(false);
@@ -434,6 +478,19 @@ export default function AdminPage() {
   const [lostGenAllResult, setLostGenAllResult] = useState(null);
   const [newReelUsername, setNewReelUsername] = useState('');
   const [bulkReelUsernames, setBulkReelUsernames] = useState('');
+  const [clearReelsLoading, setClearReelsLoading] = useState(false);
+  const [confirmClearReels, setConfirmClearReels] = useState(false);
+  const [clearReelsRescrape, setClearReelsRescrape] = useState(true);
+
+  // Generation pricing (credits per action)
+  const [showGenerationPricing, setShowGenerationPricing] = useState(false);
+  const [genPricing, setGenPricing] = useState(null);
+  const [genPricingDefaults, setGenPricingDefaults] = useState(null);
+  const [loadingGenPricing, setLoadingGenPricing] = useState(false);
+  const [savingGenPricing, setSavingGenPricing] = useState(false);
+  const [showProviderBalances, setShowProviderBalances] = useState(false);
+  const [providerBalances, setProviderBalances] = useState(null);
+  const [loadingProviderBalances, setLoadingProviderBalances] = useState(false);
   const [reconcileLimit, setReconcileLimit] = useState(250);
   const [reconcileResult, setReconcileResult] = useState(null);
   const [reconciliationLimit, setReconciliationLimit] = useState(100);
@@ -1193,6 +1250,85 @@ export default function AdminPage() {
     const map = { scrape: '/viral-reels/admin/trigger-scrape', hot: '/viral-reels/admin/trigger-hot', warm: '/viral-reels/admin/trigger-warm', recalculate: '/viral-reels/admin/recalculate', groups: '/viral-reels/admin/assign-groups' };
     try { const r = await api.post(map[action], action === 'scrape' ? { force: true } : {}); toast.success(r?.data?.message || 'Action started'); setTimeout(loadReelFinderAdmin, 1200); }
     catch (e) { toast.error(e?.response?.data?.error || 'Action failed'); }
+  };
+
+  const loadGenerationPricing = async () => {
+    try {
+      setLoadingGenPricing(true);
+      const r = await api.get('/admin/pricing/generation');
+      if (r.data?.success) {
+        setGenPricing({ ...r.data.pricing });
+        setGenPricingDefaults(r.data.defaults ? { ...r.data.defaults } : null);
+      }
+    } catch (e) {
+      toast.error(e?.response?.data?.error || 'Failed to load generation pricing');
+    } finally {
+      setLoadingGenPricing(false);
+    }
+  };
+
+  const saveGenerationPricing = async () => {
+    if (!genPricing) return;
+    try {
+      setSavingGenPricing(true);
+      const r = await api.put('/admin/pricing/generation', { pricing: genPricing });
+      if (r.data?.success) {
+        setGenPricing({ ...r.data.pricing });
+        toast.success('Generation pricing saved');
+      }
+    } catch (e) {
+      toast.error(e?.response?.data?.error || 'Failed to save pricing');
+    } finally {
+      setSavingGenPricing(false);
+    }
+  };
+
+  const resetGenerationPricingAdmin = async () => {
+    try {
+      setSavingGenPricing(true);
+      const r = await api.post('/admin/pricing/generation/reset');
+      if (r.data?.success) {
+        setConfirmResetGenPricing(false);
+        setGenPricing({ ...r.data.pricing });
+        toast.success('Pricing reset to defaults');
+      } else {
+        toast.error(r.data?.error || 'Reset failed');
+      }
+    } catch (e) {
+      toast.error(e?.response?.data?.error || 'Reset failed');
+    } finally {
+      setSavingGenPricing(false);
+    }
+  };
+
+  const handleClearReelsConfirm = async () => {
+    try {
+      setClearReelsLoading(true);
+      const r = await api.post('/viral-reels/admin/clear-reels', { rescrape: clearReelsRescrape });
+      setConfirmClearReels(false);
+      toast.success(r.data?.message || 'Done');
+      await loadReelFinderAdmin();
+    } catch (e) {
+      toast.error(e?.response?.data?.error || 'Failed to clear reels');
+    } finally {
+      setClearReelsLoading(false);
+    }
+  };
+
+  const loadProviderBalances = async () => {
+    try {
+      setLoadingProviderBalances(true);
+      const r = await api.get('/admin/provider-balances');
+      if (r.data?.success && Array.isArray(r.data.providers)) {
+        setProviderBalances({ checkedAt: r.data.checkedAt, providers: r.data.providers });
+      } else {
+        toast.error(r.data?.error || 'Failed to load provider balances');
+      }
+    } catch (e) {
+      toast.error(e?.response?.data?.error || 'Failed to load provider balances');
+    } finally {
+      setLoadingProviderBalances(false);
+    }
   };
 
   // ── Derived values ────────────────────────────────────────────────────────────
@@ -2234,6 +2370,169 @@ export default function AdminPage() {
           )}
         </Section>
 
+        {/* ── Generation pricing (credits) ──────────────────────────────────── */}
+        <Section>
+          <div className="flex items-center justify-between mb-5 gap-3 flex-wrap">
+            <CollapseToggle
+              open={showGenerationPricing}
+              onToggle={() => {
+                const next = !showGenerationPricing;
+                setShowGenerationPricing(next);
+                if (next) loadGenerationPricing();
+              }}
+              label="Generation pricing (credits)"
+            />
+            {showGenerationPricing && (
+              <GhostBtn onClick={loadGenerationPricing} disabled={loadingGenPricing}>
+                <RefreshCw className={`w-3 h-3 ${loadingGenPricing ? 'animate-spin' : ''}`} />
+                Refresh
+              </GhostBtn>
+            )}
+          </div>
+          {showGenerationPricing && (
+            <div className="space-y-5">
+              <p className="text-[11px] text-gray-500 -mt-2">
+                Credit costs charged for generations and model workflows. Values are integers (credits). Changes apply on save; backend caches for a few seconds.
+              </p>
+              {loadingGenPricing && !genPricing ? (
+                <div className="flex items-center gap-2 text-xs text-gray-500 py-6">
+                  <Loader2 className="w-4 h-4 animate-spin" /> Loading pricing…
+                </div>
+              ) : genPricing ? (
+                <>
+                  {GENERATION_PRICING_GROUPS.map((group) => (
+                    <div key={group.title} className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-4">
+                      <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wider mb-3">{group.title}</p>
+                      <div className="grid sm:grid-cols-2 gap-3">
+                        {group.fields.map(({ key, label }) => {
+                          const def = genPricingDefaults?.[key];
+                          const val = genPricing[key];
+                          return (
+                            <label key={key} className="flex flex-col gap-1">
+                              <span className="text-[11px] text-gray-500">{label}</span>
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step={1}
+                                  value={Number.isFinite(Number(val)) ? val : 0}
+                                  onChange={(e) => {
+                                    const n = parseInt(e.target.value, 10);
+                                    setGenPricing((p) => ({ ...p, [key]: Number.isFinite(n) && n >= 0 ? n : 0 }));
+                                  }}
+                                  className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-white/[0.07] bg-white/[0.03] text-xs text-white outline-none focus:border-white/20 transition [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                />
+                                {def != null && def !== val && (
+                                  <span className="text-[10px] text-gray-600 whitespace-nowrap" title="Default">
+                                    def {def}
+                                  </span>
+                                )}
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <PrimaryBtn onClick={saveGenerationPricing} disabled={savingGenPricing}>
+                      {savingGenPricing ? 'Saving…' : 'Save pricing'}
+                    </PrimaryBtn>
+                    <GhostBtn onClick={() => setConfirmResetGenPricing(true)} disabled={savingGenPricing}>
+                      Reset to defaults
+                    </GhostBtn>
+                  </div>
+                </>
+              ) : (
+                <p className="text-xs text-gray-600">Could not load pricing.</p>
+              )}
+            </div>
+          )}
+        </Section>
+
+        {/* ── Provider API balances ─────────────────────────────────────────── */}
+        <Section>
+          <div className="flex items-center justify-between mb-5 gap-3 flex-wrap">
+            <CollapseToggle
+              open={showProviderBalances}
+              onToggle={() => {
+                const next = !showProviderBalances;
+                setShowProviderBalances(next);
+                if (next && !providerBalances && !loadingProviderBalances) loadProviderBalances();
+              }}
+              label="Provider API balances"
+            />
+            {showProviderBalances && (
+              <GhostBtn onClick={loadProviderBalances} disabled={loadingProviderBalances}>
+                <RefreshCw className={`w-3 h-3 ${loadingProviderBalances ? 'animate-spin' : ''}`} />
+                Refresh
+              </GhostBtn>
+            )}
+          </div>
+          {showProviderBalances && (
+            <div className="space-y-3">
+              <p className="text-[11px] text-gray-500 -mt-2 flex items-start gap-2">
+                <Wallet className="w-3.5 h-3.5 text-gray-600 shrink-0 mt-0.5" />
+                <span>
+                  Live balances from KIE, OpenRouter, fal.ai, WaveSpeed, Apify, and ElevenLabs (server env keys only — never exposed here).
+                  OpenRouter needs a <strong className="text-gray-400">management</strong> key for the credits endpoint.
+                </span>
+              </p>
+              {providerBalances?.checkedAt && (
+                <p className="text-[10px] text-gray-600">
+                  Checked {new Date(providerBalances.checkedAt).toLocaleString()}
+                </p>
+              )}
+              {loadingProviderBalances && !providerBalances?.providers?.length ? (
+                <div className="flex items-center gap-2 text-xs text-gray-500 py-6">
+                  <Loader2 className="w-4 h-4 animate-spin" /> Loading provider data…
+                </div>
+              ) : providerBalances?.providers?.length ? (
+                <div className="overflow-x-auto rounded-xl border border-white/[0.07]">
+                  <table className="w-full text-xs">
+                    <THead cols={[
+                      { label: 'Provider' },
+                      { label: 'Env key' },
+                      { label: 'Status' },
+                      { label: 'Summary' },
+                      { label: 'Detail / error' },
+                    ]} />
+                    <tbody>
+                      {providerBalances.providers.map((p) => (
+                        <tr key={p.id} className="border-b border-white/[0.04]">
+                          <td className="py-2.5 px-3 text-gray-300 font-medium whitespace-nowrap">{p.name}</td>
+                          <td className="py-2.5 px-3">
+                            <Badge variant={p.configured ? 'green' : 'default'}>
+                              {p.configured ? 'Configured' : 'Missing'}
+                            </Badge>
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <Badge variant={p.status === 'ok' ? 'green' : p.status === 'not_configured' ? 'default' : 'red'}>
+                              {p.status === 'ok' ? 'OK' : p.status === 'not_configured' ? '—' : 'Error'}
+                            </Badge>
+                          </td>
+                          <td className="py-2.5 px-3 text-gray-200 font-medium whitespace-nowrap">{p.headline}</td>
+                          <td className="py-2.5 px-3 text-gray-500 max-w-[min(360px,85vw)]">
+                            {p.error ? (
+                              <span className="text-red-400/90 break-words">{p.error}</span>
+                            ) : (
+                              <span className="break-words">
+                                {p.lines?.length ? p.lines.map((l) => `${l.label}: ${l.value}`).join(' · ') : '—'}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <GhostBtn onClick={loadProviderBalances}>Load balances</GhostBtn>
+              )}
+            </div>
+          )}
+        </Section>
+
         {/* ── Reel Finder ───────────────────────────────────────────────────── */}
         <Section>
           <SectionHeader
@@ -2285,6 +2584,28 @@ export default function AdminPage() {
                   className="col-span-2 px-3 py-2 rounded-lg border border-white/[0.07] bg-white/[0.04] text-gray-300 hover:bg-white/[0.08] text-xs font-medium transition">
                   Assign Scrape Groups
                 </button>
+              </div>
+              <div className="mt-3 pt-3 border-t border-white/[0.06] space-y-2">
+                <label className="flex items-center gap-2 text-[11px] text-gray-400 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={clearReelsRescrape}
+                    onChange={(e) => setClearReelsRescrape(e.target.checked)}
+                    className="rounded border-white/20 bg-white/5"
+                  />
+                  After clear, start full rescrape (if Apify is configured)
+                </label>
+                <DangerBtn
+                  onClick={() => setConfirmClearReels(true)}
+                  disabled={clearReelsLoading}
+                  className="w-full justify-center"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  {clearReelsLoading ? 'Working…' : 'Clear all cached reels'}
+                </DangerBtn>
+                <p className="text-[10px] text-gray-600 leading-relaxed">
+                  Removes every reel row from the database (thumbnails, scores, video URLs). Tracked profiles are kept. Use when URLs are stale or you need a clean rescrape.
+                </p>
               </div>
               <div className="mt-3 p-3 rounded-lg border border-white/[0.05] bg-white/[0.01]">
                 <p className="text-[11px] text-gray-400 font-medium mb-1">Rolling Schedule (Groups 0–5)</p>
@@ -2860,6 +3181,24 @@ ${emailBuilder.ctaText && emailBuilder.ctaUrl ? `<div class="cta-wrap"><a class=
         message={`Mark payout as paid for ${confirmReferralPayout?.email}? This records a paid amount in the referral ledger and reduces their eligible balance by the paid amount.`}
         onConfirm={() => handleMarkReferrerPaid(confirmReferralPayout?.userId)}
         onCancel={() => setConfirmReferralPayout(null)}
+      />
+
+      <ConfirmModal
+        open={confirmClearReels}
+        title="Clear all cached reels?"
+        message={`This deletes every Reel Finder reel row (${reelProfiles.reduce((s, p) => s + (p._count?.reels || 0), 0)} total). Instagram profiles you track stay in the list.${clearReelsRescrape ? ' A full scrape will be started afterward when possible (Apify token set and no job already running).' : ' No automatic rescrape — use Force Scrape when ready.'}`}
+        danger
+        onConfirm={handleClearReelsConfirm}
+        onCancel={() => setConfirmClearReels(false)}
+      />
+
+      <ConfirmModal
+        open={confirmResetGenPricing}
+        title="Reset generation pricing?"
+        message="All credit costs will revert to the built-in defaults from the server. This affects new charges immediately after save."
+        danger
+        onConfirm={resetGenerationPricingAdmin}
+        onCancel={() => setConfirmResetGenPricing(false)}
       />
 
       <AddCreditsAdminModal

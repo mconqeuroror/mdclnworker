@@ -380,6 +380,48 @@ router.post("/admin/profiles/:id/scrape", authMiddleware, adminMiddleware, async
   }
 });
 
+/** Delete all scraped Reel rows (DB cache). Optionally start full rescrape. Profiles are kept. */
+router.post("/admin/clear-reels", authMiddleware, adminMiddleware, async (req, res) => {
+  const rescrape = req.body?.rescrape !== false;
+  try {
+    const del = await prisma.reel.deleteMany({});
+    if (!rescrape) {
+      return res.json({
+        success: true,
+        deletedCount: del.count,
+        rescrapeStarted: false,
+        message: `Deleted ${del.count} cached reel(s). Rescrape skipped.`,
+      });
+    }
+    if (!process.env.APIFY_API_TOKEN) {
+      return res.json({
+        success: true,
+        deletedCount: del.count,
+        rescrapeStarted: false,
+        message: `Deleted ${del.count} cached reel(s). APIFY_API_TOKEN not set — rescrape skipped.`,
+      });
+    }
+    if (isScraperPipelineRunning()) {
+      return res.json({
+        success: true,
+        deletedCount: del.count,
+        rescrapeStarted: false,
+        message: `Deleted ${del.count} cached reel(s). Scrape pipeline already running — start rescrape manually if needed.`,
+      });
+    }
+    res.json({
+      success: true,
+      deletedCount: del.count,
+      rescrapeStarted: true,
+      message: `Deleted ${del.count} cached reel(s). Full scrape started.`,
+    });
+    runScraperPipeline().catch((e) => console.error("[ReelFinder] pipeline:", e?.message));
+  } catch (err) {
+    console.error("[ReelFinder] clear-reels:", err?.message);
+    return res.status(500).json({ success: false, error: err?.message || "Failed to clear reels" });
+  }
+});
+
 router.post("/admin/trigger-scrape", authMiddleware, adminMiddleware, (req, res) => {
   if (!process.env.APIFY_API_TOKEN) return res.status(500).json({ success: false, error: "APIFY_API_TOKEN not set" });
   if (isScraperPipelineRunning()) return res.json({ started: false, message: "Already running" });

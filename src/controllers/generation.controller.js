@@ -1336,22 +1336,40 @@ export async function getMonthlyStats(req, res) {
 }
 
 /**
- * Auto-cleanup: Keep max 200 completed generations per model per user
- * Deletes oldest completed generations when the limit is exceeded
+ * Auto-cleanup: cap completed generations per model per user (storage control).
+ * Oldest completed rows are deleted when over the cap. Runs after each successful completion
+ * (KIE callback, WaveSpeed callback, generation poller).
+ *
+ * Env: MAX_COMPLETED_GENERATIONS_PER_MODEL
+ *   - unset → 200 (legacy default)
+ *   - 0 or negative → disabled (no automatic deletion)
+ *   - positive integer → max completed rows kept per (userId, modelId)
  */
-const MAX_GENERATIONS_PER_MODEL = 200;
+const MAX_GENERATIONS_PER_MODEL_CAP = 500_000;
+
+export function getMaxCompletedGenerationsPerModel() {
+  const raw = process.env.MAX_COMPLETED_GENERATIONS_PER_MODEL;
+  if (raw === undefined || String(raw).trim() === "") return 200;
+  const n = parseInt(String(raw).trim(), 10);
+  if (!Number.isFinite(n)) return 200;
+  if (n <= 0) return null; // unlimited — skip auto-delete
+  return Math.min(Math.max(n, 1), MAX_GENERATIONS_PER_MODEL_CAP);
+}
 
 export async function cleanupOldGenerations(userId, modelId) {
   try {
     if (!userId || !modelId) return;
 
+    const maxKeep = getMaxCompletedGenerationsPerModel();
+    if (maxKeep == null) return;
+
     const completedCount = await prisma.generation.count({
       where: { userId, modelId, status: "completed" },
     });
 
-    if (completedCount <= MAX_GENERATIONS_PER_MODEL) return;
+    if (completedCount <= maxKeep) return;
 
-    const toDelete = completedCount - MAX_GENERATIONS_PER_MODEL;
+    const toDelete = completedCount - maxKeep;
 
     const oldestGenerations = await prisma.generation.findMany({
       where: { userId, modelId, status: "completed" },
@@ -1373,7 +1391,7 @@ export async function cleanupOldGenerations(userId, modelId) {
       await prisma.generation.deleteMany({
         where: { id: { in: ids } },
       });
-      console.log(`🧹 Auto-cleanup: Deleted ${ids.length} old generations for model ${modelId} (kept ${MAX_GENERATIONS_PER_MODEL})`);
+      console.log(`🧹 Auto-cleanup: Deleted ${ids.length} old generations for model ${modelId} (kept ${maxKeep})`);
     }
   } catch (error) {
     console.error("🧹 Auto-cleanup error:", error.message);

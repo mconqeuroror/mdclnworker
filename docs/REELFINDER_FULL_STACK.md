@@ -37,6 +37,7 @@ app.use('/api/viral-reels', viralReelsRoutes);
 | PATCH | `/admin/profiles/:id` | auth + admin | Update `isActive` or `scrapeGroup`. |
 | DELETE | `/admin/profiles/:id` | auth + admin | Delete profile. |
 | POST | `/admin/profiles/:id/scrape` | auth + admin | Scrape one profile (Apify). |
+| POST | `/admin/clear-reels` | auth + admin | `deleteMany` on all `Reel` rows; body `{ rescrape?: boolean }` (default `true`) starts full pipeline when Apify is set. |
 | POST | `/admin/trigger-scrape` | auth + admin | Start full scrape pipeline (background). |
 | POST | `/admin/trigger-hot` | auth + admin | Re-scrape tier-1 hot reels. |
 | POST | `/admin/trigger-warm` | auth + admin | Re-scrape tier-2 warm reels. |
@@ -153,6 +154,7 @@ app.use('/api/viral-reels', viralReelsRoutes);
 | `PATCH /api/viral-reels/admin/profiles/:id` | AdminPage (isActive, scrapeGroup). |
 | `DELETE /api/viral-reels/admin/profiles/:id` | AdminPage. |
 | `POST /api/viral-reels/admin/profiles/:id/scrape` | AdminPage. |
+| `POST /api/viral-reels/admin/clear-reels` | AdminPage (clear DB reels + optional rescrape). |
 | `POST /api/viral-reels/admin/trigger-scrape` | AdminPage. |
 | `POST /api/viral-reels/admin/trigger-hot` | AdminPage. |
 | `POST /api/viral-reels/admin/trigger-warm` | AdminPage. |

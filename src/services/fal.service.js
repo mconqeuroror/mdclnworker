@@ -13,6 +13,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { isR2Configured, uploadBufferToR2, uploadToR2 } from "../utils/r2.js";
+import { sanitizeLoraDownloadUrl } from "../utils/loraUrl.js";
 // dynamicPoll removed — inline polling used directly
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -659,11 +660,12 @@ const RUNNING_MAKEUP_KEYWORDS = ["running makeup", "smeared makeup", "mascara ru
 
 /** Pose slot index in LoadLoraFromUrlOrPath (250): lora_1 = girl, lora_2 = 290 doggy, lora_3 = 291 missionary, lora_4 = 292 cowgirl, lora_5 = 293 anal, lora_6 = 294 handjob, lora_7 = 295 missionary_anal, lora_8 = 296 running makeup */
 const POSE_NODE_TO_SLOT = { "290": 2, "291": 3, "292": 4, "293": 5, "294": 6, "295": 7 };
+/** Literal spaces in path — avoid %20 here or encodeURI turns % into %25 → broken %2520 */
 const POSE_SLOT_URLS = {
-  "290": "https://huggingface.co/bigckck/ndmstr/resolve/main/Nsfw%20Doggystyle%20facing%20the%20camera.safetensors",
-  "291": "https://huggingface.co/bigckck/ndmstr/resolve/main/Nsfw%20Missionnary.safetensors",
-  "292": "https://huggingface.co/bigckck/ndmstr/resolve/main/Nsfw%20Cowgirl.safetensors",
-  "293": "https://huggingface.co/bigckck/ndmstr/resolve/main/Nsfw%20Anal%20Doggystyle.safetensors",
+  "290": "https://huggingface.co/bigckck/ndmstr/resolve/main/Nsfw Doggystyle facing the camera.safetensors",
+  "291": "https://huggingface.co/bigckck/ndmstr/resolve/main/Missionnary.safetensors",
+  "292": "https://huggingface.co/bigckck/ndmstr/resolve/main/Nsfw Cowgirl.safetensors",
+  "293": "https://huggingface.co/bigckck/ndmstr/resolve/main/Nsfw Anal Doggystyle.safetensors",
   "294": "https://huggingface.co/bigckck/ndmstr/resolve/main/Nsfw_Handjob.safetensors",
   "295": "https://huggingface.co/bigckck/ndmstr/resolve/main/Nsfw_POV_Missionary_Anal.safetensors",
 };
@@ -741,10 +743,11 @@ const UNSUPPORTED_NODE_IDS = [
  * inject their values directly into any node that referenced them.
  */
 function stripUnsupportedNodesAndInjectValues(workflow, { prompt, negativePrompt, loraUrl }) {
+  const safeLora = sanitizeLoraDownloadUrl(loraUrl);
   const replacements = {
     "41": negativePrompt,
     "56": prompt,
-    "257": loraUrl,
+    "257": safeLora,
   };
   for (const nodeId of UNSUPPORTED_NODE_IDS) {
     delete workflow[nodeId];
@@ -1043,7 +1046,7 @@ function buildComfyWorkflow(params) {
 
     const node250 = workflow["250"];
     if (node250?.inputs) {
-      node250.inputs.lora_1_url = loraUrl;
+      node250.inputs.lora_1_url = sanitizeLoraDownloadUrl(loraUrl);
       const girlStr = Math.min(1, Math.max(0, Number(girlLoraStrength) || 0.6));
       node250.inputs.lora_1_strength = girlStr;
       node250.inputs.lora_1_model_strength = girlStr;
@@ -1053,7 +1056,7 @@ function buildComfyWorkflow(params) {
       for (const [nodeId, slot] of Object.entries(POSE_NODE_TO_SLOT)) {
         const str = poseStrengths[nodeId] || 0;
         const s = Math.min(MAX_ADDITIVE_LORA_STRENGTH, Math.max(0, Number(str)));
-        const url = s > 0 ? (POSE_SLOT_URLS[nodeId] || "") : "";
+        const url = s > 0 ? sanitizeLoraDownloadUrl(POSE_SLOT_URLS[nodeId] || "") : "";
         node250.inputs[`lora_${slot}_url`] = url;
         node250.inputs[`lora_${slot}_strength`] = s;
         node250.inputs[`lora_${slot}_model_strength`] = s;
@@ -1061,7 +1064,7 @@ function buildComfyWorkflow(params) {
       }
 
       const makeupStr = Math.min(MAX_ADDITIVE_LORA_STRENGTH, Math.max(0, Number(makeupStrength) || 0));
-      node250.inputs.lora_8_url = makeupStr > 0 ? LORA_8_RUNNING_MAKEUP_URL : "";
+      node250.inputs.lora_8_url = makeupStr > 0 ? sanitizeLoraDownloadUrl(LORA_8_RUNNING_MAKEUP_URL) : "";
       node250.inputs.lora_8_strength = makeupStr;
       node250.inputs.lora_8_model_strength = makeupStr;
       node250.inputs.lora_8_clip_strength = makeupStr;
@@ -1112,7 +1115,7 @@ function buildComfyWorkflow(params) {
       workflow["284"].inputs.intensity = Math.max(0.01, intensity);
     }
 
-    stripUnsupportedNodesAndInjectValues(workflow, { prompt, negativePrompt, loraUrl });
+    stripUnsupportedNodesAndInjectValues(workflow, { prompt, negativePrompt, loraUrl: sanitizeLoraDownloadUrl(loraUrl) });
     return workflow;
   }
 
@@ -1123,21 +1126,21 @@ function buildComfyWorkflowLegacy(params) {
   const { prompt, loraUrl, girlLoraStrength, poseStrengths, makeupStrength, postProcessing = {}, seed } = params;
   const negativePrompt = "blurry, low resolution, deformed, bad anatomy, extra limbs, mutated hands, poorly drawn face, bad proportions, watermark, text, signature, cartoon, anime, overexposed, underexposed, plastic skin, doll-like";
   const poseLoraMap = {
-    "290": { url: "https://huggingface.co/bigckck/ndmstr/resolve/main/Nsfw%20Doggystyle%20facing%20the%20camera.safetensors", name: "Doggystyle" },
-    "291": { url: "https://huggingface.co/bigckck/ndmstr/resolve/main/Nsfw%20Missionnary.safetensors", name: "Missionary" },
-    "292": { url: "https://huggingface.co/bigckck/ndmstr/resolve/main/Nsfw%20Cowgirl.safetensors", name: "Cowgirl" },
-    "293": { url: "https://huggingface.co/bigckck/ndmstr/resolve/main/Nsfw%20Anal%20Doggystyle.safetensors", name: "Anal Doggy" },
+    "290": { url: "https://huggingface.co/bigckck/ndmstr/resolve/main/Nsfw Doggystyle facing the camera.safetensors", name: "Doggystyle" },
+    "291": { url: "https://huggingface.co/bigckck/ndmstr/resolve/main/Missionnary.safetensors", name: "Missionary" },
+    "292": { url: "https://huggingface.co/bigckck/ndmstr/resolve/main/Nsfw Cowgirl.safetensors", name: "Cowgirl" },
+    "293": { url: "https://huggingface.co/bigckck/ndmstr/resolve/main/Nsfw Anal Doggystyle.safetensors", name: "Anal Doggy" },
     "294": { url: "https://huggingface.co/bigckck/ndmstr/resolve/main/Nsfw_Handjob.safetensors", name: "Handjob" },
     "295": { url: "https://huggingface.co/bigckck/ndmstr/resolve/main/Nsfw_POV_Missionary_Anal.safetensors", name: "POV Missionary Anal" },
   };
-  const loraEntries = [{ url: loraUrl, strength: girlLoraStrength, name: "Girl LoRA" }];
+  const loraEntries = [{ url: sanitizeLoraDownloadUrl(loraUrl), strength: girlLoraStrength, name: "Girl LoRA" }];
   for (const [nodeId, info] of Object.entries(poseLoraMap)) {
     const strength = Math.min(MAX_ADDITIVE_LORA_STRENGTH, Math.max(0, Number(poseStrengths?.[nodeId] || 0)));
-    if (strength > 0) loraEntries.push({ url: info.url, strength, name: info.name });
+    if (strength > 0) loraEntries.push({ url: sanitizeLoraDownloadUrl(info.url), strength, name: info.name });
   }
   const safeMakeupStrength = Math.min(MAX_ADDITIVE_LORA_STRENGTH, Math.max(0, Number(makeupStrength) || 0));
   if (safeMakeupStrength > 0) {
-    loraEntries.push({ url: LORA_8_RUNNING_MAKEUP_URL, strength: safeMakeupStrength, name: "Running Makeup" });
+    loraEntries.push({ url: sanitizeLoraDownloadUrl(LORA_8_RUNNING_MAKEUP_URL), strength: safeMakeupStrength, name: "Running Makeup" });
   }
   let loraNodeId = 250;
   const loraNodes = {};
@@ -1410,7 +1413,7 @@ export async function submitFaceReferenceGeneration(loraUrl, triggerWord) {
 
   const requestBody = {
     prompt: faceRefPrompt,
-    loraurl: loraUrl,
+    loraurl: sanitizeLoraDownloadUrl(loraUrl),
     lorastrenght: 0.8,
     steps: 30,
     anal_doggy_scale: 0.1,

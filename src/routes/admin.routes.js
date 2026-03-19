@@ -19,6 +19,7 @@ import {
   updateGenerationPricing,
   resetGenerationPricing,
 } from "../services/generation-pricing.service.js";
+import { fetchAllProviderBalances } from "../services/provider-balances.service.js";
 
 const router = express.Router();
 const KIE_API_KEY = process.env.KIE_API_KEY;
@@ -93,6 +94,21 @@ router.post("/pricing/generation/reset", async (_req, res) => {
   } catch (error) {
     console.error("Error resetting generation pricing:", error);
     res.status(500).json({ success: false, error: "Failed to reset generation pricing" });
+  }
+});
+
+/**
+ * GET /api/admin/provider-balances
+ * Live balances / account probes (KIE, OpenRouter, fal, WaveSpeed, Apify, ElevenLabs).
+ * API keys stay server-side.
+ */
+router.get("/provider-balances", async (_req, res) => {
+  try {
+    const data = await fetchAllProviderBalances();
+    res.json(data);
+  } catch (error) {
+    console.error("Error fetching provider balances:", error);
+    res.status(500).json({ success: false, error: error?.message || "Failed to fetch provider balances" });
   }
 });
 
