@@ -55,6 +55,7 @@ const ENDPOINT_HEALTH_CATALOG = [
   { method: "GET",    path: "/api/voices" },
   // NSFW generation
   { method: "POST",   path: "/api/nsfw/generate" },
+  { method: "POST",   path: "/api/nsfw/nudes-pack" },
   { method: "POST",   path: "/api/nsfw/generate-video" },
   { method: "POST",   path: "/api/nsfw/extend-video" },
   { method: "POST",   path: "/api/nsfw/generate-advanced" },

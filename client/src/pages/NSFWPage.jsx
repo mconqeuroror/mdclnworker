@@ -73,6 +73,7 @@ import { useNsfwGallery } from "../hooks/useNsfwGallery";
 import AppSidebar from "../components/AppSidebar";
 import LazyVideo from "../components/LazyVideo";
 import CourseTipBanner from "../components/CourseTipBanner";
+import NudesPackModal from "../components/NudesPackModal";
 import { selectorCategories, buildSelectionsString, buildSelectionsSummary, applyChipConstraints, getBlockedChips, SCENE_PRESETS } from "../data/nsfwSelectors";
 import { NSFW_RESOLUTION_OPTIONS } from "../constants/nsfwResolutions";
 
@@ -3250,6 +3251,8 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
   const [sceneDescription, setSceneDescription] = useState("");
   const [generatedPrompt, setGeneratedPrompt] = useState("");
   const [isGeneratingNsfw, setIsGeneratingNsfw] = useState(false);
+  const [nudesPackModalOpen, setNudesPackModalOpen] = useState(false);
+  const [isSubmittingNudesPack, setIsSubmittingNudesPack] = useState(false);
   const [generatedNsfwImages, setGeneratedNsfwImages] = useState([]);
   const [selectedPreset, setSelectedPreset] = useState(null);
   const [imageQuantity, setImageQuantity] = useState(1);
@@ -4122,6 +4125,78 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
     }
   };
 
+  const handleNudesPackApprove = async (poseIds) => {
+    if (!selectedModel || !poseIds?.length) {
+      toast.error("Select a model and at least one pose");
+      return;
+    }
+    if (!isLoraReady) {
+      toast.error("Please complete LoRA training first");
+      setActivePhase("training");
+      return;
+    }
+
+    setIsSubmittingNudesPack(true);
+    try {
+      const attributesString = buildSelectionsString(chipSelections);
+      const response = await api.post("/nsfw/nudes-pack", {
+        modelId: selectedModel,
+        poseIds,
+        attributes: attributesString,
+        attributesDetail: chipSelections,
+        skipFaceSwap,
+        faceSwapImageUrl: faceSwapImage?.url || null,
+        resolution: nsfwGenerateMode === "simple" ? "1024x1024" : selectedAspectRatio,
+        options: {
+          quickFlow: nsfwGenerateMode === "simple",
+          loraStrength: genConfig.loraStrength || null,
+          postProcessing: {
+            blur: {
+              enabled: genConfig.blurEnabled !== false,
+              strength: Number(genConfig.blurStrength ?? 0.3),
+            },
+            grain: {
+              enabled: genConfig.grainEnabled !== false,
+              strength: Number(genConfig.grainStrength ?? 0.06),
+            },
+          },
+          ...(user?.role === "admin" && adminSamplerTest.enabled
+            ? {
+                adminNsfwOverrides: {
+                  steps: Math.min(150, Math.max(1, Math.round(Number(adminSamplerTest.steps)) || 50)),
+                  cfg: Math.min(8, Math.max(1, Number(adminSamplerTest.cfg) || 3)),
+                },
+              }
+            : {}),
+        },
+      });
+
+      if (response.data?.success) {
+        toast.success(response.data.message || "Nudes pack queued");
+        refreshUserCredits();
+        setNudesPackModalOpen(false);
+        const gens = response.data.generations || [];
+        gens.forEach((g) => {
+          if (g?.id) pollNsfwGeneration(g.id).catch(() => {});
+        });
+        if (response.data.failures?.length) {
+          toast.error(`${response.data.failures.length} pose(s) could not be queued — credits refunded for those.`);
+        }
+      } else {
+        toast.error(response.data?.message || "Failed to start nudes pack");
+      }
+    } catch (error) {
+      console.error("Nudes pack error:", error);
+      const errData = error.response?.data;
+      const msg = errData?.errors?.length
+        ? errData.errors.map((e) => (e.field ? `${e.field}: ${e.message}` : e.message)).join("; ")
+        : errData?.message || "Failed to start nudes pack";
+      toast.error(msg);
+    } finally {
+      setIsSubmittingNudesPack(false);
+    }
+  };
+
   // Poll for NSFW generation completion
   const pollNsfwGeneration = async (generationId) => {
     const maxAttempts = 60; // 5 minutes max (5 sec intervals)
@@ -4224,6 +4299,14 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
         <NsfwUnlockModal 
           isOpen={showUnlockModal} 
           onClose={() => setShowUnlockModal(false)}
+          sidebarCollapsed={sidebarCollapsed}
+        />
+
+        <NudesPackModal
+          isOpen={nudesPackModalOpen}
+          onClose={() => !isSubmittingNudesPack && setNudesPackModalOpen(false)}
+          onApprove={handleNudesPackApprove}
+          submitting={isSubmittingNudesPack}
           sidebarCollapsed={sidebarCollapsed}
         />
 
@@ -4645,6 +4728,30 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
                     ? "Describe or pick a preset, then confirm — AI picks detail chips and writes the prompt. You only choose resolution and hit generate."
                     : "Full control: auto-select chips, edit selectors, write or regenerate the prompt yourself, then generate."}
                 </p>
+
+                <div className="mb-4 p-3 sm:p-4 rounded-xl border border-rose-500/25 bg-rose-500/[0.06] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-rose-100">Nudes pack</p>
+                    <p className="text-[11px] text-slate-500 mt-0.5 max-w-xl">
+                      30 curated poses (amateur-style nudes + explicit couple shots). Open the list, toggle poses off if you
+                      want, then approve — each image gets a unique prompt with your LoRA trigger and current looks.{" "}
+                      <span className="text-slate-400">15 credits per image · 450 for full pack.</span>
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setNudesPackModalOpen(true)}
+                    disabled={!isLoraReady}
+                    className="shrink-0 px-4 py-2.5 rounded-xl text-sm font-semibold bg-white text-black hover:bg-white/90 disabled:opacity-40 inline-flex items-center justify-center gap-2"
+                    data-testid="button-nudes-pack-open"
+                  >
+                    <Grid3X3 className="w-4 h-4" />
+                    Plan &amp; approve
+                    <span className="inline-flex items-center gap-0.5 text-amber-800 font-bold">
+                      450 <Coins className="w-3.5 h-3.5 text-amber-600" />
+                    </span>
+                  </button>
+                </div>
 
                 {nsfwGenerateMode === "simple" && !simplePlanReady && (
                   <>

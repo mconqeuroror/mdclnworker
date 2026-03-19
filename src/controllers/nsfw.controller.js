@@ -67,6 +67,11 @@ async function ensureKieUrl(url) {
 }
 import { validateImageUrl, validateImageUrls } from "../utils/fileValidation.js";
 import { getSafeErrorMessage } from "../utils/safe-error.js";
+import {
+  NUDES_PACK_CREDITS_PER_IMAGE,
+  validateNudesPackPoseIds,
+  getNudesPackPoseById,
+} from "../../shared/nudesPackPoses.js";
 
 async function cleanupTrainingDataset(loraId, modelId) {
   try {
@@ -2698,6 +2703,292 @@ export async function generateNsfwImage(req, res) {
 }
 
 // ============================================
+// POST /api/nsfw/nudes-pack — batch 15 cr/image (looks + trigger injected server-side)
+// Body: { modelId, poseIds: string[], attributes?, attributesDetail?, sceneDescription?, skipFaceSwap?, faceSwapImageUrl?, options?, resolution? }
+// ============================================
+export async function generateNudesPack(req, res) {
+  let creditsDeducted = 0;
+  const userId = req.user?.userId;
+  const generationIds = [];
+  const queuedGenerationIds = [];
+  const failures = [];
+
+  try {
+    const {
+      modelId,
+      poseIds,
+      skipFaceSwap = false,
+      faceSwapImageUrl = null,
+      sceneDescription: packSceneNote = "",
+      options = {},
+    } = req.body;
+
+    const attributesDetail = req.body.attributesDetail || {};
+    const attributes = req.body.attributes || "";
+    const detailAttributes = buildAttributeList(attributesDetail).join(", ");
+    let attributesString = attributes || "";
+    if (!attributesString && detailAttributes) {
+      attributesString = detailAttributes;
+    }
+
+    const v = validateNudesPackPoseIds(poseIds);
+    if (!v.ok) {
+      return res.status(400).json({ success: false, message: v.error });
+    }
+
+    if (!modelId) {
+      return res.status(400).json({ success: false, message: "Model ID is required" });
+    }
+
+    const model = await prisma.savedModel.findUnique({ where: { id: modelId } });
+    if (!model) {
+      return res.status(404).json({ success: false, message: "Model not found" });
+    }
+    if (model.userId !== userId) {
+      return res.status(403).json({ success: false, message: "Not authorized" });
+    }
+    if (!model.isAIGenerated && !model.nsfwOverride) {
+      return res.status(403).json({
+        success: false,
+        message: "NSFW generation is only available for AI-generated models.",
+      });
+    }
+    if (isMinorModel(model)) {
+      return res.status(403).json({
+        success: false,
+        message: "Models under 18 cannot use NSFW features.",
+      });
+    }
+    if (!model.nsfwUnlocked) {
+      return res.status(403).json({
+        success: false,
+        message: "Please train a LoRA first to unlock NSFW generation.",
+      });
+    }
+
+    let loraUrl = model.loraUrl;
+    let loraTriggerWord = model.loraTriggerWord;
+    let activeFaceReferenceUrl = model.faceReferenceUrl;
+    let activeLoraName = model.name;
+
+    if (model.activeLoraId) {
+      const activeLora = await prisma.trainedLora.findUnique({
+        where: { id: model.activeLoraId },
+      });
+      if (activeLora && activeLora.status === "ready") {
+        loraUrl = activeLora.loraUrl;
+        loraTriggerWord = activeLora.triggerWord;
+        activeFaceReferenceUrl = activeLora.faceReferenceUrl || activeFaceReferenceUrl;
+        activeLoraName = activeLora.name || model.name;
+      }
+    }
+
+    if (!loraUrl || !loraTriggerWord) {
+      return res.status(400).json({
+        success: false,
+        message: "LoRA not properly configured for this model.",
+      });
+    }
+
+    let faceReferenceUrl = null;
+    if (!skipFaceSwap) {
+      if (faceSwapImageUrl) {
+        const validGalleryImage = await prisma.generation.findFirst({
+          where: {
+            userId,
+            modelId,
+            outputUrl: faceSwapImageUrl,
+            status: "completed",
+            type: { in: ["prompt-image", "image", "face-swap-image", "nsfw"] },
+          },
+        });
+        if (!validGalleryImage) {
+          return res.status(403).json({
+            success: false,
+            message: "Face swap image must be from your gallery (generated for this model)",
+          });
+        }
+        faceReferenceUrl = faceSwapImageUrl;
+      } else {
+        faceReferenceUrl = activeFaceReferenceUrl || null;
+      }
+    }
+
+    const creditsNeeded = poseIds.length * NUDES_PACK_CREDITS_PER_IMAGE;
+    const user = await checkAndExpireCredits(userId);
+    const totalCredits = getTotalCredits(user);
+    if (totalCredits < creditsNeeded) {
+      return res.status(403).json({
+        success: false,
+        message: `Need ${creditsNeeded} credits for this nudes pack (${poseIds.length} × ${NUDES_PACK_CREDITS_PER_IMAGE}). You have ${totalCredits} credits.`,
+      });
+    }
+
+    await deductCredits(userId, creditsNeeded);
+    creditsDeducted = creditsNeeded;
+
+    const userOverrideStrength = options.loraStrength || null;
+    const adminSamplerOpts = getAdminNsfwSamplerOptions(req, options);
+    const resolutionPreset =
+      options?.resolution ||
+      req.body.resolution ||
+      (req.body.width && req.body.height ? `${req.body.width}x${req.body.height}` : undefined);
+    const resSpec = resolveNsfwResolution(resolutionPreset);
+    const postProcessing = {
+      blur: {
+        enabled: options?.postProcessing?.blur?.enabled !== false,
+        strength: Number(options?.postProcessing?.blur?.strength ?? 0.3),
+      },
+      grain: {
+        enabled: options?.postProcessing?.grain?.enabled !== false,
+        strength: Number(options?.postProcessing?.grain?.strength ?? 0.06),
+      },
+    };
+
+    let queuedCount = 0;
+
+    for (let idx = 0; idx < poseIds.length; idx++) {
+      const poseId = poseIds[idx];
+      const pose = getNudesPackPoseById(poseId);
+      if (!pose) {
+        failures.push({ poseId, error: "Unknown pose" });
+        await refundCredits(userId, NUDES_PACK_CREDITS_PER_IMAGE);
+        continue;
+      }
+
+      const looksTail = attributesString ? `, ${attributesString}` : "";
+      const userPrompt = `${pose.promptFragment}${looksTail}`.trim();
+      const sceneLine = [packSceneNote.trim(), `Nudes pack ${idx + 1}/${poseIds.length}: ${pose.title}`]
+        .filter(Boolean)
+        .join(" · ");
+
+      const generation = await prisma.generation.create({
+        data: {
+          userId,
+          modelId,
+          type: "nsfw",
+          prompt: `[${pose.id}] ${userPrompt}`,
+          status: "processing",
+          creditsCost: NUDES_PACK_CREDITS_PER_IMAGE,
+          replicateModel: "comfyui-nsfw",
+          isNsfw: true,
+        },
+      });
+      generationIds.push(generation.id);
+
+      const submission = await submitNsfwGeneration({
+        loraUrl,
+        triggerWord: loraTriggerWord,
+        userPrompt,
+        attributes: attributesString,
+        sceneDescription: sceneLine || userPrompt,
+        chipSelections: attributesDetail,
+        options: {
+          quickFlow: options.quickFlow === true,
+          loraStrength: userOverrideStrength,
+          postProcessing,
+          resolution: resSpec.presetId,
+          ...adminSamplerOpts,
+        },
+      });
+
+      if (!submission.success) {
+        await refundGeneration(generation.id);
+        await prisma.generation.update({
+          where: { id: generation.id },
+          data: { status: "failed", errorMessage: getErrorMessageForDb(submission.error) },
+        });
+        failures.push({ poseId, error: submission.error || "Submit failed" });
+        continue;
+      }
+
+      const rp = submission.resolvedParams || {};
+      await prisma.generation.update({
+        where: { id: generation.id },
+        data: {
+          inputImageUrl: JSON.stringify({
+            comfyuiPromptId: submission.requestId,
+            loraUrl,
+            triggerWord: loraTriggerWord,
+            loraName: activeLoraName || "Unknown",
+            faceReferenceUrl: faceReferenceUrl || null,
+            nudesPackPoseId: pose.id,
+            girlLoraStrength: rp.girlLoraStrength ?? 0.70,
+            activePose: rp.activePose || null,
+            activePoseStrength: rp.activePoseStrength ?? 0,
+            runningMakeup: rp.runningMakeup ?? false,
+            runningMakeupStrength: rp.runningMakeupStrength ?? 0,
+            cumEffect: rp.cumEffect ?? false,
+            cumStrength: rp.cumStrength ?? 0,
+            seed: rp.seed ?? null,
+            steps: rp.steps ?? 50,
+            cfg: rp.cfg ?? 3,
+            width: rp.width ?? resSpec.width,
+            height: rp.height ?? resSpec.height,
+            resolutionPreset: rp.resolutionPreset ?? resSpec.presetId,
+            sampler: rp.sampler ?? "dpmpp_2m",
+            scheduler: rp.scheduler ?? "beta",
+            builtPrompt: rp.prompt || null,
+            blurEnabled: rp?.postProcessing?.blur?.enabled ?? true,
+            blurStrength: rp?.postProcessing?.blur?.strength ?? 0.3,
+            grainEnabled: rp?.postProcessing?.grain?.enabled ?? true,
+            grainStrength: rp?.postProcessing?.grain?.strength ?? 0.06,
+          }),
+        },
+      });
+
+      processNsfwGenerationInBackground(
+        generation.id,
+        submission.requestId,
+        userId,
+        NUDES_PACK_CREDITS_PER_IMAGE,
+        faceReferenceUrl,
+      ).catch((error) => {
+        console.error("❌ Nudes pack background error:", error);
+      });
+      queuedCount += 1;
+      queuedGenerationIds.push(generation.id);
+    }
+
+    const updatedUser = await prisma.user.findUnique({ where: { id: userId } });
+
+    return res.json({
+      success: true,
+      message:
+        failures.length === 0
+          ? `Nudes pack started: ${poseIds.length} image(s) queued.`
+          : `Nudes pack partially queued: ${queuedCount} ok, ${failures.length} failed (credits refunded for failures).`,
+      generations: queuedGenerationIds.map((id) => ({ id, status: "processing" })),
+      failures,
+      creditsUsed: queuedCount * NUDES_PACK_CREDITS_PER_IMAGE,
+      creditsRemaining: getTotalCredits(updatedUser),
+      poseCount: poseIds.length,
+    });
+  } catch (error) {
+    console.error("❌ Nudes pack error:", error);
+    if (creditsDeducted > 0 && userId) {
+      for (const gId of generationIds) {
+        try {
+          await refundGeneration(gId);
+        } catch (e) {
+          console.error("Nudes pack refund gen:", e.message);
+        }
+      }
+      const fromRows = generationIds.length * NUDES_PACK_CREDITS_PER_IMAGE;
+      const remainder = creditsDeducted - fromRows;
+      if (remainder > 0) {
+        try {
+          await refundCredits(userId, remainder);
+        } catch (e) {
+          console.error("Nudes pack remainder refund:", e.message);
+        }
+      }
+    }
+    return res.status(500).json({ success: false, message: "Server error starting nudes pack" });
+  }
+}
+
+// ============================================
 // Background processor for NSFW generation
 // ============================================
 const nsfwPollQueue = [];
@@ -4325,6 +4616,7 @@ export default {
   trainLora,
   getLoraTrainingStatus,
   generateNsfwImage,
+  generateNudesPack,
   generateNsfwPrompt,
   planNsfwGeneration,
   generateAdvancedNsfw,
