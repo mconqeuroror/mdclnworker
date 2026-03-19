@@ -11,4 +11,6 @@ tmp/
 /public
 # FFmpeg binaries copied at Vercel build (scripts/ensure-ffmpeg.js)
 bin/
-attached_assets/
+# Default: ignore local uploads; commit the canonical NSFW Comfy graph for RunPod.
+attached_assets/*
+!attached_assets/nsfw_core_workflow.json

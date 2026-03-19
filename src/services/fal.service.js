@@ -748,6 +748,22 @@ const POSE_SLOT_URLS = {
 const LORA_8_RUNNING_MAKEUP_URL = "https://huggingface.co/bigckck/ndmstr/resolve/main/Nsfw_Running_makeup.safetensors";
 
 /**
+ * KSampler exports still list [seed, seed_mode, steps, cfg, ...] in widgets_values even when
+ * `seed` is linked (e.g. from rgthree Seed). Without skipping those first two slots, `steps`
+ * incorrectly receives the seed int and `cfg` receives "randomize" → destroyed image quality.
+ */
+function getKsamplerWidgetValuesStartIndex(node, linkMap) {
+  if (node.type !== "KSampler" || !Array.isArray(node.inputs)) return 0;
+  const seedInp = node.inputs.find((i) => i.name === "seed");
+  if (!seedInp || seedInp.link == null || !linkMap[seedInp.link]) return 0;
+  const wv = node.widgets_values || [];
+  // Standard layout when seed is external: [number, "randomize"|string, steps, cfg, sampler, scheduler, denoise]
+  if (wv.length >= 7) return 2;
+  if (wv.length >= 5) return 2;
+  return 0;
+}
+
+/**
  * Convert ComfyUI UI export (nodes + links) to API prompt format.
  * Links format: [linkId, originNodeId, originSlot, targetNodeId, targetSlot, type]
  * If extra.ue_links is present (Anything Everywhere / cg-use-everywhere), applies those
@@ -769,7 +785,7 @@ function comfyUiGraphToApiPrompt(nodes, links, extra) {
   for (const node of nodes || []) {
     const id = String(node.id);
     const inputs = {};
-    let widgetIdx = 0;
+    let widgetIdx = getKsamplerWidgetValuesStartIndex(node, linkMap);
     const wv = node.widgets_values || [];
     for (const inp of node.inputs || []) {
       const name = inp.name;
