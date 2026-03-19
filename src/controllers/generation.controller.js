@@ -3694,12 +3694,45 @@ async function processTalkingHeadInBackground(
  */
 export async function getVoices(req, res) {
   try {
-    const { getVoices } = await import("../services/elevenlabs.service.js");
-    const voices = await getVoices();
-    
+    const { getVoices: getElVoices } = await import("../services/elevenlabs.service.js");
+    let voices = await getElVoices();
+
+    const modelId = typeof req.query.modelId === "string" ? req.query.modelId.trim() : "";
+    const userId = req.user?.userId;
+    if (modelId && userId) {
+      const model = await prisma.savedModel.findFirst({
+        where: { id: modelId, userId },
+        select: {
+          elevenLabsVoiceId: true,
+          modelVoicePreviewUrl: true,
+          elevenLabsVoiceName: true,
+          name: true,
+        },
+      });
+      if (model?.elevenLabsVoiceId) {
+        const previewUrl = model.modelVoicePreviewUrl || "";
+        const displayName = model.elevenLabsVoiceName || `${model.name}'s voice`;
+        const custom = {
+          id: model.elevenLabsVoiceId,
+          name: displayName,
+          category: "custom",
+          labels: { gender: "female", source: "model_custom" },
+          languages: ["en", "sk", "cs"],
+          originalPreviewUrl: previewUrl,
+          previewUrls: {
+            en: previewUrl,
+            sk: previewUrl,
+            cs: previewUrl,
+          },
+          isModelCustom: true,
+        };
+        voices = [custom, ...voices];
+      }
+    }
+
     res.json({
       success: true,
-      voices: voices,
+      voices,
     });
   } catch (error) {
     console.error("❌ Get voices error:", error.message);

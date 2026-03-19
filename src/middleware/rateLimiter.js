@@ -86,6 +86,21 @@ export const modelsLimiter = rateLimit({
   keyGenerator: userOrIpKey,
 });
 
+/** Voice design previews call ElevenLabs; keep abuse low */
+export const voiceDesignPreviewLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: isDev ? 1000 : 20,
+  message: {
+    success: false,
+    message: "Too many voice preview requests. Try again in an hour.",
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: false,
+  validate: false,
+  keyGenerator: userOrIpKey,
+});
+
 export const generationsLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 100,

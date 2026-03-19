@@ -12,6 +12,7 @@ import {
   ChevronRight,
   Loader2,
   Check,
+  Mic,
 } from "lucide-react";
 import {
   MagnifyingGlass,
@@ -28,6 +29,7 @@ import {
 import toast from "react-hot-toast";
 import api, { uploadToCloudinary as uploadFile } from "../services/api";
 import CreateModelModal from "../components/CreateModelModal";
+import ModelVoiceStudioModal from "../components/ModelVoiceStudioModal";
 import AddCreditsModal from "../components/AddCreditsModal";
 import { useReducedMotion } from "../hooks/useReducedMotion";
 import { getThumbnailUrl } from "../utils/imageUtils";
@@ -109,6 +111,7 @@ export default function ModelsPage({ sidebarCollapsed = false }) {
 
   const [modelLoras, setModelLoras] = useState([]);
   const [loadingLoras, setLoadingLoras] = useState(false);
+  const [voiceStudioModel, setVoiceStudioModel] = useState(null);
 
   const gradientPurple = "linear-gradient(135deg, #8B5CF6, #3B82F6)";
   const gradientCyan = "linear-gradient(135deg, #22D3EE, #14B8A6)";
@@ -496,6 +499,20 @@ export default function ModelsPage({ sidebarCollapsed = false }) {
         onClose={() => setShowCreditsModal(false)}
       />
 
+      <ModelVoiceStudioModal
+        isOpen={Boolean(voiceStudioModel)}
+        model={voiceStudioModel}
+        sidebarCollapsed={sidebarCollapsed}
+        onClose={() => setVoiceStudioModel(null)}
+        onSuccess={(patch) => {
+          loadModels();
+          if (patch) {
+            setEditingModel((prev) => (prev ? { ...prev, ...patch } : prev));
+          }
+          setVoiceStudioModel(null);
+        }}
+      />
+
       {/* Photo Preview Lightbox - shows when clicking on photo in edit modal */}
       {previewPhotoUrl && (
         <div
@@ -740,6 +757,32 @@ export default function ModelsPage({ sidebarCollapsed = false }) {
                     ? <><ArrowsClockwise className="w-3 h-3 animate-spin" weight="bold" /> Saving...</>
                     : <><FloppyDisk className="w-3 h-3" weight="bold" /> Save Looks</>
                   )}
+                </button>
+              </div>
+
+              {/* Custom voice (talking head) */}
+              <div className="p-3 rounded-xl bg-white/[0.04] border border-white/[0.08]">
+                <p className="text-xs font-medium text-white flex items-center gap-1.5">
+                  <Mic className="w-3.5 h-3.5 text-violet-400" />
+                  Talking-head voice
+                </p>
+                <p className="text-[10px] text-slate-500 mt-1">
+                  Design from text or clone from one MP3. Credits: 1000/500 (design) or 2000/1000 (clone) first time / replace.
+                </p>
+                {editingModel.elevenLabsVoiceId ? (
+                  <p className="text-[11px] text-emerald-400/90 mt-2">
+                    Custom voice on file ({editingModel.elevenLabsVoiceType === "clone" ? "clone" : "design"}).
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-slate-500 mt-2">No custom voice yet — optional for curated voices.</p>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setVoiceStudioModel(editingModel)}
+                  disabled={editingModel.status === "processing"}
+                  className="mt-2 w-full py-2 rounded-lg text-xs font-semibold bg-violet-600/80 hover:bg-violet-600 text-white disabled:opacity-40 transition-colors"
+                >
+                  {editingModel.elevenLabsVoiceId ? "Replace custom voice…" : "Create custom voice…"}
                 </button>
               </div>
 

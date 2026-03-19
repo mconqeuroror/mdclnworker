@@ -17,6 +17,7 @@ import {
 import { isR2Configured, uploadFileToR2, mirrorToR2 } from "../utils/r2.js";
 import { buildAppearancePrefix } from "../utils/appearancePrompt.js";
 import { getGenerationPricing } from "../services/generation-pricing.service.js";
+import { deleteElevenLabsVoice } from "../services/elevenlabs.service.js";
 
 /**
  * Get model limit based on subscription tier
@@ -208,6 +209,11 @@ export async function getUserModels(req, res) {
         activeLoraId: true,
         savedAppearance: true,
         aiGenerationParams: true,
+        status: true,
+        elevenLabsVoiceId: true,
+        elevenLabsVoiceType: true,
+        elevenLabsVoiceName: true,
+        modelVoicePreviewUrl: true,
       },
     });
 
@@ -264,6 +270,11 @@ export async function getModelById(req, res) {
         photo3Url: model.photo3Url,
         thumbnail: model.thumbnail,
         createdAt: model.createdAt,
+        status: model.status,
+        elevenLabsVoiceId: model.elevenLabsVoiceId,
+        elevenLabsVoiceType: model.elevenLabsVoiceType,
+        elevenLabsVoiceName: model.elevenLabsVoiceName,
+        modelVoicePreviewUrl: model.modelVoicePreviewUrl,
       },
     });
   } catch (error) {
@@ -309,6 +320,19 @@ export async function deleteModel(req, res) {
           await deleteFromR2(url);
         } catch (e) { /* best-effort */ }
       }
+    }
+
+    if (model.elevenLabsVoiceId) {
+      await deleteElevenLabsVoice(model.elevenLabsVoiceId);
+    }
+    if (model.modelVoicePreviewUrl) {
+      try {
+        const { deleteFromR2 } = await import("../utils/r2.js");
+        const pub = process.env.R2_PUBLIC_URL || "";
+        if (pub && model.modelVoicePreviewUrl.startsWith(pub)) {
+          await deleteFromR2(model.modelVoicePreviewUrl);
+        }
+      } catch (e) { /* best-effort */ }
     }
 
     await prisma.savedModel.delete({
@@ -417,6 +441,10 @@ export async function updateModel(req, res) {
         photo3Url: updatedModel.photo3Url,
         thumbnail: updatedModel.thumbnail,
         createdAt: updatedModel.createdAt,
+        elevenLabsVoiceId: updatedModel.elevenLabsVoiceId,
+        elevenLabsVoiceType: updatedModel.elevenLabsVoiceType,
+        elevenLabsVoiceName: updatedModel.elevenLabsVoiceName,
+        modelVoicePreviewUrl: updatedModel.modelVoicePreviewUrl,
       },
     });
   } catch (error) {

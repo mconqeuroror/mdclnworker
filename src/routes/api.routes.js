@@ -59,6 +59,12 @@ import {
   lockSpecialOffer,
 } from "../controllers/model.controller.js";
 import {
+  getVoicePlatformStatus,
+  postModelVoiceDesignPreviews,
+  postModelVoiceDesignConfirm,
+  postModelVoiceClone,
+} from "../controllers/model-voice.controller.js";
+import {
   initializeTrainingSession,
   generateTrainingImages,
   startTrainingSession,
@@ -92,6 +98,17 @@ const ALLOWED_UPLOAD_TYPES = [
   "image/jpeg", "image/png", "image/webp", "image/gif",
   "video/mp4", "video/x-mp4", "video/quicktime", "video/webm",
 ];
+
+const voiceCloneUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const name = (file.originalname || "").toLowerCase();
+    const okMime = file.mimetype === "audio/mpeg" || file.mimetype === "audio/mp3";
+    if (okMime || name.endsWith(".mp3")) cb(null, true);
+    else cb(new Error("Only MP3 files are allowed for voice clone."));
+  },
+});
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -135,6 +152,7 @@ import {
   passwordResetLimiter,
   generationLimiter,
   modelsLimiter, // ✅ FIX: Added for /models endpoint rate limiting
+  voiceDesignPreviewLimiter,
   generationsLimiter, // ✅ FIX: Added for /generations endpoint rate limiting
   apiLimiter,
   downloadLimiter,
@@ -733,6 +751,34 @@ router.get(
     }
   },
 );
+
+// Custom ElevenLabs voice per model (design / clone) — register before /models/:id
+router.get(
+  "/models/voice-platform/status",
+  authMiddleware,
+  modelsLimiter,
+  getVoicePlatformStatus,
+);
+router.post(
+  "/models/:modelId/voice/design-previews",
+  authMiddleware,
+  voiceDesignPreviewLimiter,
+  postModelVoiceDesignPreviews,
+);
+router.post(
+  "/models/:modelId/voice/design-confirm",
+  authMiddleware,
+  generationLimiter,
+  postModelVoiceDesignConfirm,
+);
+router.post(
+  "/models/:modelId/voice/clone",
+  authMiddleware,
+  generationLimiter,
+  voiceCloneUpload.single("audio"),
+  postModelVoiceClone,
+);
+
 router.get("/models/:id", authMiddleware, modelsLimiter, getModelById); // ✅ FIX: Added modelsLimiter
 router.put(
   "/models/:id",
@@ -1892,6 +1938,9 @@ router.use((err, _req, res, next) => {
       message: "File too big. Max upload size is 200MB.",
       code: "FILE_TOO_BIG",
     });
+  }
+  if (err && err.message && /only mp3/i.test(err.message)) {
+    return res.status(400).json({ success: false, message: err.message });
   }
   return next(err);
 });

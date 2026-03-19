@@ -20,6 +20,11 @@ import {
   resetGenerationPricing,
 } from "../services/generation-pricing.service.js";
 import { fetchAllProviderBalances } from "../services/provider-balances.service.js";
+import {
+  getVoicePlatformConfig,
+  updateVoicePlatformMaxVoices,
+  countModelsWithCustomVoice,
+} from "../services/voice-platform.service.js";
 
 const router = express.Router();
 const KIE_API_KEY = process.env.KIE_API_KEY;
@@ -94,6 +99,36 @@ router.post("/pricing/generation/reset", async (_req, res) => {
   } catch (error) {
     console.error("Error resetting generation pricing:", error);
     res.status(500).json({ success: false, error: "Failed to reset generation pricing" });
+  }
+});
+
+router.get("/voice-platform/config", async (_req, res) => {
+  try {
+    const cfg = await getVoicePlatformConfig();
+    const used = await countModelsWithCustomVoice();
+    res.json({
+      success: true,
+      maxCustomElevenLabsVoices: cfg.maxCustomElevenLabsVoices,
+      usedCustomVoices: used,
+    });
+  } catch (error) {
+    console.error("Error fetching voice platform config:", error);
+    res.status(500).json({ success: false, error: "Failed to fetch voice platform config" });
+  }
+});
+
+router.put("/voice-platform/config", async (req, res) => {
+  try {
+    const row = await updateVoicePlatformMaxVoices(req.body?.maxCustomElevenLabsVoices);
+    const used = await countModelsWithCustomVoice();
+    res.json({
+      success: true,
+      maxCustomElevenLabsVoices: row.maxCustomElevenLabsVoices,
+      usedCustomVoices: used,
+    });
+  } catch (error) {
+    console.error("Error updating voice platform config:", error);
+    res.status(400).json({ success: false, error: error.message || "Failed to update voice platform config" });
   }
 });
 

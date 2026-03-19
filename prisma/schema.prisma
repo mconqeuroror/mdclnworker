@@ -170,6 +170,13 @@ model SavedModel {
   age                Int?
   savedAppearance    Json?
   paymentIntentId    String?
+  /// ElevenLabs voice id (IVC or voice design); deleted on model delete / recreate
+  elevenLabsVoiceId   String?
+  /// "clone" | "design"
+  elevenLabsVoiceType String?
+  elevenLabsVoiceName String?
+  /// Cached preview MP3 on R2 for UI / talking-head picker
+  modelVoicePreviewUrl String?
   generations        Generation[]
   trainingImages     LoraTrainingImage[]
   user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -528,6 +535,14 @@ model GenerationPricingConfig {
   values    Json
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+/// Singleton (id = "global"): max custom ElevenLabs voices across all models (admin-editable)
+model VoicePlatformConfig {
+  id                        String   @id @default("global")
+  maxCustomElevenLabsVoices Int      @default(200)
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
 }
 
 model AffiliatePartner {

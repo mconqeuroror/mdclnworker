@@ -491,6 +491,11 @@ export default function AdminPage() {
   const [showProviderBalances, setShowProviderBalances] = useState(false);
   const [providerBalances, setProviderBalances] = useState(null);
   const [loadingProviderBalances, setLoadingProviderBalances] = useState(false);
+  const [showVoicePlatform, setShowVoicePlatform] = useState(false);
+  const [voicePlatformMax, setVoicePlatformMax] = useState(200);
+  const [voicePlatformUsed, setVoicePlatformUsed] = useState(0);
+  const [loadingVoicePlatform, setLoadingVoicePlatform] = useState(false);
+  const [savingVoicePlatform, setSavingVoicePlatform] = useState(false);
   const [reconcileLimit, setReconcileLimit] = useState(250);
   const [reconcileResult, setReconcileResult] = useState(null);
   const [reconciliationLimit, setReconciliationLimit] = useState(100);
@@ -1298,6 +1303,39 @@ export default function AdminPage() {
       toast.error(e?.response?.data?.error || 'Reset failed');
     } finally {
       setSavingGenPricing(false);
+    }
+  };
+
+  const loadVoicePlatformConfig = async () => {
+    try {
+      setLoadingVoicePlatform(true);
+      const r = await api.get('/admin/voice-platform/config');
+      if (r.data?.success) {
+        setVoicePlatformMax(Number(r.data.maxCustomElevenLabsVoices) || 200);
+        setVoicePlatformUsed(Number(r.data.usedCustomVoices) || 0);
+      }
+    } catch (e) {
+      toast.error(e?.response?.data?.error || 'Failed to load voice platform config');
+    } finally {
+      setLoadingVoicePlatform(false);
+    }
+  };
+
+  const saveVoicePlatformConfig = async () => {
+    try {
+      setSavingVoicePlatform(true);
+      const r = await api.put('/admin/voice-platform/config', {
+        maxCustomElevenLabsVoices: voicePlatformMax,
+      });
+      if (r.data?.success) {
+        setVoicePlatformMax(Number(r.data.maxCustomElevenLabsVoices) || voicePlatformMax);
+        setVoicePlatformUsed(Number(r.data.usedCustomVoices) || 0);
+        toast.success('Voice platform cap saved');
+      }
+    } catch (e) {
+      toast.error(e?.response?.data?.error || 'Failed to save');
+    } finally {
+      setSavingVoicePlatform(false);
     }
   };
 
@@ -2446,6 +2484,55 @@ export default function AdminPage() {
               ) : (
                 <p className="text-xs text-gray-600">Could not load pricing.</p>
               )}
+            </div>
+          )}
+        </Section>
+
+        {/* ── Custom ElevenLabs voices (platform cap) ─────────────────────────── */}
+        <Section>
+          <div className="flex items-center justify-between mb-5 gap-3 flex-wrap">
+            <CollapseToggle
+              open={showVoicePlatform}
+              onToggle={() => {
+                const next = !showVoicePlatform;
+                setShowVoicePlatform(next);
+                if (next) loadVoicePlatformConfig();
+              }}
+              label="Custom voices (ElevenLabs cap)"
+            />
+            {showVoicePlatform && (
+              <GhostBtn onClick={loadVoicePlatformConfig} disabled={loadingVoicePlatform}>
+                <RefreshCw className={`w-3 h-3 ${loadingVoicePlatform ? 'animate-spin' : ''}`} />
+                Refresh
+              </GhostBtn>
+            )}
+          </div>
+          {showVoicePlatform && (
+            <div className="space-y-4 max-w-md">
+              <p className="text-[11px] text-gray-500 -mt-2">
+                Hard cap on how many saved models may hold a custom ElevenLabs voice at once (design + clone).
+                Recreating a voice on the same model does not increase usage.
+              </p>
+              <p className="text-xs text-gray-400">
+                Currently using: <span className="text-white font-mono">{voicePlatformUsed}</span> models with a custom voice
+              </p>
+              <label className="flex flex-col gap-1">
+                <span className="text-[11px] text-gray-500">Max custom voices (platform-wide)</span>
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={voicePlatformMax}
+                  onChange={(e) => {
+                    const n = parseInt(e.target.value, 10);
+                    setVoicePlatformMax(Number.isFinite(n) && n >= 1 ? n : 1);
+                  }}
+                  className="px-3 py-2 rounded-lg border border-white/[0.07] bg-white/[0.03] text-xs text-white outline-none focus:border-white/20"
+                />
+              </label>
+              <PrimaryBtn onClick={saveVoicePlatformConfig} disabled={savingVoicePlatform}>
+                {savingVoicePlatform ? 'Saving…' : 'Save cap'}
+              </PrimaryBtn>
             </div>
           )}
         </Section>

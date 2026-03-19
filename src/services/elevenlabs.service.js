@@ -274,3 +274,216 @@ export async function generateVoicePreview(voiceId, language = "en") {
     return { buffer: audioBuffer };
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Custom voices: Voice Design + IVC (instant voice clone) + delete
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Design voice previews from a text description (no permanent voice yet).
+ * @returns {Promise<Array<{ generatedVoiceId: string, audioBase64: string }>>}
+ */
+export async function designVoicePreviews(voiceDescription, options = {}) {
+  const apiKey = getElevenLabsApiKey();
+  if (!apiKey) throw new Error("Voice service not configured");
+
+  const body = {
+    voice_description: voiceDescription,
+    auto_generate_text: options.autoGenerateText !== false,
+    model_id: options.modelId || "eleven_multilingual_ttv_v2",
+  };
+
+  const response = await fetch(`${ELEVENLABS_API_URL}/text-to-voice/design`, {
+    method: "POST",
+    headers: {
+      "xi-api-key": apiKey,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Voice design failed: ${response.status} - ${errText}`);
+  }
+
+  const data = await response.json();
+  const raw =
+    data.previews ||
+    data.voice_previews ||
+    data.data?.previews ||
+    (Array.isArray(data) ? data : []);
+
+  const previews = [];
+  for (const p of raw) {
+    const generatedVoiceId =
+      p.generated_voice_id || p.generatedVoiceId || p.voice_id;
+    const audioBase64 =
+      p.audio_base_64 || p.audio_base64 || p.audio || p.sample;
+    if (generatedVoiceId && audioBase64) {
+      previews.push({ generatedVoiceId, audioBase64 });
+    }
+  }
+
+  return previews;
+}
+
+/**
+ * Create a saved voice from a design preview id.
+ * @returns {Promise<{ voiceId: string }>}
+ */
+export async function createVoiceFromDesignPreview({
+  voiceName,
+  voiceDescription,
+  generatedVoiceId,
+}) {
+  const apiKey = getElevenLabsApiKey();
+  if (!apiKey) throw new Error("Voice service not configured");
+
+  const response = await fetch(
+    `${ELEVENLABS_API_URL}/text-to-voice/create-voice-from-preview`,
+    {
+      method: "POST",
+      headers: {
+        "xi-api-key": apiKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        voice_name: voiceName,
+        voice_description: voiceDescription || voiceName,
+        generated_voice_id: generatedVoiceId,
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Create voice from preview failed: ${response.status} - ${errText}`);
+  }
+
+  const data = await response.json();
+  const voiceId = data.voice_id || data.voiceId;
+  if (!voiceId) {
+    throw new Error("ElevenLabs did not return voice_id");
+  }
+  return { voiceId };
+}
+
+/**
+ * Instant voice clone from one MP3 sample (multipart).
+ * @returns {Promise<{ voiceId: string, requiresVerification?: boolean }>}
+ */
+export async function cloneVoiceFromMp3Buffer({
+  voiceName,
+  description,
+  mp3Buffer,
+  filename = "sample.mp3",
+}) {
+  const apiKey = getElevenLabsApiKey();
+  if (!apiKey) throw new Error("Voice service not configured");
+
+  const blob = new Blob([mp3Buffer], { type: "audio/mpeg" });
+  const form = new FormData();
+  form.append("name", voiceName);
+  if (description) form.append("description", description);
+  form.append("files", blob, filename.replace(/[^\w.-]/g, "_") || "sample.mp3");
+
+  const response = await fetch(`${ELEVENLABS_API_URL}/voices/add`, {
+    method: "POST",
+    headers: {
+      "xi-api-key": apiKey,
+    },
+    body: form,
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Voice clone failed: ${response.status} - ${errText}`);
+  }
+
+  const data = await response.json();
+  const voiceId = data.voice_id || data.voiceId;
+  if (!voiceId) {
+    throw new Error("ElevenLabs did not return voice_id");
+  }
+  return {
+    voiceId,
+    requiresVerification: Boolean(data.requires_verification),
+  };
+}
+
+/**
+ * Fetch voice metadata (includes preview_url when available).
+ */
+export async function getElevenLabsVoice(voiceId) {
+  const apiKey = getElevenLabsApiKey();
+  if (!apiKey) throw new Error("Voice service not configured");
+
+  const response = await fetch(`${ELEVENLABS_API_URL}/voices/${encodeURIComponent(voiceId)}`, {
+    headers: { "xi-api-key": apiKey },
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Get voice failed: ${response.status} - ${errText}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Delete a voice from the ElevenLabs account (best-effort; 404 = ok).
+ */
+export async function deleteElevenLabsVoice(voiceId) {
+  if (!voiceId) return;
+  const apiKey = getElevenLabsApiKey();
+  if (!apiKey) {
+    console.warn("deleteElevenLabsVoice: no API key, skipping");
+    return;
+  }
+
+  try {
+    const response = await fetch(
+      `${ELEVENLABS_API_URL}/voices/${encodeURIComponent(voiceId)}`,
+      {
+        method: "DELETE",
+        headers: { "xi-api-key": apiKey },
+      },
+    );
+    if (response.status === 404) {
+      console.log(`🗑️ ElevenLabs voice already gone: ${voiceId}`);
+      return;
+    }
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error(`🗑️ ElevenLabs delete voice ${voiceId}: ${response.status} ${errText}`);
+      return;
+    }
+    console.log(`🗑️ Deleted ElevenLabs voice: ${voiceId}`);
+  } catch (err) {
+    console.error(`🗑️ ElevenLabs delete voice error (${voiceId}):`, err.message);
+  }
+}
+
+/**
+ * Delete voice on ElevenLabs; throws if API fails (except 404). Use before recreating a model voice.
+ */
+export async function deleteElevenLabsVoiceStrict(voiceId) {
+  if (!voiceId) return;
+  const apiKey = getElevenLabsApiKey();
+  if (!apiKey) throw new Error("Voice service not configured");
+
+  const response = await fetch(
+    `${ELEVENLABS_API_URL}/voices/${encodeURIComponent(voiceId)}`,
+    {
+      method: "DELETE",
+      headers: { "xi-api-key": apiKey },
+    },
+  );
+
+  if (response.status === 404) return;
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Could not remove previous custom voice (${response.status}): ${errText}`);
+  }
+}

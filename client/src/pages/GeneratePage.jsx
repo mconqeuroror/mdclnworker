@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Image as ImageIcon,
@@ -435,6 +435,7 @@ import { GenerationHistory } from "../components/GenerationHistory";
 import TutorialButton from "../components/TutorialButton";
 import { TUTORIALS } from "../utils/tutorials";
 import AddCreditsModal from "../components/AddCreditsModal";
+import ModelVoiceStudioModal from "../components/ModelVoiceStudioModal";
 import { CreditCard } from "lucide-react";
 import LivePreviewPanel from "../components/LivePreviewPanel";
 import CourseTipBanner from "../components/CourseTipBanner";
@@ -1692,11 +1693,12 @@ function VideoGeneration() {
   const [isCooldown, setIsCooldown] = useState(false);
 
   // CACHED: Models from React Query (instant on subsequent visits)
-  const { models: modelsRaw, isLoading: modelsLoading } = useCachedModels();
+  const { models: modelsRaw, isLoading: modelsLoading, invalidateModels } = useCachedModels();
   const models = (Array.isArray(modelsRaw) ? modelsRaw : []).filter(
     (m) => m.status !== "processing"
   );
   const [selectedModel, setSelectedModel] = useState("");
+  const [voiceStudioOpen, setVoiceStudioOpen] = useState(false);
   // Method selection
   const [method, setMethod] = useState("2-step"); // 'quick' or '2-step'
 
@@ -1821,22 +1823,14 @@ function VideoGeneration() {
     saveVideoDraft(data, imageUrls);
   }, [method, selectedModel, promptVideoPrompt, promptVideoDuration, selectedVoice, talkingHeadText, talkingHeadPrompt, targetGender, keepAudioFromVideo, recreateUltraMode, languageFilter, promptVideoImage, faceImage, talkingHeadImage, videoStartingImage, sourceVideo, referenceVideo]);
 
-  // Load voices when switching to talking head mode
-  useEffect(() => {
-    if (method === 'talking-head' && voices.length === 0 && !loadingVoices) {
-      loadVoices();
-    }
-  }, [method]);
-
-  const loadVoices = async () => {
+  const loadVoices = useCallback(async (forModelId) => {
     try {
       setLoadingVoices(true);
-      const response = await api.get("/voices");
+      const response = await api.get("/voices", {
+        params: forModelId ? { modelId: forModelId } : {},
+      });
       if (response.data.success && response.data.voices) {
         setVoices(response.data.voices);
-        if (response.data.voices.length > 0 && !selectedVoice) {
-          setSelectedVoice(response.data.voices[0].id);
-        }
       }
     } catch (error) {
       console.error("Failed to load voices:", error);
@@ -1844,11 +1838,17 @@ function VideoGeneration() {
     } finally {
       setLoadingVoices(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (method !== "talking-head") return;
+    loadVoices(selectedModel || undefined);
+  }, [method, selectedModel, loadVoices]);
 
   const filteredVoices = voices.filter((voice) => {
-    // Filter for female voices only
+    // Filter for female voices only (custom model voices included)
     const gender = (voice.labels?.gender || "").toLowerCase();
+    if (voice.isModelCustom) return true;
     if (!gender.includes("female")) return false;
     
     // All voices support all languages (en, sk, cs) so no language filtering needed
@@ -1856,8 +1856,10 @@ function VideoGeneration() {
     return true;
   });
 
-  // Sort: favorites first, then alphabetically
+  // Sort: model custom voice first, then favorites, then A–Z
   const sortedVoices = [...filteredVoices].sort((a, b) => {
+    if (a.isModelCustom && !b.isModelCustom) return -1;
+    if (!a.isModelCustom && b.isModelCustom) return 1;
     const aFav = favoriteVoices.includes(a.id);
     const bFav = favoriteVoices.includes(b.id);
     if (aFav && !bFav) return -1;
@@ -2826,6 +2828,21 @@ function VideoGeneration() {
               <div className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold" style={{ background: 'rgba(203, 213, 225, 0.9)', color: '#0f172a', border: '1px solid rgba(255,255,255,0.2)' }}>2</div>
               <label className="text-[11px] uppercase tracking-[0.15em] text-slate-400 font-medium">Voice</label>
             </div>
+
+            {selectedModel ? (
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setVoiceStudioOpen(true)}
+                  className="text-[10px] px-2.5 py-1.5 rounded-lg bg-violet-600/20 border border-violet-500/30 text-violet-200 hover:bg-violet-600/30 transition-colors"
+                >
+                  Custom voice for this model…
+                </button>
+                {models.find((m) => m.id === selectedModel)?.elevenLabsVoiceId ? (
+                  <span className="text-[10px] text-emerald-400/90">Custom voice on file</span>
+                ) : null}
+              </div>
+            ) : null}
             
             {/* Language Filter */}
             <div className="mb-3 grid grid-cols-3 gap-2">
@@ -3026,6 +3043,17 @@ function VideoGeneration() {
 
       {/* Credits Modal */}
       <AddCreditsModal isOpen={showCreditsModal} onClose={() => setShowCreditsModal(false)} />
+
+      <ModelVoiceStudioModal
+        isOpen={voiceStudioOpen}
+        onClose={() => setVoiceStudioOpen(false)}
+        model={models.find((m) => m.id === selectedModel) || null}
+        onSuccess={() => {
+          invalidateModels?.();
+          loadVoices(selectedModel || undefined);
+          setVoiceStudioOpen(false);
+        }}
+      />
     </div>
   );
 }
