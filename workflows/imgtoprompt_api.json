@@ -1,0 +1,71 @@
+{
+  "38": {
+    "class_type": "LayerUtility: LoadJoyCaptionBeta1Model",
+    "inputs": {
+      "model": "fancyfeast/llama-joycaption-beta-one-hf-llava",
+      "quantization_mode": "bf16",
+      "device": "cuda"
+    }
+  },
+  "45": {
+    "class_type": "PrimitiveString",
+    "inputs": {
+      "value": ""
+    }
+  },
+  "44": {
+    "class_type": "LayerUtility: JoyCaption2ExtraOptions",
+    "inputs": {
+      "refer_character_name": true,
+      "exclude_people_info": true,
+      "include_lighting": false,
+      "include_camera_angle": false,
+      "include_watermark": false,
+      "include_JPEG_artifacts": false,
+      "include_exif": false,
+      "exclude_sexual": false,
+      "exclude_image_resolution": false,
+      "include_aesthetic_quality": false,
+      "include_composition_style": false,
+      "exclude_text": false,
+      "specify_depth_field": false,
+      "specify_lighting_sources": false,
+      "do_not_use_ambiguous_language": true,
+      "include_nsfw": false,
+      "only_describe_most_important_elements": false,
+      "character_name": ["45", 0]
+    }
+  },
+  "52": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "__INPUT_IMAGE__",
+      "upload": "image"
+    }
+  },
+  "48": {
+    "class_type": "LayerUtility: JoyCaptionBeta1",
+    "inputs": {
+      "image": ["52", 0],
+      "joycaption_beta1_model": ["38", 0],
+      "extra_options": ["44", 0],
+      "caption_type": "Descriptive",
+      "caption_length": "medium-length",
+      "max_new_tokens": 512,
+      "top_p": 0.99,
+      "top_k": 0,
+      "temperature": 0.6,
+      "user_prompt": "Describe the scene, setting, pose, sexual activity, and camera angle. Include: clothing, props, background, position, what is happening sexually. DO NOT describe the woman's hair color, hair length, eye color, skin tone, body type, facial features, tattoos, piercings, nail color, or expression. Use explicit anatomical terms: pussy, vagina, penis, dick, penetration, sex, anal. Do not include model names or watermarks."
+    }
+  },
+  "53": {
+    "class_type": "easy saveText",
+    "inputs": {
+      "text": ["48", 0],
+      "output_file_path": "",
+      "file_name": "",
+      "file_extension": "txt",
+      "overwrite": true
+    }
+  }
+}
