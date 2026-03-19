@@ -2587,6 +2587,7 @@ export async function generateNsfwImage(req, res) {
         sceneDescription: sceneDescription || prompt,
         chipSelections: attributesDetail,
         options: {
+          quickFlow: options.quickFlow === true,
           loraStrength: userOverrideStrength,
           postProcessing,
           resolution: resSpec.presetId,
@@ -3045,7 +3046,7 @@ TITFUCK POV:
 
 MISSIONARY / SEX POSITIONS:
 - Missionary (must read as ACTUAL intercourse): girl lying on back, legs spread or wrapped; describe CLEAR CONTACT — labia parted around shaft, visible insertion depth, bodies aligned, not a disconnected floating penis. Use average-scale penis language. One hand squeezing her own breast or gripping sheet, looking up at camera, natural pleasure expression (NOT extreme moaning or ahegao). Example shape: "missionary on bed, legs spread, average-sized penis penetrating pussy, connection visible at entrance, one hand on breast, biting lip, POV from above"
-- Doggy: CRITICAL — shot from MAN'S POV behind her. Girl on all fours, penis entering from behind visible, visible anus and pussy, looking back over shoulder at camera BEHIND her, "doggy style on all fours, penis entering from behind, arched back, visible anus and pussy, looking back over shoulder at camera behind her, POV from behind"
+- Doggy: CRITICAL — shot from MAN'S POV behind her. Girl on all fours, penis entering from behind visible, visible anus and pussy, looking back over shoulder at camera BEHIND her, "doggy style on all fours, penis entering from behind, arched back, visible anus and pussy, looking back over shoulder at camera behind her, POV from behind". NEVER describe or show a hand holding/gripping the penis in doggy POV — the only hands visible are HER hands (on bed, sheets, mattress). The penis is entering from behind from the viewer's POV with NO hand in frame.
 - For ALL sex positions: show anatomically correct genitals and penetration. Only the penis is visible — no male torso/legs/face.
 - For ALL sex positions: girl must be ACTIVELY engaged — holding/squeezing her own breasts, gripping sheets, or touching herself. NEVER just lying still.
 - Expressions in sex poses: use SUBTLE natural pleasure — "biting lower lip", "eyes half closed with pleasure", "soft moan expression", "pleasure face". NEVER use ahegao, rolled-back eyes, or extreme orgasm faces (these cause mutations without a specialized LoRA).
@@ -3083,7 +3084,7 @@ BLOWJOB VARIATIONS (randomize; prefer single-hand unless user asked for huge):
 - Side licking: "tongue along side of shaft, one hand guiding lightly, playful expression"
 
 PATTERN D — Doggy style (PROVEN BEST — pic 10 was "very good, very real"):
-"[trigger], doggy style on all fours on bed, arched back, looking over shoulder at camera, average-sized erect penis entering from behind with visible penetration, visible anus and pussy, slightly damp skin, messy hair, white sheets"
+"[trigger], doggy style on all fours on bed, arched back, looking over shoulder at camera, average-sized erect penis entering from behind with visible penetration, visible anus and pussy, one hand gripping sheets other hand on mattress, slightly damp skin, messy hair, white sheets, POV from behind, no hand on penis"
 
 PATTERN E — Bent over (PROVEN BEST — pic 13 was "veeery real"):
 "[trigger], bent over showing ass, hands pulling panties down, looking back over shoulder at camera, visible pussy from behind, standing in bedroom, playful smirk"

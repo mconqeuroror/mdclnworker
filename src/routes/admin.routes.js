@@ -347,6 +347,7 @@ router.get("/users/:userId/models", async (req, res) => {
         isAIGenerated: true,
         nsfwOverride: true,
         nsfwUnlocked: true,
+        looksUnlockedByAdmin: true,
         loraStatus: true,
         createdAt: true,
       },
@@ -407,6 +408,51 @@ router.post("/models/:modelId/nsfw-override", async (req, res) => {
   } catch (error) {
     console.error("Error toggling NSFW override:", error);
     res.status(500).json({ success: false, error: "Failed to update NSFW override" });
+  }
+});
+
+/**
+ * POST /api/admin/models/:modelId/looks-unlock
+ * Unlock or lock model looks/photos for the user (so they can edit or not)
+ */
+router.post("/models/:modelId/looks-unlock", async (req, res) => {
+  try {
+    const { modelId } = req.params;
+    const { unlocked } = req.body;
+
+    if (typeof unlocked !== "boolean") {
+      return res.status(400).json({ success: false, error: "unlocked must be a boolean" });
+    }
+
+    const model = await prisma.savedModel.findUnique({
+      where: { id: modelId },
+      select: { id: true, name: true, userId: true },
+    });
+
+    if (!model) {
+      return res.status(404).json({ success: false, error: "Model not found" });
+    }
+
+    const updatedModel = await prisma.savedModel.update({
+      where: { id: modelId },
+      data: { looksUnlockedByAdmin: unlocked },
+      select: {
+        id: true,
+        name: true,
+        looksUnlockedByAdmin: true,
+      },
+    });
+
+    console.log(`🔓 Admin ${req.user.email} set looksUnlockedByAdmin=${unlocked} for model "${model.name}" (${modelId})`);
+
+    res.json({
+      success: true,
+      model: updatedModel,
+      message: unlocked ? "Model looks unlocked — user can edit photos/looks" : "Model looks locked",
+    });
+  } catch (error) {
+    console.error("Error toggling looks unlock:", error);
+    res.status(500).json({ success: false, error: "Failed to update looks unlock" });
   }
 });
 

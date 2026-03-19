@@ -907,12 +907,14 @@ async function detectLorasWithAI(context) {
     attributes = "",
     chipSelections = {},
     userLoraStrength = null,
+    quickFlow = false,
   } = typeof context === "string" ? { finalPrompt: context, sceneDescription: context } : context;
 
   const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
   const defaultEnhancements = {};
   for (const key of Object.keys(ENHANCEMENT_LORAS)) { defaultEnhancements[key] = 0; }
-  const fallback = { pose: null, runningMakeup: false, cumEffect: false, girlStrength: 0.70, enhancementStrengths: defaultEnhancements };
+  const defaultGirlStrength = quickFlow ? 0.65 : 0.70;
+  const fallback = { pose: null, runningMakeup: false, cumEffect: false, girlStrength: defaultGirlStrength, enhancementStrengths: defaultEnhancements };
 
   const combinedText = `${finalPrompt} ${sceneDescription} ${attributes}`.trim();
   if (!OPENROUTER_API_KEY || !combinedText) {
@@ -927,9 +929,17 @@ async function detectLorasWithAI(context) {
 
   const poseList = POSE_LORAS.map(p => `- "${p.id}": ${getPoseDescription(p.id)}`).join("\n");
 
+  const maxGirl = quickFlow ? 0.65 : 0.80;
   const girlStrengthSection = userLoraStrength
     ? `GIRL IDENTITY LORA STRENGTH: User has manually set this to ${userLoraStrength}. Use this exact value.`
-    : `GIRL IDENTITY LORA STRENGTH (0.65 to 0.80):
+    : quickFlow
+      ? `GIRL IDENTITY LORA STRENGTH (0.55 to 0.65, MAX 0.65):
+This is the Quick flow: use a value between 0.55 and 0.65. Lower values prevent face mutations.
+- 0.65: Face clearly visible (selfies, POV, mirror selfies, close-up) — maximum allowed in Quick flow
+- 0.60: Face visible (medium shots, casual poses)
+- 0.55: Face partially visible or at distance
+IMPORTANT: NEVER exceed 0.65 in this flow. When in doubt, use 0.60 or 0.65.`
+      : `GIRL IDENTITY LORA STRENGTH (0.65 to 0.80):
 This controls how strongly the girl's trained face/body features are applied. Lower values prevent face mutations.
 - 0.80: Face is the main focus (selfies, portraits, close-up face shots, headshots)
 - 0.75: Face clearly visible and important (POV shots, looking at camera, mirror selfies)
@@ -1026,15 +1036,19 @@ OUTPUT: Return ONLY valid JSON on one line, no explanation:
       : null;
 
     const rawGirlStrength = parseFloat(parsed.girl_strength);
+    const capGirl = quickFlow ? 0.65 : 0.80;
+    const defaultGirl = quickFlow ? 0.65 : 0.70;
     let girlStrength;
     if (userLoraStrength) {
-      girlStrength = Math.max(0.65, userLoraStrength); // enforce minimum 0.65
-    } else if (!isNaN(rawGirlStrength) && rawGirlStrength >= 0.65 && rawGirlStrength <= 0.80) {
+      girlStrength = quickFlow ? Math.min(0.65, Math.max(0.55, userLoraStrength)) : Math.max(0.65, userLoraStrength);
+    } else if (!isNaN(rawGirlStrength) && rawGirlStrength >= 0.55 && rawGirlStrength <= capGirl) {
       girlStrength = rawGirlStrength;
-    } else if (!isNaN(rawGirlStrength) && rawGirlStrength >= 0.55 && rawGirlStrength < 0.65) {
-      girlStrength = 0.65; // clamp up to minimum
+    } else if (!isNaN(rawGirlStrength) && rawGirlStrength > capGirl) {
+      girlStrength = capGirl; // Quick flow max 0.65, advanced max 0.80
+    } else if (!isNaN(rawGirlStrength) && rawGirlStrength >= 0.35 && rawGirlStrength < 0.55) {
+      girlStrength = quickFlow ? 0.55 : 0.65;
     } else {
-      girlStrength = 0.70;
+      girlStrength = defaultGirl;
     }
 
     const enhancementStrengths = {};
@@ -1255,7 +1269,8 @@ function buildComfyWorkflow(params) {
   } = params;
 
   const negativePrompt =
-    "blurry, low resolution, deformed, bad anatomy, extra limbs, mutated hands, poorly drawn face, bad proportions, gigantic penis, huge penis, oversized penis, unrealistically large penis, hyperbolic genitals, watermark, text, signature, cartoon, anime, overexposed, underexposed, plastic skin, doll-like";
+    "blurry, low resolution, deformed, bad anatomy, extra limbs, mutated hands, poorly drawn face, bad proportions, gigantic penis, huge penis, oversized penis, unrealistically large penis, hyperbolic genitals, watermark, text, signature, cartoon, anime, overexposed, underexposed, plastic skin, doll-like" +
+    NSFW_NEGATIVE_POV_NO_HAND;
 
   const template = loadNsfwCoreWorkflowApi();
   if (template) {
@@ -1318,6 +1333,8 @@ function buildComfyWorkflow(params) {
       workflow["50"].inputs.width = width;
       workflow["50"].inputs.height = height;
       workflow["50"].inputs.aspect_ratio = aspectRatio;
+      // Template has swap_dimensions "On" which flips to portrait; force Off for landscape so 1344x768 stays landscape
+      workflow["50"].inputs.swap_dimensions = (aspectRatio || "").toLowerCase().includes("landscape") ? "Off" : "On";
     }
 
     stripUnsupportedNodesAndInjectValues(workflow, { prompt, negativePrompt, loraUrl: sanitizeLoraDownloadUrl(loraUrl) });
@@ -1326,6 +1343,10 @@ function buildComfyWorkflow(params) {
 
   return buildComfyWorkflowLegacy(params);
 }
+
+/** Extra negative terms for POV doggy/rear shots — avoid disembodied hand holding penis in frame */
+const NSFW_NEGATIVE_POV_NO_HAND =
+  ", hand holding penis, hand gripping penis, hand on shaft, disembodied hand, hand in frame holding cock";
 
 function buildComfyWorkflowLegacy(params) {
   const {
@@ -1344,7 +1365,8 @@ function buildComfyWorkflowLegacy(params) {
     aspectRatio = "16:9 landscape 1344x768",
   } = params;
   const negativePrompt =
-    "blurry, low resolution, deformed, bad anatomy, extra limbs, mutated hands, poorly drawn face, bad proportions, gigantic penis, huge penis, oversized penis, unrealistically large penis, hyperbolic genitals, watermark, text, signature, cartoon, anime, overexposed, underexposed, plastic skin, doll-like";
+    "blurry, low resolution, deformed, bad anatomy, extra limbs, mutated hands, poorly drawn face, bad proportions, gigantic penis, huge penis, oversized penis, unrealistically large penis, hyperbolic genitals, watermark, text, signature, cartoon, anime, overexposed, underexposed, plastic skin, doll-like" +
+    NSFW_NEGATIVE_POV_NO_HAND;
   const loraEntries = buildNsfwLoraStackEntries({
     loraUrl,
     girlLoraStrength,
@@ -1382,7 +1404,7 @@ function buildComfyWorkflowLegacy(params) {
         width,
         height,
         aspect_ratio: aspectRatio,
-        swap_dimensions: "On",
+        swap_dimensions: (aspectRatio || "").toLowerCase().includes("landscape") ? "Off" : "On",
         upscale_factor: 1,
         batch_size: 1,
       },
@@ -1449,6 +1471,7 @@ export async function submitNsfwGeneration(params) {
     postProcessing = {},
     adminBaseSamplerSteps = null,
     adminBaseSamplerCfg = null,
+    quickFlow = false,
   } = options;
   const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
   const normalizeStrength = (value, fallback) => {
@@ -1485,13 +1508,14 @@ export async function submitNsfwGeneration(params) {
       ? identityAnchoredPrompt
       : `${identityAnchoredPrompt}, ${QUALITY_SUFFIX}`;
 
-  // AI decides additive LoRAs from full prompt/context (pose + makeup + effects).
+  // AI decides additive LoRAs from full prompt/context (pose + makeup + effects). Quick flow: girl max 0.65, additive max 0.5.
   const aiSelection = await detectLorasWithAI({
     finalPrompt: prompt,
     sceneDescription: sceneDescription || userPrompt,
     attributes,
     chipSelections,
     userLoraStrength: validatedOverride,
+    quickFlow,
   });
   applyOralBlowjobLoraPolicy(aiSelection, prompt);
 

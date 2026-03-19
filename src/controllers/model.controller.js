@@ -205,6 +205,7 @@ export async function getUserModels(req, res) {
         loraUrl: true,
         loraTriggerWord: true,
         nsfwUnlocked: true,
+        looksUnlockedByAdmin: true,
         age: true,
         activeLoraId: true,
         savedAppearance: true,
@@ -385,10 +386,11 @@ export async function updateModel(req, res) {
       });
     }
 
-    // Check if photos are locked (AI-generated or NSFW override enabled)
-    const photosLocked = model.isAIGenerated || model.nsfwOverride;
+    // Check if photos are locked (AI-generated, NSFW override, or LoRA trained) unless admin unlocked
+    const photosLocked =
+      (model.isAIGenerated || model.nsfwOverride || model.nsfwUnlocked) && !model.looksUnlockedByAdmin;
     const isChangingPhotos = photo1Url || photo2Url || photo3Url;
-    
+
     if (photosLocked && isChangingPhotos) {
       return res.status(403).json({
         success: false,

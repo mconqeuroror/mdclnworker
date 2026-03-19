@@ -3257,8 +3257,8 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
   // AI Prompt generation state
   const [isGeneratingAiPrompt, setIsGeneratingAiPrompt] = useState(false);
 
-  // Aspect Ratio state
-  const [selectedAspectRatio, setSelectedAspectRatio] = useState("1344x768");
+  // Aspect Ratio state (Quick flow defaults to selfie 1024x1024)
+  const [selectedAspectRatio, setSelectedAspectRatio] = useState("1024x1024");
   /** simple = preset/text → one-shot plan → resolution + generate; advanced = full chip + prompt flow */
   const [nsfwGenerateMode, setNsfwGenerateMode] = useState("simple");
   const [simplePlanReady, setSimplePlanReady] = useState(false);
@@ -4049,13 +4049,14 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
         modelId: selectedModel,
         prompt: promptToUse,
         quantity: imageQuantity,
-        resolution: selectedAspectRatio,
+        resolution: nsfwGenerateMode === "simple" ? "1024x1024" : selectedAspectRatio,
         attributes: attributesString,
         attributesDetail: chipSelections,
         sceneDescription: sceneDescription.trim(),
         skipFaceSwap,
         faceSwapImageUrl: faceSwapImage?.url || null,
         options: {
+          quickFlow: nsfwGenerateMode === "simple",
           loraStrength: genConfig.loraStrength || null,
           postProcessing: {
             blur: {
@@ -4612,7 +4613,10 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
                   <div className="flex rounded-lg overflow-hidden border border-white/10 flex-1">
                     <button
                       type="button"
-                      onClick={() => setNsfwGenerateMode("simple")}
+                      onClick={() => {
+                        setNsfwGenerateMode("simple");
+                        setSelectedAspectRatio("1024x1024"); // Quick flow: auto selfie resolution
+                      }}
                       className={`flex-1 px-3 py-2 text-xs font-semibold transition-colors ${
                         nsfwGenerateMode === "simple"
                           ? "bg-white text-black"

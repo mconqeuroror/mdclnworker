@@ -163,6 +163,8 @@ model SavedModel {
   loraFalRequestId   String?
   loraError          String?
   nsfwUnlocked       Boolean             @default(false)
+  /// When true, user can edit model photos/looks even if normally locked (admin unlock)
+  looksUnlockedByAdmin Boolean            @default(false)
   faceReferenceUrl   String?
   nsfwOverride       Boolean             @default(false)
   loraSessionPaid    Boolean             @default(false)

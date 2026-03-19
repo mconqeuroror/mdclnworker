@@ -253,7 +253,9 @@ export default function ModelsPage({ sidebarCollapsed = false }) {
     }
   };
 
-  const isPhotosLocked = editingModel?.isAIGenerated === true || editingModel?.nsfwOverride === true;
+  const isPhotosLocked =
+    (editingModel?.isAIGenerated === true || editingModel?.nsfwOverride === true || editingModel?.nsfwUnlocked === true) &&
+    !editingModel?.looksUnlockedByAdmin;
 
   return (
     <div className="max-w-5xl mx-auto">
@@ -413,15 +415,15 @@ export default function ModelsPage({ sidebarCollapsed = false }) {
                   >
                     <PencilSimple className="w-4 h-4 text-blue-300" weight="bold" />
                   </button>
-                  {/* Show lock icon if photos are locked */}
-                  {model.nsfwUnlocked && (
+                  {/* Show lock icon if photos are locked (LoRA trained or NSFW, unless admin unlocked) */}
+                  {(model.nsfwUnlocked || model.nsfwOverride || model.isAIGenerated) && !model.looksUnlockedByAdmin && (
                     <div
                       className="w-8 h-8 rounded-md flex items-center justify-center"
                       style={{
                         background:
                           "linear-gradient(135deg, rgba(100,100,100,0.4), rgba(100,100,100,0.3))",
                       }}
-                      title="Photos locked after LoRA training"
+                      title="Photos locked (unlock via admin if user needs to change photos)"
                     >
                       <Lock className="w-4 h-4 text-slate-400" />
                     </div>
