@@ -4150,6 +4150,7 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
         poseIds,
         attributes: attributesString,
         attributesDetail: chipSelections,
+        sceneDescription: sceneDescription.trim() || undefined,
         skipFaceSwap,
         faceSwapImageUrl: faceSwapImage?.url || null,
         resolution: nsfwGenerateMode === "simple" ? "1024x1024" : selectedAspectRatio,

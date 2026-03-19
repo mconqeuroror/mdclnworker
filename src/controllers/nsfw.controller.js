@@ -2704,9 +2704,32 @@ export async function generateNsfwImage(req, res) {
   }
 }
 
+/**
+ * Run async mapper over items with at most `concurrency` calls in flight. Results preserve input order.
+ */
+async function mapWithConcurrencyLimit(items, concurrency, mapper) {
+  if (!items.length) return [];
+  const limit = Math.max(1, Math.floor(Number(concurrency)) || 1);
+  const results = new Array(items.length);
+  let cursor = 0;
+
+  async function worker() {
+    while (true) {
+      const i = cursor++;
+      if (i >= items.length) break;
+      results[i] = await mapper(items[i], i);
+    }
+  }
+
+  const workerCount = Math.min(limit, items.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results;
+}
+
 // ============================================
 // POST /api/nsfw/nudes-pack — dynamic cr/image: 15 @ 30 poses → 30 @ 1 pose (linear); looks + trigger server-side
 // Body: { modelId, poseIds: string[], attributes?, attributesDetail?, sceneDescription?, skipFaceSwap?, faceSwapImageUrl?, options?, resolution? }
+// Env: NSFW_NUDES_PACK_PROMPT_CONCURRENCY (default 4) — parallel Grok prompt calls before RunPod submit
 // ============================================
 export async function generateNudesPack(req, res) {
   let creditsDeducted = 0;
@@ -2853,6 +2876,8 @@ export async function generateNudesPack(req, res) {
     let queuedCount = 0;
     let creditsUsedSuccess = 0;
 
+    /** @type {{ idx: number, poseId: string, pose: { id: string, title: string, summary: string, category: string, promptFragment: string }, thisCreditCost: number }[]} */
+    const packRows = [];
     for (let idx = 0; idx < poseIds.length; idx++) {
       const thisCreditCost =
         creditsSplitForPack[idx] ?? getNudesPackCreditsPerImage(poseIds.length);
@@ -2863,9 +2888,57 @@ export async function generateNudesPack(req, res) {
         await refundCredits(userId, thisCreditCost);
         continue;
       }
+      packRows.push({ idx, poseId, pose, thisCreditCost });
+    }
 
-      // Pose text only in CLIP — model looks stay in LoRA + chipSelections (AI LoRA picker), not pasted as a tag dump.
-      const userPrompt = pose.promptFragment.trim();
+    const promptConcurrencyRaw = process.env.NSFW_NUDES_PACK_PROMPT_CONCURRENCY;
+    const promptConcurrency = Math.max(
+      1,
+      Math.min(12, Number.parseInt(String(promptConcurrencyRaw ?? "4"), 10) || 4),
+    );
+    console.log(
+      `📦 Nudes pack: generating ${packRows.length} AI prompts with concurrency=${promptConcurrency}`,
+    );
+
+    const promptedRows = await mapWithConcurrencyLimit(packRows, promptConcurrency, async (row) => {
+      const { idx, pose } = row;
+      const poseFragment = pose.promptFragment.trim();
+      const userRequestForAi = [
+        packSceneNote.trim(),
+        `Nudes pack ${idx + 1}/${poseIds.length}: ${pose.title} (${pose.category})`,
+        pose.summary,
+        poseFragment,
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+      let finalUserPrompt = poseFragment;
+      try {
+        const aiPrompt = await runNsfwPromptGenerationForModel(
+          model,
+          userRequestForAi,
+          attributesDetail,
+          attributesString,
+        );
+        if (aiPrompt && typeof aiPrompt === "string" && aiPrompt.trim()) {
+          if (isNsfwPromptLogicalConflict(aiPrompt)) {
+            console.warn(`Nudes pack ${pose.id}: AI reported logical conflict — using pose fragment fallback`);
+            finalUserPrompt = poseFragment;
+          } else {
+            finalUserPrompt = aiPrompt.trim();
+          }
+        }
+      } catch (promptErr) {
+        console.error(`Nudes pack AI prompt failed for ${pose.id}:`, promptErr?.message || promptErr);
+        finalUserPrompt = poseFragment;
+      }
+
+      return { ...row, finalUserPrompt, userRequestForAi };
+    });
+
+    for (const row of promptedRows) {
+      const { idx, poseId, pose, thisCreditCost, finalUserPrompt, userRequestForAi } = row;
+
       const sceneLine = [packSceneNote.trim(), `Nudes pack ${idx + 1}/${poseIds.length}: ${pose.title}`]
         .filter(Boolean)
         .join(" · ");
@@ -2875,7 +2948,7 @@ export async function generateNudesPack(req, res) {
           userId,
           modelId,
           type: "nsfw",
-          prompt: `[${pose.id}] ${userPrompt}`,
+          prompt: `[${pose.id}] ${finalUserPrompt}`,
           status: "processing",
           creditsCost: thisCreditCost,
           replicateModel: "comfyui-nsfw",
@@ -2887,12 +2960,12 @@ export async function generateNudesPack(req, res) {
       const submission = await submitNsfwGeneration({
         loraUrl,
         triggerWord: loraTriggerWord,
-        userPrompt,
-        attributes: "",
-        sceneDescription: sceneLine || userPrompt,
+        userPrompt: finalUserPrompt,
+        attributes: attributesString,
+        sceneDescription: userRequestForAi || sceneLine || finalUserPrompt,
         chipSelections: attributesDetail,
         options: {
-          nudesPack: true,
+          nudesPack: false,
           quickFlow: options.quickFlow === true,
           loraStrength: userOverrideStrength,
           postProcessing,

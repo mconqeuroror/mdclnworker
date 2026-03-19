@@ -24,6 +24,7 @@ If NSFW image generation uses the in-process RunPod poller, tune concurrency and
 | `NSFW_MAX_RUNNING_MS` | `2700000` (45 min) | Max time in `IN_PROGRESS` (queue time excluded). |
 | `NSFW_MAX_WALL_MS` | `5400000` (90 min) | Absolute max wall time per job (includes `IN_QUEUE`). |
 | `NSFW_STUCK_MAX_AGE_SEC` | `6000` (100 min) | Recovery poller fails stuck `processing` rows older than this. |
+| `NSFW_NUDES_PACK_PROMPT_CONCURRENCY` | `4` | Max parallel Grok “Create prompt” calls when starting a nudes pack (1–12; higher = faster prompt phase, more OpenRouter load). |
 
 ## Note on this stack
 
