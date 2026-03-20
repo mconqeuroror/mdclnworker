@@ -3,8 +3,10 @@ import multer from "multer";
 import crypto from "crypto";
 import prisma from "../lib/prisma.js";
 import { authMiddleware } from "../middleware/auth.middleware.js";
+import adminMiddleware from "../middleware/admin.middleware.js";
 import { isR2Configured, getR2PresignedPutForKey } from "../utils/r2.js";
 import { convertAndStoreMedia, isConvertibleMedia } from "../services/media-reformatter.service.js";
+import { postRepurposeJobToWorker } from "../services/ffmpeg-worker-client.js";
 
 const router = express.Router();
 const CONVERTER_JOB_RETENTION_DAYS = 30;
@@ -127,6 +129,83 @@ router.post("/prepare-input", authMiddleware, express.json(), async (req, res) =
   } catch (e) {
     console.error("Reformatter prepare-input error:", e?.message);
     return res.status(500).json({ success: false, message: e?.message || "Failed to prepare upload" });
+  }
+});
+
+/**
+ * Admin only: run conversion via external FFmpeg worker (ffpmeg). Same upload flow as convert-background
+ * but processing happens on the worker using repurposer pipelines (best for mp4/mov; exotic codecs may fail).
+ */
+router.post("/convert-with-worker", authMiddleware, adminMiddleware, express.json(), async (req, res) => {
+  try {
+    if (!isR2Configured()) {
+      return res.status(503).json({ success: false, message: "File storage is not configured" });
+    }
+    const userId = req.user?.id || req.user?.userId;
+    if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+    const { inputUrl: inputUrlRaw, originalFileName } = req.body || {};
+    if (!inputUrlRaw || typeof inputUrlRaw !== "string" || !inputUrlRaw.startsWith("http")) {
+      return res.status(400).json({ success: false, message: "inputUrl (public URL of uploaded file) is required" });
+    }
+    const name = typeof originalFileName === "string" ? originalFileName : "upload";
+    const lower = name.toLowerCase();
+    const isVideo = /\.(mov|mp4|m4v|avi|mkv|wmv|flv|webm|mpeg|mpg|3gp)$/.test(lower);
+    const isImage = !isVideo;
+
+    const job = await prisma.converterJob.create({
+      data: {
+        userId,
+        originalFileName: name.slice(0, 512),
+        status: "processing",
+      },
+    });
+
+    try {
+      const outputExt = isVideo ? "mp4" : "jpg";
+      const contentType = isVideo ? "video/mp4" : "image/jpeg";
+      const fileName = `converted.${outputExt}`;
+      const key = `conversions/${userId}/${job.id}/${fileName}`;
+      const { uploadUrl, publicUrl } = await getR2PresignedPutForKey(key, contentType, 3600);
+
+      const wr = await postRepurposeJobToWorker({
+        inputUrl: inputUrlRaw.trim(),
+        isImage,
+        settings: { copies: 1, filters: {}, metadata: {} },
+        outputPutUrls: [{ putUrl: uploadUrl, publicUrl, contentType }],
+        jobRef: { converterJobId: job.id, source: "reformatter-convert-with-worker" },
+      });
+
+      const outUrl = wr.outputUrls?.[0] || publicUrl;
+      const expiresAt = new Date(Date.now() + CONVERTER_JOB_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+      await prisma.converterJob.update({
+        where: { id: job.id },
+        data: {
+          status: "completed",
+          outputUrl: outUrl,
+          outputExt,
+          completedAt: new Date(),
+          expiresAt,
+        },
+      });
+      return res.json({
+        success: true,
+        jobId: job.id,
+        message: "Conversion completed via FFmpeg worker.",
+      });
+    } catch (inner) {
+      const msg = (inner?.message || "Worker failed").slice(0, 500);
+      await prisma.converterJob.update({
+        where: { id: job.id },
+        data: { status: "failed", errorMessage: msg, completedAt: new Date() },
+      }).catch(() => {});
+      throw inner;
+    }
+  } catch (e) {
+    console.error("Reformatter convert-with-worker error:", e?.message);
+    return res.status(502).json({
+      success: false,
+      message: e?.message || "Worker conversion failed. Try browser conversion or server convert.",
+    });
   }
 });
 

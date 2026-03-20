@@ -991,6 +991,14 @@ export default function VideoRepurposerPage({ embedded }) {
   const [showMetadata, setShowMetadata] = useState(false);
   /** When false, server applies smart filter pack (+10 credits). When true, manual filters (no AI credit). */
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  /** Admin only: send repurpose job to external FFmpeg worker (ffpmeg) instead of browser WASM. */
+  const [adminUseWorkerFfmpeg, setAdminUseWorkerFfmpeg] = useState(() => {
+    try {
+      return localStorage.getItem("repurposer_admin_use_worker_ff") === "1";
+    } catch {
+      return false;
+    }
+  });
   const [deviceSearch, setDeviceSearch] = useState("");
   const [showGallery, setShowGallery] = useState(false);
   const [customPresets, setCustomPresets] = useState(() => {
@@ -1025,6 +1033,14 @@ export default function VideoRepurposerPage({ embedded }) {
   useEffect(() => {
     if (activeTab === "history") fetchHistory();
   }, [activeTab]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("repurposer_admin_use_worker_ff", adminUseWorkerFfmpeg ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+  }, [adminUseWorkerFfmpeg]);
 
   useEffect(() => {
     return () => {
@@ -1364,11 +1380,6 @@ export default function VideoRepurposerPage({ embedded }) {
       return;
     }
 
-    if (!isFfmpegWasmSupported()) {
-      toast.error("Your browser does not support in-browser processing. Try a modern browser with WebAssembly.");
-      return;
-    }
-
     setIsGenerating(true);
     setOutputs([]);
     setProgress(0);
@@ -1387,6 +1398,46 @@ export default function VideoRepurposerPage({ embedded }) {
         },
       };
       const settings = { copies, filters, metadata: syncedMeta, useAiOptimization };
+
+      if (user?.role === "admin" && adminUseWorkerFfmpeg) {
+        setStatusMsg("Processing on FFmpeg worker…");
+        setProgress(10);
+        const form = new FormData();
+        form.append("video", videoFile);
+        if (watermarkFile) form.append("watermark", watermarkFile);
+        form.append("settings", JSON.stringify(settings));
+        const workerRes = await api.post("/video-repurpose/generate-with-worker", form, {
+          headers: { "Content-Type": "multipart/form-data" },
+        });
+        const data = workerRes.data;
+        if (!data?.ok) {
+          toast.error(data?.error || "Worker failed");
+          setIsGenerating(false);
+          return;
+        }
+        setJobId(data.job_id);
+        setJobStatus("completed");
+        setProgress(100);
+        setStatusMsg("Done.");
+        setOutputs(data.outputs || []);
+        try {
+          await refreshUserCredits?.();
+        } catch {
+          /* ignore */
+        }
+        clearDraft();
+        toast.success(`Generated ${(data.outputs || []).length} unique copies (server worker)`);
+        setIsGenerating(false);
+        stopPolling();
+        fetchHistory();
+        return;
+      }
+
+      if (!isFfmpegWasmSupported()) {
+        toast.error("Your browser does not support in-browser processing. Try a modern browser with WebAssembly.");
+        setIsGenerating(false);
+        return;
+      }
 
       let sourceInfo = { width: 1920, height: 1080, duration: 10, hasAudio: inputHasAudio };
       if (!isImage) {
@@ -1495,7 +1546,21 @@ export default function VideoRepurposerPage({ embedded }) {
       setStatusMsg("");
       setProgress(0);
     }
-  }, [videoFile, copies, filters, metadata, advancedOpen, inputHasAudio, stopPolling, fetchHistory, clearDraft, refreshUserCredits]);
+  }, [
+    videoFile,
+    watermarkFile,
+    copies,
+    filters,
+    metadata,
+    advancedOpen,
+    inputHasAudio,
+    stopPolling,
+    fetchHistory,
+    clearDraft,
+    refreshUserCredits,
+    user?.role,
+    adminUseWorkerFfmpeg,
+  ]);
 
   const handleDownload = useCallback(async (url, fileName) => {
     try {
@@ -1999,6 +2064,30 @@ export default function VideoRepurposerPage({ embedded }) {
                   <Sparkles className="w-3.5 h-3.5 shrink-0" />
                   <span>Includes +10 credit smart optimization</span>
                 </p>
+              )}
+
+              {user?.role === "admin" && (
+                <div className="mb-3 p-3 rounded-lg border border-amber-500/30 bg-amber-500/5">
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={adminUseWorkerFfmpeg}
+                      onChange={(e) => setAdminUseWorkerFfmpeg(e.target.checked)}
+                      className="mt-1 rounded border-amber-500/50"
+                      data-testid="toggle-admin-ff-worker"
+                    />
+                    <span className="text-xs text-amber-100/95">
+                      <span className="font-semibold flex items-center gap-1.5">
+                        <Shield className="w-3.5 h-3.5" />
+                        Admin: external FFmpeg worker (ffpmeg)
+                      </span>
+                      <span className="block text-[11px] text-amber-200/70 mt-1">
+                        When on, this device sends the job to the configured worker instead of running FFmpeg in the browser.
+                        Other users always use browser processing until this is stable.
+                      </span>
+                    </span>
+                  </label>
+                </div>
               )}
 
               <button

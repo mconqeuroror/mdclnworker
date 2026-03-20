@@ -1,7 +1,8 @@
 import { useMemo, useState, useEffect, useRef } from "react";
-import { Upload, RefreshCw, Download, Copy, CheckCircle2, AlertCircle, FileType2, Video, History } from "lucide-react";
+import { Upload, RefreshCw, Download, Copy, CheckCircle2, AlertCircle, FileType2, Video, History, Shield } from "lucide-react";
 import toast from "react-hot-toast";
 import { reformatterAPI } from "../services/api";
+import { useAuthStore } from "../store";
 
 function formatBytes(bytes) {
   const value = Number(bytes || 0);
@@ -17,6 +18,14 @@ function formatBytes(bytes) {
 }
 
 export default function ContentReformatterPage() {
+  const { user } = useAuthStore();
+  const [adminUseWorkerFfmpeg, setAdminUseWorkerFfmpeg] = useState(() => {
+    try {
+      return localStorage.getItem("reformatter_admin_use_worker_ff") === "1";
+    } catch {
+      return false;
+    }
+  });
   const [selectedFile, setSelectedFile] = useState(null);
   const [isConverting, setIsConverting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -73,6 +82,14 @@ export default function ContentReformatterPage() {
     return () => clearInterval(t);
   }, [showHistory]);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem("reformatter_admin_use_worker_ff", adminUseWorkerFfmpeg ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+  }, [adminUseWorkerFfmpeg]);
+
   const onFilePicked = (file) => {
     if (!file) return;
     setSelectedFile(file);
@@ -88,11 +105,19 @@ export default function ContentReformatterPage() {
     setResult(null);
     setUploadProgress(0);
     try {
-      const data = await reformatterAPI.convertInBackground(selectedFile, (p) => setUploadProgress(p ?? 0));
+      const useWorker = user?.role === "admin" && adminUseWorkerFfmpeg;
+      const data = useWorker
+        ? await reformatterAPI.convertWithWorker(selectedFile, (p) => setUploadProgress(p ?? 0))
+        : await reformatterAPI.convertInBackground(selectedFile, (p) => setUploadProgress(p ?? 0));
       setUploadProgress(100);
       loadHistory();
       setShowHistory(true);
-      toast.success(data?.message || "Conversion started. You can leave — check Conversion history.");
+      toast.success(
+        data?.message ||
+          (useWorker
+            ? "Conversion completed via FFmpeg worker. See Conversion history."
+            : "Conversion started. You can leave — check Conversion history."),
+      );
     } catch (err) {
       const message = err?.response?.data?.message || err?.message || "Failed to start conversion";
       setError(message);
@@ -161,6 +186,30 @@ export default function ContentReformatterPage() {
         </p>
       </div>
 
+      {user?.role === "admin" && (
+        <div className="mb-4 p-3 rounded-xl border border-amber-500/30 bg-amber-500/5 max-w-4xl mx-auto">
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={adminUseWorkerFfmpeg}
+              onChange={(e) => setAdminUseWorkerFfmpeg(e.target.checked)}
+              className="mt-1 rounded border-amber-500/50"
+              data-testid="toggle-reformatter-admin-ff-worker"
+            />
+            <span className="text-xs text-amber-100/95">
+              <span className="font-semibold flex items-center gap-1.5">
+                <Shield className="w-3.5 h-3.5" />
+                Admin: external FFmpeg worker (ffpmeg)
+              </span>
+              <span className="block text-[11px] text-amber-200/70 mt-1">
+                Uses the repurposer worker pipeline after upload. Best for common video containers; exotic formats may still need
+                &quot;Convert in browser&quot;. Other users always use the standard background conversion.
+              </span>
+            </span>
+          </label>
+        </div>
+      )}
+
       <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 md:p-6">
         <div className="grid md:grid-cols-2 gap-4">
           <label className="rounded-xl border border-dashed border-white/20 bg-white/[0.02] p-6 cursor-pointer hover:bg-white/[0.05] transition">
@@ -214,7 +263,9 @@ export default function ContentReformatterPage() {
           )}
         </div>
         <p className="mt-2 text-xs text-slate-500">
-          File is uploaded to the server and converted in the background. You can close this tab and check Conversion history later.
+          {user?.role === "admin" && adminUseWorkerFfmpeg
+            ? "Admin worker mode: upload runs, then the external FFmpeg worker completes the conversion (usually a few seconds). Check Conversion history for the file."
+            : "File is uploaded to the server and converted in the background. You can close this tab and check Conversion history later."}
         </p>
 
         {error && (

@@ -21,8 +21,10 @@ import {
   FFPROBE_BIN,
 } from "../services/video-repurpose.service.js";
 import { authMiddleware } from "../middleware/auth.middleware.js";
+import adminMiddleware from "../middleware/admin.middleware.js";
 import prisma from "../lib/prisma.js";
-import { uploadToR2, isR2Configured, deleteFromR2, getR2PresignedPutForKey } from "../utils/r2.js";
+import { uploadToR2, isR2Configured, deleteFromR2, getR2PresignedPutForKey, getPresignedGetUrl } from "../utils/r2.js";
+import { postRepurposeJobToWorker } from "../services/ffmpeg-worker-client.js";
 import { getSafeErrorMessage } from "../utils/safe-error.js";
 import { buildAiRepurposeFilters } from "../services/repurpose-ai-filters.js";
 import { checkAndExpireCredits, deductCredits, getTotalCredits } from "../services/credit.service.js";
@@ -898,6 +900,211 @@ router.post(
     } catch (e) {
       console.error("Generate error:", e);
       res.status(500).json({ ok: false, error: "Generation failed." });
+    }
+  },
+);
+
+/** Admin only: send job to external FFmpeg worker (ffpmeg); regular users use browser WASM. */
+router.post(
+  "/generate-with-worker",
+  requireActiveSubscription,
+  adminMiddleware,
+  upload.fields([
+    { name: "video", maxCount: 1 },
+    { name: "watermark", maxCount: 1 },
+  ]),
+  async (req, res) => {
+    const userId = req.user?.id || req.user?.userId;
+    let videoPath = null;
+    let watermarkPath = null;
+    try {
+      if (!isR2Configured()) {
+        return res.status(503).json({ ok: false, error: "Storage not configured. Worker repurpose requires R2." });
+      }
+      if (!req.files?.video?.[0]) {
+        return res.status(400).json({ ok: false, error: "Missing file. Upload a video or image." });
+      }
+      videoPath = req.files.video[0].path;
+      watermarkPath = req.files.watermark?.[0]?.path || null;
+
+      let settings = {};
+      try {
+        settings = JSON.parse(req.body.settings || "{}");
+      } catch {
+        return res.status(400).json({ ok: false, error: "Invalid settings JSON." });
+      }
+      const copies = Math.min(5, Math.max(1, parseInt(settings.copies) || 1));
+      settings.copies = copies;
+      const dm = settings.metadata?.device_metadata || {};
+      settings.metadata = {
+        ...(settings.metadata || {}),
+        device_metadata: {
+          ...dm,
+          uniqueDevicePerCopy: dm.deviceMode === "random_unique",
+        },
+      };
+
+      const isImage = req.files.video[0].mimetype.startsWith("image/");
+      let probeHasAudio = true;
+      if (!isImage) {
+        const info = await probeInput(videoPath);
+        probeHasAudio = info.hasAudio !== false;
+        if (info.duration > MAX_VIDEO_DURATION_SEC) {
+          try {
+            if (fs.existsSync(videoPath)) fs.unlinkSync(videoPath);
+            if (watermarkPath && fs.existsSync(watermarkPath)) fs.unlinkSync(watermarkPath);
+          } catch {}
+          return res.status(400).json({
+            ok: false,
+            error: `Video is too long. Maximum allowed duration is ${MAX_VIDEO_DURATION_SEC} seconds.`,
+          });
+        }
+      }
+
+      const creditResult = await applyRepurposeSmartFiltersAndCharge(userId, settings, {
+        isImage,
+        hasAudio: isImage ? false : probeHasAudio,
+      });
+      if (!creditResult.ok) {
+        try {
+          if (fs.existsSync(videoPath)) fs.unlinkSync(videoPath);
+          if (watermarkPath && fs.existsSync(watermarkPath)) fs.unlinkSync(watermarkPath);
+        } catch {}
+        return res.status(creditResult.status || 500).json({ ok: false, error: creditResult.error });
+      }
+
+      const jobId = uuidv4();
+      const videoExt = path.extname(req.files.video[0].originalname || "").replace(/^\./, "") || (isImage ? "jpg" : "mp4");
+      const videoBuffer = fs.readFileSync(videoPath);
+      const videoContentType = req.files.video[0].mimetype || (isImage ? "image/jpeg" : "video/mp4");
+      const videoKey = `repurpose-input/${userId}/${jobId}/input.${videoExt}`;
+      await uploadToR2(videoBuffer, videoKey, videoContentType);
+      const inputUrl = await getPresignedGetUrl(videoKey, 7200);
+
+      let watermarkUrl = null;
+      if (watermarkPath && fs.existsSync(watermarkPath)) {
+        const wBuf = fs.readFileSync(watermarkPath);
+        const wExt = path.extname(req.files.watermark?.[0]?.originalname || "").replace(/^\./, "") || "png";
+        const wKey = `repurpose-input/${userId}/${jobId}/watermark.${wExt}`;
+        const wCt = req.files.watermark?.[0]?.mimetype || "image/png";
+        await uploadToR2(wBuf, wKey, wCt);
+        watermarkUrl = await getPresignedGetUrl(wKey, 7200);
+      }
+
+      const outputExt = isImage ? "jpg" : "mp4";
+      const contentType = isImage ? "image/jpeg" : "video/mp4";
+      const outputPutUrls = [];
+      for (let i = 1; i <= copies; i++) {
+        const fileName = `repurpose_${String(i).padStart(3, "0")}.${outputExt}`;
+        const key = `repurpose/${userId}/${jobId}/${fileName}`;
+        const { uploadUrl, publicUrl } = await getR2PresignedPutForKey(key, contentType, 3600);
+        outputPutUrls.push({ putUrl: uploadUrl, publicUrl, contentType });
+      }
+
+      await prisma.repurposeJob.create({
+        data: {
+          id: jobId,
+          userId,
+          copies,
+          status: "processing",
+          progress: 10,
+          message: "Processing on FFmpeg worker...",
+        },
+      });
+
+      const workerPayload = {
+        inputUrl,
+        watermarkUrl: watermarkUrl || undefined,
+        settings,
+        isImage,
+        outputPutUrls,
+        jobRef: { jobId, source: "modelclone-generate-with-worker" },
+      };
+
+      let wr;
+      try {
+        wr = await postRepurposeJobToWorker(workerPayload);
+      } catch (we) {
+        await prisma.repurposeJob.updateMany({
+          where: { id: jobId, userId },
+          data: {
+            status: "failed",
+            message: "Worker failed.",
+            errorMessage: getSafeErrorMessage(we) || we?.message || "FFmpeg worker failed",
+          },
+        }).catch(() => {});
+        try {
+          if (fs.existsSync(videoPath)) fs.unlinkSync(videoPath);
+          if (watermarkPath && fs.existsSync(watermarkPath)) fs.unlinkSync(watermarkPath);
+        } catch {}
+        return res.status(502).json({
+          ok: false,
+          error: getSafeErrorMessage(we) || we?.message || "FFmpeg worker failed.",
+        });
+      }
+
+      try {
+        if (fs.existsSync(videoPath)) fs.unlinkSync(videoPath);
+        if (watermarkPath && fs.existsSync(watermarkPath)) fs.unlinkSync(watermarkPath);
+      } catch {}
+
+      const outList = (wr.outputFileNames || []).map((fn, i) => {
+        const fileUrl = wr.outputUrls?.[i] || "";
+        return {
+          file_name: fn,
+          download_url: fileUrl.startsWith("http")
+            ? fileUrl
+            : `/video-repurpose/jobs/${jobId}/download/${fn}`,
+          fileUrl,
+          metadata_warnings: [],
+        };
+      });
+
+      jobs.set(jobId, {
+        id: jobId,
+        userId,
+        status: "completed",
+        progress: 100,
+        message: "Done.",
+        outputs: outList,
+        error: null,
+        createdAt: new Date().toISOString(),
+        outputDir: null,
+        videoPath: null,
+        watermarkPath: null,
+        isImage,
+      });
+
+      await prisma.repurposeJob.updateMany({
+        where: { id: jobId, userId },
+        data: { status: "completed", progress: 100, message: "Done.", errorMessage: null },
+      });
+      await prisma.repurposeOutput.createMany({
+        data: outList.map((o, i) => ({
+          jobId,
+          fileName: o.file_name,
+          fileUrl: wr.outputUrls?.[i] || o.fileUrl || "",
+          fileSize: 0,
+        })),
+      });
+
+      return res.json({
+        ok: true,
+        job_id: jobId,
+        queue_position: 0,
+        mode: "worker",
+        outputs: outList,
+      });
+    } catch (e) {
+      console.error("generate-with-worker error:", e?.message);
+      try {
+        if (videoPath && fs.existsSync(videoPath)) fs.unlinkSync(videoPath);
+        if (watermarkPath && fs.existsSync(watermarkPath)) fs.unlinkSync(watermarkPath);
+      } catch {}
+      return res.status(500).json({
+        ok: false,
+        error: getSafeErrorMessage(e) || e?.message || "Worker repurpose failed.",
+      });
     }
   },
 );

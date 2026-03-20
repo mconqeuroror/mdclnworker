@@ -811,6 +811,28 @@ export const reformatterAPI = {
     if (onUploadProgress) onUploadProgress(100);
     return { success: true, jobId: start.data?.jobId, message: start.data?.message || "Conversion started. Check Conversion history." };
   },
+  /** Admin only: same upload as convertInBackground, then external FFmpeg worker processes the file. */
+  convertWithWorker: async (file, onUploadProgress) => {
+    const name = file?.name || "upload";
+    const prepInput = await api.post("/reformatter/prepare-input", { originalFileName: name, contentType: file?.type || "application/octet-stream" });
+    const { uploadUrl, publicUrl } = prepInput.data || {};
+    if (!uploadUrl || !publicUrl) throw new Error("Could not get upload URL for file");
+    if (onUploadProgress) onUploadProgress(10);
+    const putRes = await fetch(uploadUrl, {
+      method: "PUT",
+      body: file,
+      headers: { "Content-Type": file?.type || "application/octet-stream" },
+    });
+    if (!putRes.ok) throw new Error(`Upload failed: ${putRes.status}`);
+    if (onUploadProgress) onUploadProgress(60);
+    const start = await api.post("/reformatter/convert-with-worker", { inputUrl: publicUrl, originalFileName: name });
+    if (onUploadProgress) onUploadProgress(100);
+    return {
+      success: true,
+      jobId: start.data?.jobId,
+      message: start.data?.message || "Conversion completed via FFmpeg worker.",
+    };
+  },
   getJobStatus: async (jobId) => {
     const res = await api.get(`/reformatter/status/${jobId}`);
     return res.data;
