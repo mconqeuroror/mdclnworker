@@ -804,6 +804,10 @@ function comfyUiGraphToApiPrompt(nodes, links, extra) {
         }
       }
     }
+    // rgthree Seed often exports with inputs: [] — widgets_values still holds the seed (and mode fields).
+    if (node.type === "Seed (rgthree)" && (node.inputs || []).length === 0 && Array.isArray(node.widgets_values) && node.widgets_values.length >= 1) {
+      inputs.seed = node.widgets_values[0];
+    }
     prompt[id] = { class_type: node.type, inputs };
   }
   // Apply ue_links (Anything Everywhere): connect checkpoint 282 MODEL/CLIP/VAE to nodes 8, 21, 28, 42, 45
@@ -1446,19 +1450,17 @@ export function buildNsfwPrompt(triggerWord, userPrompt, attributes = "") {
 
 /**
  * Build the full ComfyUI workflow from the core NSFW workflow template.
- * STRICT: Only injects specified values into widgets_values, nothing else is modified.
- * Injected nodes:
- * - 56: Positive Prompt (prompt text)
- * - 276: KSampler (steps = 50, fixed)
- * - 311: active_loras (count)
- * - 298: lora_girl (strength)
- * - 309: lora_girl_url (URL)
- * - 305: lora_additive1 (strength)
- * - 307: lora_additive1_url (URL)
- * - 306: lora_additive2 (strength)
- * - 308: lora_additive2_url (URL)
- * - 302: aspect_width (width)
- * - 303: aspect_height (height)
+ * Pass-through model: clone `attached_assets/nsfw_core_workflow.json` (Comfy UI graph export),
+ * only patch widget values + API fields that map to user input (prompts, LoRA URLs on node 250,
+ * strengths, aspect, seed). No graph surgery unless NSFW_COMFY_STRIP_UNSUPPORTED=1.
+ * Injected nodes (graph, before API conversion):
+ * - 41: Negative Prompt (String Literal)
+ * - 56: Positive Prompt (String Literal)
+ * - 276: KSampler base steps (= 50)
+ * - 311: active_loras (count → feeds LoadLoraFromUrlOrPath)
+ * - 298 / 305 / 306: lora_girl / additive strengths (PrimitiveFloat)
+ * - 302 / 303: aspect_width / aspect_height
+ * After API conversion, node 250 (LoadLoraFromUrlOrPath) gets lora_1_url, lora_2_url, lora_3_url.
  * Falls back to legacy inline workflow if attached_assets/nsfw_core_workflow.json is missing.
  */
 function buildComfyWorkflow(params) {
@@ -1532,7 +1534,14 @@ function buildComfyWorkflow(params) {
     // Calculate active_loras count: 1 (girl) + (additive1 if active) + (additive2 if active)
     const activeLorasCount = 1 + (additive1Url ? 1 : 0) + (additive2Url ? 1 : 0);
     
+    const negativePrompt = params.negativePrompt || DEFAULT_NSFW_NEGATIVE_PROMPT;
+
     // Inject values into widgets_values arrays
+    const node41 = findNode(41); // Negative Prompt (String Literal → refiner negative chain)
+    if (node41 && node41.widgets_values && node41.widgets_values.length > 0) {
+      node41.widgets_values[0] = negativePrompt;
+    }
+
     const node56 = findNode(56); // Positive Prompt
     if (node56 && node56.widgets_values && node56.widgets_values.length > 0) {
       node56.widgets_values[0] = prompt || "";
@@ -1552,30 +1561,15 @@ function buildComfyWorkflow(params) {
     if (node298 && node298.widgets_values && node298.widgets_values.length > 0) {
       node298.widgets_values[0] = Math.min(1, Math.max(0, Number(girlLoraStrength) || 0.6));
     }
-    
-    const node309 = findNode(309); // lora_girl_url
-    if (node309 && node309.widgets_values && node309.widgets_values.length > 0) {
-      node309.widgets_values[0] = loraUrl ? sanitizeLoraDownloadUrl(String(loraUrl).trim()) : "";
-    }
-    
+
     const node305 = findNode(305); // lora_additive1
     if (node305 && node305.widgets_values && node305.widgets_values.length > 0) {
       node305.widgets_values[0] = additive1Strength;
     }
-    
-    const node307 = findNode(307); // lora_additive1_url
-    if (node307 && node307.widgets_values && node307.widgets_values.length > 0) {
-      node307.widgets_values[0] = additive1Url ? sanitizeLoraDownloadUrl(additive1Url) : "";
-    }
-    
+
     const node306 = findNode(306); // lora_additive2
     if (node306 && node306.widgets_values && node306.widgets_values.length > 0) {
       node306.widgets_values[0] = additive2Strength;
-    }
-    
-    const node308 = findNode(308); // lora_additive2_url
-    if (node308 && node308.widgets_values && node308.widgets_values.length > 0) {
-      node308.widgets_values[0] = additive2Url ? sanitizeLoraDownloadUrl(additive2Url) : "";
     }
     
     const node302 = findNode(302); // aspect_width
@@ -1616,22 +1610,35 @@ function buildComfyWorkflow(params) {
     // Convert graph to API format
     const apiWorkflow = comfyUiGraphToApiPrompt(workflowGraph.nodes, workflowGraph.links, workflowGraph.extra);
 
-    // Set seed if provided (node 57)
+    // LoadLoraFromUrlOrPath (250): URLs live here in the exported workflow — not in separate Primitive nodes.
+    const safeLora = loraUrl ? sanitizeLoraDownloadUrl(String(loraUrl).trim()) : "";
+    const safeAdd1 = additive1Url ? sanitizeLoraDownloadUrl(additive1Url) : "";
+    const safeAdd2 = additive2Url ? sanitizeLoraDownloadUrl(additive2Url) : "";
+    if (apiWorkflow["250"]?.inputs) {
+      const ins = apiWorkflow["250"].inputs;
+      ins.lora_1_url = safeLora;
+      ins.lora_2_url = safeAdd1;
+      ins.lora_3_url = safeAdd2;
+    }
+
+    // Set seed if provided (node 57 — rgthree Seed)
     if (seed != null && apiWorkflow["57"]?.inputs) {
       apiWorkflow["57"].inputs.seed = seed;
     }
 
-    // Strip nodes that RunPod ComfyUI may not have (String Literal, Fast Groups Bypasser, etc.)
-    // and inject prompt / negativePrompt / loraUrl / activeLorasCount / LoRA strengths into consumers — avoids "Unknown node types" at validation
-    stripUnsupportedNodesAndInjectValues(apiWorkflow, {
-      prompt: prompt || "",
-      negativePrompt: DEFAULT_NSFW_NEGATIVE_PROMPT,
-      loraUrl: params.loraUrl,
-      activeLorasCount,
-      loraGirlStrength: Math.min(1, Math.max(0, Number(girlLoraStrength) || 0.6)),
-      loraAdditive1Strength: additive1Strength,
-      loraAdditive2Strength: additive2Strength,
-    });
+    // Optional: strip custom nodes RunPod doesn't ship (String Literal, Crystools, PrimitiveFloat) and inline values.
+    // Default: off — pass the workflow through so ComfyUI on the worker matches your desktop export.
+    if (process.env.NSFW_COMFY_STRIP_UNSUPPORTED === "1") {
+      stripUnsupportedNodesAndInjectValues(apiWorkflow, {
+        prompt: prompt || "",
+        negativePrompt,
+        loraUrl: params.loraUrl,
+        activeLorasCount,
+        loraGirlStrength: Math.min(1, Math.max(0, Number(girlLoraStrength) || 0.6)),
+        loraAdditive1Strength: additive1Strength,
+        loraAdditive2Strength: additive2Strength,
+      });
+    }
 
     return apiWorkflow;
   }
