@@ -1283,20 +1283,22 @@ function applyNudesPackAdditiveLoraHint(aiSelection, hint) {
   aiSelection.enhancementStrengths = enh;
 }
 
-/** Camera / skin / artifact tail shared by solo and partnered prompts (no "solo girl" here). */
+/**
+ * Short camera/skin tail appended after Grok scene text. Keep compact — Z-Image Turbo is diluted by long
+ * comma-separated quality dumps; the main prompt should carry scene/lighting in flowing prose.
+ */
 const QUALITY_TECHNICAL_TAIL =
-  "shot on iPhone 15 Pro main camera, smartphone photo, slight wide-angle lens distortion, natural skin texture with visible pores and imperfections and skin folds, unedited raw photo, auto-exposure, auto white balance, slight noise in shadows, jpeg compression artifacts, phone flash harsh frontal light washing out skin slightly overexposed, slight motion blur on edges, slightly out of focus background, no color grading, no retouching, no extra limbs, no distorted hands, candid amateur nude, unedited raw smartphone photo, grainy low light photo";
+  "smartphone candid photo, natural skin with visible pores, slight wide-angle distortion, unedited raw capture, auto-exposure, grain in shadows, candid amateur nude";
 
 /** Solo nudes only — NEVER append this when the scene describes partnered sex / visible penis / penetration (conflicts with model). */
 const QUALITY_SUFFIX_SOLO =
-  "one person only, solo girl, anatomically correct, natural body proportions, realistic adult genital scale, average penis size proportional to body, not oversized, believable POV scale, " +
-  QUALITY_TECHNICAL_TAIL;
+  "one person only, solo girl, anatomically correct, natural body proportions, " + QUALITY_TECHNICAL_TAIL;
 
 /**
  * Explicit partnered / POV sex — no "solo girl" (that caused wrong layouts and ignored penetration).
  */
 const QUALITY_SUFFIX_PARTNERED =
-  "consensual explicit adult scene, primary female subject in frame, only one woman's face visible, partial male genitals or POV anatomy only as described, anatomically correct, natural body proportions, realistic adult genital scale, average penis size proportional to body, not oversized, believable POV scale, " +
+  "female subject in frame, male anatomy only as described in prompt, anatomically correct, natural proportions, average adult scale, " +
   QUALITY_TECHNICAL_TAIL;
 
 /** @deprecated use QUALITY_SUFFIX_SOLO — kept for callers that only need solo */
