@@ -833,15 +833,19 @@ const UNSUPPORTED_NODE_IDS = [
 ];
 
 /**
- * Remove unsupported nodes (String Literal, Primitive string, GetNode, Fast Groups Bypasser) and
+ * Remove unsupported nodes (String Literal, Primitive string, GetNode, Fast Groups Bypasser, Crystools, PrimitiveFloat) and
  * inject their values directly into any node that referenced them.
  */
-function stripUnsupportedNodesAndInjectValues(workflow, { prompt, negativePrompt, loraUrl }) {
+function stripUnsupportedNodesAndInjectValues(workflow, { prompt, negativePrompt, loraUrl, activeLorasCount = 1, loraGirlStrength = 0.6, loraAdditive1Strength = 0, loraAdditive2Strength = 0 }) {
   const safeLora = sanitizeLoraDownloadUrl(loraUrl);
   const replacements = {
     "41": negativePrompt,
     "56": prompt,
     "257": safeLora,
+    "311": activeLorasCount,
+    "298": loraGirlStrength,
+    "305": loraAdditive1Strength,
+    "306": loraAdditive2Strength,
   };
   for (const nodeId of UNSUPPORTED_NODE_IDS) {
     delete workflow[nodeId];
@@ -1604,12 +1608,24 @@ function buildComfyWorkflow(params) {
     
     // Convert graph to API format
     const apiWorkflow = comfyUiGraphToApiPrompt(workflowGraph.nodes, workflowGraph.links, workflowGraph.extra);
-    
+
     // Set seed if provided (node 57)
     if (seed != null && apiWorkflow["57"]?.inputs) {
       apiWorkflow["57"].inputs.seed = seed;
     }
-    
+
+    // Strip nodes that RunPod ComfyUI may not have (String Literal, Fast Groups Bypasser, etc.)
+    // and inject prompt / negativePrompt / loraUrl / activeLorasCount / LoRA strengths into consumers — avoids "Unknown node types" at validation
+    stripUnsupportedNodesAndInjectValues(apiWorkflow, {
+      prompt: prompt || "",
+      negativePrompt: DEFAULT_NSFW_NEGATIVE_PROMPT,
+      loraUrl: params.loraUrl,
+      activeLorasCount,
+      loraGirlStrength: Math.min(1, Math.max(0, Number(girlLoraStrength) || 0.6)),
+      loraAdditive1Strength: additive1Strength,
+      loraAdditive2Strength: additive2Strength,
+    });
+
     return apiWorkflow;
   }
 
@@ -1619,6 +1635,11 @@ function buildComfyWorkflow(params) {
 /** Extra negative terms for POV doggy/rear shots — avoid disembodied hand holding penis in frame */
 const NSFW_NEGATIVE_POV_NO_HAND =
   ", hand holding penis, hand gripping penis, hand on shaft, disembodied hand, hand in frame holding cock";
+
+/** Default negative prompt when stripping unsupported nodes (41/56/61) so RunPod never sees String Literal / Fast Groups Bypasser */
+const DEFAULT_NSFW_NEGATIVE_PROMPT =
+  "blurry, low resolution, deformed, bad anatomy, extra limbs, mutated hands, poorly drawn face, bad proportions, gigantic penis, huge penis, oversized penis, unrealistically large penis, hyperbolic genitals, watermark, text, signature, cartoon, anime, overexposed, underexposed, plastic skin, doll-like" +
+  NSFW_NEGATIVE_POV_NO_HAND;
 
 function buildComfyWorkflowLegacy(params) {
   const {
