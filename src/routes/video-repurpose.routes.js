@@ -21,13 +21,13 @@ import {
   FFPROBE_BIN,
 } from "../services/video-repurpose.service.js";
 import { authMiddleware } from "../middleware/auth.middleware.js";
-import adminMiddleware from "../middleware/admin.middleware.js";
 import prisma from "../lib/prisma.js";
 import { uploadToR2, isR2Configured, deleteFromR2, getR2PresignedPutForKey, getPresignedGetUrl } from "../utils/r2.js";
 import { postRepurposeJobToWorker } from "../services/ffmpeg-worker-client.js";
 import { getSafeErrorMessage } from "../utils/safe-error.js";
 import { buildAiRepurposeFilters } from "../services/repurpose-ai-filters.js";
 import { checkAndExpireCredits, deductCredits, getTotalCredits } from "../services/credit.service.js";
+import { getPublicAppBaseUrl } from "../lib/app-public-url.js";
 
 const execFileAsync = promisify(execFileCb);
 const MAX_VIDEO_DURATION_SEC = 60;
@@ -429,6 +429,44 @@ router.post("/n8n-callback", express.json(), async (req, res) => {
   } catch (e) {
     console.error("n8n callback error:", e);
     return res.status(500).json({ ok: false, error: "Callback failed" });
+  }
+});
+
+/**
+ * FFmpeg worker → app progress (same secret as worker POST /job). No user JWT.
+ * Updates DB + in-memory job map so polling GET /jobs/:jobId shows progress.
+ */
+router.post("/worker-progress", express.json({ limit: "64kb" }), async (req, res) => {
+  try {
+    const apiKey = req.headers["x-api-key"] || req.body?.secret;
+    if (!process.env.FFMPEG_WORKER_API_KEY || apiKey !== process.env.FFMPEG_WORKER_API_KEY) {
+      return res.status(401).json({ ok: false, error: "Unauthorized" });
+    }
+    const { jobId, progress, message } = req.body || {};
+    if (!jobId || typeof progress !== "number") {
+      return res.status(400).json({ ok: false, error: "Missing jobId or progress" });
+    }
+    const row = await prisma.repurposeJob.findUnique({ where: { id: jobId } });
+    if (!row) return res.status(404).json({ ok: false, error: "Job not found" });
+    if (row.status === "completed" || row.status === "failed") {
+      return res.json({ ok: true, ignored: true });
+    }
+    const p = Math.max(0, Math.min(100, Math.round(progress)));
+    const msg = typeof message === "string" ? message.slice(0, 500) : "Processing…";
+    const j = jobs.get(jobId);
+    if (j) {
+      j.progress = p;
+      j.message = msg;
+      if (j.status === "queued") j.status = "processing";
+    }
+    await prisma.repurposeJob.updateMany({
+      where: { id: jobId, status: { notIn: ["completed", "failed"] } },
+      data: { progress: p, message: msg },
+    }).catch(() => {});
+    return res.json({ ok: true });
+  } catch (e) {
+    console.error("worker-progress error:", e?.message);
+    return res.status(500).json({ ok: false, error: "Failed to record progress" });
   }
 });
 
@@ -904,11 +942,10 @@ router.post(
   },
 );
 
-/** Admin only: send job to external FFmpeg worker (ffpmeg); regular users use browser WASM. */
+/** Send job to external FFmpeg worker (ffpmeg). */
 router.post(
   "/generate-with-worker",
   requireActiveSubscription,
-  adminMiddleware,
   upload.fields([
     { name: "video", maxCount: 1 },
     { name: "watermark", maxCount: 1 },
@@ -973,12 +1010,64 @@ router.post(
         return res.status(creditResult.status || 500).json({ ok: false, error: creditResult.error });
       }
 
-      const jobId = uuidv4();
+      const rawJobId = typeof req.body?.jobId === "string" ? req.body.jobId.trim() : "";
+      const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      let jobId;
+      if (rawJobId && uuidRe.test(rawJobId)) {
+        const dup = await prisma.repurposeJob.findUnique({ where: { id: rawJobId } });
+        if (dup) {
+          return res.status(409).json({ ok: false, error: "Job id already in use." });
+        }
+        jobId = rawJobId;
+      } else {
+        jobId = uuidv4();
+      }
+
       const videoExt = path.extname(req.files.video[0].originalname || "").replace(/^\./, "") || (isImage ? "jpg" : "mp4");
       const videoBuffer = fs.readFileSync(videoPath);
       const videoContentType = req.files.video[0].mimetype || (isImage ? "image/jpeg" : "video/mp4");
       const videoKey = `repurpose-input/${userId}/${jobId}/input.${videoExt}`;
+
+      await prisma.repurposeJob.create({
+        data: {
+          id: jobId,
+          userId,
+          copies,
+          status: "processing",
+          progress: 10,
+          message: "Uploading to storage…",
+        },
+      });
+
+      jobs.set(jobId, {
+        id: jobId,
+        userId,
+        status: "processing",
+        progress: 10,
+        message: "Uploading to storage…",
+        outputs: [],
+        error: null,
+        createdAt: new Date().toISOString(),
+        outputDir: null,
+        videoPath: null,
+        watermarkPath: null,
+        isImage,
+      });
+
+      const patchJobProgress = async (p, msg) => {
+        const j = jobs.get(jobId);
+        if (j) {
+          j.progress = p;
+          j.message = msg;
+        }
+        await prisma.repurposeJob.updateMany({
+          where: { id: jobId, userId },
+          data: { progress: p, message: msg.slice(0, 500) },
+        }).catch(() => {});
+      };
+
       await uploadToR2(videoBuffer, videoKey, videoContentType);
+      await patchJobProgress(16, "Preparing signed URLs…");
       const inputUrl = await getPresignedGetUrl(videoKey, 7200);
 
       let watermarkUrl = null;
@@ -1001,16 +1090,10 @@ router.post(
         outputPutUrls.push({ putUrl: uploadUrl, publicUrl, contentType });
       }
 
-      await prisma.repurposeJob.create({
-        data: {
-          id: jobId,
-          userId,
-          copies,
-          status: "processing",
-          progress: 10,
-          message: "Processing on FFmpeg worker...",
-        },
-      });
+      await patchJobProgress(22, "Sending to FFmpeg worker…");
+
+      const baseUrl = getPublicAppBaseUrl();
+      const progressUrl = baseUrl ? `${baseUrl}/api/video-repurpose/worker-progress` : undefined;
 
       const workerPayload = {
         inputUrl,
@@ -1019,7 +1102,17 @@ router.post(
         isImage,
         outputPutUrls,
         jobRef: { jobId, source: "modelclone-generate-with-worker" },
+        ...(progressUrl ? { progressUrl } : {}),
       };
+
+      try {
+        if (fs.existsSync(videoPath)) fs.unlinkSync(videoPath);
+        if (watermarkPath && fs.existsSync(watermarkPath)) fs.unlinkSync(watermarkPath);
+      } catch {
+        /* ignore */
+      }
+      videoPath = null;
+      watermarkPath = null;
 
       let wr;
       try {
@@ -1033,20 +1126,18 @@ router.post(
             errorMessage: getSafeErrorMessage(we) || we?.message || "FFmpeg worker failed",
           },
         }).catch(() => {});
-        try {
-          if (fs.existsSync(videoPath)) fs.unlinkSync(videoPath);
-          if (watermarkPath && fs.existsSync(watermarkPath)) fs.unlinkSync(watermarkPath);
-        } catch {}
+        const j = jobs.get(jobId);
+        if (j) {
+          j.status = "failed";
+          j.progress = 0;
+          j.message = "Worker failed.";
+          j.error = getSafeErrorMessage(we) || we?.message || "FFmpeg worker failed.";
+        }
         return res.status(502).json({
           ok: false,
           error: getSafeErrorMessage(we) || we?.message || "FFmpeg worker failed.",
         });
       }
-
-      try {
-        if (fs.existsSync(videoPath)) fs.unlinkSync(videoPath);
-        if (watermarkPath && fs.existsSync(watermarkPath)) fs.unlinkSync(watermarkPath);
-      } catch {}
 
       const outList = (wr.outputFileNames || []).map((fn, i) => {
         const fileUrl = wr.outputUrls?.[i] || "";

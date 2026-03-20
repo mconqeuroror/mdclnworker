@@ -54,6 +54,46 @@ async function uploadToPutUrl(putUrl, filePath, contentType) {
   }
 }
 
+/** Forward FFmpeg progress to main app (same X-API-Key as incoming requests). */
+function createProgressForwarder(progressUrl, jobRef, apiKey) {
+  if (!progressUrl || !/^https?:\/\//i.test(String(progressUrl).trim())) return () => {};
+  const jobId = typeof jobRef === "object" && jobRef?.jobId ? jobRef.jobId : null;
+  if (!jobId || !apiKey) return () => {};
+  let lastPct = -1;
+  let lastSent = 0;
+  return (percent, message) => {
+    const p = Number(percent);
+    const scaled = Math.max(8, Math.min(94, Math.round(22 + (Number.isFinite(p) ? p : 0) / 100 * 72)));
+    const now = Date.now();
+    if (scaled === lastPct && now - lastSent < 800) return;
+    if (now - lastSent < 280 && Math.abs(scaled - lastPct) < 1) return;
+    lastPct = scaled;
+    lastSent = now;
+    void fetch(String(progressUrl).trim(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
+      body: JSON.stringify({
+        jobId,
+        progress: scaled,
+        message: typeof message === "string" ? message.slice(0, 220) : "Processing…",
+      }),
+    }).catch(() => {});
+  };
+}
+
+async function postProgressOnce(progressUrl, apiKey, jobId, progress, message) {
+  if (!progressUrl || !jobId || !apiKey) return;
+  try {
+    await fetch(String(progressUrl).trim(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
+      body: JSON.stringify({ jobId, progress, message: message.slice(0, 220) }),
+    });
+  } catch {
+    /* ignore */
+  }
+}
+
 const CALLBACK_TIMEOUT_MS = Math.min(
   300_000,
   Math.max(5_000, Number(process.env.FFMPEG_WORKER_CALLBACK_TIMEOUT_MS) || 120_000),
@@ -103,6 +143,7 @@ async function fireCallback(callbackUrl, callbackSecret, payload) {
  *   callbackUrl?: string,      // POST result here after success/failure (non-blocking)
  *   callbackSecret?: string,   // sent as X-Callback-Secret
  *   jobRef?: string | object,  // echoed back for correlation (e.g. prisma job id)
+ *   progressUrl?: string,      // POST { jobId, progress, message } during encode (X-API-Key)
  * }
  */
 app.post("/job", requireAuth, async (req, res) => {
@@ -116,6 +157,7 @@ app.post("/job", requireAuth, async (req, res) => {
     callbackUrl,
     callbackSecret,
     jobRef,
+    progressUrl,
   } = req.body || {};
   if (!inputUrl || !outputPutUrls?.length || !settings) {
     return res.status(400).json({ error: "Bad request", message: "inputUrl, outputPutUrls, and settings are required" });
@@ -150,12 +192,17 @@ app.post("/job", requireAuth, async (req, res) => {
     const outputDir = path.join(tempDir, "out");
     fs.mkdirSync(outputDir, { recursive: true });
 
-    const progressCb = () => {};
+    const progressCb = createProgressForwarder(progressUrl, safeJobRef, API_KEY);
     const processFn = isImage ? processImageBatch : processVideoBatch;
     const outputs = await processFn(inputPath, watermarkPath || null, outputDir, settings, progressCb, { useWasm: false });
 
     if (outputs.length > outputPutUrls.length) {
       throw new Error(`Worker produced ${outputs.length} outputs but only ${outputPutUrls.length} put URLs provided`);
+    }
+
+    const jid = typeof safeJobRef === "object" && safeJobRef?.jobId ? safeJobRef.jobId : null;
+    if (progressUrl && jid) {
+      await postProgressOnce(progressUrl, API_KEY, jid, 96, "Uploading outputs…");
     }
 
     const contentType = isImage ? "image/jpeg" : "video/mp4";

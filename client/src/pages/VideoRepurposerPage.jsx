@@ -58,48 +58,6 @@ import api from "../services/api";
 import { useAuthStore } from "../store";
 import { REPURPOSE_DEVICE_OPTIONS } from "../data/repurposeDeviceOptions";
 import { hasPremiumAccess } from "../utils/premiumAccess";
-
-function isFfmpegWasmSupported() {
-  return typeof WebAssembly !== "undefined" && typeof Worker !== "undefined";
-}
-
-function getVideoSourceInfo(file) {
-  return new Promise((resolve) => {
-    const url = URL.createObjectURL(file);
-    const video = document.createElement("video");
-    video.preload = "metadata";
-    video.muted = true;
-    video.playsInline = true;
-    video.onloadedmetadata = () => {
-      const width = video.videoWidth || 1920;
-      const height = video.videoHeight || 1080;
-      const duration = Number.isFinite(video.duration) ? video.duration : 10;
-      URL.revokeObjectURL(url);
-      resolve({ width, height, duration, hasAudio: true });
-    };
-    video.onerror = () => {
-      URL.revokeObjectURL(url);
-      resolve({ width: 1920, height: 1080, duration: 10, hasAudio: true });
-    };
-    video.src = url;
-  });
-}
-
-function getImageSourceInfo(file) {
-  return new Promise((resolve) => {
-    const url = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      resolve({ width: img.naturalWidth || 1920, height: img.naturalHeight || 1080, duration: 0, hasAudio: false });
-    };
-    img.onerror = () => {
-      URL.revokeObjectURL(url);
-      resolve({ width: 1920, height: 1080, duration: 0, hasAudio: false });
-    };
-    img.src = url;
-  });
-}
 import { useDraft } from "../hooks/useDraft";
 import { MapContainer, TileLayer, Marker, useMapEvents } from "react-leaflet";
 import L from "leaflet";
@@ -991,14 +949,6 @@ export default function VideoRepurposerPage({ embedded }) {
   const [showMetadata, setShowMetadata] = useState(false);
   /** When false, server applies smart filter pack (+10 credits). When true, manual filters (no AI credit). */
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  /** Admin only: send repurpose job to external FFmpeg worker (ffpmeg) instead of browser WASM. */
-  const [adminUseWorkerFfmpeg, setAdminUseWorkerFfmpeg] = useState(() => {
-    try {
-      return localStorage.getItem("repurposer_admin_use_worker_ff") === "1";
-    } catch {
-      return false;
-    }
-  });
   const [deviceSearch, setDeviceSearch] = useState("");
   const [showGallery, setShowGallery] = useState(false);
   const [customPresets, setCustomPresets] = useState(() => {
@@ -1033,14 +983,6 @@ export default function VideoRepurposerPage({ embedded }) {
   useEffect(() => {
     if (activeTab === "history") fetchHistory();
   }, [activeTab]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem("repurposer_admin_use_worker_ff", adminUseWorkerFfmpeg ? "1" : "0");
-    } catch {
-      /* ignore */
-    }
-  }, [adminUseWorkerFfmpeg]);
 
   useEffect(() => {
     return () => {
@@ -1351,27 +1293,29 @@ export default function VideoRepurposerPage({ embedded }) {
         const { data } = await api.get(`/video-repurpose/jobs/${id}`);
         if (!data.ok) return;
         const job = data.job;
-        setProgress(job.progress);
-        setStatusMsg(job.message);
+        setProgress(typeof job.progress === "number" ? job.progress : 0);
+        setStatusMsg(job.message || "");
         setJobStatus(job.status);
         setQueuePosition(job.queue_position || 0);
 
         if (job.status === "completed") {
           stopPolling();
           setOutputs(job.outputs || []);
-          setIsGenerating(false);
-          toast.success(`Generated ${job.outputs?.length || 0} unique copies`);
-          fetchHistory();
+          setProgress(100);
+          setStatusMsg(job.message || "Done.");
+          setJobStatus("completed");
+          // Keep isGenerating true until POST /generate-with-worker returns (button state).
         } else if (job.status === "failed") {
           stopPolling();
           setIsGenerating(false);
+          setProgress(0);
           toast.error(job.error || "Processing failed");
         }
       } catch {
         // keep polling
       }
     },
-    [stopPolling, fetchHistory],
+    [stopPolling],
   );
 
   const handleGenerate = useCallback(async () => {
@@ -1387,7 +1331,6 @@ export default function VideoRepurposerPage({ embedded }) {
     setJobStatus("uploading");
 
     try {
-      const isImage = (videoFile.type || "").startsWith("image/");
       const useAiOptimization = !advancedOpen;
       const dm = metadata.device_metadata || {};
       const syncedMeta = {
@@ -1399,146 +1342,52 @@ export default function VideoRepurposerPage({ embedded }) {
       };
       const settings = { copies, filters, metadata: syncedMeta, useAiOptimization };
 
-      if (user?.role === "admin" && adminUseWorkerFfmpeg) {
-        setStatusMsg("Processing on FFmpeg worker…");
-        setProgress(10);
-        const form = new FormData();
-        form.append("video", videoFile);
-        if (watermarkFile) form.append("watermark", watermarkFile);
-        form.append("settings", JSON.stringify(settings));
-        const workerRes = await api.post("/video-repurpose/generate-with-worker", form, {
-          headers: { "Content-Type": "multipart/form-data" },
-        });
-        const data = workerRes.data;
-        if (!data?.ok) {
-          toast.error(data?.error || "Worker failed");
-          setIsGenerating(false);
-          return;
-        }
-        setJobId(data.job_id);
-        setJobStatus("completed");
-        setProgress(100);
-        setStatusMsg("Done.");
-        setOutputs(data.outputs || []);
-        try {
-          await refreshUserCredits?.();
-        } catch {
-          /* ignore */
-        }
-        clearDraft();
-        toast.success(`Generated ${(data.outputs || []).length} unique copies (server worker)`);
-        setIsGenerating(false);
-        stopPolling();
-        fetchHistory();
-        return;
-      }
+      const jobId =
+        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+      const form = new FormData();
+      form.append("jobId", jobId);
+      form.append("video", videoFile);
+      if (watermarkFile) form.append("watermark", watermarkFile);
+      form.append("settings", JSON.stringify(settings));
 
-      if (!isFfmpegWasmSupported()) {
-        toast.error("Your browser does not support in-browser processing. Try a modern browser with WebAssembly.");
-        setIsGenerating(false);
-        return;
-      }
+      setJobId(jobId);
+      setJobStatus("processing");
+      setProgress(8);
+      setStatusMsg("Uploading…");
+      stopPolling();
+      pollRef.current = setInterval(() => {
+        void pollJob(jobId);
+      }, 650);
+      void pollJob(jobId);
 
-      let sourceInfo = { width: 1920, height: 1080, duration: 10, hasAudio: inputHasAudio };
-      if (!isImage) {
-        sourceInfo = await getVideoSourceInfo(videoFile);
-      } else {
-        sourceInfo = await getImageSourceInfo(videoFile);
-        sourceInfo = { ...sourceInfo, hasAudio: false };
-      }
-
-      let prepRes;
-      try {
-        prepRes = await api.post("/video-repurpose/prepare-browser", {
-          settings,
-          isImage,
-          sourceInfo,
-        });
-      } catch (prepErr) {
-        const st = prepErr.response?.status;
-        const errMsg = prepErr.response?.data?.error || prepErr.message || "Failed to prepare job";
-        if (st === 402) toast.error(errMsg);
-        else toast.error(errMsg);
-        setIsGenerating(false);
-        return;
-      }
-      const prep = prepRes.data;
-      if (!prep?.ok || !prep.jobId || !Array.isArray(prep.outputs) || prep.outputs.length === 0) {
-        toast.error(prep?.error || "Failed to prepare repurpose job");
-        setIsGenerating(false);
-        return;
-      }
-
-      setJobId(prep.jobId);
-      setStatusMsg("Loading FFmpeg...");
-      setProgress(5);
-
-      const fallbackInstruction = prep.metadataInstruction && typeof prep.metadataInstruction === "object"
-        ? prep.metadataInstruction
-        : {
-            creationTime: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
-            comment: "Repurposed",
-          };
-      const metadataInstructions = Array.isArray(prep.metadataInstructions) && prep.metadataInstructions.length > 0
-        ? prep.metadataInstructions
-        : Array.from({ length: prep.outputs.length }, () => fallbackInstruction);
-
-      if (prep.creditsCharged) {
-        try {
-          await refreshUserCredits?.();
-        } catch {}
-      }
-
-      const effectiveFilters = prep.filters != null ? prep.filters : filters;
-
-      const { runRepurposeInBrowser } = await import("../utils/repurposeFfmpegWasm");
-      setStatusMsg("Processing in browser...");
-      const results = await runRepurposeInBrowser(
-        videoFile,
-        prep.outputs,
-        metadataInstructions,
-        prep.isImage || isImage,
-        (percent, message) => {
-          setProgress((prev) => (percent != null ? percent : prev));
-          if (message) setStatusMsg(message);
-        },
-        { filters: effectiveFilters, sourceInfo },
-      );
-
-      setStatusMsg("Uploading results...");
-      const outputList = [];
-      for (let i = 0; i < results.length; i++) {
-        const { fileName, blob } = results[i];
-        const out = prep.outputs[i];
-        if (!out?.uploadUrl) continue;
-        await fetch(out.uploadUrl, {
-          method: "PUT",
-          body: blob,
-          headers: { "Content-Type": blob.type },
-        });
-        outputList.push({ fileName, fileUrl: out.fileUrl });
-      }
-
-      await api.post("/video-repurpose/complete-browser", {
-        jobId: prep.jobId,
-        outputs: outputList,
+      const workerRes = await api.post("/video-repurpose/generate-with-worker", form, {
+        headers: { "Content-Type": "multipart/form-data" },
       });
-
+      stopPolling();
+      const data = workerRes.data;
+      if (!data?.ok) {
+        toast.error(data?.error || "Worker failed");
+        setIsGenerating(false);
+        return;
+      }
+      setJobId(data.job_id || jobId);
       setJobStatus("completed");
       setProgress(100);
       setStatusMsg("Done.");
+      setOutputs(data.outputs || []);
+      try {
+        await refreshUserCredits?.();
+      } catch {
+        /* ignore */
+      }
       clearDraft();
-      const outForUi = outputList.map((o) => ({
-        file_name: o.fileName,
-        download_url: o.fileUrl?.startsWith("http") ? o.fileUrl : `/video-repurpose/jobs/${prep.jobId}/download/${o.fileName}`,
-        fileUrl: o.fileUrl,
-        metadata_warnings: [],
-      }));
-      setOutputs(outForUi);
+      toast.success(`Generated ${(data.outputs || []).length} unique copies`);
       setIsGenerating(false);
-      stopPolling();
       fetchHistory();
     } catch (err) {
+      stopPolling();
       const msg = err.response?.data?.error || err?.message || "Processing failed";
       toast.error(msg);
       setIsGenerating(false);
@@ -1553,13 +1402,11 @@ export default function VideoRepurposerPage({ embedded }) {
     filters,
     metadata,
     advancedOpen,
-    inputHasAudio,
     stopPolling,
     fetchHistory,
     clearDraft,
     refreshUserCredits,
-    user?.role,
-    adminUseWorkerFfmpeg,
+    pollJob,
   ]);
 
   const handleDownload = useCallback(async (url, fileName) => {
@@ -2064,30 +1911,6 @@ export default function VideoRepurposerPage({ embedded }) {
                   <Sparkles className="w-3.5 h-3.5 shrink-0" />
                   <span>Includes +10 credit smart optimization</span>
                 </p>
-              )}
-
-              {user?.role === "admin" && (
-                <div className="mb-3 p-3 rounded-lg border border-amber-500/30 bg-amber-500/5">
-                  <label className="flex items-start gap-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={adminUseWorkerFfmpeg}
-                      onChange={(e) => setAdminUseWorkerFfmpeg(e.target.checked)}
-                      className="mt-1 rounded border-amber-500/50"
-                      data-testid="toggle-admin-ff-worker"
-                    />
-                    <span className="text-xs text-amber-100/95">
-                      <span className="font-semibold flex items-center gap-1.5">
-                        <Shield className="w-3.5 h-3.5" />
-                        Admin: external FFmpeg worker (ffpmeg)
-                      </span>
-                      <span className="block text-[11px] text-amber-200/70 mt-1">
-                        When on, this device sends the job to the configured worker instead of running FFmpeg in the browser.
-                        Other users always use browser processing until this is stable.
-                      </span>
-                    </span>
-                  </label>
-                </div>
               )}
 
               <button

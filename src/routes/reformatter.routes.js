@@ -3,7 +3,6 @@ import multer from "multer";
 import crypto from "crypto";
 import prisma from "../lib/prisma.js";
 import { authMiddleware } from "../middleware/auth.middleware.js";
-import adminMiddleware from "../middleware/admin.middleware.js";
 import { isR2Configured, getR2PresignedPutForKey } from "../utils/r2.js";
 import { convertAndStoreMedia, isConvertibleMedia } from "../services/media-reformatter.service.js";
 import { postRepurposeJobToWorker } from "../services/ffmpeg-worker-client.js";
@@ -133,10 +132,10 @@ router.post("/prepare-input", authMiddleware, express.json(), async (req, res) =
 });
 
 /**
- * Admin only: run conversion via external FFmpeg worker (ffpmeg). Same upload flow as convert-background
+ * Run conversion via external FFmpeg worker (ffpmeg). Same upload flow as convert-background
  * but processing happens on the worker using repurposer pipelines (best for mp4/mov; exotic codecs may fail).
  */
-router.post("/convert-with-worker", authMiddleware, adminMiddleware, express.json(), async (req, res) => {
+router.post("/convert-with-worker", authMiddleware, express.json(), async (req, res) => {
   try {
     if (!isR2Configured()) {
       return res.status(503).json({ success: false, message: "File storage is not configured" });

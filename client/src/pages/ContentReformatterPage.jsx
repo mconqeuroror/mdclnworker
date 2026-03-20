@@ -1,8 +1,7 @@
 import { useMemo, useState, useEffect, useRef } from "react";
-import { Upload, RefreshCw, Download, Copy, CheckCircle2, AlertCircle, FileType2, Video, History, Shield } from "lucide-react";
+import { Upload, RefreshCw, Download, Copy, CheckCircle2, AlertCircle, FileType2, Video, History } from "lucide-react";
 import toast from "react-hot-toast";
 import { reformatterAPI } from "../services/api";
-import { useAuthStore } from "../store";
 
 function formatBytes(bytes) {
   const value = Number(bytes || 0);
@@ -18,14 +17,6 @@ function formatBytes(bytes) {
 }
 
 export default function ContentReformatterPage() {
-  const { user } = useAuthStore();
-  const [adminUseWorkerFfmpeg, setAdminUseWorkerFfmpeg] = useState(() => {
-    try {
-      return localStorage.getItem("reformatter_admin_use_worker_ff") === "1";
-    } catch {
-      return false;
-    }
-  });
   const [selectedFile, setSelectedFile] = useState(null);
   const [isConverting, setIsConverting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -105,19 +96,11 @@ export default function ContentReformatterPage() {
     setResult(null);
     setUploadProgress(0);
     try {
-      const useWorker = user?.role === "admin" && adminUseWorkerFfmpeg;
-      const data = useWorker
-        ? await reformatterAPI.convertWithWorker(selectedFile, (p) => setUploadProgress(p ?? 0))
-        : await reformatterAPI.convertInBackground(selectedFile, (p) => setUploadProgress(p ?? 0));
+      const data = await reformatterAPI.convertWithWorker(selectedFile, (p) => setUploadProgress(p ?? 0));
       setUploadProgress(100);
       loadHistory();
       setShowHistory(true);
-      toast.success(
-        data?.message ||
-          (useWorker
-            ? "Conversion completed via FFmpeg worker. See Conversion history."
-            : "Conversion started. You can leave — check Conversion history."),
-      );
+      toast.success(data?.message || "Conversion completed via FFmpeg worker. See Conversion history.");
     } catch (err) {
       const message = err?.response?.data?.message || err?.message || "Failed to start conversion";
       setError(message);
@@ -263,9 +246,7 @@ export default function ContentReformatterPage() {
           )}
         </div>
         <p className="mt-2 text-xs text-slate-500">
-          {user?.role === "admin" && adminUseWorkerFfmpeg
-            ? "Admin worker mode: upload runs, then the external FFmpeg worker completes the conversion (usually a few seconds). Check Conversion history for the file."
-            : "File is uploaded to the server and converted in the background. You can close this tab and check Conversion history later."}
+          File is uploaded, then converted on the FFmpeg worker (usually a few seconds). Results appear in Conversion history.
         </p>
 
         {error && (

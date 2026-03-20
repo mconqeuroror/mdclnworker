@@ -811,7 +811,7 @@ export const reformatterAPI = {
     if (onUploadProgress) onUploadProgress(100);
     return { success: true, jobId: start.data?.jobId, message: start.data?.message || "Conversion started. Check Conversion history." };
   },
-  /** Admin only: same upload as convertInBackground, then external FFmpeg worker processes the file. */
+  /** Upload input to R2, then external FFmpeg worker processes the file (default reformatter path). */
   convertWithWorker: async (file, onUploadProgress) => {
     const name = file?.name || "upload";
     const prepInput = await api.post("/reformatter/prepare-input", { originalFileName: name, contentType: file?.type || "application/octet-stream" });
