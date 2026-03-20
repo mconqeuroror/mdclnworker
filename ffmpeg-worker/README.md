@@ -22,7 +22,8 @@ docker run -d --name ffmpeg-worker -p 3100:3100 \
 ```
 
 - `GET /health` — FFmpeg/ffprobe check  
-- `POST /job` — requires header `X-API-Key: <same as FFMPEG_WORKER_API_KEY>`  
+- `POST /job` — requires header `X-API-Key: <same as FFMPEG_WORKER_API_KEY>`
+- **Vercel Blob mode (Content Studio, no R2):** send `vercelBlobOutput: true`, `outputBlobPrefix: "content-studio/…"` (must start with `content-studio/`), and set **`BLOB_READ_WRITE_TOKEN`** on the worker (same token as the app). Outputs upload via `@vercel/blob` `put()`.  
 - Optional: `callbackUrl`, `callbackSecret`, `jobRef` on `/job` — worker POSTs the same JSON as the HTTP response when the job finishes (see `docs/FFMPEG_WORKER_CALLBACK.md`).
 
 **Integration test (from dev machine):**

@@ -1,7 +1,7 @@
 /**
  * FFmpeg worker service — runs on Hetzner (or any server with ffmpeg + exiftool).
  * Receives repurpose jobs from the main app (Railway), runs processVideoBatch/processImageBatch,
- * uploads outputs to R2 via presigned PUT URLs, returns public URLs.
+ * uploads outputs to R2 via presigned PUT URLs, or to Vercel Blob when vercelBlobOutput + outputBlobPrefix + BLOB_READ_WRITE_TOKEN (Content Studio).
  *
  * Run from repo root: node ffmpeg-worker/server.js
  * Requires: FFMPEG_WORKER_API_KEY, PORT (default 3100)
@@ -52,6 +52,36 @@ async function uploadToPutUrl(putUrl, filePath, contentType) {
     const text = await res.text();
     throw new Error(`Upload failed: ${res.status} ${res.statusText} - ${text.slice(0, 200)}`);
   }
+}
+
+const BLOB_PREFIX_RE = /^content-studio\/[a-zA-Z0-9/_\-]+$/;
+
+/**
+ * Upload encoded files to Vercel Blob (same BLOB_READ_WRITE_TOKEN as your Content Studio app on Vercel).
+ * Run worker from modelclone repo root so @vercel/blob resolves from node_modules.
+ */
+async function uploadOutputsToVercelBlob(outputs, outputBlobPrefix, isImage) {
+  const { put } = await import("@vercel/blob");
+  const token = process.env.BLOB_READ_WRITE_TOKEN;
+  if (!token) throw new Error("BLOB_READ_WRITE_TOKEN is not set on the worker");
+  const base = outputBlobPrefix.replace(/\/$/, "");
+  const urls = [];
+  for (let i = 0; i < outputs.length; i++) {
+    const filePath = outputs[i].absolutePath;
+    const buf = fs.readFileSync(filePath);
+    const ext =
+      path.extname(filePath).replace(/^\./, "").toLowerCase() ||
+      (isImage ? "jpg" : "mp4");
+    const ct =
+      ext === "png" ? "image/png" :
+      ext === "webp" ? "image/webp" :
+      ext === "jpg" || ext === "jpeg" ? "image/jpeg" :
+      ext === "webm" ? "video/webm" : "video/mp4";
+    const pathname = `${base}/out_${i}.${ext}`;
+    const blob = await put(pathname, buf, { access: "public", token, contentType: ct });
+    urls.push(blob.url);
+  }
+  return urls;
 }
 
 /** Forward FFmpeg progress to main app (same X-API-Key as incoming requests). */
@@ -144,6 +174,8 @@ async function fireCallback(callbackUrl, callbackSecret, payload) {
  *   callbackSecret?: string,   // sent as X-Callback-Secret
  *   jobRef?: string | object,  // echoed back for correlation (e.g. prisma job id)
  *   progressUrl?: string,      // POST { jobId, progress, message } during encode (X-API-Key)
+ *   vercelBlobOutput?: boolean, // if true: upload to Vercel Blob (requires BLOB_READ_WRITE_TOKEN on worker + outputBlobPrefix)
+ *   outputBlobPrefix?: string,  // e.g. content-studio/reformat/<generationId> — must start with content-studio/
  * }
  */
 app.post("/job", requireAuth, async (req, res) => {
@@ -158,8 +190,30 @@ app.post("/job", requireAuth, async (req, res) => {
     callbackSecret,
     jobRef,
     progressUrl,
+    vercelBlobOutput,
+    outputBlobPrefix,
   } = req.body || {};
-  if (!inputUrl || !outputPutUrls?.length || !settings) {
+
+  const useBlob = vercelBlobOutput === true;
+  const prefixRaw = typeof outputBlobPrefix === "string" ? outputBlobPrefix.trim() : "";
+
+  if (useBlob) {
+    if (!inputUrl || !settings) {
+      return res.status(400).json({ error: "Bad request", message: "inputUrl and settings are required" });
+    }
+    if (!prefixRaw || !BLOB_PREFIX_RE.test(prefixRaw)) {
+      return res.status(400).json({
+        error: "Bad request",
+        message: "outputBlobPrefix must match content-studio/... (safe path for Vercel Blob)",
+      });
+    }
+    if (!process.env.BLOB_READ_WRITE_TOKEN) {
+      return res.status(503).json({
+        error: "BLOB_READ_WRITE_TOKEN not set on worker",
+        message: "Set the same BLOB_READ_WRITE_TOKEN as Content Studio so outputs upload to Blob",
+      });
+    }
+  } else if (!inputUrl || !outputPutUrls?.length || !settings) {
     return res.status(400).json({ error: "Bad request", message: "inputUrl, outputPutUrls, and settings are required" });
   }
 
@@ -196,7 +250,7 @@ app.post("/job", requireAuth, async (req, res) => {
     const processFn = isImage ? processImageBatch : processVideoBatch;
     const outputs = await processFn(inputPath, watermarkPath || null, outputDir, settings, progressCb, { useWasm: false });
 
-    if (outputs.length > outputPutUrls.length) {
+    if (!useBlob && outputs.length > outputPutUrls.length) {
       throw new Error(`Worker produced ${outputs.length} outputs but only ${outputPutUrls.length} put URLs provided`);
     }
 
@@ -205,14 +259,18 @@ app.post("/job", requireAuth, async (req, res) => {
       await postProgressOnce(progressUrl, API_KEY, jid, 96, "Uploading outputs…");
     }
 
-    const contentType = isImage ? "image/jpeg" : "video/mp4";
-    for (let i = 0; i < outputs.length; i++) {
-      const putSpec = outputPutUrls[i];
-      const filePath = outputs[i].absolutePath;
-      await uploadToPutUrl(putSpec.putUrl, filePath, putSpec.contentType || contentType);
+    let publicUrls;
+    if (useBlob) {
+      publicUrls = await uploadOutputsToVercelBlob(outputs, prefixRaw, isImage);
+    } else {
+      const contentType = isImage ? "image/jpeg" : "video/mp4";
+      for (let i = 0; i < outputs.length; i++) {
+        const putSpec = outputPutUrls[i];
+        const filePath = outputs[i].absolutePath;
+        await uploadToPutUrl(putSpec.putUrl, filePath, putSpec.contentType || contentType);
+      }
+      publicUrls = outputs.map((o, i) => outputPutUrls[i].publicUrl);
     }
-
-    const publicUrls = outputs.map((o, i) => outputPutUrls[i].publicUrl);
     const result = {
       ok: true,
       outputUrls: publicUrls,
