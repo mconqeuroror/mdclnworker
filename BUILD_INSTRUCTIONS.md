@@ -4,6 +4,7 @@ Repo: [mconqeuroror/mdcln](https://github.com/mconqeuroror/mdcln)
 
 ## Architecture
 - **Docker image**: ComfyUI + custom nodes + Python deps + `handler.py`
+- **`patch_comfy_sdxl_pooled.py`** (runs at **image build**): Patches `comfy/model_base.py` so SDXL `encode_adm` does not crash when **Qwen CLIP** returns no pooled embedding (`clip_pooled` is `None`). **Rebuild and redeploy** the worker image if you see: `AttributeError: 'NoneType' object has no attribute 'shape'` in `model_base.py` / `encode_adm`. Older patch scripts used wrong indentation and **silently did nothing** — the current script fails the Docker build if the patch does not apply.
 - **Network volume** (recommended): mounted at `/runpod-volume` — models download here on first boot via `start.sh`
 - **API**: Backend sends a full Comfy **API prompt** (`input.prompt` dict). Handler posts it to `http://127.0.0.1:8188/prompt` and reads **SaveImage node `289`** by default.
 
