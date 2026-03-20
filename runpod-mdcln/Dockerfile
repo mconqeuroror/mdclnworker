@@ -62,6 +62,12 @@ RUN pip install --no-cache-dir \
     bitsandbytes
 
 # -----------------------------------------------
+# 4c. Patch ComfyUI: SDXL encode_adm handles missing pooled_output (Qwen CLIP)
+# -----------------------------------------------
+COPY patch_comfy_sdxl_pooled.py /workspace/patch_comfy_sdxl_pooled.py
+RUN python3 /workspace/patch_comfy_sdxl_pooled.py
+
+# -----------------------------------------------
 # 5. Install custom nodes
 # -----------------------------------------------
 COPY custom_nodes.list /workspace/custom_nodes.list
