@@ -216,7 +216,7 @@ export default function ContentReformatterPage() {
           )}
         </div>
         <p className="mt-2 text-xs text-slate-500">
-          File is uploaded, then converted on the FFmpeg worker (usually a few seconds). Results appear in Conversion history.
+          File is uploaded, then converted. Results appear in Conversion history.
         </p>
 
         {error && (

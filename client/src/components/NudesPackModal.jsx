@@ -78,8 +78,8 @@ export default function NudesPackModal({
             </div>
             <p className="text-[11px] text-slate-500 mt-1 max-w-xl">
               30 curated shots: amateur-style nudes and explicit couple poses. Each image uses your model trigger and
-              current looks. Toggle off any pose you don&apos;t want — cost is{" "}
-              {NUDES_PACK_CREDITS_PER_IMAGE} credits per image ({count} selected = {totalCredits}{" "}
+              current looks.               Toggle off any pose you don&apos;t want — about{" "}
+              {perImage} credits per image on average ({count} selected = {totalCredits}{" "}
               <Coins className="w-3 h-3 inline text-yellow-400 align-text-bottom" />
               ).
             </p>

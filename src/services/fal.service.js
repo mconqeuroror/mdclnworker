@@ -2009,14 +2009,14 @@ export async function checkNsfwGenerationStatus(jobId) {
 /**
  * Poll a RunPod NSFW job — **queue time does not count** toward running timeout (RunPod can sit IN_QUEUE a long time).
  * @param {string} jobId
- * @param {number} runningTimeoutMs  Max ms in IN_PROGRESS / running (default 45 min)
- * @param {number} maxWallMs  Absolute max since poll start, including queue (default 90 min)
+ * @param {number} runningTimeoutMs  Max ms in IN_PROGRESS / running (default 90 min)
+ * @param {number} maxWallMs  Absolute max since poll start, including queue (default 180 min)
  * @returns {Promise<{ phase: string, result?: object, error?: string }>}
  */
 export async function pollNsfwJob(
   jobId,
-  runningTimeoutMs = 45 * 60 * 1000,
-  maxWallMs = 90 * 60 * 1000,
+  runningTimeoutMs = 90 * 60 * 1000,
+  maxWallMs = 180 * 60 * 1000,
 ) {
   const wallStart = Date.now();
   let runningStart = null;

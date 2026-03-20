@@ -4145,41 +4145,49 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
     setIsSubmittingNudesPack(true);
     try {
       const attributesString = buildSelectionsString(chipSelections);
-      const response = await api.post("/nsfw/nudes-pack", {
-        modelId: selectedModel,
-        poseIds,
-        attributes: attributesString,
-        attributesDetail: chipSelections,
-        sceneDescription: sceneDescription.trim() || undefined,
-        skipFaceSwap,
-        faceSwapImageUrl: faceSwapImage?.url || null,
-        resolution: nsfwGenerateMode === "simple" ? "1024x1024" : selectedAspectRatio,
-        options: {
-          quickFlow: nsfwGenerateMode === "simple",
-          loraStrength: genConfig.loraStrength || null,
-          postProcessing: {
-            blur: {
-              enabled: genConfig.blurEnabled !== false,
-              strength: Number(genConfig.blurStrength ?? 0.3),
+      const response = await api.post(
+        "/nsfw/nudes-pack",
+        {
+          modelId: selectedModel,
+          poseIds,
+          attributes: attributesString,
+          attributesDetail: chipSelections,
+          sceneDescription: sceneDescription.trim() || undefined,
+          skipFaceSwap,
+          faceSwapImageUrl: faceSwapImage?.url || null,
+          resolution: nsfwGenerateMode === "simple" ? "1024x1024" : selectedAspectRatio,
+          options: {
+            quickFlow: nsfwGenerateMode === "simple",
+            loraStrength: genConfig.loraStrength || null,
+            postProcessing: {
+              blur: {
+                enabled: genConfig.blurEnabled !== false,
+                strength: Number(genConfig.blurStrength ?? 0.3),
+              },
+              grain: {
+                enabled: genConfig.grainEnabled !== false,
+                strength: Number(genConfig.grainStrength ?? 0.06),
+              },
             },
-            grain: {
-              enabled: genConfig.grainEnabled !== false,
-              strength: Number(genConfig.grainStrength ?? 0.06),
-            },
+            ...(user?.role === "admin" && adminSamplerTest.enabled
+              ? {
+                  adminNsfwOverrides: {
+                    steps: Math.min(150, Math.max(1, Math.round(Number(adminSamplerTest.steps)) || 50)),
+                    cfg: Math.min(8, Math.max(1, Number(adminSamplerTest.cfg) || 3)),
+                  },
+                }
+              : {}),
           },
-          ...(user?.role === "admin" && adminSamplerTest.enabled
-            ? {
-                adminNsfwOverrides: {
-                  steps: Math.min(150, Math.max(1, Math.round(Number(adminSamplerTest.steps)) || 50)),
-                  cfg: Math.min(8, Math.max(1, Number(adminSamplerTest.cfg) || 3)),
-                },
-              }
-            : {}),
         },
-      });
+        { suppressGlobalError: true, timeout: 120_000 },
+      );
 
       if (response.data?.success) {
-        toast.success(response.data.message || "Nudes pack queued");
+        toast.success(
+          response.data.message ||
+            "Nudes pack queued — you can leave this page. Images will appear in your gallery when ready.",
+          { duration: 6000 },
+        );
         refreshUserCredits();
         setNudesPackModalOpen(false);
         const gens = response.data.generations || [];

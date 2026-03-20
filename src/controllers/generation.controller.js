@@ -2555,7 +2555,7 @@ export async function cleanupStuckGenerations(req, res) {
     /** RunPod NSFW + nudes packs can run 30–90+ min behind queue; do NOT use the 15m image cutoff. */
     const NSFW_CLEANUP_TIMEOUT_MINUTES = Math.max(
       45,
-      Math.min(300, Number(process.env.NSFW_STUCK_CLEANUP_MINUTES) || 120),
+      Math.min(300, Number(process.env.NSFW_STUCK_CLEANUP_MINUTES) || 200),
     );
     const nowMs = Date.now();
     const imageCutoffMs = nowMs - IMAGE_TIMEOUT_MINUTES * 60 * 1000;

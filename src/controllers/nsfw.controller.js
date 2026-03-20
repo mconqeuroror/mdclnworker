@@ -2874,9 +2874,6 @@ export async function generateNudesPack(req, res) {
       },
     };
 
-    let queuedCount = 0;
-    let creditsUsedSuccess = 0;
-
     /** @type {{ idx: number, poseId: string, pose: { id: string, title: string, summary: string, category: string, promptFragment: string }, thisCreditCost: number }[]} */
     const packRows = [];
     for (let idx = 0; idx < poseIds.length; idx++) {
@@ -2892,164 +2889,214 @@ export async function generateNudesPack(req, res) {
       packRows.push({ idx, poseId, pose, thisCreditCost });
     }
 
-    const promptConcurrencyRaw = process.env.NSFW_NUDES_PACK_PROMPT_CONCURRENCY;
-    const promptConcurrency = Math.max(
-      1,
-      Math.min(12, Number.parseInt(String(promptConcurrencyRaw ?? "4"), 10) || 4),
-    );
-    console.log(
-      `📦 Nudes pack: generating ${packRows.length} AI prompts with concurrency=${promptConcurrency}`,
-    );
+    if (packRows.length === 0) {
+      await refundCredits(userId, creditsNeeded);
+      return res.status(400).json({
+        success: false,
+        message: "No valid poses selected.",
+      });
+    }
 
-    const promptedRows = await mapWithConcurrencyLimit(packRows, promptConcurrency, async (row) => {
-      const { idx, pose } = row;
-      const poseFragment = pose.promptFragment.trim();
-      const userRequestForAi = [
-        packSceneNote.trim(),
-        `Nudes pack ${idx + 1}/${poseIds.length}: ${pose.title} (${pose.category})`,
-        pose.summary,
-        poseFragment,
-      ]
-        .filter(Boolean)
-        .join("\n");
-
-      let finalUserPrompt = poseFragment;
-      try {
-        const aiPrompt = await runNsfwPromptGenerationForModel(
-          model,
-          userRequestForAi,
-          attributesDetail,
-          attributesString,
-        );
-        if (aiPrompt && typeof aiPrompt === "string" && aiPrompt.trim()) {
-          if (isNsfwPromptLogicalConflict(aiPrompt)) {
-            console.warn(`Nudes pack ${pose.id}: AI reported logical conflict — using pose fragment fallback`);
-            finalUserPrompt = poseFragment;
-          } else {
-            finalUserPrompt = aiPrompt.trim();
-          }
-        }
-      } catch (promptErr) {
-        console.error(`Nudes pack AI prompt failed for ${pose.id}:`, promptErr?.message || promptErr);
-        finalUserPrompt = poseFragment;
-      }
-
-      return { ...row, finalUserPrompt, userRequestForAi };
-    });
-
-    for (const row of promptedRows) {
-      const { idx, poseId, pose, thisCreditCost, finalUserPrompt, userRequestForAi } = row;
-
-      const sceneLine = [packSceneNote.trim(), `Nudes pack ${idx + 1}/${poseIds.length}: ${pose.title}`]
-        .filter(Boolean)
-        .join(" · ");
-
+    /** @type {{ idx: number, poseId: string, pose: { id: string, title: string, summary: string, category: string, promptFragment: string }, thisCreditCost: number, generationId: string }[]} */
+    const rowsWithGen = [];
+    for (const row of packRows) {
       const generation = await prisma.generation.create({
         data: {
           userId,
           modelId,
           type: "nsfw",
-          prompt: `[${pose.id}] ${finalUserPrompt}`,
-          status: "processing",
-          creditsCost: thisCreditCost,
+          prompt: `[nudes-pack-queued] ${row.pose.id}`,
+          status: "queued",
+          creditsCost: row.thisCreditCost,
           replicateModel: "comfyui-nsfw",
           isNsfw: true,
         },
       });
       generationIds.push(generation.id);
-
-      const submission = await submitNsfwGeneration({
-        loraUrl,
-        triggerWord: loraTriggerWord,
-        userPrompt: finalUserPrompt,
-        attributes: attributesString,
-        sceneDescription: userRequestForAi || sceneLine || finalUserPrompt,
-        chipSelections: attributesDetail,
-        options: {
-          nudesPack: false,
-          quickFlow: options.quickFlow === true,
-          loraStrength: userOverrideStrength,
-          postProcessing,
-          resolution: resSpec.presetId,
-          packAdditiveLoraHint: getNudesPackAdditiveLoraHint(pose.id),
-          ...adminSamplerOpts,
-        },
-      });
-
-      if (!submission.success) {
-        await refundGeneration(generation.id);
-        await prisma.generation.update({
-          where: { id: generation.id },
-          data: { status: "failed", errorMessage: getErrorMessageForDb(submission.error) },
-        });
-        failures.push({ poseId, error: submission.error || "Submit failed" });
-        continue;
-      }
-
-      const rp = submission.resolvedParams || {};
-      await prisma.generation.update({
-        where: { id: generation.id },
-        data: {
-          inputImageUrl: JSON.stringify({
-            comfyuiPromptId: submission.requestId,
-            loraUrl,
-            triggerWord: loraTriggerWord,
-            loraName: activeLoraName || "Unknown",
-            faceReferenceUrl: faceReferenceUrl || null,
-            nudesPackPoseId: pose.id,
-            girlLoraStrength: rp.girlLoraStrength ?? 0.70,
-            activePose: rp.activePose || null,
-            activePoseStrength: rp.activePoseStrength ?? 0,
-            runningMakeup: rp.runningMakeup ?? false,
-            runningMakeupStrength: rp.runningMakeupStrength ?? 0,
-            cumEffect: rp.cumEffect ?? false,
-            cumStrength: rp.cumStrength ?? 0,
-            seed: rp.seed ?? null,
-            steps: rp.steps ?? 50,
-            cfg: rp.cfg ?? 3,
-            width: rp.width ?? resSpec.width,
-            height: rp.height ?? resSpec.height,
-            resolutionPreset: rp.resolutionPreset ?? resSpec.presetId,
-            sampler: rp.sampler ?? "dpmpp_2m",
-            scheduler: rp.scheduler ?? "beta",
-            builtPrompt: rp.prompt || null,
-            blurEnabled: rp?.postProcessing?.blur?.enabled ?? true,
-            blurStrength: rp?.postProcessing?.blur?.strength ?? 0.3,
-            grainEnabled: rp?.postProcessing?.grain?.enabled ?? true,
-            grainStrength: rp?.postProcessing?.grain?.strength ?? 0.06,
-          }),
-        },
-      });
-
-      processNsfwGenerationInBackground(
-        generation.id,
-        submission.requestId,
-        userId,
-        thisCreditCost,
-        faceReferenceUrl,
-      ).catch((error) => {
-        console.error("❌ Nudes pack background error:", error);
-      });
-      queuedCount += 1;
-      creditsUsedSuccess += thisCreditCost;
-      queuedGenerationIds.push(generation.id);
+      rowsWithGen.push({ ...row, generationId: generation.id });
     }
 
     const updatedUser = await prisma.user.findUnique({ where: { id: userId } });
 
-    return res.json({
+    res.json({
       success: true,
-      message:
-        failures.length === 0
-          ? `Nudes pack started: ${poseIds.length} image(s) queued.`
-          : `Nudes pack partially queued: ${queuedCount} ok, ${failures.length} failed (credits refunded for failures).`,
-      generations: queuedGenerationIds.map((id) => ({ id, status: "processing" })),
+      message: `Nudes pack queued: ${poseIds.length} image(s). You can leave this page — they will appear in your gallery when ready.`,
+      generations: generationIds.map((id) => ({ id, status: "queued" })),
       failures,
       creditsPerImage: getNudesPackCreditsPerImage(poseIds.length),
-      creditsUsed: creditsUsedSuccess,
+      creditsUsed: creditsNeeded,
       creditsRemaining: getTotalCredits(updatedUser),
       poseCount: poseIds.length,
+      async: true,
     });
+
+    void (async () => {
+      let queuedCount = 0;
+      const bgFailures = [];
+
+      try {
+        const promptConcurrencyRaw = process.env.NSFW_NUDES_PACK_PROMPT_CONCURRENCY;
+        const promptConcurrency = Math.max(
+          1,
+          Math.min(12, Number.parseInt(String(promptConcurrencyRaw ?? "4"), 10) || 4),
+        );
+        console.log(
+          `📦 Nudes pack (background): generating ${rowsWithGen.length} AI prompts with concurrency=${promptConcurrency}`,
+        );
+
+        const promptedRows = await mapWithConcurrencyLimit(rowsWithGen, promptConcurrency, async (row) => {
+          const { idx, pose } = row;
+          const poseFragment = pose.promptFragment.trim();
+          const userRequestForAi = [
+            packSceneNote.trim(),
+            `Nudes pack ${idx + 1}/${poseIds.length}: ${pose.title} (${pose.category})`,
+            pose.summary,
+            poseFragment,
+          ]
+            .filter(Boolean)
+            .join("\n");
+
+          let finalUserPrompt = poseFragment;
+          try {
+            const aiPrompt = await runNsfwPromptGenerationForModel(
+              model,
+              userRequestForAi,
+              attributesDetail,
+              attributesString,
+            );
+            if (aiPrompt && typeof aiPrompt === "string" && aiPrompt.trim()) {
+              if (isNsfwPromptLogicalConflict(aiPrompt)) {
+                console.warn(`Nudes pack ${pose.id}: AI reported logical conflict — using pose fragment fallback`);
+                finalUserPrompt = poseFragment;
+              } else {
+                finalUserPrompt = aiPrompt.trim();
+              }
+            }
+          } catch (promptErr) {
+            console.error(`Nudes pack AI prompt failed for ${pose.id}:`, promptErr?.message || promptErr);
+            finalUserPrompt = poseFragment;
+          }
+
+          return { ...row, finalUserPrompt, userRequestForAi };
+        });
+
+        for (const row of promptedRows) {
+          const { idx, poseId, pose, thisCreditCost, finalUserPrompt, userRequestForAi, generationId } = row;
+
+          const sceneLine = [packSceneNote.trim(), `Nudes pack ${idx + 1}/${poseIds.length}: ${pose.title}`]
+            .filter(Boolean)
+            .join(" · ");
+
+          await prisma.generation.update({
+            where: { id: generationId },
+            data: {
+              prompt: `[${pose.id}] ${finalUserPrompt}`,
+              status: "processing",
+            },
+          });
+
+          const submission = await submitNsfwGeneration({
+            loraUrl,
+            triggerWord: loraTriggerWord,
+            userPrompt: finalUserPrompt,
+            attributes: attributesString,
+            sceneDescription: userRequestForAi || sceneLine || finalUserPrompt,
+            chipSelections: attributesDetail,
+            options: {
+              nudesPack: false,
+              quickFlow: options.quickFlow === true,
+              loraStrength: userOverrideStrength,
+              postProcessing,
+              resolution: resSpec.presetId,
+              packAdditiveLoraHint: getNudesPackAdditiveLoraHint(pose.id),
+              ...adminSamplerOpts,
+            },
+          });
+
+          if (!submission.success) {
+            await refundGeneration(generationId);
+            await prisma.generation.update({
+              where: { id: generationId },
+              data: { status: "failed", errorMessage: getErrorMessageForDb(submission.error) },
+            });
+            bgFailures.push({ poseId, error: submission.error || "Submit failed" });
+            continue;
+          }
+
+          const rp = submission.resolvedParams || {};
+          await prisma.generation.update({
+            where: { id: generationId },
+            data: {
+              inputImageUrl: JSON.stringify({
+                comfyuiPromptId: submission.requestId,
+                loraUrl,
+                triggerWord: loraTriggerWord,
+                loraName: activeLoraName || "Unknown",
+                faceReferenceUrl: faceReferenceUrl || null,
+                nudesPackPoseId: pose.id,
+                girlLoraStrength: rp.girlLoraStrength ?? 0.70,
+                activePose: rp.activePose || null,
+                activePoseStrength: rp.activePoseStrength ?? 0,
+                runningMakeup: rp.runningMakeup ?? false,
+                runningMakeupStrength: rp.runningMakeupStrength ?? 0,
+                cumEffect: rp.cumEffect ?? false,
+                cumStrength: rp.cumStrength ?? 0,
+                seed: rp.seed ?? null,
+                steps: rp.steps ?? 50,
+                cfg: rp.cfg ?? 3,
+                width: rp.width ?? resSpec.width,
+                height: rp.height ?? resSpec.height,
+                resolutionPreset: rp.resolutionPreset ?? resSpec.presetId,
+                sampler: rp.sampler ?? "dpmpp_2m",
+                scheduler: rp.scheduler ?? "beta",
+                builtPrompt: rp.prompt || null,
+                blurEnabled: rp?.postProcessing?.blur?.enabled ?? true,
+                blurStrength: rp?.postProcessing?.blur?.strength ?? 0.3,
+                grainEnabled: rp?.postProcessing?.grain?.enabled ?? true,
+                grainStrength: rp?.postProcessing?.grain?.strength ?? 0.06,
+              }),
+            },
+          });
+
+          processNsfwGenerationInBackground(
+            generationId,
+            submission.requestId,
+            userId,
+            thisCreditCost,
+            faceReferenceUrl,
+          ).catch((error) => {
+            console.error("❌ Nudes pack background error:", error);
+          });
+          queuedCount += 1;
+        }
+
+        if (bgFailures.length) {
+          console.warn(`📦 Nudes pack: ${bgFailures.length} submit failure(s)`, bgFailures);
+        }
+        console.log(
+          `📦 Nudes pack background done: ${queuedCount} submitted, ${bgFailures.length} submit error(s)`,
+        );
+      } catch (bgErr) {
+        console.error("❌ Nudes pack background fatal:", bgErr?.message || bgErr);
+        for (const id of generationIds) {
+          try {
+            const g = await prisma.generation.findUnique({ where: { id } });
+            if (g && (g.status === "queued" || g.status === "processing")) {
+              await refundGeneration(id);
+              await prisma.generation.update({
+                where: { id },
+                data: {
+                  status: "failed",
+                  errorMessage: getErrorMessageForDb(bgErr?.message || "Pack failed to start"),
+                },
+              });
+            }
+          } catch (e) {
+            console.error("Nudes pack fatal cleanup:", e?.message);
+          }
+        }
+      }
+    })();
   } catch (error) {
     console.error("❌ Nudes pack error:", error);
     if (creditsDeducted > 0 && userId) {
@@ -3079,7 +3126,8 @@ export async function generateNudesPack(req, res) {
 // ============================================
 // Background processor for NSFW generation (RunPod)
 // Parallel poll workers — match RunPod concurrency so jobs aren't stuck behind each other.
-// Env: NSFW_POLL_CONCURRENCY (default 5), NSFW_MAX_RUNNING_MS (45m), NSFW_MAX_WALL_MS (90m)
+// Env: NSFW_POLL_CONCURRENCY (default 5), NSFW_MAX_RUNNING_MS (90m), NSFW_MAX_WALL_MS (180m)
+// Nudes packs + busy RunPod queues can sit IN_QUEUE a long time; wall must exceed worst-case queue+run.
 // ============================================
 const nsfwPollQueue = [];
 let nsfwActivePollWorkers = 0;
@@ -3087,8 +3135,8 @@ const NSFW_POLL_CONCURRENCY = Math.max(
   1,
   Math.min(20, Number(process.env.NSFW_POLL_CONCURRENCY) || 5),
 );
-const NSFW_MAX_RUNNING_MS = Number(process.env.NSFW_MAX_RUNNING_MS) || 45 * 60 * 1000;
-const NSFW_MAX_WALL_MS = Number(process.env.NSFW_MAX_WALL_MS) || 90 * 60 * 1000;
+const NSFW_MAX_RUNNING_MS = Number(process.env.NSFW_MAX_RUNNING_MS) || 90 * 60 * 1000;
+const NSFW_MAX_WALL_MS = Number(process.env.NSFW_MAX_WALL_MS) || 180 * 60 * 1000;
 
 console.log(
   `🔥 NSFW RunPod poll: ${NSFW_POLL_CONCURRENCY} concurrent workers · running timeout ${Math.round(NSFW_MAX_RUNNING_MS / 60000)}m · wall ${Math.round(NSFW_MAX_WALL_MS / 60000)}m`,
@@ -4894,7 +4942,8 @@ async function pollSingleNsfwGeneration(gen) {
     } else {
       const age = Math.round((Date.now() - new Date(gen.createdAt).getTime()) / 1000);
       console.log(`  ⏳ ${gen.id.substring(0,8)} still ${status.status} (${age}s old)`);
-      const stuckMaxSec = Number(process.env.NSFW_STUCK_MAX_AGE_SEC) || 100 * 60;
+      // Must be ≥ NSFW_MAX_WALL_MS (recovery poller must not fail rows still eligible for main poll)
+      const stuckMaxSec = Number(process.env.NSFW_STUCK_MAX_AGE_SEC) || 200 * 60;
       if (age > stuckMaxSec) {
         try {
           await refundGeneration(gen.id);
