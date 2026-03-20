@@ -792,9 +792,18 @@ function comfyUiGraphToApiPrompt(nodes, links, extra) {
     for (const inp of node.inputs || []) {
       const name = inp.name;
       if (inp.link != null && linkMap[inp.link]) {
+        // Input is linked - use the link, skip the corresponding widget value
         inputs[name] = linkMap[inp.link];
-      } else if (inp.widget != null && widgetIdx < wv.length) {
-        inputs[name] = wv[widgetIdx++];
+        // widgets_values array includes values for ALL inputs in order, even linked ones
+        // So we must increment widgetIdx to stay in sync, but don't use the value
+        if (inp.widget != null && widgetIdx < wv.length) {
+          widgetIdx++;
+        }
+      } else if (inp.widget != null) {
+        // Input has a widget - use the widget value
+        if (widgetIdx < wv.length) {
+          inputs[name] = wv[widgetIdx++];
+        }
       }
     }
     prompt[id] = { class_type: node.type, inputs };
