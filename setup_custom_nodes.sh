@@ -10,6 +10,10 @@ REQUIRED_REPOS=(
   "Suzie1/ComfyUI_Comfyroll_CustomNodes"
   "chflame163/ComfyUI_LayerStyle_Advance"
   "1038lab/ComfyUI-JoyCaption"
+  "Derfuu/Derfuu_ComfyUI_ModdedNodes"
+  "crystian/ComfyUI-Crystools"
+  "alexopus/ComfyUI-Image-Saver"
+  "rgthree/rgthree-comfy"
 )
 
 echo ">>> Installing custom nodes..."
