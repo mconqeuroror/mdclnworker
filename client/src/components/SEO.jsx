@@ -28,8 +28,8 @@ export default function SEO({
       <meta name="twitter:description" content={description} />
       <meta name="twitter:image" content={`${siteUrl}${ogImage}`} />
 
-      {/* Additional */}
-      <meta name="robots" content="index, follow" />
+      {/* Prefer SeoRobotsMeta (App) for site-wide rules; default is non-indexed */}
+      <meta name="robots" content="noindex, nofollow" />
       <link rel="canonical" href={siteUrl} />
     </Helmet>
   );

@@ -1,0 +1,5 @@
+# Only the homepage (/) is crawlable. All other paths are disallowed.
+# See SeoRobotsMeta in the SPA for matching meta robots tags.
+User-agent: *
+Disallow: /
+Allow: /$

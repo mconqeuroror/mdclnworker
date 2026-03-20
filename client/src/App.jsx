@@ -54,6 +54,7 @@ import ProModelsPage from './pages/Pro/ProModelsPage';
 import ProNSFWPage from './pages/Pro/ProNSFWPage';
 import ProGenerationPage from './pages/Pro/ProGenerationPage';
 import toast from 'react-hot-toast';
+import SeoRobotsMeta from './components/SeoRobotsMeta';
 
 function safeLocalStorageGet(key) {
   try {
@@ -410,6 +411,7 @@ function App() {
         <ErrorDisplay />
         <LoraPromoBanner />
         <BrowserRouter>
+          <SeoRobotsMeta />
           <ForceLogoutListener />
           <Stripe3DSReturnHandler />
           <Toaster
