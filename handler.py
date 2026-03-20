@@ -21,14 +21,27 @@ def check_comfyui():
         return False
 
 
-def get_available_nodes():
-    try:
-        req = urllib.request.Request(f"{COMFYUI_URL}/object_info")
-        resp = urllib.request.urlopen(req, timeout=30)
-        data = json.loads(resp.read())
-        return list(data.keys())
-    except Exception as e:
-        return f"Error fetching nodes: {e}"
+def get_available_nodes(retries=3, delay=2):
+    """
+    Fetch available node types from ComfyUI with retries.
+    Custom nodes may take time to register after ComfyUI starts.
+    """
+    for attempt in range(retries):
+        try:
+            req = urllib.request.Request(f"{COMFYUI_URL}/object_info")
+            resp = urllib.request.urlopen(req, timeout=30)
+            data = json.loads(resp.read())
+            nodes = list(data.keys())
+            if attempt > 0:
+                print(f"✅ Got {len(nodes)} node types after {attempt + 1} attempt(s)")
+            return nodes
+        except Exception as e:
+            if attempt < retries - 1:
+                print(f"⚠️  Failed to fetch nodes (attempt {attempt + 1}/{retries}): {e}, retrying in {delay}s...")
+                time.sleep(delay)
+            else:
+                return f"Error fetching nodes after {retries} attempts: {e}"
+    return "Error fetching nodes: max retries exceeded"
 
 
 def validate_workflow_nodes(workflow):
@@ -38,7 +51,8 @@ def validate_workflow_nodes(workflow):
 
     missing = []
     for node_id, node_data in workflow.items():
-        class_type = node_data.get("class_type", "")
+        # Workflow JSON may use "type" or "class_type" field
+        class_type = node_data.get("class_type") or node_data.get("type", "")
         if class_type and class_type not in nodes:
             missing.append(f"Node {node_id}: '{class_type}'")
 
@@ -326,6 +340,17 @@ def handler(event):
     # ── Node validation ────────────────────────────────────────────────────────
     valid, validation_error = validate_workflow_nodes(workflow)
     if valid is False:
+        # Debug: log available nodes if validation fails
+        available = get_available_nodes()
+        if isinstance(available, list):
+            print(f"🔍 Available nodes ({len(available)}): {', '.join(sorted(available)[:20])}...")
+            # Check if String Literal variants exist
+            string_variants = [n for n in available if "String" in n or "Literal" in n]
+            if string_variants:
+                print(f"🔍 String/Literal node variants found: {string_variants}")
+            rgthree_variants = [n for n in available if "rgthree" in n.lower() or "Bypasser" in n or "Fast" in n]
+            if rgthree_variants:
+                print(f"🔍 rgthree/Bypasser node variants found: {rgthree_variants}")
         return {"error": f"Workflow validation failed: {validation_error}"}
     elif valid is None:
         print(f"⚠️  Could not validate nodes: {validation_error}")
