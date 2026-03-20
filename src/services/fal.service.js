@@ -879,6 +879,27 @@ function loadNsfwCoreWorkflowApi() {
   return null;
 }
 
+/**
+ * Load raw workflow graph (nodes + links + extra) without conversion
+ */
+function loadNsfwCoreWorkflowGraph() {
+  const candidates = [
+    path.join(process.cwd(), "attached_assets", "nsfw_core_workflow.json"),
+    path.join(__dirname, "..", "..", "attached_assets", "nsfw_core_workflow.json"),
+  ];
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) {
+        const raw = fs.readFileSync(p, "utf8");
+        return JSON.parse(raw);
+      }
+    } catch (e) {
+      console.warn("NSFW core workflow load failed:", p, e?.message);
+    }
+  }
+  return null;
+}
+
 const CUM_KEYWORDS = ["cum on", "cum dripping", "cum facial", "covered in cum", "cum shot", "cumshot", "creampie", "cum on face", "cum on tits", "cum on stomach", "cum on ass", "cum on thighs", "cum on back", "cum on breasts", "cum on chest", "facial cum", "messy cum", "dripping cum", "cum load"];
 
 /**
@@ -1413,8 +1434,20 @@ export function buildNsfwPrompt(triggerWord, userPrompt, attributes = "") {
 }
 
 /**
- * Build the full ComfyUI workflow from the core NSFW workflow template (LoadLoraFromUrlOrPath + CR Apply LoRA Stack).
- * Overrides: positive/negative prompt (nodes 56, 41), seed (57), and node 250 LoRA URLs/strengths.
+ * Build the full ComfyUI workflow from the core NSFW workflow template.
+ * STRICT: Only injects specified values into widgets_values, nothing else is modified.
+ * Injected nodes:
+ * - 56: Positive Prompt (prompt text)
+ * - 276: KSampler (steps = 50, fixed)
+ * - 311: active_loras (count)
+ * - 298: lora_girl (strength)
+ * - 309: lora_girl_url (URL)
+ * - 305: lora_additive1 (strength)
+ * - 307: lora_additive1_url (URL)
+ * - 306: lora_additive2 (strength)
+ * - 308: lora_additive2_url (URL)
+ * - 302: aspect_width (width)
+ * - 303: aspect_height (height)
  * Falls back to legacy inline workflow if attached_assets/nsfw_core_workflow.json is missing.
  */
 function buildComfyWorkflow(params) {
@@ -1422,92 +1455,162 @@ function buildComfyWorkflow(params) {
     prompt,
     loraUrl,
     girlLoraStrength,
-    poseStrengths,
-    makeupStrength,
-    cumStrength,
+    poseStrengths = {},
+    makeupStrength = 0,
+    cumStrength = 0,
     enhancementStrengths = {},
     postProcessing = {},
     seed,
-    steps = 50,
-    cfg = 3,
-    sampler = "dpmpp_2m",
-    scheduler = "beta",
     width = 1344,
     height = 768,
-    aspectRatio = "16:9 landscape 1344x768",
   } = params;
 
-  const negativePrompt =
-    "blurry, low resolution, deformed, bad anatomy, extra limbs, mutated hands, poorly drawn face, bad proportions, gigantic penis, huge penis, oversized penis, unrealistically large penis, hyperbolic genitals, watermark, text, signature, cartoon, anime, overexposed, underexposed, plastic skin, doll-like" +
-    NSFW_NEGATIVE_POV_NO_HAND;
-
-  const template = loadNsfwCoreWorkflowApi();
-  if (template) {
-    const workflow = JSON.parse(JSON.stringify(template));
-
-    if (workflow["56"]?.inputs) workflow["56"].inputs.string = prompt;
-    if (workflow["41"]?.inputs) workflow["41"].inputs.string = negativePrompt;
-    if (workflow["57"]?.inputs) workflow["57"].inputs.seed = seed;
-
-    const node250 = workflow["250"];
-    if (node250?.inputs) {
-      const girlStr = Math.min(1, Math.max(0, Number(girlLoraStrength) || 0.6));
-      const stack = buildNsfwLoraStackEntries({
-        loraUrl,
-        girlLoraStrength: girlStr,
-        poseStrengths,
-        makeupStrength,
-        enhancementStrengths,
-      });
-      applyCompactLoraStackToNode250(node250, stack);
-      console.log(`📚 LoRA stack (compact): ${stack.length} weight file(s), num_loras=${node250.inputs.num_loras}, mode=${node250.inputs.mode || "n/a"}`);
+  const graph = loadNsfwCoreWorkflowGraph();
+  if (graph && graph.nodes) {
+    // Create a deep copy of the graph
+    const workflowGraph = JSON.parse(JSON.stringify(graph));
+    
+    // Find nodes by ID
+    const findNode = (id) => workflowGraph.nodes.find(n => n.id === id);
+    
+    // Determine additive LoRAs
+    let additive1Url = "";
+    let additive1Strength = 0;
+    let additive2Url = "";
+    let additive2Strength = 0;
+    
+    // Additive 1: pose (if any) or makeup (if no pose)
+    let foundPose = false;
+    for (const p of POSE_LORAS) {
+      const str = poseStrengths[p.node] || 0;
+      if (str > 0 && POSE_SLOT_URLS[p.node]) {
+        additive1Url = POSE_SLOT_URLS[p.node];
+        additive1Strength = Math.min(MAX_ADDITIVE_LORA_STRENGTH, Math.max(0, Number(str)));
+        foundPose = true;
+        break;
+      }
     }
-
-    // KSampler 276 (base) and 45 (refiner): set steps/cfg/sampler/scheduler/denoise explicitly to avoid widget-order mismatch
-    const stepsNum = Math.min(10000, Math.max(1, Number(steps) || 50));
-    const cfgNum = Number(cfg) || 3;
-    if (workflow["276"]?.inputs) {
-      workflow["276"].inputs.steps = stepsNum;
-      workflow["276"].inputs.cfg = cfgNum;
-      workflow["276"].inputs.sampler_name = sampler || "dpmpp_2m";
-      workflow["276"].inputs.scheduler = scheduler || "beta";
-      workflow["276"].inputs.denoise = 1;
+    
+    if (!foundPose && makeupStrength > 0) {
+      additive1Url = LORA_8_RUNNING_MAKEUP_URL;
+      additive1Strength = Math.min(MAX_ADDITIVE_LORA_STRENGTH, Math.max(0, Number(makeupStrength)));
     }
-    if (workflow["45"]?.inputs) {
-      workflow["45"].inputs.steps = 8;
-      workflow["45"].inputs.cfg = 0;
-      workflow["45"].inputs.sampler_name = "dpmpp_2m";
-      workflow["45"].inputs.scheduler = "karras";
-      workflow["45"].inputs.denoise = 0.09;
+    
+    // Additive 2: cum (if any) or first enhancement (if no cum)
+    if (cumStrength > 0) {
+      // Cum LoRA URL - typically from the same HuggingFace repo
+      // If you have a specific cum LoRA URL, please provide it
+      additive2Url = "https://huggingface.co/bigckck/ndmstr/resolve/main/cum.safetensors"; // Default pattern, update if different
+      additive2Strength = Math.min(MAX_ADDITIVE_LORA_STRENGTH, Math.max(0, Number(cumStrength)));
+    } else {
+      // First active enhancement
+      const enhOrder = ["deepthroat", "amateur_nudes", "masturbation", "dildo"];
+      for (const key of enhOrder) {
+        const raw = Number(enhancementStrengths[key]) || 0;
+        if (raw > 0) {
+          const meta = ENHANCEMENT_LORAS[key];
+          if (meta?.url) {
+            additive2Url = meta.url;
+            additive2Strength = Math.min(MAX_ADDITIVE_LORA_STRENGTH, Math.max(0.35, raw));
+            break;
+          }
+        }
+      }
     }
-
+    
+    // Calculate active_loras count: 1 (girl) + (additive1 if active) + (additive2 if active)
+    const activeLorasCount = 1 + (additive1Url ? 1 : 0) + (additive2Url ? 1 : 0);
+    
+    // Inject values into widgets_values arrays
+    const node56 = findNode(56); // Positive Prompt
+    if (node56 && node56.widgets_values && node56.widgets_values.length > 0) {
+      node56.widgets_values[0] = prompt || "";
+    }
+    
+    const node276 = findNode(276); // KSampler
+    if (node276 && node276.widgets_values && node276.widgets_values.length > 2) {
+      node276.widgets_values[2] = 50; // Fixed steps = 50
+    }
+    
+    const node311 = findNode(311); // active_loras
+    if (node311 && node311.widgets_values && node311.widgets_values.length > 0) {
+      node311.widgets_values[0] = activeLorasCount;
+    }
+    
+    const node298 = findNode(298); // lora_girl
+    if (node298 && node298.widgets_values && node298.widgets_values.length > 0) {
+      node298.widgets_values[0] = Math.min(1, Math.max(0, Number(girlLoraStrength) || 0.6));
+    }
+    
+    const node309 = findNode(309); // lora_girl_url
+    if (node309 && node309.widgets_values && node309.widgets_values.length > 0) {
+      node309.widgets_values[0] = loraUrl ? sanitizeLoraDownloadUrl(String(loraUrl).trim()) : "";
+    }
+    
+    const node305 = findNode(305); // lora_additive1
+    if (node305 && node305.widgets_values && node305.widgets_values.length > 0) {
+      node305.widgets_values[0] = additive1Strength;
+    }
+    
+    const node307 = findNode(307); // lora_additive1_url
+    if (node307 && node307.widgets_values && node307.widgets_values.length > 0) {
+      node307.widgets_values[0] = additive1Url ? sanitizeLoraDownloadUrl(additive1Url) : "";
+    }
+    
+    const node306 = findNode(306); // lora_additive2
+    if (node306 && node306.widgets_values && node306.widgets_values.length > 0) {
+      node306.widgets_values[0] = additive2Strength;
+    }
+    
+    const node308 = findNode(308); // lora_additive2_url
+    if (node308 && node308.widgets_values && node308.widgets_values.length > 0) {
+      node308.widgets_values[0] = additive2Url ? sanitizeLoraDownloadUrl(additive2Url) : "";
+    }
+    
+    const node302 = findNode(302); // aspect_width
+    if (node302 && node302.widgets_values && node302.widgets_values.length > 0) {
+      node302.widgets_values[0] = Number(width) || 1344;
+    }
+    
+    const node303 = findNode(303); // aspect_height
+    if (node303 && node303.widgets_values && node303.widgets_values.length > 0) {
+      node303.widgets_values[0] = Number(height) || 768;
+    }
+    
+    // Inject blur and grain settings (user-controllable)
     const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
     const blurEnabled = postProcessing?.blur?.enabled !== false;
     const grainEnabled = postProcessing?.grain?.enabled !== false;
-    const blurStrength = clamp(Number(postProcessing?.blur?.strength) || 1, 0, 1);
-    const grainStrength = clamp(Number(postProcessing?.grain?.strength) || 1, 0, 1);
-    if (workflow["286"]?.inputs) {
-      workflow["286"].inputs.blur_radius = blurEnabled ? Math.max(1, Math.round(2 * blurStrength)) : 1;
-      const sigma = blurEnabled ? Number((0.3 * blurStrength).toFixed(3)) : 0;
-      workflow["286"].inputs.sigma = Math.max(0.1, sigma); // RunPod ImageBlur requires sigma >= 0.1
-    }
-    if (workflow["284"]?.inputs) {
+    const blurStrength = clamp(Number(postProcessing?.blur?.strength) ?? 1.0, 0, 1);
+    const grainStrength = clamp(Number(postProcessing?.grain?.strength) ?? 1.0, 0, 1);
+    
+    // Node 284: Image Film Grain - widgets_values: [density, intensity, highlights, supersample_factor]
+    const node284 = findNode(284);
+    if (node284 && node284.widgets_values && node284.widgets_values.length >= 4) {
       const density = grainEnabled ? Number((0.06 * grainStrength).toFixed(4)) : 0;
       const intensity = grainEnabled ? Number((0.1 * grainStrength).toFixed(4)) : 0;
-      workflow["284"].inputs.density = Math.max(0.01, density); // RunPod Image Film Grain min 0.01
-      workflow["284"].inputs.intensity = Math.max(0.01, intensity);
+      node284.widgets_values[0] = Math.max(0.01, density); // density
+      node284.widgets_values[1] = Math.max(0.01, intensity); // intensity
+      // highlights and supersample_factor stay as default (1, 1)
     }
-
-    if (workflow["50"]?.inputs) {
-      workflow["50"].inputs.width = width;
-      workflow["50"].inputs.height = height;
-      workflow["50"].inputs.aspect_ratio = aspectRatio;
-      // Template has swap_dimensions "On" which flips to portrait; force Off for landscape so 1344x768 stays landscape
-      workflow["50"].inputs.swap_dimensions = (aspectRatio || "").toLowerCase().includes("landscape") ? "Off" : "On";
+    
+    // Node 286: ImageBlur - widgets_values: [blur_radius, sigma]
+    const node286 = findNode(286);
+    if (node286 && node286.widgets_values && node286.widgets_values.length >= 2) {
+      node286.widgets_values[0] = blurEnabled ? Math.max(1, Math.round(2 * blurStrength)) : 1; // blur_radius
+      const sigma = blurEnabled ? Number((0.3 * blurStrength).toFixed(3)) : 0;
+      node286.widgets_values[1] = Math.max(0.1, sigma); // sigma (RunPod ImageBlur requires sigma >= 0.1)
     }
-
-    stripUnsupportedNodesAndInjectValues(workflow, { prompt, negativePrompt, loraUrl: sanitizeLoraDownloadUrl(loraUrl) });
-    return workflow;
+    
+    // Convert graph to API format
+    const apiWorkflow = comfyUiGraphToApiPrompt(workflowGraph.nodes, workflowGraph.links, workflowGraph.extra);
+    
+    // Set seed if provided (node 57)
+    if (seed != null && apiWorkflow["57"]?.inputs) {
+      apiWorkflow["57"].inputs.seed = seed;
+    }
+    
+    return apiWorkflow;
   }
 
   return buildComfyWorkflowLegacy(params);
