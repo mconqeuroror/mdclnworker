@@ -81,6 +81,10 @@ RUN test -d /workspace/ComfyUI/custom_nodes/Derfuu_ComfyUI_ModdedNodes || \
     (echo "ERROR: Derfuu/Derfuu_ComfyUI_ModdedNodes failed to clone" && exit 1)
 RUN test -d /workspace/ComfyUI/custom_nodes/ComfyUI-Crystools || \
     (echo "ERROR: crystian/ComfyUI-Crystools failed to clone" && exit 1)
+RUN test -d /workspace/ComfyUI/custom_nodes/ComfyUI-Image-Saver || \
+    (echo "ERROR: alexopus/ComfyUI-Image-Saver failed to clone" && exit 1)
+RUN test -d /workspace/ComfyUI/custom_nodes/rgthree-comfy || \
+    (echo "ERROR: rgthree/rgthree-comfy failed to clone" && exit 1)
 
 # Install requirements for each custom node
 RUN for dir in /workspace/ComfyUI/custom_nodes/*/; do \
