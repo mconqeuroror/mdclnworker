@@ -1607,24 +1607,28 @@ function buildComfyWorkflow(params) {
       node286.widgets_values[1] = Math.max(0.1, sigma); // sigma (RunPod ImageBlur requires sigma >= 0.1)
     }
     
+    // Node 250: LoadLoraFromUrlOrPath — patch URLs in widgets_values BEFORE conversion.
+    // URLs are at indices 3, 7, 11, 15, ... (every 4th index starting from 3, accounting for linked strength inputs).
+    const node250 = findNode(250);
+    if (node250 && node250.widgets_values && node250.widgets_values.length >= 11) {
+      const safeLora = loraUrl ? sanitizeLoraDownloadUrl(String(loraUrl).trim()) : "";
+      const safeAdd1 = additive1Url ? sanitizeLoraDownloadUrl(additive1Url) : "";
+      const safeAdd2 = additive2Url ? sanitizeLoraDownloadUrl(additive2Url) : "";
+      node250.widgets_values[3] = safeLora;   // lora_1_url
+      node250.widgets_values[7] = safeAdd1;  // lora_2_url
+      node250.widgets_values[11] = safeAdd2; // lora_3_url
+    }
+    
+    // Node 57: Seed (rgthree) — patch seed in widgets_values BEFORE conversion.
+    if (seed != null) {
+      const node57 = findNode(57);
+      if (node57 && node57.widgets_values && node57.widgets_values.length > 0) {
+        node57.widgets_values[0] = seed;
+      }
+    }
+    
     // Convert graph to API format
     const apiWorkflow = comfyUiGraphToApiPrompt(workflowGraph.nodes, workflowGraph.links, workflowGraph.extra);
-
-    // LoadLoraFromUrlOrPath (250): URLs live here in the exported workflow — not in separate Primitive nodes.
-    const safeLora = loraUrl ? sanitizeLoraDownloadUrl(String(loraUrl).trim()) : "";
-    const safeAdd1 = additive1Url ? sanitizeLoraDownloadUrl(additive1Url) : "";
-    const safeAdd2 = additive2Url ? sanitizeLoraDownloadUrl(additive2Url) : "";
-    if (apiWorkflow["250"]?.inputs) {
-      const ins = apiWorkflow["250"].inputs;
-      ins.lora_1_url = safeLora;
-      ins.lora_2_url = safeAdd1;
-      ins.lora_3_url = safeAdd2;
-    }
-
-    // Set seed if provided (node 57 — rgthree Seed)
-    if (seed != null && apiWorkflow["57"]?.inputs) {
-      apiWorkflow["57"].inputs.seed = seed;
-    }
 
     // Optional: strip custom nodes RunPod doesn't ship (String Literal, Crystools, PrimitiveFloat) and inline values.
     // Default: off — pass the workflow through so ComfyUI on the worker matches your desktop export.
