@@ -163,7 +163,21 @@ router.post(
         if (isEndOfChat) {
           return res.json({ success: true, ended: true, ignoredWebhookError: true });
         }
-        throw webhookErr;
+        const code = webhookErr?.cause?.code || webhookErr?.code;
+        const isUnreachable =
+          code === "ENOTFOUND" ||
+          code === "ECONNREFUSED" ||
+          code === "ETIMEDOUT" ||
+          code === "EAI_AGAIN" ||
+          (typeof webhookErr?.message === "string" &&
+            /fetch failed|getaddrinfo|network|ECONNRESET/i.test(webhookErr.message));
+        return res.status(isUnreachable ? 503 : 502).json({
+          success: false,
+          message: isUnreachable
+            ? "Support automation is temporarily unreachable. Please try again in a few minutes."
+            : "Support agent temporarily unavailable",
+          code: isUnreachable ? "SUPPORT_WEBHOOK_UNREACHABLE" : "SUPPORT_WEBHOOK_ERROR",
+        });
       }
     } catch (err) {
       console.error("Support chat message error:", err);

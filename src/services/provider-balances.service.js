@@ -122,8 +122,8 @@ export async function fetchOpenRouterBalance() {
 export async function fetchFalBalance() {
   const id = "fal";
   const name = "fal.ai";
-  const key = process.env.FAL_API_KEY;
-  if (!key?.trim()) return notConfigured(id, name);
+  const key = (process.env.FAL_API_KEY || process.env.FAL_KEY || "").trim();
+  if (!key) return notConfigured(id, name);
   try {
     const res = await fetch("https://api.fal.ai/v1/account/billing?expand=credits", {
       method: "GET",

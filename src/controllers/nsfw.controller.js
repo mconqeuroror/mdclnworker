@@ -28,6 +28,7 @@ import {
   archiveNsfwImageToR2,
   buildNsfwPrompt,
   faceSwapWithFal,
+  isFalConfigured,
 } from "../services/fal.service.js";
 import { submitNsfwVideo, pollNsfwVideo, submitNsfwVideoExtend } from "../services/wavespeed.service.js";
 import { generateImageWithNanoBananaKie } from "../services/kie.service.js";
@@ -1960,6 +1961,23 @@ export async function trainLora(req, res) {
 
     const isProTraining = targetLora?.trainingMode === "pro";
     const creditsNeeded = isProTraining ? CREDITS_FOR_PRO_LORA_TRAINING : CREDITS_FOR_LORA_TRAINING;
+
+    if (!isFalConfigured()) {
+      return res.status(503).json({
+        success: false,
+        message:
+          "LoRA training is unavailable: fal.ai API key is not configured. Set FAL_KEY or FAL_API_KEY in the server environment.",
+        code: "FAL_NOT_CONFIGURED",
+      });
+    }
+    if (!isR2Configured()) {
+      return res.status(503).json({
+        success: false,
+        message: "LoRA training requires file storage (R2). Configure R2 credentials.",
+        code: "R2_NOT_CONFIGURED",
+      });
+    }
+
     const user = await checkAndExpireCredits(userId);
     const totalCredits = getTotalCredits(user);
 
@@ -4167,7 +4185,7 @@ export async function testFaceRefGeneration(req, res) {
       return res.status(400).json({ success: false, message: "Model has no LoRA trained" });
     }
 
-    const FAL_API_KEY = process.env.FAL_API_KEY;
+    const falKey = (process.env.FAL_API_KEY || process.env.FAL_KEY || "").trim();
     const requestBody = {
       "Model Lora URL": model.loraUrl,
       "Model LORA strenght": loraStrength,
@@ -4185,7 +4203,7 @@ export async function testFaceRefGeneration(req, res) {
     const response = await fetch("https://queue.fal.run/fal-ai/flux-pro-finetuned-v1", {
       method: "POST",
       headers: {
-        Authorization: `Key ${FAL_API_KEY}`,
+        Authorization: `Key ${falKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify(requestBody),
@@ -4206,11 +4224,11 @@ export async function testFaceRefGeneration(req, res) {
 export async function testFaceRefStatus(req, res) {
   try {
     const { requestId } = req.params;
-    const FAL_API_KEY = process.env.FAL_API_KEY;
+    const falKey = (process.env.FAL_API_KEY || process.env.FAL_KEY || "").trim();
 
     const response = await fetch(
       `https://queue.fal.run/fal-ai/flux-pro-finetuned-v1/requests/${requestId}/status`,
-      { headers: { Authorization: `Key ${FAL_API_KEY}` } },
+      { headers: { Authorization: `Key ${falKey}` } },
     );
 
     if (!response.ok) {
@@ -4222,7 +4240,7 @@ export async function testFaceRefStatus(req, res) {
     if (statusData.status === "COMPLETED") {
       const resultRes = await fetch(
         `https://queue.fal.run/fal-ai/flux-pro-finetuned-v1/requests/${requestId}`,
-        { headers: { Authorization: `Key ${FAL_API_KEY}` } },
+        { headers: { Authorization: `Key ${falKey}` } },
       );
       const resultData = await resultRes.json();
       const outputUrl = resultData.images?.[0]?.url || resultData.output?.images?.[0]?.url;

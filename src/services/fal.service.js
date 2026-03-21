@@ -19,7 +19,8 @@ import { resolveNsfwResolution } from "../utils/nsfwResolution.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const FAL_API_KEY = process.env.FAL_API_KEY;
+/** fal.ai key: official docs use `FAL_KEY`; this repo historically used `FAL_API_KEY` — accept both. */
+const RESOLVED_FAL_KEY = (process.env.FAL_API_KEY || process.env.FAL_KEY || "").trim();
 const FAL_API_URL = "https://queue.fal.run";
 const FAL_STORAGE_URL = "https://rest.alpha.fal.ai/storage/upload/initiate";
 /** fal.ai NSFW image generation endpoint for face reference (e.g. comfy/modelclone/...). If unset, face reference step is skipped. */
@@ -28,8 +29,13 @@ const FAL_NSFW_ENDPOINT = process.env.FAL_NSFW_ENDPOINT || "";
 // Cache: R2 URL -> fal.ai storage URL (avoids re-uploading same LoRA)
 const falStorageCache = new Map();
 
-if (!FAL_API_KEY) {
-  console.warn("⚠️ FAL_API_KEY not set - LoRA training will not work");
+/** @returns {boolean} Whether fal.ai queue calls can authenticate */
+export function isFalConfigured() {
+  return Boolean(RESOLVED_FAL_KEY);
+}
+
+if (!RESOLVED_FAL_KEY) {
+  console.warn("⚠️ FAL_API_KEY / FAL_KEY not set - LoRA training and fal queue calls will not work");
 }
 
 /**
@@ -263,8 +269,11 @@ async function createTrainingZip(imageUrls, captions = []) {
         if (!buffer.byteLength) throw new Error(`empty response (0 bytes)`);
 
         const detectedFormat = detectImageFormat(buffer);
-        if (!detectedFormat || (detectedFormat !== "jpg" && detectedFormat !== "png")) {
-          throw new Error(`unsupported format: ${detectedFormat || "unknown"} — only JPEG/PNG accepted`);
+        const allowed = ["jpg", "png", "webp"];
+        if (!detectedFormat || !allowed.includes(detectedFormat)) {
+          throw new Error(
+            `unsupported format: ${detectedFormat || "unknown"} — use JPEG, PNG, or WebP`,
+          );
         }
 
         const baseName = `image_${String(i + 1).padStart(2, "0")}`;
@@ -329,8 +338,8 @@ export async function submitLoraTraining(
   triggerWord,
   options = {},
 ) {
-  if (!FAL_API_KEY) {
-    throw new Error("FAL_API_KEY not configured");
+  if (!RESOLVED_FAL_KEY) {
+    throw new Error("FAL_API_KEY or FAL_KEY not configured");
   }
 
   console.log("\n🎓 ============================================");
@@ -353,7 +362,7 @@ export async function submitLoraTraining(
       {
         method: "POST",
         headers: {
-          Authorization: `Key ${FAL_API_KEY}`,
+          Authorization: `Key ${RESOLVED_FAL_KEY}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify(requestBody),
@@ -370,13 +379,20 @@ export async function submitLoraTraining(
     }
 
     const result = await response.json();
-    console.log(`✅ Training submitted! Request ID: ${result.request_id}`);
+    const requestId = result.request_id ?? result.requestId;
+    if (!requestId) {
+      console.error("❌ fal queue submit: unexpected response (no request_id):", JSON.stringify(result));
+      throw new Error(
+        "fal.ai queue did not return request_id — check FAL_KEY/FAL_API_KEY and https://queue.fal.run/fal-ai/z-image-turbo-trainer-v2",
+      );
+    }
+    console.log(`✅ Training submitted! Request ID: ${requestId}`);
 
     return {
-      requestId: result.request_id,
+      requestId,
       statusUrl:
         result.status_url ||
-        `${FAL_API_URL}/fal-ai/z-image-turbo-trainer-v2/requests/${result.request_id}/status`,
+        `${FAL_API_URL}/fal-ai/z-image-turbo-trainer-v2/requests/${requestId}/status`,
     };
   } catch (error) {
     console.error("❌ fal.ai submission error:", error.message);
@@ -390,8 +406,8 @@ export async function submitLoraTraining(
  * @returns {Promise<{status: string, result?: object, error?: string}>}
  */
 export async function checkTrainingStatus(requestId) {
-  if (!FAL_API_KEY) {
-    throw new Error("FAL_API_KEY not configured");
+  if (!RESOLVED_FAL_KEY) {
+    throw new Error("FAL_API_KEY or FAL_KEY not configured");
   }
 
   try {
@@ -399,7 +415,7 @@ export async function checkTrainingStatus(requestId) {
       `${FAL_API_URL}/fal-ai/z-image-turbo-trainer-v2/requests/${requestId}/status`,
       {
         headers: {
-          Authorization: `Key ${FAL_API_KEY}`,
+          Authorization: `Key ${RESOLVED_FAL_KEY}`,
         },
       },
     );
@@ -428,8 +444,8 @@ export async function checkTrainingStatus(requestId) {
  * @returns {Promise<{loraUrl: string, configUrl?: string}>}
  */
 export async function getTrainingResult(requestId) {
-  if (!FAL_API_KEY) {
-    throw new Error("FAL_API_KEY not configured");
+  if (!RESOLVED_FAL_KEY) {
+    throw new Error("FAL_API_KEY or FAL_KEY not configured");
   }
 
   try {
@@ -437,7 +453,7 @@ export async function getTrainingResult(requestId) {
       `${FAL_API_URL}/fal-ai/z-image-turbo-trainer-v2/requests/${requestId}`,
       {
         headers: {
-          Authorization: `Key ${FAL_API_KEY}`,
+          Authorization: `Key ${RESOLVED_FAL_KEY}`,
         },
       },
     );
@@ -468,7 +484,7 @@ export async function getTrainingResult(requestId) {
     return {
       loraUrl,
       configUrl,
-      rawResult: result,
+      rawResult: payload,
     };
   } catch (error) {
     console.error("❌ Result fetch error:", error.message);
@@ -2103,8 +2119,8 @@ export async function submitNsfwGeneration(params) {
  * @returns {Promise<{success: boolean, requestId?: string, error?: string}>}
  */
 export async function submitFaceReferenceGeneration(loraUrl, triggerWord) {
-  if (!FAL_API_KEY) {
-    throw new Error("FAL_API_KEY not configured");
+  if (!RESOLVED_FAL_KEY) {
+    throw new Error("FAL_API_KEY or FAL_KEY not configured");
   }
   if (!FAL_NSFW_ENDPOINT || !FAL_NSFW_ENDPOINT.trim()) {
     console.warn("⚠️ FAL_NSFW_ENDPOINT not set — skipping face reference generation. Set it in env to enable auto face reference.");
@@ -2132,7 +2148,7 @@ export async function submitFaceReferenceGeneration(loraUrl, triggerWord) {
     const response = await fetch(`${FAL_API_URL}/${FAL_NSFW_ENDPOINT}`, {
       method: "POST",
       headers: {
-        Authorization: `Key ${FAL_API_KEY}`,
+        Authorization: `Key ${RESOLVED_FAL_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify(requestBody),
@@ -2448,8 +2464,8 @@ export async function archiveNsfwImageToR2(imageUrl) {
  * @returns {Promise<{success: boolean, outputUrl?: string, error?: string}>}
  */
 export async function faceSwapWithFal(generatedImageUrl, faceReferenceUrl) {
-  if (!FAL_API_KEY) {
-    throw new Error("FAL_API_KEY not configured");
+  if (!RESOLVED_FAL_KEY) {
+    throw new Error("FAL_API_KEY or FAL_KEY not configured");
   }
 
   console.log("\n🔄 ============================================");
@@ -2468,7 +2484,7 @@ export async function faceSwapWithFal(generatedImageUrl, faceReferenceUrl) {
     const response = await fetch(`${FAL_API_URL}/comfy/modelclone/faceswap`, {
       method: "POST",
       headers: {
-        Authorization: `Key ${FAL_API_KEY}`,
+        Authorization: `Key ${RESOLVED_FAL_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify(requestBody),
@@ -2526,7 +2542,7 @@ async function pollFaceSwapResult(requestId, maxAttempts = 60) {
         `${FAL_API_URL}/comfy/modelclone/faceswap/requests/${requestId}/status`,
         {
           headers: {
-            Authorization: `Key ${FAL_API_KEY}`,
+            Authorization: `Key ${RESOLVED_FAL_KEY}`,
           },
         }
       );
@@ -2547,7 +2563,7 @@ async function pollFaceSwapResult(requestId, maxAttempts = 60) {
           `${FAL_API_URL}/comfy/modelclone/faceswap/requests/${requestId}`,
           {
             headers: {
-              Authorization: `Key ${FAL_API_KEY}`,
+              Authorization: `Key ${RESOLVED_FAL_KEY}`,
             },
           }
         );

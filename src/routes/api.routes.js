@@ -1659,36 +1659,41 @@ Tag list, comma-separated. 40–70 tags.`,
         }`
       : "";
 
-    const requestBody = {
-      model: "x-ai/grok-4.1-fast",
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: `User's idea: "${prompt.trim()}"${modelContext}\n\nWrite the superprompt now:` },
-      ],
-      max_tokens: 400,
-      temperature: 0.7,
+    const callOpenRouterEnhance = async (temperature, maxTokens) => {
+      const requestBody = {
+        model: "x-ai/grok-4.1-fast",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: `User's idea: "${prompt.trim()}"${modelContext}\n\nWrite the superprompt now:` },
+        ],
+        max_tokens: maxTokens,
+        temperature,
+      };
+      const aiResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+        },
+        body: JSON.stringify(requestBody),
+      });
+      if (!aiResponse.ok) {
+        const err = await aiResponse.text();
+        throw new Error(`AI service error ${aiResponse.status}: ${err}`);
+      }
+      const aiData = await aiResponse.json();
+      return aiData.choices?.[0]?.message?.content;
     };
 
-    const aiResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
-      },
-      body: JSON.stringify(requestBody),
-    });
-
-    if (!aiResponse.ok) {
-      const err = await aiResponse.text();
-      throw new Error(`AI service error ${aiResponse.status}: ${err}`);
+    let rawContent = await callOpenRouterEnhance(0.7, 400);
+    if (!rawContent || !String(rawContent).trim()) {
+      console.warn("[enhance-prompt] Empty first response; retrying with lower temperature");
+      rawContent = await callOpenRouterEnhance(0.3, 500);
     }
-
-    const aiData = await aiResponse.json();
-    const rawContent = aiData.choices?.[0]?.message?.content;
-    if (!rawContent) {
+    if (!rawContent || !String(rawContent).trim()) {
       throw new Error("AI service returned empty response");
     }
-    const enhancedPrompt = rawContent.trim();
+    const enhancedPrompt = String(rawContent).trim();
 
     // Log credit transaction — non-fatal: if this fails the user still gets their prompt
     if (ENHANCE_CREDIT_COST > 0) {
@@ -2099,6 +2104,25 @@ const debugDownload = (...args) => {
   if (DOWNLOAD_DEBUG_LOGS) console.log("[DOWNLOAD]", ...args);
 };
 
+/** Strip chars that break Node/HTTP headers (CRLF, NUL, non-ASCII) — use ASCII fallback + RFC 5987 filename*. */
+function sanitizeFilenameForContentDisposition(name) {
+  const s = String(name || "download")
+    .replace(/[\r\n\x00-\x1f\x7f]/g, "_")
+    .replace(/[^\x20-\x7E]/g, "_")
+    .replace(/["\\]/g, "_")
+    .trim();
+  const base = s.length > 0 ? s.slice(0, 180) : "download";
+  return /^\.+$/.test(base) ? "download" : base;
+}
+
+/** Safe Content-Disposition for attachment (avoids ERR_INVALID_CHAR from emoji / @ / Unicode). */
+function buildAttachmentContentDisposition(originalFilename) {
+  const asciiName = sanitizeFilenameForContentDisposition(originalFilename);
+  const utf8Star = encodeURIComponent(String(originalFilename || "download"))
+    .replace(/['()]/g, (ch) => `%${ch.charCodeAt(0).toString(16).toUpperCase()}`);
+  return `attachment; filename="${asciiName}"; filename*=UTF-8''${utf8Star}`;
+}
+
 router.get("/download", authMiddleware, downloadLimiter, async (req, res) => {
   try {
     const { url, filename } = req.query;
@@ -2257,10 +2281,7 @@ router.get("/download", authMiddleware, downloadLimiter, async (req, res) => {
 
     // Set headers for download
     res.setHeader("Content-Type", contentType);
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="${downloadFilename}"`,
-    );
+    res.setHeader("Content-Disposition", buildAttachmentContentDisposition(downloadFilename));
     res.setHeader("Content-Length", buffer.byteLength);
 
     debugDownload(

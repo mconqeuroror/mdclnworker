@@ -6,6 +6,28 @@ import {
 } from "./kie.service.js";
 import { IDENTITY_RECREATE_MODEL_CLOTHES } from "../constants/identityRecreationPrompts.js";
 
+/**
+ * Image APIs (Google/KIE) reject prompts that imply minors. Never emit ages under 18 in provider-facing text.
+ * @returns {string} e.g. "25 years old" for adults, or "" when age should be omitted (caller adds "adult" elsewhere)
+ */
+function safeAgeYearsFragmentForImagePrompt(age) {
+  if (age === undefined || age === null || age === "") return "";
+  const n = typeof age === "number" ? age : parseInt(String(age).trim(), 10);
+  if (!Number.isFinite(n) || n < 18) return "";
+  return `${Math.min(120, n)} years old`;
+}
+
+/**
+ * Reference portrait: natural English with correct article ("an adult …" vs "a 25 years old …").
+ */
+function portraitSubjectAgeGender(age, genderText) {
+  const years = safeAgeYearsFragmentForImagePrompt(age);
+  if (!years) {
+    return { article: "an", subject: `adult ${genderText}` };
+  }
+  return { article: "a", subject: `${years} ${genderText}` };
+}
+
 const WAVESPEED_API_KEY = process.env.WAVESPEED_API_KEY;
 const WAVESPEED_API_URL = "https://api.wavespeed.ai/api/v3";
 
@@ -797,7 +819,7 @@ async function generateReferenceImage(params) {
 
     // Build comprehensive prompt for reference image (NON-EXPLICIT)
     const genderText = gender === "male" ? "man" : "woman";
-    const ageText = age ? `${age} years old` : "adult";
+    const { article, subject } = portraitSubjectAgeGender(age, genderText);
 
     // Style mappings for reference (kept tasteful/non-explicit)
     const stylePrompts = {
@@ -844,7 +866,7 @@ async function generateReferenceImage(params) {
     const skinTexture = "natural skin texture with visible pores, clear skin without acne, healthy glowing skin";
     
     const basePrompt = [
-      `beautiful portrait photo of a ${ageText} ${genderText}`,
+      `beautiful portrait photo of ${article} ${subject}`,
       heritageText,
       faceTypeText,
       hairText,
@@ -967,7 +989,7 @@ async function generateModelPosesFromReference(
 
     const profileDescriptors = [
       gender ? `${gender} adult` : "",
-      age ? `${age} years old` : "",
+      safeAgeYearsFragmentForImagePrompt(age),
       heritage ? `${heritage} heritage` : "",
       faceType ? `${faceType} face shape and facial features` : "",
       hairLength || hairTexture || hairColor
@@ -1234,7 +1256,7 @@ async function generateTwoPosesFromReference(
     // Build profile descriptor for identity consistency (same as generateModelPosesFromReference)
     const profileDescriptors = [
       gender ? `${gender} adult` : "",
-      age ? `${age} years old` : "",
+      safeAgeYearsFragmentForImagePrompt(age),
       heritage ? `${heritage} heritage` : "",
       faceType ? `${faceType} face shape and facial features` : "",
       hairLength || hairTexture || hairColor
@@ -1601,7 +1623,7 @@ export function buildModelPosesPrompts(referenceImageUrl, options = {}) {
 
   const profileDescriptors = [
     gender ? `${gender} adult` : "",
-    age ? `${age} years old` : "",
+    safeAgeYearsFragmentForImagePrompt(age),
     heritage ? `${heritage} heritage` : "",
     faceType ? `${faceType} face shape and facial features` : "",
     hairLength || hairTexture || hairColor
