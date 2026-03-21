@@ -1771,45 +1771,21 @@ function buildComfyWorkflow(params) {
     // Convert graph to API format
     const apiWorkflow = comfyUiGraphToApiPrompt(workflowGraph.nodes, workflowGraph.links, workflowGraph.extra);
 
-    // ALWAYS strip String Literal nodes (41, 56) — RunPod doesn't have this custom node.
-    // Inject prompts directly into CLIPTextEncode nodes that reference them.
+    // ALWAYS strip String Literal nodes (41, 56) — comfy-image-saver is not on RunPod.
+    // Inline text directly into the CLIPTextEncode nodes that reference them.
     if (apiWorkflow["41"] || apiWorkflow["56"]) {
-      // Node 41 (negative) feeds into nodes 1, 8; node 56 (positive) feeds into nodes 2, 42
-      if (apiWorkflow["1"]?.inputs?.text && Array.isArray(apiWorkflow["1"].inputs.text) && apiWorkflow["1"].inputs.text[0] === "41") {
-        apiWorkflow["1"].inputs.text = negativeTextForInline;
-      }
-      if (apiWorkflow["8"]?.inputs?.text && Array.isArray(apiWorkflow["8"].inputs.text) && apiWorkflow["8"].inputs.text[0] === "41") {
-        apiWorkflow["8"].inputs.text = negativeTextForInline;
-      }
-      if (apiWorkflow["2"]?.inputs?.text && Array.isArray(apiWorkflow["2"].inputs.text) && apiWorkflow["2"].inputs.text[0] === "56") {
-        apiWorkflow["2"].inputs.text = prompt || "";
-      }
-      if (apiWorkflow["42"]?.inputs?.text && Array.isArray(apiWorkflow["42"].inputs.text) && apiWorkflow["42"].inputs.text[0] === "56") {
-        apiWorkflow["42"].inputs.text = prompt || "";
-      }
-      // Delete String Literal nodes
-      delete apiWorkflow["41"];
-      delete apiWorkflow["56"];
-    }
-
-    // Refiner KSampler 45: template wires negative from node 1 (Qwen). SDXL refiner needs clip_pooled;
-    // Qwen conditioning has none → encode_adm crashes on RunPod (clip_pooled NoneType.shape).
-    // Default: rewire negative to node 8 (SDXL CLIP, same text as 41). Opt out for strict 1:1 desktop graph:
-    // NSFW_COMFY_REFINER_FIX_SDXL=0
-    const refinerFixOff = process.env.NSFW_COMFY_REFINER_FIX_SDXL === "0";
-    if (!refinerFixOff && apiWorkflow["45"]?.inputs?.negative) {
-      const currentNegative = apiWorkflow["45"].inputs.negative;
-      if (Array.isArray(currentNegative) && String(currentNegative[0]) === "1") {
-        if (apiWorkflow["8"] && typeof apiWorkflow["8"].inputs?.text === "string") {
-          if (!apiWorkflow["8"].inputs.clip || (Array.isArray(apiWorkflow["8"].inputs.clip) && String(apiWorkflow["8"].inputs.clip[0]) !== "282")) {
-            apiWorkflow["8"].inputs.clip = ["282", 1];
-          }
-          apiWorkflow["45"].inputs.negative = ["8", 0];
-          console.log("[NSFW] Refiner fix: KSampler 45 negative node 1 → 8 (SDXL CLIP; set NSFW_COMFY_REFINER_FIX_SDXL=0 to disable)");
-        } else {
-          console.warn("[NSFW] Node 8 missing or text not set, cannot apply refiner SDXL negative fix");
+      // Node 41 (negative) → node 1; node 56 (positive) → node 2.
+      // Check by reference so this stays correct if the workflow is rewired later.
+      for (const id of Object.keys(apiWorkflow)) {
+        const n = apiWorkflow[id];
+        if (!n?.inputs) continue;
+        if (Array.isArray(n.inputs.text)) {
+          if (String(n.inputs.text[0]) === "41") n.inputs.text = negativeTextForInline;
+          if (String(n.inputs.text[0]) === "56") n.inputs.text = prompt || "";
         }
       }
+      delete apiWorkflow["41"];
+      delete apiWorkflow["56"];
     }
 
     // Optional: strip other custom nodes RunPod doesn't ship (Crystools, PrimitiveFloat) and inline values.
