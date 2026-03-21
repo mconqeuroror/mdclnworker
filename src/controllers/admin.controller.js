@@ -1919,6 +1919,66 @@ function setStripeCache(key, data) {
 }
 
 /**
+ * Fetch subscription docs for MRR — many parallel retrieves instead of one tiny batch at a time
+ * (was timing out admin when hundreds of DB-matched subs exist).
+ */
+async function retrieveActiveSubscriptionsForMrr(stripeClient, eligibleIds) {
+  const ids = [...eligibleIds].filter(Boolean);
+  if (ids.length === 0) return [];
+
+  const BATCH = 30;
+  const waves = [];
+  for (let i = 0; i < ids.length; i += BATCH) {
+    waves.push(ids.slice(i, i + BATCH));
+  }
+
+  const PARALLEL_WAVES = 4;
+  const out = [];
+
+  for (let i = 0; i < waves.length; i += PARALLEL_WAVES) {
+    const slice = waves.slice(i, i + PARALLEL_WAVES);
+    const settledArrays = await Promise.all(
+      slice.map((batch) =>
+        Promise.allSettled(
+          batch.map((id) =>
+            stripeClient.subscriptions.retrieve(
+              id,
+              { expand: ["items.data.price"] },
+              { timeout: 18_000 },
+            ),
+          ),
+        ),
+      ),
+    );
+    for (const settled of settledArrays) {
+      for (const r of settled) {
+        if (r.status !== "fulfilled") continue;
+        const sub = r.value;
+        if (sub && sub.status === "active") out.push(sub);
+      }
+    }
+  }
+
+  return out;
+}
+
+/** Churn in date range — Search API filters by canceled_at (no full-table scan). */
+async function countChurnCanceledInPeriod(stripeClient, periodStart, periodEnd) {
+  try {
+    const list = await stripeClient.subscriptions
+      .search({
+        query: `status:'canceled' AND canceled_at>=${periodStart} AND canceled_at<=${periodEnd}`,
+        limit: 100,
+      })
+      .autoPagingToArray({ limit: 2_000 });
+    return list.length;
+  } catch (e) {
+    console.warn("Stripe subscriptions.search (churn) unavailable or failed:", e.message);
+    return 0;
+  }
+}
+
+/**
  * Live Stripe Revenue
  * GET /api/admin/stripe-revenue?period=week
  */
@@ -1955,39 +2015,6 @@ export async function getStripeRevenue(req, res) {
     const periodStart = Math.floor(range.start.getTime() / 1000);
     const periodEnd   = Math.floor(range.end.getTime()   / 1000);
 
-    const STRIPE_TIMEOUT_MS = 45_000;
-    const stripeTimeout = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("Stripe API timeout after 45s")), STRIPE_TIMEOUT_MS)
-    );
-
-    // ── Fetch charges, active subs, and canceled subs in parallel ────────────
-    const [allCharges, allActiveSubs, canceledSubs] = await Promise.race([
-      Promise.all([
-        // Charges within the period window — server-side filtered
-        stripe.charges.list({
-          limit: 100,
-          created: { gte: periodStart, lte: periodEnd },
-        }).autoPagingToArray({ limit: 2_000 }),
-
-        // All active subscriptions (MRR source — point-in-time, not period-filtered)
-        stripe.subscriptions.list({
-          status: "active",
-          limit: 100,
-          expand: ["data.items.data.price"],
-        }).autoPagingToArray({ limit: 2_000 }),
-
-        // Canceled subs — Stripe doesn't support server-side canceled_at filtering,
-        // so we narrow by created date (subs created up to periodEnd) to avoid
-        // pulling the entire history, then filter by canceled_at in JS below.
-        stripe.subscriptions.list({
-          status: "canceled",
-          limit: 100,
-          created: { lte: periodEnd },
-        }).autoPagingToArray({ limit: 2_000 }),
-      ]),
-      stripeTimeout,
-    ]);
-
     // Users with a real active subscription in our DB (not cancelled in-app / DB)
     const dbActiveSubUsers = await prisma.user.findMany({
       where: {
@@ -2001,6 +2028,19 @@ export async function getStripeRevenue(req, res) {
       dbActiveSubUsers.map((u) => u.stripeSubscriptionId).filter(Boolean),
     );
     const activeSubscribersCount = eligibleStripeSubIds.size;
+
+    // No global Promise.race — parallel sub retrieves + charge paging could exceed 90s on large accounts;
+    // MRR path is batched with wave parallelism instead.
+    const [allCharges, allActiveSubs, churnInPeriod] = await Promise.all([
+      stripe.charges
+        .list({
+          limit: 100,
+          created: { gte: periodStart, lte: periodEnd },
+        })
+        .autoPagingToArray({ limit: 2_000 }),
+      retrieveActiveSubscriptionsForMrr(stripe, eligibleStripeSubIds),
+      countChurnCanceledInPeriod(stripe, periodStart, periodEnd),
+    ]);
 
     // ── Tally charges ────────────────────────────────────────────────────────
     let periodRevenueCents = 0;
@@ -2019,7 +2059,6 @@ export async function getStripeRevenue(req, res) {
     let mrrCents = 0;
 
     for (const sub of allActiveSubs) {
-      if (!eligibleStripeSubIds.has(sub.id)) continue;
       for (const item of (sub.items?.data || [])) {
         const price = item.price;
         if (!price) continue;
@@ -2052,13 +2091,7 @@ export async function getStripeRevenue(req, res) {
         active:        activeSubscribersCount,
         mrrCents,
         arrCents:      mrrCents * 12,
-        churnInPeriod: canceledSubs.filter(s => {
-          // canceled_at is a Unix timestamp in seconds; convert to ms for comparison
-          const canceledAtMs = s.canceled_at ? s.canceled_at * 1000 : null;
-          const startMs = periodStart * 1000;
-          const endMs   = periodEnd   * 1000;
-          return canceledAtMs && canceledAtMs >= startMs && canceledAtMs <= endMs;
-        }).length,
+        churnInPeriod,
         plans:         planList,
       },
     };
@@ -2067,17 +2100,14 @@ export async function getStripeRevenue(req, res) {
     return res.json({ success: true, data: result });
   } catch (err) {
     console.error("getStripeRevenue error:", err.message);
-    const isTimeout = err.message?.includes("timeout");
-    if (isTimeout) {
-      const key = `${req.query?.period ?? "week"}:${req.query?.year ?? ""}:${req.query?.date ?? ""}:${req.query?.startDate ?? ""}:${req.query?.endDate ?? ""}`;
-      const cached = getStripeCache(key);
-      if (cached) {
-        return res.json({ success: true, data: cached, cached: true, timeoutFallback: true });
-      }
+    const key = `${req.query?.period ?? "week"}:${req.query?.year ?? ""}:${req.query?.date ?? ""}:${req.query?.startDate ?? ""}:${req.query?.endDate ?? ""}`;
+    const cached = getStripeCache(key);
+    if (cached) {
+      return res.json({ success: true, data: cached, cached: true, staleFallback: true });
     }
-    return res.status(isTimeout ? 504 : 500).json({
+    return res.status(500).json({
       success: false,
-      message: isTimeout ? "Stripe data is taking too long to load — try again in a moment" : err.message,
+      message: err.message || "Stripe revenue failed — try Refresh in a moment.",
     });
   }
 }

@@ -671,6 +671,9 @@ if (!RUNPOD_API_KEY) {
   console.warn("⚠️ RUNPOD_API_KEY not set - NSFW generation will not work");
 }
 
+/** Pose / makeup / cum / enhancement additive slots — never exceed this (girl LoRA identity is separate). */
+const MAX_ADDITIVE_LORA_STRENGTH = 0.35;
+
 const POSE_LORAS = [
   {
     id: "doggystyle_facing",
@@ -692,7 +695,7 @@ const POSE_LORAS = [
     id: "anal_doggystyle",
     node: "293",
     keywords: [],
-    strength: 0.50,
+    strength: 0.35,
   },
   {
     id: "handjob",
@@ -710,26 +713,26 @@ const ENHANCEMENT_LORAS = {
   amateur_nudes: {
     url: "https://huggingface.co/bigckck/ndmstr/resolve/main/Amateur_Nudes_2.5_Z-Image-Turbo.safetensors",
     name: "Amateur Nudes",
-    strengthRange: [0.35, 0.50],
-    defaultStrength: 0.45,
+    strengthRange: [0.25, 0.35],
+    defaultStrength: 0.35,
   },
   masturbation: {
     url: "https://huggingface.co/bigckck/ndmstr/resolve/main/Masturbation.safetensors",
     name: "Masturbation",
-    strengthRange: [0.35, 0.50],
-    defaultStrength: 0.45,
+    strengthRange: [0.25, 0.35],
+    defaultStrength: 0.35,
   },
   deepthroat: {
     url: "https://huggingface.co/bigckck/ndmstr/resolve/main/bjz.safetensors",
     name: "Deepthroat/Blowjob",
-    strengthRange: [0.35, 0.50],
-    defaultStrength: 0.45,
+    strengthRange: [0.25, 0.35],
+    defaultStrength: 0.35,
   },
   dildo: {
     url: "https://huggingface.co/bigckck/ndmstr/resolve/main/dildo.safetensors",
     name: "Dildo",
-    strengthRange: [0.35, 0.50],
-    defaultStrength: 0.45,
+    strengthRange: [0.25, 0.35],
+    defaultStrength: 0.35,
   },
 };
 
@@ -1005,23 +1008,23 @@ RULES FOR POSE SELECTION:
 - "kneeling" is NOT any pose - it's just a body position (kneeling + blowjob = pose "none", deepthroat enhancement ON)
 - "lying in bed" is NOT missionary - there must be explicit missionary sex OR missionary + penetration words
 - If the prompt describes oral sex (blowjob, deepthroat, mouth on penis, penis in mouth), select "none" for pose ALWAYS — even if it says one hand on shaft (normal for POV blowjob). NEVER select "handjob" for those scenes — handjob pose + oral text causes duplicate penis mutations.
-- Mirror selfie / casual girlfriend nude (no partnered sex act): set amateur_nudes to 0.40-0.50 even if pose is "none".
+- Mirror selfie / casual girlfriend nude (no partnered sex act): set amateur_nudes to 0.25-0.35 even if pose is "none".
 - If unsure, select "none" - it's better to have no pose LoRA than the wrong one
 
-ENHANCEMENT LORAS (each can be independently activated with a strength from 0.35-0.50):
-- "amateur_nudes": Casual girlfriend-style nude photos. Activate for: casual nude selfies, gf nudes, naked in bed/couch/mirror, relaxed nude poses, topless casual moments, sending nudes, lounging naked. Strength 0.35 for subtle gf vibe, 0.50 for stronger amateur aesthetic.
-- "deepthroat": Blowjob and deepthroat oral sex. Activate for: blowjob, deepthroat, oral sex, sucking, on knees giving head, mouth around cock, licking, oral. Strength 0.35-0.50.
-- "masturbation": Solo masturbation scenes. Activate for: masturbating, fingering herself, touching herself, hand between legs/thighs, playing with herself, rubbing pussy. Strength 0.35-0.50.
-- "dildo": Using a dildo/vibrator/toy. Activate for: dildo, vibrator, sex toy, inserting toy, using toy on herself. Strength 0.35-0.50.
+ENHANCEMENT LORAS (each can be independently activated; strengths 0.25-0.35 only, NEVER above 0.35):
+- "amateur_nudes": Casual girlfriend-style nude photos. Activate for: casual nude selfies, gf nudes, naked in bed/couch/mirror, relaxed nude poses, topless casual moments, sending nudes, lounging naked. Use 0.25-0.35 max.
+- "deepthroat": Blowjob and deepthroat oral sex. Activate for: blowjob, deepthroat, oral sex, sucking, on knees giving head, mouth around cock, licking, oral. Strength 0.25-0.35 max.
+- "masturbation": Solo masturbation scenes. Activate for: masturbating, fingering herself, touching herself, hand between legs/thighs, playing with herself, rubbing pussy. Strength 0.25-0.35 max.
+- "dildo": Using a dildo/vibrator/toy. Activate for: dildo, vibrator, sex toy, inserting toy, using toy on herself. Strength 0.25-0.35 max.
 
 RULES FOR ENHANCEMENT LORAS:
 - Multiple CAN be active simultaneously (e.g. amateur_nudes + masturbation for casual gf masturbating)
 - amateur_nudes stacks well with masturbation or dildo for the casual/gf aesthetic
-- For ANY blowjob/oral/deepthroat scene: set deepthroat to 0.40-0.50 and pose to "none"
+- For ANY blowjob/oral/deepthroat scene: set deepthroat to 0.30-0.35 and pose to "none"
 - deepthroat should NOT combine with masturbation or dildo (incompatible acts)
 - Look at the FULL context: if chips say "on knees" + prompt mentions "mouth" or "oral" = activate deepthroat
 - Look at outfit chips: if outfit is "nude"/"naked"/"topless" + casual scene = consider amateur_nudes
-- Set strength 0.35 for subtle, 0.45 for moderate, 0.50 for strong effect (NEVER exceed 0.50)
+- Set strength 0.25-0.35 only (NEVER exceed 0.35)
 - If the scene doesn't match any enhancement, set its strength to 0
 
 ${girlStrengthSection}
@@ -1247,9 +1250,9 @@ function applyExplicitPoseHeuristic(aiSelection, fullPromptText) {
     (/\bmirror selfie\b/.test(t) || (/\bmirror\b/.test(t) && /\biphone\b/.test(t))) &&
     (!enh.amateur_nudes || Number(enh.amateur_nudes) < 0.35)
   ) {
-    enh.amateur_nudes = 0.45;
+    enh.amateur_nudes = MAX_ADDITIVE_LORA_STRENGTH;
     aiSelection.enhancementStrengths = enh;
-    console.log("🎯 Heuristic: amateur_nudes 0.45 (mirror selfie)");
+    console.log(`🎯 Heuristic: amateur_nudes ${MAX_ADDITIVE_LORA_STRENGTH} (mirror selfie)`);
   }
 }
 
@@ -1273,11 +1276,15 @@ function applyNudesPackAdditiveLoraHint(aiSelection, hint) {
     }
     aiSelection.pose = null;
     const dt = Number(hint.deepthroat);
-    enh.deepthroat = Number.isFinite(dt) && dt >= 0.35
-      ? Math.max(Number(enh.deepthroat) || 0, dt)
-      : Math.max(Number(enh.deepthroat) || 0, 0.45);
+    enh.deepthroat = Number.isFinite(dt) && dt >= 0.25
+      ? Math.min(MAX_ADDITIVE_LORA_STRENGTH, Math.max(Number(enh.deepthroat) || 0, dt))
+      : Math.min(MAX_ADDITIVE_LORA_STRENGTH, Math.max(Number(enh.deepthroat) || 0, 0.35));
     enh.masturbation = 0;
     enh.dildo = 0;
+    for (const k of Object.keys(enh)) {
+      const v = Number(enh[k]);
+      if (Number.isFinite(v) && v > MAX_ADDITIVE_LORA_STRENGTH) enh[k] = MAX_ADDITIVE_LORA_STRENGTH;
+    }
     aiSelection.enhancementStrengths = enh;
     console.log(`📦 Pack additive hint: oral — deepthroat=${enh.deepthroat}`);
     return;
@@ -1304,16 +1311,31 @@ function applyNudesPackAdditiveLoraHint(aiSelection, hint) {
   if (hint.amateurNudes != null) {
     const a = Number(hint.amateurNudes);
     if (Number.isFinite(a)) {
-      enh.amateur_nudes = Math.max(Number(enh.amateur_nudes) || 0, a);
+      enh.amateur_nudes = Math.min(
+        MAX_ADDITIVE_LORA_STRENGTH,
+        Math.max(Number(enh.amateur_nudes) || 0, a),
+      );
     }
   }
   if (hint.masturbation != null) {
     const m = Number(hint.masturbation);
-    if (Number.isFinite(m)) enh.masturbation = Math.max(Number(enh.masturbation) || 0, m);
+    if (Number.isFinite(m)) {
+      enh.masturbation = Math.min(
+        MAX_ADDITIVE_LORA_STRENGTH,
+        Math.max(Number(enh.masturbation) || 0, m),
+      );
+    }
   }
   if (hint.dildo != null) {
     const d = Number(hint.dildo);
-    if (Number.isFinite(d)) enh.dildo = Math.max(Number(enh.dildo) || 0, d);
+    if (Number.isFinite(d)) {
+      enh.dildo = Math.min(MAX_ADDITIVE_LORA_STRENGTH, Math.max(Number(enh.dildo) || 0, d));
+    }
+  }
+
+  for (const k of Object.keys(enh)) {
+    const v = Number(enh[k]);
+    if (Number.isFinite(v) && v > MAX_ADDITIVE_LORA_STRENGTH) enh[k] = MAX_ADDITIVE_LORA_STRENGTH;
   }
 
   aiSelection.enhancementStrengths = enh;
@@ -1345,9 +1367,6 @@ const NUDES_PACK_TAIL_SOLO =
   "anatomically correct, realistic skin, solo, candid amateur photo";
 const NUDES_PACK_TAIL_COUPLE =
   "anatomically correct, realistic skin, consensual adult, two adults";
-
-// Additive LoRAs (pose, makeup, effects) must never overpower identity LoRA.
-const MAX_ADDITIVE_LORA_STRENGTH = 0.5;
 
 /** Max enhancement LoRAs (deepthroat/amateur/etc.) applied at once — matches AI selector design. */
 const MAX_SIMULTANEOUS_ENHANCEMENT_LORAS = 2;
@@ -1902,7 +1921,7 @@ export async function submitNsfwGeneration(params) {
     prompt = `${identityAnchoredPrompt}, ${QUALITY_SUFFIX_SOLO}`;
   }
 
-  // AI decides additive LoRAs from full prompt/context (pose + makeup + effects). Quick flow: girl max 0.65, additive max 0.5.
+  // AI decides additive LoRAs from full prompt/context (pose + makeup + effects). Quick flow: girl max 0.65; additive max 0.35.
   const aiSelection = await detectLorasWithAI({
     finalPrompt: prompt,
     sceneDescription: sceneDescription || userPrompt,
