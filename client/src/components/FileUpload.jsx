@@ -4,15 +4,16 @@ import { Upload, Check, Image as ImageIcon, Video, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { uploadToCloudinary as uploadFile } from '../services/api';
 
+// Supported formats — MP4 only for video; JPG/PNG only for images.
+// Other formats should be converted first via the Content Reformatter.
+const VIDEO_ACCEPT = { 'video/mp4': ['.mp4'] };
+const IMAGE_ACCEPT = { 'image/jpeg': ['.jpg', '.jpeg'], 'image/png': ['.png'] };
+
 export default function FileUpload({ type = 'image', onUpload, preview, large, acceptOnlyMp4 = false }) {
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
 
-  const accept = type === 'image'
-    ? { 'image/*': [] }
-    : acceptOnlyMp4
-      ? { 'video/mp4': ['.mp4'], 'application/octet-stream': ['.mp4'] }
-      : { 'video/*': [] };
+  const accept = type === 'image' ? IMAGE_ACCEPT : VIDEO_ACCEPT;
 
   const handleDrop = async (files) => {
     const file = files[0];
@@ -34,8 +35,18 @@ export default function FileUpload({ type = 'image', onUpload, preview, large, a
     }
   };
 
+  const handleDropRejected = (rejectedFiles) => {
+    if (rejectedFiles?.length > 0) {
+      toast.error(
+        'File type not supported. Use the Content Reformatter to change the file format.',
+        { duration: 5000, id: 'unsupported-file-type' }
+      );
+    }
+  };
+
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop: handleDrop,
+    onDropRejected: handleDropRejected,
     accept,
     multiple: false
   });
@@ -158,7 +169,7 @@ export default function FileUpload({ type = 'image', onUpload, preview, large, a
               {isDragActive ? 'Drop here' : 'Upload'}
             </span>
             <span className="text-[10px] text-slate-500">
-              {type === 'image' ? 'JPG, PNG, WebP' : acceptOnlyMp4 ? 'MP4 only' : 'MP4, MOV'}
+              {type === 'image' ? 'JPG, PNG' : 'MP4 only'}
             </span>
           </div>
         </div>

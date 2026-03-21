@@ -18,7 +18,13 @@ async function postToWorker(endpoint, body) {
       });
       const text = await res.text();
       let data;
-      try { data = JSON.parse(text); } catch { data = { ok: false, message: text?.slice(0, 200) || `HTTP ${res.status}` }; }
+      const isHtml = text.trimStart().startsWith("<");
+      try {
+        data = JSON.parse(text);
+      } catch {
+        // HTML error page (e.g. "Cannot POST /transcode" from an old worker) — don't leak raw HTML
+        data = { ok: false, message: isHtml ? `Worker HTTP ${res.status} (endpoint not found — redeploy the ffmpeg worker)` : (text?.slice(0, 200) || `HTTP ${res.status}`) };
+      }
       if (res.ok && data.ok) return { ...data, _workerBase: base };
       lastErr = new Error(data.message || data.error || `Worker HTTP ${res.status}`);
     } catch (e) {
