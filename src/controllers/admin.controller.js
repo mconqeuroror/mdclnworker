@@ -1,6 +1,10 @@
 import prisma from "../lib/prisma.js";
 import Stripe from "stripe";
 import { recordReferralCommissionFromPayment } from "../services/referral.service.js";
+import {
+  normalizeCreditUnits,
+  resolveSubscriptionBillingCycle,
+} from "../utils/creditUnits.js";
 
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY || process.env.TESTING_STRIPE_SECRET_KEY;
 
@@ -192,9 +196,23 @@ function endOfDay(date) {
   return d;
 }
 
-function getPeriodRange(period = "week", year = null, date = null) {
+/** Usage-based revenue: 1 credit spent ≈ $0.01 (1¢) */
+const CREDIT_TO_USD = 0.01;
+
+function getPeriodRange(period = "week", year = null, date = null, startDate = null, endDate = null) {
   const now = new Date();
   const p = String(period || "week").toLowerCase();
+
+  // Custom inclusive date range (YYYY-MM-DD) — daily tracking & metrics for span
+  if (p === "range" && startDate && endDate) {
+    const s = new Date(String(startDate));
+    const e = new Date(String(endDate));
+    if (!isNaN(s.getTime()) && !isNaN(e.getTime())) {
+      const start = startOfDay(s <= e ? s : e);
+      const end = endOfDay(e >= s ? e : s);
+      return { start, end, label: `range_${dayKey(start)}_${dayKey(end)}` };
+    }
+  }
 
   // Specific calendar day from daily tracking (YYYY-MM-DD)
   if (p === "date" && date) {
@@ -925,8 +943,17 @@ export async function updateUserSettings(req, res) {
  */
 export async function getDashboardStats(req, res) {
   try {
-    const { period = "week", year, date } = req.query;
-    const range = getPeriodRange(period, year, date);
+    const { period = "week", year, date, startDate, endDate } = req.query;
+    const range = getPeriodRange(period, year, date, startDate, endDate);
+
+    const rangeDays =
+      (range.end.getTime() - range.start.getTime()) / (24 * 60 * 60 * 1000) + 1;
+    if (rangeDays > 366) {
+      return res.status(400).json({
+        success: false,
+        message: "Date range cannot exceed 366 days",
+      });
+    }
 
     const [
       totalUsersInPeriod,
@@ -1056,12 +1083,12 @@ export async function getDashboardStats(req, res) {
 
     const dailySeries = Array.from(dailyMap.values()).map((row) => ({
       ...row,
-      estimatedRevenue: Number((row.creditsSpent * 0.1).toFixed(2)),
+      estimatedRevenue: Number((row.creditsSpent * CREDIT_TO_USD).toFixed(2)),
     }));
 
     // Period totals
     const creditsUsedInPeriod = creditsUsedInPeriodAgg._sum.creditsCost || 0;
-    const estimatedRevenue = Number((creditsUsedInPeriod * 0.1).toFixed(2));
+    const estimatedRevenue = Number((creditsUsedInPeriod * CREDIT_TO_USD).toFixed(2));
     const totalCreditsRemaining =
       (totalLegacyCredits._sum.credits || 0) +
       (totalSubscriptionCredits._sum.subscriptionCredits || 0) +
@@ -1223,7 +1250,7 @@ export async function recoverPayment(req, res) {
         expand: ["latest_invoice.payment_intent"],
       });
 
-      const { userId, tierId, billingCycle, credits: creditsStr } = subscription.metadata || {};
+      const { userId, tierId, credits: creditsStr } = subscription.metadata || {};
       if (!userId || !creditsStr) {
         return res.status(400).json({
           success: false,
@@ -1236,7 +1263,8 @@ export async function recoverPayment(req, res) {
         return res.status(404).json({ success: false, message: `User ${userId} not found in database` });
       }
 
-      const credits = parseInt(creditsStr) || 0;
+      const billingCycle = resolveSubscriptionBillingCycle(subscription);
+      const credits = normalizeCreditUnits(creditsStr);
       if (!credits) {
         return res.status(400).json({ success: false, message: `Invalid credits value in metadata: "${creditsStr}"` });
       }
@@ -1302,7 +1330,7 @@ export async function recoverPayment(req, res) {
         type: "subscription",
         credits,
         tierId: tierId || "starter",
-        billingCycle: billingCycle || "monthly",
+        billingCycle,
         user: { email: user.email, id: user.id },
       };
 
@@ -1329,7 +1357,7 @@ export async function recoverPayment(req, res) {
         return res.status(404).json({ success: false, message: `User ${userId} not found in database` });
       }
 
-      const credits = parseInt(creditsStr) || 0;
+      const credits = normalizeCreditUnits(creditsStr);
 
       const existingTx = await prisma.creditTransaction.findUnique({
         where: { paymentSessionId: trimmed },
@@ -1904,10 +1932,19 @@ export async function getStripeRevenue(req, res) {
   }
 
   try {
-    const { period = "week", year, date, bust } = req.query;
-    const range = getPeriodRange(period, year, date);
+    const { period = "week", year, date, startDate, endDate, bust } = req.query;
+    const range = getPeriodRange(period, year, date, startDate, endDate);
 
-    const cacheKey = `${period}:${year || ""}:${date || ""}`;
+    const rangeDays =
+      (range.end.getTime() - range.start.getTime()) / (24 * 60 * 60 * 1000) + 1;
+    if (rangeDays > 366) {
+      return res.status(400).json({
+        success: false,
+        message: "Date range cannot exceed 366 days",
+      });
+    }
+
+    const cacheKey = `${period}:${year || ""}:${date || ""}:${startDate || ""}:${endDate || ""}`;
     if (!bust) {
       const cached = getStripeCache(cacheKey);
       if (cached) {
@@ -1951,6 +1988,20 @@ export async function getStripeRevenue(req, res) {
       stripeTimeout,
     ]);
 
+    // Users with a real active subscription in our DB (not cancelled in-app / DB)
+    const dbActiveSubUsers = await prisma.user.findMany({
+      where: {
+        subscriptionStatus: "active",
+        stripeSubscriptionId: { not: null },
+        subscriptionCancelledAt: null,
+      },
+      select: { stripeSubscriptionId: true },
+    });
+    const eligibleStripeSubIds = new Set(
+      dbActiveSubUsers.map((u) => u.stripeSubscriptionId).filter(Boolean),
+    );
+    const activeSubscribersCount = eligibleStripeSubIds.size;
+
     // ── Tally charges ────────────────────────────────────────────────────────
     let periodRevenueCents = 0;
     let periodChargeCount  = 0;
@@ -1963,11 +2014,12 @@ export async function getStripeRevenue(req, res) {
       }
     }
 
-    // ── Tally active subscriptions → MRR + plan breakdown ───────────────────
+    // ── MRR + plan breakdown: only Stripe subs that match our DB active users ──
     const planBreakdown = {};
     let mrrCents = 0;
 
     for (const sub of allActiveSubs) {
+      if (!eligibleStripeSubIds.has(sub.id)) continue;
       for (const item of (sub.items?.data || [])) {
         const price = item.price;
         if (!price) continue;
@@ -1997,7 +2049,7 @@ export async function getStripeRevenue(req, res) {
         chargeCount: periodChargeCount,
       },
       subscriptions: {
-        active:        allActiveSubs.length,
+        active:        activeSubscribersCount,
         mrrCents,
         arrCents:      mrrCents * 12,
         churnInPeriod: canceledSubs.filter(s => {
@@ -2017,7 +2069,7 @@ export async function getStripeRevenue(req, res) {
     console.error("getStripeRevenue error:", err.message);
     const isTimeout = err.message?.includes("timeout");
     if (isTimeout) {
-      const key = `${req.query?.period ?? "week"}:${req.query?.year ?? ""}:${req.query?.date ?? ""}`;
+      const key = `${req.query?.period ?? "week"}:${req.query?.year ?? ""}:${req.query?.date ?? ""}:${req.query?.startDate ?? ""}:${req.query?.endDate ?? ""}`;
       const cached = getStripeCache(key);
       if (cached) {
         return res.json({ success: true, data: cached, cached: true, timeoutFallback: true });

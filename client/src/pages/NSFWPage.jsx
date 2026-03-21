@@ -3268,8 +3268,9 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
 
   // Aspect Ratio state (Quick flow defaults to selfie 1024x1024)
   const [selectedAspectRatio, setSelectedAspectRatio] = useState("1024x1024");
-  /** simple = preset/text → one-shot plan → resolution + generate; advanced = full chip + prompt flow */
+  /** simple = preset/text → one-shot plan → resolution + generate; advanced = full chip + prompt flow; custom = user prompt only */
   const [nsfwGenerateMode, setNsfwGenerateMode] = useState("simple");
+  const [customPrompt, setCustomPrompt] = useState("");
   const [simplePlanReady, setSimplePlanReady] = useState(false);
   const [isPlanning, setIsPlanning] = useState(false);
 
@@ -3485,9 +3486,12 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
     if (d.chipSelections && typeof d.chipSelections === "object") setChipSelections(d.chipSelections);
     if (d.selectedPreset) setSelectedPreset(d.selectedPreset);
     if (d.selectedAspectRatio) setSelectedAspectRatio(d.selectedAspectRatio);
-    if (d.nsfwGenerateMode === "simple" || d.nsfwGenerateMode === "advanced") setNsfwGenerateMode(d.nsfwGenerateMode);
+    if (d.nsfwGenerateMode === "simple" || d.nsfwGenerateMode === "advanced" || d.nsfwGenerateMode === "custom") {
+      setNsfwGenerateMode(d.nsfwGenerateMode);
+    }
     if (d.simplePlanReady !== undefined) setSimplePlanReady(!!d.simplePlanReady);
     if (d.generatedPrompt !== undefined) setGeneratedPrompt(d.generatedPrompt);
+    if (d.customPrompt !== undefined && typeof d.customPrompt === "string") setCustomPrompt(d.customPrompt);
     if (d.skipFaceSwap !== undefined) setSkipFaceSwap(d.skipFaceSwap);
     if (d.faceSwapImage) setFaceSwapImage(d.faceSwapImage);
     if (d.genConfig && typeof d.genConfig === "object") setGenConfig(prev => ({ ...prev, ...d.genConfig }));
@@ -3513,6 +3517,7 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
       nsfwGenerateMode,
       simplePlanReady,
       generatedPrompt,
+      customPrompt,
       skipFaceSwap,
       faceSwapImage,
       genConfig,
@@ -3523,7 +3528,7 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
     };
     const imageUrls = [faceSwapImage?.url].filter(Boolean);
     saveNsfwDraft(data, imageUrls);
-  }, [selectedModel, sceneDescription, chipSelections, selectedPreset, selectedAspectRatio, nsfwGenerateMode, simplePlanReady, generatedPrompt, skipFaceSwap, faceSwapImage, genConfig, adminSamplerTest, activePhase, currentLoraId, trainingSelections]);
+  }, [selectedModel, sceneDescription, chipSelections, selectedPreset, selectedAspectRatio, nsfwGenerateMode, simplePlanReady, generatedPrompt, customPrompt, skipFaceSwap, faceSwapImage, genConfig, adminSamplerTest, activePhase, currentLoraId, trainingSelections]);
 
   // Ref to track if component is mounted
   const isMountedRef = useRef(true);
@@ -4025,6 +4030,10 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
       return;
     }
     setSelectedPreset(preset.id);
+    if (nsfwGenerateMode === "custom") {
+      setCustomPrompt(preset.description);
+      return;
+    }
     setSceneDescription(preset.description);
     setGeneratedPrompt("");
     setSimplePlanReady(false);
@@ -4037,9 +4046,14 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
 
   // Generate NSFW image
   const handleGenerateNsfw = async () => {
-    const promptToUse = generatedPrompt.trim();
+    const promptToUse =
+      nsfwGenerateMode === "custom" ? customPrompt.trim() : generatedPrompt.trim();
     if (!selectedModel || !promptToUse) {
-      toast.error("Generate a prompt first");
+      toast.error(
+        nsfwGenerateMode === "custom"
+          ? "Enter your custom prompt below"
+          : "Generate a prompt first",
+      );
       return;
     }
 
@@ -4061,7 +4075,10 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
         resolution: nsfwGenerateMode === "simple" ? "1024x1024" : selectedAspectRatio,
         attributes: attributesString,
         attributesDetail: chipSelections,
-        sceneDescription: sceneDescription.trim(),
+        sceneDescription:
+          nsfwGenerateMode === "custom"
+            ? promptToUse.slice(0, 2000)
+            : sceneDescription.trim(),
         skipFaceSwap,
         faceSwapImageUrl: faceSwapImage?.url || null,
         options: {
@@ -4099,6 +4116,7 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
         clearNsfwDraft();
 
         setGeneratedPrompt("");
+        setCustomPrompt("");
         setSceneDescription("");
         const keep = { ...modelLooksLockedRef.current };
         for (const [k, v] of Object.entries(lockedAppearance || {})) {
@@ -4717,8 +4735,9 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
                       onClick={() => {
                         setNsfwGenerateMode("simple");
                         setSelectedAspectRatio("1024x1024"); // Quick flow: auto selfie resolution
+                        setCustomPrompt("");
                       }}
-                      className={`flex-1 px-3 py-2 text-xs font-semibold transition-colors ${
+                      className={`flex-1 px-2 sm:px-3 py-2 text-xs font-semibold transition-colors ${
                         nsfwGenerateMode === "simple"
                           ? "bg-white text-black"
                           : "bg-transparent text-slate-400 hover:text-white"
@@ -4729,8 +4748,11 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
                     </button>
                     <button
                       type="button"
-                      onClick={() => setNsfwGenerateMode("advanced")}
-                      className={`flex-1 px-3 py-2 text-xs font-semibold transition-colors border-l border-white/10 ${
+                      onClick={() => {
+                        setNsfwGenerateMode("advanced");
+                        setCustomPrompt("");
+                      }}
+                      className={`flex-1 px-2 sm:px-3 py-2 text-xs font-semibold transition-colors border-l border-white/10 ${
                         nsfwGenerateMode === "advanced"
                           ? "bg-white text-black"
                           : "bg-transparent text-slate-400 hover:text-white"
@@ -4739,12 +4761,30 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
                     >
                       Advanced
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNsfwGenerateMode("custom");
+                        setSimplePlanReady(false);
+                        setGeneratedPrompt("");
+                      }}
+                      className={`flex-1 px-2 sm:px-3 py-2 text-xs font-semibold transition-colors border-l border-white/10 ${
+                        nsfwGenerateMode === "custom"
+                          ? "bg-white text-black"
+                          : "bg-transparent text-slate-400 hover:text-white"
+                      }`}
+                      data-testid="button-nsfw-flow-custom"
+                    >
+                      Custom prompt
+                    </button>
                   </div>
                 </div>
                 <p className="text-[11px] text-slate-500 mb-4">
                   {nsfwGenerateMode === "simple"
                     ? "Describe or pick a preset, then confirm — AI picks detail chips and writes the prompt. You only choose resolution and hit generate."
-                    : "Full control: auto-select chips, edit selectors, write or regenerate the prompt yourself, then generate."}
+                    : nsfwGenerateMode === "advanced"
+                    ? "Full control: auto-select chips, edit selectors, write or regenerate the prompt yourself, then generate."
+                    : "Paste or type the full prompt yourself (Danbooru-style tags work best). Your LoRA trigger is added automatically if missing. Same resolution & quality settings as Advanced."}
                 </p>
 
                 <div className="mb-4 p-3 sm:p-4 rounded-xl border border-rose-500/25 bg-rose-500/[0.06] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -5096,7 +5136,51 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
                 </>
                 )}
 
-                {((nsfwGenerateMode === "simple" && simplePlanReady) || nsfwGenerateMode === "advanced") && (
+                {nsfwGenerateMode === "custom" && (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-white mb-2">Your prompt</label>
+                      <p className="text-[11px] text-slate-500 mb-2">
+                        Write tags or a full prompt. Include your LoRA trigger word for best likeness, or we prepend it if absent.
+                      </p>
+                      <textarea
+                        value={customPrompt}
+                        onChange={(e) => {
+                          setCustomPrompt(e.target.value);
+                          setSelectedPreset(null);
+                        }}
+                        placeholder="e.g. your_trigger, 1girl, solo, nude, bedroom, soft lighting, masterpiece, best quality…"
+                        className="w-full min-h-[140px] px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-slate-500 focus:outline-none focus:border-white/40 resize-y font-mono text-sm"
+                        data-testid="textarea-nsfw-custom-prompt"
+                      />
+                    </div>
+                    <div className="mt-4">
+                      <label className="block text-sm font-medium text-white mb-2">Quick presets (fill prompt)</label>
+                      <div className="flex flex-wrap gap-2">
+                        {SCENE_PRESETS.map((preset) => {
+                          const isActive = selectedPreset === preset.id;
+                          return (
+                            <button
+                              key={preset.id}
+                              type="button"
+                              onClick={() => handlePresetSelect(preset)}
+                              data-testid={`button-custom-preset-${preset.id}`}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                                isActive
+                                  ? "bg-rose-500/15 border border-rose-400/40 text-rose-100"
+                                  : "bg-white/[0.04] border border-white/[0.08] text-slate-400 hover:bg-white/[0.08] hover:text-white"
+                              }`}
+                            >
+                              {preset.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {((nsfwGenerateMode === "simple" && simplePlanReady) || nsfwGenerateMode === "advanced" || nsfwGenerateMode === "custom") && (
                 <>
                 {/* Aspect Ratio Selector — passed to ComfyUI / RunPod */}
                 <div>
@@ -5465,18 +5549,20 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
                   data-testid="button-generate-nsfw"
                   onClick={handleGenerateNsfw}
                   disabled={
-                    !generatedPrompt.trim() || isGeneratingNsfw
+                    (nsfwGenerateMode === "custom"
+                      ? !customPrompt.trim()
+                      : !generatedPrompt.trim()) || isGeneratingNsfw
                   }
                   className="w-full py-4 rounded-xl font-semibold text-white transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   style={{
                     background:
-                      generatedPrompt.trim()
+                      (nsfwGenerateMode === "custom" ? customPrompt.trim() : generatedPrompt.trim())
                         ? "linear-gradient(135deg, #f43f5e 0%, #ec4899 100%)"
                         : "rgba(255,255,255,0.1)",
-                    border: generatedPrompt.trim()
+                    border: (nsfwGenerateMode === "custom" ? customPrompt.trim() : generatedPrompt.trim())
                       ? "1px solid rgba(244,63,94,0.4)"
                       : "1px solid rgba(255,255,255,0.08)",
-                    boxShadow: generatedPrompt.trim()
+                    boxShadow: (nsfwGenerateMode === "custom" ? customPrompt.trim() : generatedPrompt.trim())
                       ? "0 0 20px rgba(244,63,94,0.15)"
                       : "none",
                   }}

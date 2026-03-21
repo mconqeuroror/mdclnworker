@@ -457,6 +457,13 @@ export default function AdminPage() {
   const [usersPage, setUsersPage] = useState(1);
   const [dailyMonth, setDailyMonth] = useState('');
   const [selectedDailyDate, setSelectedDailyDate] = useState('');
+  const [dailyRangeStart, setDailyRangeStart] = useState(() => {
+    const end = new Date();
+    const start = new Date();
+    start.setDate(start.getDate() - 6);
+    return start.toISOString().slice(0, 10);
+  });
+  const [dailyRangeEnd, setDailyRangeEnd] = useState(() => new Date().toISOString().slice(0, 10));
   const [recoverStripeId, setRecoverStripeId] = useState('');
   const [recoverResult, setRecoverResult] = useState(null);
   const [loraRecoveryForm, setLoraRecoveryForm] = useState({
@@ -524,41 +531,6 @@ export default function AdminPage() {
   
   const requestIdRef = useRef(0);
 
-  // ── Initial load ────────────────────────────────────────────────────────────
-  useEffect(() => {
-    loadStats(statsPeriod, statsYear);
-    loadUsers('', 1);
-    loadReferrals();
-    loadReferralReconciliation();
-    loadTelemetry(telemetryHours);
-    loadReelFinderAdmin();
-    loadBranding();
-    loadStripeRevenue(statsPeriod, statsYear);
-    loadBackupHistory();
-  }, []);
-
-  useEffect(() => {
-    const t = setTimeout(() => { loadUsers(search, 1); setUsersPage(1); }, 300);
-    return () => clearTimeout(t);
-  }, [search]);
-
-  useEffect(() => { loadTelemetry(telemetryHours); }, [telemetryHours]);
-
-  useEffect(() => {
-    const date = showDailyTracking && selectedDailyDate ? selectedDailyDate : null;
-    loadStats(statsPeriod, statsYear, date);
-    loadStripeRevenue(statsPeriod, statsYear, false, date);
-  }, [statsPeriod, statsYear, showDailyTracking, selectedDailyDate]);
-
-  useEffect(() => {
-    const series = stats?.dailySeries || [];
-    if (!series.length) return;
-    const latest = [...series].map((r) => r?.date).filter(Boolean).sort().at(-1);
-    if (!latest) return;
-    setDailyMonth((prev) => prev || latest.slice(0, 7));
-    setSelectedDailyDate((prev) => prev || latest);
-  }, [stats?.dailySeries]);
-
   // ── Data loaders ─────────────────────────────────────────────────────────────
 
   const loadStats = async (period = statsPeriod, year = statsYear, date = null) => {
@@ -570,6 +542,24 @@ export default function AdminPage() {
       if (r.data.success) setStats(r.data.stats);
     } catch (e) {
       if (e.response?.status === 403) toast.error('Access denied');
+    }
+  };
+
+  const loadStatsRange = async (start, end) => {
+    let s = start;
+    let e = end;
+    if (s > e) [s, e] = [e, s];
+    try {
+      const p = new URLSearchParams();
+      p.set('period', 'range');
+      p.set('startDate', s);
+      p.set('endDate', e);
+      const r = await api.get(`/admin/stats?${p}`);
+      if (r.data.success) setStats(r.data.stats);
+      else toast.error(r.data.message || 'Invalid date range');
+    } catch (err) {
+      if (err.response?.status === 403) toast.error('Access denied');
+      else if (err.response?.data?.message) toast.error(err.response.data.message);
     }
   };
 
@@ -593,6 +583,76 @@ export default function AdminPage() {
       setStripeRevenueLoading(false);
     }
   };
+
+  const loadStripeRevenueRange = async (start, end, bust = false) => {
+    let s = start;
+    let e = end;
+    if (s > e) [s, e] = [e, s];
+    setStripeRevenueLoading(true);
+    setStripeRevenueError(null);
+    try {
+      const p = new URLSearchParams();
+      p.set('period', 'range');
+      p.set('startDate', s);
+      p.set('endDate', e);
+      if (bust) p.set('bust', Date.now());
+      const r = await api.get(`/admin/stripe-revenue?${p}`);
+      if (r.data.success) setStripeRevenue({ ...r.data.data, _cached: r.data.cached });
+      else { setStripeRevenue(null); setStripeRevenueError(r.data.message || 'Failed to load'); }
+    } catch (e) {
+      console.warn('[admin] stripe-revenue failed:', e?.response?.data || e?.message);
+      const msg = e?.response?.data?.message || e?.message || 'Network error';
+      setStripeRevenue(null);
+      setStripeRevenueError(msg);
+    } finally {
+      setStripeRevenueLoading(false);
+    }
+  };
+
+  // ── Initial load & period / range sync ─────────────────────────────────────
+  useEffect(() => {
+    loadUsers('', 1);
+    loadReferrals();
+    loadReferralReconciliation();
+    loadTelemetry(telemetryHours);
+    loadReelFinderAdmin();
+    loadBranding();
+    loadBackupHistory();
+  }, []);
+
+  useEffect(() => {
+    const t = setTimeout(() => { loadUsers(search, 1); setUsersPage(1); }, 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  useEffect(() => { loadTelemetry(telemetryHours); }, [telemetryHours]);
+
+  useEffect(() => {
+    if (showDailyTracking) {
+      loadStatsRange(dailyRangeStart, dailyRangeEnd);
+      loadStripeRevenueRange(dailyRangeStart, dailyRangeEnd, false);
+    } else {
+      loadStats(statsPeriod, statsYear, null);
+      loadStripeRevenue(statsPeriod, statsYear, false, null);
+    }
+  }, [statsPeriod, statsYear, showDailyTracking, dailyRangeStart, dailyRangeEnd]);
+
+  useEffect(() => {
+    if (showDailyTracking && dailyRangeEnd) {
+      setDailyMonth(dailyRangeEnd.slice(0, 7));
+    }
+  }, [dailyRangeEnd, showDailyTracking]);
+
+  useEffect(() => {
+    if (!showDailyTracking) return;
+    const series = stats?.dailySeries || [];
+    if (!series.length) return;
+    setSelectedDailyDate((prev) => {
+      if (prev && series.some((r) => r.date === prev)) return prev;
+      const sorted = [...series].map((r) => r.date).filter(Boolean).sort();
+      return sorted.length ? sorted[sorted.length - 1] : dailyRangeEnd;
+    });
+  }, [showDailyTracking, stats?.dailySeries, dailyRangeEnd]);
 
   const loadUsers = async (searchQuery, page = usersPage) => {
     const rid = ++requestIdRef.current;
@@ -1383,8 +1443,8 @@ export default function AdminPage() {
   const selDayStats   = selectedDailyDate ? dailyMap.get(selectedDailyDate) : null;
   const infra         = telemetryOverview?.infra;
 
-  const periodLabel = showDailyTracking && selectedDailyDate
-    ? selectedDailyDate
+  const periodLabel = showDailyTracking
+    ? `${dailyRangeStart} → ${dailyRangeEnd}`
     : statsPeriod === 'day' ? 'Today'
     : statsPeriod === 'week' ? 'Last 7 days'
     : statsPeriod === 'month' ? 'This month'
@@ -1450,7 +1510,15 @@ export default function AdminPage() {
                     />
                   </div>
                 )}
-                <GhostBtn onClick={() => { const d = showDailyTracking && selectedDailyDate ? selectedDailyDate : null; loadStats(statsPeriod, statsYear, d); loadStripeRevenue(statsPeriod, statsYear, false, d); }}>
+                <GhostBtn onClick={() => {
+                  if (showDailyTracking) {
+                    loadStatsRange(dailyRangeStart, dailyRangeEnd);
+                    loadStripeRevenueRange(dailyRangeStart, dailyRangeEnd, false);
+                  } else {
+                    loadStats(statsPeriod, statsYear, null);
+                    loadStripeRevenue(statsPeriod, statsYear, false, null);
+                  }
+                }}>
                   <RefreshCw className="w-3 h-3" /> Refresh
                 </GhostBtn>
               </>
@@ -1463,7 +1531,7 @@ export default function AdminPage() {
                 <KpiCard label="New Users" value={stats.users?.total || 0} sub="signed up in period" />
                 <KpiCard label="Generations" value={stats.generations?.total || 0} sub={`${stats.generations?.images || 0} img · ${stats.generations?.videos || 0} vid`} />
                 <KpiCard label="Credits Used" value={stats.credits?.totalUsed || 0} sub={`${stats.credits?.totalRemaining?.toLocaleString() || 0} remaining`} />
-                <KpiCard label="Est. Revenue" value={`$${stats.credits?.estimatedRevenue || '0.00'}`} sub="based on credit usage" />
+                <KpiCard label="Est. Revenue" value={`$${stats.credits?.estimatedRevenue || '0.00'}`} sub="1 credit ≈ $0.01 (usage implied)" />
               </div>
 
               {/* Stripe Revenue */}
@@ -1478,7 +1546,9 @@ export default function AdminPage() {
                       <span className="text-[11px] text-gray-600 px-1.5 py-0.5 rounded border border-white/[0.06]">cached</span>
                     )}
                   </div>
-                  <GhostBtn onClick={() => loadStripeRevenue(statsPeriod, statsYear, true, showDailyTracking && selectedDailyDate ? selectedDailyDate : null)}>
+                  <GhostBtn onClick={() => (showDailyTracking
+                    ? loadStripeRevenueRange(dailyRangeStart, dailyRangeEnd, true)
+                    : loadStripeRevenue(statsPeriod, statsYear, true, null))}>
                     <RefreshCw className="w-3 h-3" /> Refresh
                   </GhostBtn>
                 </div>
@@ -1489,7 +1559,9 @@ export default function AdminPage() {
                       {stripeRevenueError || 'Could not load Stripe data'}
                     </p>
                   <button
-                      onClick={() => loadStripeRevenue(statsPeriod, statsYear, true)}
+                      onClick={() => (showDailyTracking
+                        ? loadStripeRevenueRange(dailyRangeStart, dailyRangeEnd, true)
+                        : loadStripeRevenue(statsPeriod, statsYear, true, null))}
                       className="text-xs text-gray-400 hover:text-white underline underline-offset-2 transition-colors"
                     >
                       Retry
@@ -1500,13 +1572,13 @@ export default function AdminPage() {
                 {stripeRevenue && (
                   <>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 mb-3">
-                      <KpiCard label="MRR" value={fmt$(stripeRevenue.subscriptions?.mrrCents)} sub="current · always live" accent />
+                      <KpiCard label="MRR" value={fmt$(stripeRevenue.subscriptions?.mrrCents)} sub="Stripe prices · subs matched in DB" accent />
                       <KpiCard label="ARR" value={fmt$(stripeRevenue.subscriptions?.arrCents)} sub="MRR × 12" accent />
-                      <KpiCard label="Period Revenue" value={fmt$(stripeRevenue.periodRevenue?.amountCents)} sub={`${stripeRevenue.periodRevenue?.chargeCount || 0} charges · filter-bound`} />
+                      <KpiCard label="Period Revenue" value={fmt$(stripeRevenue.periodRevenue?.amountCents)} sub={`${stripeRevenue.periodRevenue?.chargeCount || 0} charges · ${periodLabel}`} />
                       <KpiCard
                         label="Active Subs"
                         value={stripeRevenue.subscriptions?.active || 0}
-                        sub={stripeRevenue.subscriptions?.churnInPeriod > 0 ? `${stripeRevenue.subscriptions.churnInPeriod} churned in period` : 'no churn in period'}
+                        sub={stripeRevenue.subscriptions?.churnInPeriod > 0 ? `${stripeRevenue.subscriptions.churnInPeriod} churned in period (Stripe)` : 'active + not cancelled (DB)'}
                         trend={stripeRevenue.subscriptions?.churnInPeriod > 0 ? -1 : 0}
                       />
                     </div>
@@ -1554,11 +1626,35 @@ export default function AdminPage() {
                   label="Daily Tracking"
                 />
               {showDailyTracking && (
-                <input
-                    type="month" value={monthValue}
-                    onChange={(e) => { setDailyMonth(e.target.value); setSelectedDailyDate(`${e.target.value}-01`); }}
+                <div className="flex flex-wrap items-center gap-2 justify-end">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] text-gray-500 uppercase tracking-wide">From</span>
+                    <input
+                      type="date"
+                      value={dailyRangeStart}
+                      max={dailyRangeEnd}
+                      onChange={(e) => setDailyRangeStart(e.target.value)}
+                      className="px-2 py-1 rounded-lg border border-white/[0.07] bg-black/40 text-[11px] text-white"
+                    />
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] text-gray-500 uppercase tracking-wide">To</span>
+                    <input
+                      type="date"
+                      value={dailyRangeEnd}
+                      min={dailyRangeStart}
+                      onChange={(e) => setDailyRangeEnd(e.target.value)}
+                      className="px-2 py-1 rounded-lg border border-white/[0.07] bg-black/40 text-[11px] text-white"
+                    />
+                  </div>
+                  <input
+                    type="month"
+                    title="Calendar month"
+                    value={monthValue}
+                    onChange={(e) => setDailyMonth(e.target.value)}
                     className="px-2.5 py-1.5 rounded-lg border border-white/[0.07] bg-black/40 text-xs text-white"
-                />
+                  />
+                </div>
               )}
             </div>
 
@@ -1597,7 +1693,7 @@ export default function AdminPage() {
                     <KpiCard label="Users In / Out" value={selDayStats ? `${selDayStats.usersInflow} / ${selDayStats.usersOutflow}` : '—'} />
                     <KpiCard label="Image / Video" value={selDayStats ? `${selDayStats.imageGenerations} / ${selDayStats.videoGenerations}` : '—'} />
                     <KpiCard label="Credits Spent" value={selDayStats?.creditsSpent ?? '—'} />
-                    <KpiCard label="Est. Revenue" value={selDayStats ? `$${Number(selDayStats.estimatedRevenue || 0).toFixed(2)}` : '—'} />
+                    <KpiCard label="Est. Revenue" value={selDayStats ? `$${Number(selDayStats.estimatedRevenue || 0).toFixed(2)}` : '—'} sub="1 cr ≈ 1¢" />
                     <KpiCard label="Status" value={selDayStats ? 'Tracked' : 'No data'} />
             </div>
             </>

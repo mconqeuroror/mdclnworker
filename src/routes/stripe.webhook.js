@@ -1,6 +1,10 @@
 import express from "express";
 import Stripe from "stripe";
 import prisma from "../lib/prisma.js";
+import {
+  normalizeCreditUnits,
+  resolveSubscriptionBillingCycle,
+} from "../utils/creditUnits.js";
 import { sendCreditPurchaseEmail, sendSpecialOfferConfirmationEmail } from "../services/email.service.js";
 import { recordReferralCommissionFromPayment, linkReferrerOnFirstPurchase } from "../services/referral.service.js";
 import { generateTwoPosesFromReference } from "../services/wavespeed.service.js";
@@ -50,13 +54,6 @@ console.log(
 const stripe = new Stripe(stripeSecretKey || "sk_test_placeholder", {
   apiVersion: "2024-11-20.acacia",
 });
-
-function normalizeCreditUnits(rawCredits) {
-  const parsed = parseInt(rawCredits || "0", 10) || 0;
-  // Backward compatibility: old scale purchases/subscriptions used <= 1000 credit units.
-  if (parsed > 0 && parsed <= 1000) return parsed * 10;
-  return parsed;
-}
 
 function inferRefundBucketFromTransaction(tx) {
   if (!tx) return "purchased";
@@ -122,7 +119,9 @@ async function resolveRefundContextFromCharge(charge) {
           stripe.subscriptions.retrieve(subscriptionId),
           prisma.user.findFirst({ where: { stripeCustomerId } }),
         ]);
-        const originalCredits = parseInt(subscription.metadata?.credits || "0", 10);
+        const originalCredits = normalizeCreditUnits(
+          subscription.metadata?.credits,
+        );
         if (user && originalCredits > 0) {
           return {
             userId: user.id,
@@ -948,7 +947,7 @@ router.post(
                   console.log(`🔄 invoice.payment_succeeded: Found user ${metaUserId} via subscription metadata (stripeSubscriptionId not yet set)`);
                   // Set subscription details since /confirm-subscription never ran
                   const metaTierId = subObj.metadata?.tierId;
-                  const metaBillingCycle = subObj.metadata?.billingCycle;
+                  const metaBillingCycle = resolveSubscriptionBillingCycle(subObj);
                   const metaCredits = normalizeCreditUnits(subObj.metadata?.credits);
 
                   if (metaTierId && metaCredits && !user.stripeSubscriptionId) {
@@ -978,7 +977,7 @@ router.post(
                             userId: user.id,
                             amount: metaCredits,
                             type: "subscription",
-                            description: `${metaTierId.charAt(0).toUpperCase() + metaTierId.slice(1)} subscription (${metaBillingCycle}) — invoice safety net`,
+                            description: `${metaTierId.charAt(0).toUpperCase() + metaTierId.slice(1)} subscription (${metaBillingCycle || "monthly"}) — invoice safety net`,
                             paymentSessionId: subscriptionId,
                           },
                         });
@@ -1068,7 +1067,8 @@ router.post(
               break;
             }
 
-            const parsedCredits = parseInt(credits, 10) || 0;
+            // Match checkout.session.completed / confirm-subscription: same scale as normalizeCreditUnits
+            const parsedCredits = normalizeCreditUnits(credits);
             if (!parsedCredits) {
               console.error(`⚠️ Invalid credits for invoice ${invoice.id}: "${credits}" (user ${user.id})`);
               break;

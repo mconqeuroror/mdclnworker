@@ -24,31 +24,39 @@ Stripe sends a signed payload. We verify it with `STRIPE_WEBHOOK_SECRET` and the
 
 | Event | Purpose |
 |-------|--------|
-| **invoice.payment_succeeded** | **Rebills:** When a user is automatically charged for the next period, Stripe sends this. We match the invoice’s subscription to our user, then add renewal credits and extend plan. |
+| **invoice.payment_succeeded** | **Rebills:** When Stripe charges for the next billing period, we add renewal credits and extend `creditsExpireAt`. |
 | checkout.session.completed | First-time checkout (one-time or subscription). |
-| payment_intent.succeeded | One-time payments, special offers. |
+| payment_intent.succeeded | One-time payments, special offers, embedded-checkout safety nets. |
 | customer.subscription.deleted | Cancel subscription → clear subscription state and credits. |
 | customer.subscription.updated | If status is canceled/unpaid → clear subscription state. |
 | charge.refunded | Refund → deduct credits and handle referral clawback. |
 
-For **subscription rebills**, the critical one is **invoice.payment_succeeded**.
+For **subscription renewals**, the critical event is **`invoice.payment_succeeded`**.
 
-## What we do on rebill (invoice.payment_succeeded)
+## Billing frequency vs credits (monthly vs annual)
 
-1. **Stripe sends:** `invoice` object with:
-   - `invoice.subscription` (subscription ID, e.g. `sub_xxx`)
-   - `invoice.id` (transaction/invoice ID, unique per rebill)
-   - `invoice.billing_reason` (e.g. `subscription_cycle` for renewals)
+- **Monthly plan** (`Stripe` recurring interval `month`): Stripe invoices **monthly**. Each paid invoice (`billing_reason` usually `subscription_cycle`) grants **`subscription.metadata.credits`** and **increments** `subscriptionCredits`.
+- **Annual plan** (`Stripe` recurring interval `year`): Stripe invoices **once per year**. Each paid renewal grants the **same `metadata.credits` value** as the monthly tier (e.g. 2900 for Starter) **once per invoice** — i.e. **one grant per year**, not twelve. Product copy that describes “per month” refers to the **credit bundle size** matching the monthly tier, not to twelve separate Stripe invoices per year.
+
+**Credit scaling:** `src/utils/creditUnits.js` — `normalizeCreditUnits()` maps legacy metadata (≤1000) to the current scale. All Stripe paths (checkout, webhook, `/confirm-subscription`, admin recovery) use this helper.
+
+**Subscription metadata (hosted + embedded):** `userId`, `tierId`, `credits`, and **`billingCycle`** (`monthly` \| `annual`) on the subscription object. Older subs may omit `billingCycle`; code falls back to `subscription.items[0].plan.interval` (`month` → monthly, `year` → annual).
+
+## What we do on rebill (`invoice.payment_succeeded`)
+
+1. **Stripe sends:** `invoice` with:
+   - `invoice.subscription` (subscription ID, or expanded object)
+   - `invoice.id` (unique per charge — we use this for idempotency)
+   - `invoice.billing_reason` (e.g. `subscription_create` first time, `subscription_cycle` for renewals)
    - `invoice.amount_paid`, etc.
 
 2. **We:**
-   - Resolve **subscription ID** (handle both string and expanded object).
-   - Find **user** by `stripeSubscriptionId` (or by subscription metadata `userId` if not yet set).
-   - Get **credits** from subscription `metadata.credits`, or fallback to the amount from the first grant for that subscription.
-   - Idempotency: if we already have a `CreditTransaction` with `paymentSessionId = invoice.id`, we skip (no double credit).
-   - Create a `CreditTransaction` and **increment** the user’s `subscriptionCredits`, set `creditsExpireAt` to end of the new period.
-
-So every time Stripe rebills the user, we get the callback with the subscription and invoice (tx id), match the user, and assign plan renewal + credits.
+   - Resolve **subscription ID** (string or expanded object).
+   - Find **user** by `stripeSubscriptionId`, or via `subscription.metadata.userId` if the DB row was never linked (safety net).
+   - **Credits:** `normalizeCreditUnits(subscription.metadata.credits)`, or if missing, the **first positive `CreditTransaction`** for `paymentSessionId = subscriptionId`.
+   - **Skip duplicate first payment:** if `billing_reason === subscription_create` and a transaction already exists with `paymentSessionId = subscriptionId`, skip (avoids double credit with `checkout.session.completed` / `/confirm-subscription`).
+   - **Idempotency per invoice:** if a `CreditTransaction` exists with `paymentSessionId = invoice.id`, skip.
+   - Insert a renewal transaction and **`increment`** `subscriptionCredits`; set **`creditsExpireAt`** from the Stripe plan interval (+1 month or +1 year).
 
 ## Env var
 

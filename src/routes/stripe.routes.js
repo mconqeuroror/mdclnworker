@@ -9,6 +9,10 @@ import {
   MIN_PURCHASABLE_CREDITS,
   MAX_PURCHASABLE_CREDITS,
 } from "../constants/creditPurchaseLimits.js";
+import {
+  normalizeCreditUnits,
+  resolveSubscriptionBillingCycle,
+} from "../utils/creditUnits.js";
 
 // DEPRECATED - keeping for reference but not used
 async function generatePosesAsyncDEPRECATED(modelId, referenceUrl, aiConfig) {
@@ -360,9 +364,11 @@ router.post('/create-checkout-session', authMiddleware, async (req, res) => {
     }
 
     // Define pricing tiers (matches AddCreditsModal.jsx)
-    // Volume discounts: Higher tiers get better rates per credit
-    // Annual plans = pay yearly, receive credits MONTHLY (same as monthly plan)
-    // Credits are awarded on initial purchase and then on each invoice.payment_succeeded
+    // Volume discounts: Higher tiers get better rates per credit.
+    // Monthly: Stripe bills monthly; each invoice grants `pricing.credits`.
+    // Annual: Stripe bills yearly (one invoice per year); each invoice grants the same `pricing.credits`
+    // per period as the monthly tier (not 12× per year — see docs/STRIPE_WEBHOOK.md).
+    // Credits on first payment + each renewal: checkout.session.completed / invoice.payment_succeeded.
     const pricingTiers = {
       starter: {
         monthly: { price: 29, credits: 2900 },  // $0.01/credit
@@ -458,6 +464,7 @@ router.post('/create-checkout-session', authMiddleware, async (req, res) => {
         metadata: {
           userId: user.id,
           tierId,
+          billingCycle,
           credits: pricing.credits.toString(),
           ...(referrerUserId ? { referrerUserId } : {}),
           ...(appliedDiscountCodeId ? { discountCodeId: appliedDiscountCodeId } : {}),
@@ -993,7 +1000,7 @@ router.post('/confirm-payment', authMiddleware, async (req, res) => {
       return res.status(403).json({ error: 'Unauthorized' });
     }
     
-    const credits = parseInt(paymentIntent.metadata.credits) || 0;
+    const credits = normalizeCreditUnits(paymentIntent.metadata.credits);
     const type = paymentIntent.metadata.type;
     
     // Atomic idempotency: insert transaction first (UNIQUE paymentSessionId)
@@ -1134,8 +1141,8 @@ router.post('/confirm-subscription', authMiddleware, async (req, res) => {
     }
     
     const tierId = subscription.metadata.tierId;
-    const billingCycle = subscription.metadata.billingCycle;
-    const credits = parseInt(subscription.metadata.credits) || 0;
+    const billingCycle = resolveSubscriptionBillingCycle(subscription);
+    const credits = normalizeCreditUnits(subscription.metadata.credits);
     
     // Check if this subscription was already processed
     const user = await prisma.user.findUnique({
@@ -1148,7 +1155,7 @@ router.post('/confirm-subscription', authMiddleware, async (req, res) => {
         success: true, 
         message: 'Subscription already active',
         alreadyProcessed: true,
-        credits: parseInt(subscription.metadata.credits) || 0
+        credits: normalizeCreditUnits(subscription.metadata.credits),
       });
     }
     
@@ -2050,10 +2057,23 @@ router.post('/verify-session', authMiddleware, async (req, res) => {
       where: { id: userId }
     });
 
-    const credits = parseInt(session.metadata.credits);
+    const credits = normalizeCreditUnits(session.metadata.credits);
     const paymentType = session.metadata.type;
     const tierId = session.metadata.tierId;
-    const billingCycle = session.metadata.billingCycle;
+    let billingCycle = session.metadata.billingCycle;
+    if (
+      paymentType !== "one-time" &&
+      !billingCycle &&
+      session.subscription &&
+      typeof session.subscription === "string"
+    ) {
+      try {
+        const sub = await stripe.subscriptions.retrieve(session.subscription);
+        billingCycle = resolveSubscriptionBillingCycle(sub);
+      } catch (e) {
+        console.warn("⚠️ verify-session: could not load subscription for billingCycle:", e.message);
+      }
+    }
 
     if (paymentType === 'one-time') {
       // ONE-TIME PURCHASE
