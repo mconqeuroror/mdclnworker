@@ -80,10 +80,11 @@ setup_models() {
     fi
 
     echo ""
-    echo "--- [4/4] Checkpoint: pornworksRealPorn_Illustrious_v4_04.safetensors (6.5GB) ---"
+    echo "--- [4/4] Upscaler: 4xFaceUpDAT.pth ---"
+    mkdir -p "${target_dir}/upscale_models"
     download_if_missing \
-        "https://huggingface.co/AI-Porn/pornworks-real-porn-photo-realistic-nsfw-sdxl-and-pony-chekpoint/resolve/main/pornworksRealPorn_Illustrious_v4_04.safetensors" \
-        "${target_dir}/checkpoints/pornworksRealPorn_Illustrious_v4_04.safetensors"
+        "https://huggingface.co/Acly/Upscaler/resolve/main/4xFaceUpDAT.pth" \
+        "${target_dir}/upscale_models/4xFaceUpDAT.pth"
 }
 
 # -----------------------------------------------
@@ -100,7 +101,7 @@ if [ -d "$VOLUME_DIR" ]; then
 
     echo ""
     echo ">>> Symlinking network volume models into ComfyUI..."
-    for subdir in checkpoints clip loras vae unet diffusion_models LLavacheckpoints; do
+    for subdir in checkpoints clip loras vae unet diffusion_models LLavacheckpoints upscale_models; do
         if [ -d "${VOLUME_MODELS}/$subdir" ]; then
             rm -rf "${MODELS_DIR}/$subdir"
             ln -sf "${VOLUME_MODELS}/$subdir" "${MODELS_DIR}/$subdir"
@@ -137,6 +138,20 @@ fi
 # Remove old node packages if they exist (superseded)
 rm -rf "${COMFYUI_DIR}/custom_nodes/ComfyUI_LoRA_from_URL" 2>/dev/null || true
 rm -rf "${COMFYUI_DIR}/custom_nodes/ComfyUI-EasyCivitai-XTNodes" 2>/dev/null || true
+
+echo ""
+echo "--- Checking ssitu/ComfyUI_UltimateSDUpscale (UltimateSDUpscale node) ---"
+ULTIMATESD_DIR="${COMFYUI_DIR}/custom_nodes/ComfyUI_UltimateSDUpscale"
+if [ -d "${ULTIMATESD_DIR}" ]; then
+    echo "  [OK] ComfyUI_UltimateSDUpscale already installed"
+else
+    echo "  [!!] ComfyUI_UltimateSDUpscale missing — installing..."
+    git clone --depth 1 "https://github.com/ssitu/ComfyUI_UltimateSDUpscale.git" "${ULTIMATESD_DIR}"
+    if [ -f "${ULTIMATESD_DIR}/requirements.txt" ]; then
+        pip install -q --no-cache-dir -r "${ULTIMATESD_DIR}/requirements.txt" || true
+    fi
+    echo "  [OK] ComfyUI_UltimateSDUpscale installed!"
+fi
 
 echo ""
 echo "--- Checking chflame163/ComfyUI_LayerStyle_Advance (JoyCaption nodes) ---"
@@ -369,9 +384,12 @@ required = {
     "LoadLoraFromUrlOrPath",
     "CR Apply LoRA Stack",
     "CR SDXL Aspect Ratio",
-    "Anything Everywhere",
+    "UltimateSDUpscale",
+    "UpscaleModelLoader",
     "Seed (rgthree)",
     "Image Film Grain",
+    "UNETLoader",
+    "CLIPLoader",
     "LayerUtility: LoadJoyCaptionBeta1Model",
     "LayerUtility: JoyCaption2ExtraOptions",
     "LayerUtility: JoyCaptionBeta1",
