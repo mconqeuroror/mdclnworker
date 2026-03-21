@@ -311,7 +311,7 @@ export default function AppSidebar({
                     {item.premium && !canAccessPremium && (
                       <Lock className="ml-auto w-3.5 h-3.5 text-slate-500" />
                     )}
-                    {(item.comingSoon || (item.isNsfw && user?.role !== "admin")) && (
+                    {item.comingSoon && (
                       <span className="ml-auto px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wider rounded-full bg-gradient-to-r from-rose-500/20 to-orange-500/20 text-rose-300 border border-rose-500/30">
                         Soon
                       </span>

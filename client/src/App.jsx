@@ -53,7 +53,6 @@ import ProDashboardPage from './pages/Pro/ProDashboardPage';
 import ProModelsPage from './pages/Pro/ProModelsPage';
 import ProNSFWPage from './pages/Pro/ProNSFWPage';
 import ProGenerationPage from './pages/Pro/ProGenerationPage';
-import NSFWUnderConstruction from './components/NSFWUnderConstruction';
 import toast from 'react-hot-toast';
 import SeoRobotsMeta from './components/SeoRobotsMeta';
 
@@ -531,7 +530,7 @@ function App() {
           >
             <Route index element={<ProDashboardPage />} />
             <Route path="models" element={<ProModelsPage />} />
-            <Route path="nsfw" element={<NSFWUnderConstruction><ProNSFWPage /></NSFWUnderConstruction>} />
+            <Route path="nsfw" element={<ProNSFWPage />} />
             <Route path="generation" element={<ProGenerationPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
