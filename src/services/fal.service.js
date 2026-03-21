@@ -1640,7 +1640,9 @@ function buildComfyWorkflow(params) {
         node57.widgets_values[0] = seed;
       }
     }
-    
+
+    const negativeTextForInline = findNode(41)?.widgets_values?.[0] ?? "";
+
     // Convert graph to API format
     const apiWorkflow = comfyUiGraphToApiPrompt(workflowGraph.nodes, workflowGraph.links, workflowGraph.extra);
 
@@ -1649,10 +1651,10 @@ function buildComfyWorkflow(params) {
     if (apiWorkflow["41"] || apiWorkflow["56"]) {
       // Node 41 (negative) feeds into nodes 1, 8; node 56 (positive) feeds into nodes 2, 42
       if (apiWorkflow["1"]?.inputs?.text && Array.isArray(apiWorkflow["1"].inputs.text) && apiWorkflow["1"].inputs.text[0] === "41") {
-        apiWorkflow["1"].inputs.text = negativePrompt;
+        apiWorkflow["1"].inputs.text = negativeTextForInline;
       }
       if (apiWorkflow["8"]?.inputs?.text && Array.isArray(apiWorkflow["8"].inputs.text) && apiWorkflow["8"].inputs.text[0] === "41") {
-        apiWorkflow["8"].inputs.text = negativePrompt;
+        apiWorkflow["8"].inputs.text = negativeTextForInline;
       }
       if (apiWorkflow["2"]?.inputs?.text && Array.isArray(apiWorkflow["2"].inputs.text) && apiWorkflow["2"].inputs.text[0] === "56") {
         apiWorkflow["2"].inputs.text = prompt || "";
