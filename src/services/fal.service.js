@@ -1586,59 +1586,9 @@ function buildComfyWorkflow(params) {
     // Find nodes by ID
     const findNode = (id) => workflowGraph.nodes.find(n => n.id === id);
     
-    // ── Determine additive LoRAs (max 2, max 1 pose) ──────────────────────────
-    // Rules:
-    //  • Only ONE pose LoRA may ever be active (first one found wins).
-    //  • Valid 2-lora combos: pose+cum, pose+makeup, pose+enhancement.
-    //  • Slots are always compacted — no gaps in lora_2/lora_3.
-    //  • num_loras = 1 (girl only) | 2 (girl + 1 additive) | 3 (girl + 2 additives).
+    // Additive LoRAs (pose / makeup / cum / enhancement) — disabled until further notice.
+    // Only the girl identity LoRA (slot 1) is loaded; num_loras is always 1.
     const additives = [];
-
-    // 1. Pose — at most one, picked in POSE_LORAS declaration order.
-    for (const p of POSE_LORAS) {
-      const str = poseStrengths[p.node] || 0;
-      if (str > 0 && POSE_SLOT_URLS[p.node]) {
-        additives.push({
-          url: sanitizeLoraDownloadUrl(POSE_SLOT_URLS[p.node]),
-          strength: Math.min(MAX_ADDITIVE_LORA_STRENGTH, Math.max(0, Number(str))),
-        });
-        break; // one pose maximum — never mix two poses
-      }
-    }
-
-    // 2. Fill remaining slot(s) with: cum > makeup > first active enhancement.
-    // (pose was already pushed above so cum/makeup/enh fill slot 2 when a pose exists,
-    //  or slot 1 when there is no pose — the array always stays compacted.)
-    if (additives.length < 2 && cumStrength > 0) {
-      additives.push({
-        url: sanitizeLoraDownloadUrl("https://huggingface.co/bigckck/ndmstr/resolve/main/cum.safetensors"),
-        strength: Math.min(MAX_ADDITIVE_LORA_STRENGTH, Math.max(0, Number(cumStrength))),
-      });
-    }
-
-    if (additives.length < 2 && makeupStrength > 0) {
-      additives.push({
-        url: sanitizeLoraDownloadUrl(LORA_8_RUNNING_MAKEUP_URL),
-        strength: Math.min(MAX_ADDITIVE_LORA_STRENGTH, Math.max(0, Number(makeupStrength))),
-      });
-    }
-
-    if (additives.length < 2) {
-      const enhOrder = ["deepthroat", "amateur_nudes", "masturbation", "dildo"];
-      for (const key of enhOrder) {
-        const raw = Number(enhancementStrengths[key]) || 0;
-        if (raw > 0) {
-          const meta = ENHANCEMENT_LORAS[key];
-          if (meta?.url) {
-            additives.push({
-              url: sanitizeLoraDownloadUrl(meta.url),
-              strength: Math.min(MAX_ADDITIVE_LORA_STRENGTH, Math.max(0.35, raw)),
-            });
-            break;
-          }
-        }
-      }
-    }
 
     // Compact slot assignment — no gaps.
     const additive1Url      = additives[0]?.url      ?? "";
