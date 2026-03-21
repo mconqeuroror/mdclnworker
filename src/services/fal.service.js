@@ -1450,18 +1450,15 @@ export function buildNsfwPrompt(triggerWord, userPrompt, attributes = "") {
 
 /**
  * Build the full ComfyUI workflow from the core NSFW workflow template.
- * Pass-through model: clone `attached_assets/nsfw_core_workflow.json` (Comfy UI graph export),
- * only patch widget values + API fields that map to user input (prompts, LoRA URLs on node 250,
- * strengths, aspect, seed). No graph surgery unless NSFW_COMFY_STRIP_UNSUPPORTED=1.
- * Injected nodes (graph, before API conversion):
- * - 41: Negative Prompt (String Literal)
- * - 56: Positive Prompt (String Literal)
- * - 276: KSampler base steps (= 50)
- * - 311: active_loras (count → feeds LoadLoraFromUrlOrPath)
- * - 298 / 305 / 306: lora_girl / additive strengths (PrimitiveFloat)
- * - 302 / 303: aspect_width / aspect_height
- * After API conversion, node 250 (LoadLoraFromUrlOrPath) gets lora_1_url, lora_2_url, lora_3_url.
- * Falls back to legacy inline workflow if attached_assets/nsfw_core_workflow.json is missing.
+ * 1:1 with `attached_assets/nsfw_core_workflow.json` by default: same KSampler steps/cfg, grain/blur,
+ * and negative string as the template unless the caller opts in to overrides.
+ * Patched: positive (56), LoRA stack (250/298/305/306/311), aspect (302/303), seed (57 when passed).
+ * Negative (41): only replaced when `negativePrompt` is explicitly non-empty.
+ * Grain/blur (284/286): only when `useWorkflowPostProcessing` / `NSFW_COMFY_USE_WORKFLOW_POST` / `overrideGrainBlur`.
+ * Base KSampler (276) steps/cfg: only when `steps`/`cfg` are passed (e.g. admin sampler override).
+ * Refiner negative rewiring (45: 1→8): only when `NSFW_COMFY_REFINER_FIX_SDXL=1` (RunPod crash fix).
+ * String Literal nodes 41/56 are stripped for API; text is inlined into 1,8 / 2,42.
+ * Falls back to legacy inline workflow if the JSON is missing.
  */
 function buildComfyWorkflow(params) {
   const {
@@ -1476,6 +1473,16 @@ function buildComfyWorkflow(params) {
     seed,
     width = 1344,
     height = 768,
+    /** Only applied when set (e.g. admin override) — otherwise template KSampler 276 steps/cfg stay 1:1 with JSON */
+    steps,
+    cfg,
+    /** If set, replaces String Literal 41; otherwise template negative from nsfw_core_workflow.json is used */
+    negativePrompt: explicitNegativePrompt,
+    /**
+     * When true, applies blur/grain formulas to nodes 284/286 from postProcessing.
+     * Default false = keep template grain/blur (matches desktop export).
+     */
+    useWorkflowPostProcessing = false,
   } = params;
 
   const graph = loadNsfwCoreWorkflowGraph();
@@ -1533,23 +1540,29 @@ function buildComfyWorkflow(params) {
     
     // Calculate active_loras count: 1 (girl) + (additive1 if active) + (additive2 if active)
     const activeLorasCount = 1 + (additive1Url ? 1 : 0) + (additive2Url ? 1 : 0);
-    
-    const negativePrompt = params.negativePrompt || DEFAULT_NSFW_NEGATIVE_PROMPT;
 
-    // Inject values into widgets_values arrays
-    const node41 = findNode(41); // Negative Prompt (String Literal → refiner negative chain)
-    if (node41 && node41.widgets_values && node41.widgets_values.length > 0) {
-      node41.widgets_values[0] = negativePrompt;
+    // Negative: only override template when caller passes a non-empty string (1:1 with JSON otherwise)
+    if (explicitNegativePrompt != null && String(explicitNegativePrompt).trim() !== "") {
+      const node41 = findNode(41);
+      if (node41 && node41.widgets_values && node41.widgets_values.length > 0) {
+        node41.widgets_values[0] = String(explicitNegativePrompt).trim();
+      }
     }
 
     const node56 = findNode(56); // Positive Prompt
     if (node56 && node56.widgets_values && node56.widgets_values.length > 0) {
       node56.widgets_values[0] = prompt || "";
     }
-    
-    const node276 = findNode(276); // KSampler
-    if (node276 && node276.widgets_values && node276.widgets_values.length > 2) {
-      node276.widgets_values[2] = 50; // Fixed steps = 50
+
+    // Base KSampler 276: only patch steps/cfg when explicitly provided (admin); else keep template (e.g. 50, 2.5)
+    const node276 = findNode(276);
+    if (node276 && node276.widgets_values && node276.widgets_values.length > 3) {
+      if (steps != null && Number.isFinite(Number(steps))) {
+        node276.widgets_values[2] = Math.min(150, Math.max(1, Math.round(Number(steps))));
+      }
+      if (cfg != null && Number.isFinite(Number(cfg))) {
+        node276.widgets_values[3] = Number(cfg);
+      }
     }
     
     const node311 = findNode(311); // active_loras
@@ -1582,29 +1595,30 @@ function buildComfyWorkflow(params) {
       node303.widgets_values[0] = Number(height) || 768;
     }
     
-    // Inject blur and grain settings (user-controllable)
-    const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
-    const blurEnabled = postProcessing?.blur?.enabled !== false;
-    const grainEnabled = postProcessing?.grain?.enabled !== false;
-    const blurStrength = clamp(Number(postProcessing?.blur?.strength) ?? 1.0, 0, 1);
-    const grainStrength = clamp(Number(postProcessing?.grain?.strength) ?? 1.0, 0, 1);
-    
-    // Node 284: Image Film Grain - widgets_values: [density, intensity, highlights, supersample_factor]
-    const node284 = findNode(284);
-    if (node284 && node284.widgets_values && node284.widgets_values.length >= 4) {
-      const density = grainEnabled ? Number((0.06 * grainStrength).toFixed(4)) : 0;
-      const intensity = grainEnabled ? Number((0.1 * grainStrength).toFixed(4)) : 0;
-      node284.widgets_values[0] = Math.max(0.01, density); // density
-      node284.widgets_values[1] = Math.max(0.01, intensity); // intensity
-      // highlights and supersample_factor stay as default (1, 1)
-    }
-    
-    // Node 286: ImageBlur - widgets_values: [blur_radius, sigma]
-    const node286 = findNode(286);
-    if (node286 && node286.widgets_values && node286.widgets_values.length >= 2) {
-      node286.widgets_values[0] = blurEnabled ? Math.max(1, Math.round(2 * blurStrength)) : 1; // blur_radius
-      const sigma = blurEnabled ? Number((0.3 * blurStrength).toFixed(3)) : 0;
-      node286.widgets_values[1] = Math.max(0.1, sigma); // sigma (RunPod ImageBlur requires sigma >= 0.1)
+    // Blur/grain: optional — default keeps template nodes 284/286 (1:1 with desktop export)
+    const usePostFormulas =
+      useWorkflowPostProcessing === true || process.env.NSFW_COMFY_USE_WORKFLOW_POST === "1";
+    if (usePostFormulas) {
+      const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
+      const blurEnabled = postProcessing?.blur?.enabled !== false;
+      const grainEnabled = postProcessing?.grain?.enabled !== false;
+      const blurStrength = clamp(Number(postProcessing?.blur?.strength) ?? 1.0, 0, 1);
+      const grainStrength = clamp(Number(postProcessing?.grain?.strength) ?? 1.0, 0, 1);
+
+      const node284 = findNode(284);
+      if (node284 && node284.widgets_values && node284.widgets_values.length >= 4) {
+        const density = grainEnabled ? Number((0.06 * grainStrength).toFixed(4)) : 0;
+        const intensity = grainEnabled ? Number((0.1 * grainStrength).toFixed(4)) : 0;
+        node284.widgets_values[0] = Math.max(0.01, density);
+        node284.widgets_values[1] = Math.max(0.01, intensity);
+      }
+
+      const node286 = findNode(286);
+      if (node286 && node286.widgets_values && node286.widgets_values.length >= 2) {
+        node286.widgets_values[0] = blurEnabled ? Math.max(1, Math.round(2 * blurStrength)) : 1;
+        const sigma = blurEnabled ? Number((0.3 * blurStrength).toFixed(3)) : 0;
+        node286.widgets_values[1] = Math.max(0.1, sigma);
+      }
     }
     
     // Node 250: LoadLoraFromUrlOrPath — patch URLs in widgets_values BEFORE conversion.
@@ -1651,26 +1665,20 @@ function buildComfyWorkflow(params) {
       delete apiWorkflow["56"];
     }
 
-    // Refiner KSampler 45: negative must NOT come from node 1 (Qwen CLIP after LoRA stack).
-    // The refiner model is SDXL (checkpoint 282); SDXL encode_adm needs clip_pooled. Qwen conditioning
-    // has no pooled embedding → AttributeError: NoneType.shape in model_base.py encode_adm.
-    // Node 8 encodes the same negative text with SDXL CLIP (Anything Everywhere from 282).
-    // Ensure node 8 exists and has SDXL CLIP connection (via ue_links to checkpoint 282).
-    if (apiWorkflow["45"]?.inputs?.negative) {
+    // Refiner KSampler 45: desktop graph uses negative from node 1 (Qwen) — 1:1 with export.
+    // On unpatched ComfyUI, SDXL refiner can crash (encode_adm / clip_pooled). Opt-in fix:
+    // NSFW_COMFY_REFINER_FIX_SDXL=1 rewires negative to node 8 (SDXL CLIP), same as before.
+    if (process.env.NSFW_COMFY_REFINER_FIX_SDXL === "1" && apiWorkflow["45"]?.inputs?.negative) {
       const currentNegative = apiWorkflow["45"].inputs.negative;
-      // If negative points to node 1 (Qwen), change to node 8 (SDXL)
       if (Array.isArray(currentNegative) && String(currentNegative[0]) === "1") {
-        // Verify node 8 exists and has text set (from String Literal strip above)
         if (apiWorkflow["8"] && typeof apiWorkflow["8"].inputs?.text === "string") {
-          // Ensure node 8's CLIP is connected to checkpoint 282 (SDXL) - ue_links should apply this,
-          // but explicitly set it if missing to guarantee SDXL CLIP is used
           if (!apiWorkflow["8"].inputs.clip || (Array.isArray(apiWorkflow["8"].inputs.clip) && String(apiWorkflow["8"].inputs.clip[0]) !== "282")) {
             apiWorkflow["8"].inputs.clip = ["282", 1];
           }
           apiWorkflow["45"].inputs.negative = ["8", 0];
-          console.log("[NSFW] Fixed refiner KSampler 45: negative changed from node 1 (Qwen) to node 8 (SDXL CLIP)");
+          console.log("[NSFW] Refiner fix: KSampler 45 negative node 1 → 8 (NSFW_COMFY_REFINER_FIX_SDXL=1)");
         } else {
-          console.warn("[NSFW] Node 8 missing or text not set, cannot fix refiner negative CLIP mismatch");
+          console.warn("[NSFW] Node 8 missing or text not set, cannot apply refiner SDXL negative fix");
         }
       }
     }
@@ -1680,7 +1688,7 @@ function buildComfyWorkflow(params) {
     if (process.env.NSFW_COMFY_STRIP_UNSUPPORTED === "1") {
       stripUnsupportedNodesAndInjectValues(apiWorkflow, {
         prompt: prompt || "",
-        negativePrompt,
+        negativePrompt: negativeTextForInline,
         loraUrl: params.loraUrl,
         activeLorasCount,
         loraGirlStrength: Math.min(1, Math.max(0, Number(girlLoraStrength) || 0.6)),
@@ -1960,12 +1968,17 @@ export async function submitNsfwGeneration(params) {
     cumStrength,
     enhancementStrengths,
     postProcessing: normalizedPostProcessing,
+    useWorkflowPostProcessing:
+      options.useWorkflowPostProcessing === true ||
+      options.postProcessing?.overrideGrainBlur === true ||
+      process.env.NSFW_COMFY_USE_WORKFLOW_POST === "1",
     seed,
-    steps: baseSteps,
-    cfg: baseCfg,
+    steps: adminBaseSamplerSteps != null ? baseSteps : undefined,
+    cfg: adminBaseSamplerCfg != null ? baseCfg : undefined,
     width: resSpec.width,
     height: resSpec.height,
     aspectRatio: resSpec.aspect_ratio,
+    negativePrompt: options.negativePrompt,
   });
 
   console.log("\n📋 ============================================");
