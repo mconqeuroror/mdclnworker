@@ -8,8 +8,9 @@ import express from "express";
 import prisma from "../lib/prisma.js";
 import { normalizeRunpodNsfwOutput } from "../services/fal.service.js";
 import { finalizeNsfwRunpodGeneration } from "../controllers/nsfw.controller.js";
-import { refundGeneration } from "../services/credit.service.js";
+import { refundCredits, refundGeneration } from "../services/credit.service.js";
 import { getErrorMessageForDb } from "../lib/userError.js";
+import { extractCaptionFromRunpodOutput, injectModelIntoPrompt } from "../services/img2img.service.js";
 
 const router = express.Router();
 const SECRET = process.env.RUNPOD_WEBHOOK_SECRET?.trim();
@@ -53,6 +54,29 @@ async function findNsfwGenerationByRunpodJobId(jobId) {
   );
 }
 
+async function findDescribeJobByRunpodJobId(jobId) {
+  if (!jobId) return null;
+  const rows = await prisma.generation.findMany({
+    where: {
+      type: "img2img-describe",
+      status: { in: ["processing", "pending"] },
+      createdAt: { gt: new Date(Date.now() - 4 * 60 * 60 * 1000) },
+    },
+    take: 50,
+    orderBy: { createdAt: "desc" },
+  });
+  return (
+    rows.find((g) => {
+      try {
+        const j = JSON.parse(g.inputImageUrl || "{}");
+        return j?.runpodJobId === jobId;
+      } catch {
+        return false;
+      }
+    }) || null
+  );
+}
+
 router.post("/callback", async (req, res) => {
   if (!verifyWebhook(req)) {
     return res.status(401).json({ ok: false, error: "unauthorized" });
@@ -68,6 +92,56 @@ router.post("/callback", async (req, res) => {
       return res.status(200).json({ ok: false, reason: "no_job_id" });
     }
 
+    // ── Check for img2img-describe job first ─────────────────────────────────
+    const describeGen = await findDescribeJobByRunpodJobId(jobId);
+    if (describeGen) {
+      if (st === "FAILED" || st === "CANCELLED") {
+        const msg = rawOut?.error || body.error || "RunPod describe job failed";
+        await prisma.generation.updateMany({
+          where: { id: describeGen.id, status: { in: ["processing", "pending"] } },
+          data: { status: "failed", errorMessage: getErrorMessageForDb(String(msg)), completedAt: new Date() },
+        });
+        return res.status(200).json({ ok: true, type: "describe", failed: true });
+      }
+
+      if (st === "COMPLETED") {
+        const caption = extractCaptionFromRunpodOutput(rawOut);
+        if (!caption) {
+          await prisma.generation.update({
+            where: { id: describeGen.id },
+            data: { status: "failed", errorMessage: "JoyCaption returned no text" },
+          });
+          return res.status(200).json({ ok: true, type: "describe", failed: true, reason: "no_caption" });
+        }
+
+        let meta = {};
+        try { meta = JSON.parse(describeGen.inputImageUrl || "{}"); } catch {}
+        const { triggerWord = "", lookDescription = "" } = meta;
+
+        let prompt;
+        try {
+          prompt = await injectModelIntoPrompt(caption, triggerWord, lookDescription);
+        } catch (grokErr) {
+          console.error("[RunPod webhook] Grok inject failed:", grokErr.message);
+          prompt = caption;
+        }
+
+        await prisma.generation.update({
+          where: { id: describeGen.id },
+          data: {
+            status: "completed",
+            pipelinePayload: JSON.stringify({ prompt, rawDescription: caption }),
+            completedAt: new Date(),
+          },
+        });
+        console.log(`✅ [RunPod webhook] describe job ${describeGen.id} completed`);
+        return res.status(200).json({ ok: true, type: "describe" });
+      }
+
+      return res.status(200).json({ ok: true, skipped: true, type: "describe", status: st });
+    }
+
+    // ── NSFW generation ───────────────────────────────────────────────────────
     const gen = await findNsfwGenerationByRunpodJobId(jobId);
     if (!gen) {
       console.warn(`[RunPod webhook] no processing generation for job ${jobId}`);

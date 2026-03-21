@@ -20,6 +20,8 @@ import {
   injectModelIntoPrompt,
   generateImg2Img,
   submitImg2ImgJob,
+  submitDescribeJob,
+  extractCaptionFromRunpodOutput,
   getRunpodJobStatus,
 } from "../services/img2img.service.js";
 import { isR2Configured, uploadBufferToR2 } from "../utils/r2.js";
@@ -149,16 +151,16 @@ setInterval(() => {
 }, 15 * 60 * 1000);
 
 // ── POST /api/img2img/describe ────────────────────────────────────────────────
-// Runs JoyCaption + OpenAI inject — returns editable prompt (currently free).
+// Submits a JoyCaption RunPod job and returns immediately with a describeJobId.
+// Client polls GET /api/img2img/describe-status/:id for the result.
 router.post("/describe", LARGE_JSON, authMiddleware, async (req, res) => {
   const userId = req.user.userId || req.user.id;
-  const { inputImageUrl, inputImageBase64, loraUrl, triggerWord, lookDescription = "" } = req.body;
+  const { inputImageUrl, inputImageBase64, triggerWord, lookDescription = "" } = req.body;
 
   if ((!inputImageUrl && !inputImageBase64) || !triggerWord) {
     return res.status(400).json({ error: "Missing required fields: inputImageUrl or inputImageBase64, triggerWord" });
   }
 
-  // Reject placeholder URLs that would crash the RunPod fetch step
   const isValidUrl = inputImageUrl && /^https?:\/\//i.test(inputImageUrl);
   if (!inputImageBase64 && !isValidUrl) {
     return res.status(400).json({
@@ -174,9 +176,6 @@ router.post("/describe", LARGE_JSON, authMiddleware, async (req, res) => {
         return res.status(402).json({ error: `Not enough credits (need ${DESCRIBE_CREDIT_COST}, have ${total})` });
       }
       await deductCredits(userId, DESCRIBE_CREDIT_COST);
-      await prisma.creditTransaction.create({
-        data: { userId, amount: -DESCRIBE_CREDIT_COST, type: "generation", description: `img2img analyze — ${triggerWord}` },
-      });
     } catch (err) {
       console.error("Credit deduction failed for /describe:", err.message);
       return res.status(500).json({ error: "Failed to deduct credits" });
@@ -184,24 +183,108 @@ router.post("/describe", LARGE_JSON, authMiddleware, async (req, res) => {
   }
 
   try {
-    // Step 1: RunPod JoyCaption — lookDescription is NOT sent here, only the image
-    const rawDescription = await extractPromptFromImage(inputImageUrl || "upload", inputImageBase64 || null);
-    // Step 2: Grok injection — lookDescription is only used here to rewrite the prompt
-    const prompt = await injectModelIntoPrompt(rawDescription, triggerWord, lookDescription);
-    return res.json({ prompt, rawDescription });
+    const webhookUrl = process.env.RUNPOD_WEBHOOK_URL?.trim() || null;
+    const runpodJobId = await submitDescribeJob(inputImageBase64 || null, inputImageUrl || null, webhookUrl);
+
+    // Persist the pending job so the status endpoint can resolve it
+    const gen = await prisma.generation.create({
+      data: {
+        userId,
+        type: "img2img-describe",
+        status: "processing",
+        prompt: triggerWord,
+        inputImageUrl: JSON.stringify({ runpodJobId, triggerWord, lookDescription }),
+        creditsCost: DESCRIBE_CREDIT_COST,
+      },
+    });
+
+    console.log(`🔍 [img2img/describe] Job ${runpodJobId} submitted → describeJobId ${gen.id}`);
+    return res.json({ describeJobId: gen.id });
   } catch (err) {
-    console.error("❌ /describe failed:", err.message);
+    console.error("❌ /describe submit failed:", err.message);
     if (DESCRIBE_CREDIT_COST > 0) {
-      try {
-        await refundCredits(userId, DESCRIBE_CREDIT_COST);
-        await prisma.creditTransaction.create({
-          data: { userId, amount: DESCRIBE_CREDIT_COST, type: "refund", description: `img2img analyze refund: ${err.message.slice(0, 100)}` },
-        });
-      } catch (refundErr) {
-        console.error("⚠️  Describe refund failed:", refundErr.message);
-      }
+      try { await refundCredits(userId, DESCRIBE_CREDIT_COST); } catch {}
     }
-    return res.status(500).json({ success: false, error: err.message || "Failed to analyze image" });
+    return res.status(500).json({ success: false, error: err.message || "Failed to start analysis" });
+  }
+});
+
+// ── GET /api/img2img/describe-status/:id ─────────────────────────────────────
+// Returns { status, prompt?, rawDescription?, error? }
+// If still processing, checks RunPod directly and finalizes if ready.
+router.get("/describe-status/:id", authMiddleware, async (req, res) => {
+  const userId = req.user.userId || req.user.id;
+  const { id } = req.params;
+
+  try {
+    const gen = await prisma.generation.findUnique({
+      where: { id },
+      select: { id: true, userId: true, status: true, inputImageUrl: true, pipelinePayload: true, errorMessage: true },
+    });
+
+    if (!gen) return res.status(404).json({ error: "Describe job not found" });
+    if (gen.userId !== userId) return res.status(403).json({ error: "Unauthorized" });
+
+    // Already resolved
+    if (gen.status === "completed") {
+      let result = {};
+      try { result = JSON.parse(gen.pipelinePayload || "{}"); } catch {}
+      return res.json({ status: "completed", prompt: result.prompt, rawDescription: result.rawDescription });
+    }
+    if (gen.status === "failed") {
+      return res.json({ status: "failed", error: gen.errorMessage || "Analysis failed" });
+    }
+
+    // Still processing — check RunPod directly (self-healing fallback when no webhook)
+    let meta = {};
+    try { meta = JSON.parse(gen.inputImageUrl || "{}"); } catch {}
+    const { runpodJobId, triggerWord, lookDescription = "" } = meta;
+
+    if (!runpodJobId) {
+      return res.json({ status: "processing" });
+    }
+
+    let rpStatus;
+    try {
+      rpStatus = await getRunpodJobStatus(runpodJobId);
+    } catch (pollErr) {
+      console.warn(`[describe-status] RunPod poll error for ${runpodJobId}:`, pollErr.message);
+      return res.json({ status: "processing" });
+    }
+
+    if (rpStatus.status === "COMPLETED") {
+      // Finalize inline
+      const caption = extractCaptionFromRunpodOutput(rpStatus.output);
+      if (!caption) {
+        await prisma.generation.update({ where: { id }, data: { status: "failed", errorMessage: "JoyCaption returned no text" } });
+        return res.json({ status: "failed", error: "JoyCaption returned no text" });
+      }
+      let prompt;
+      try {
+        prompt = await injectModelIntoPrompt(caption, triggerWord, lookDescription);
+      } catch (grokErr) {
+        console.error(`[describe-status] Grok inject failed:`, grokErr.message);
+        prompt = caption; // fall back to raw caption
+      }
+      await prisma.generation.update({
+        where: { id },
+        data: { status: "completed", pipelinePayload: JSON.stringify({ prompt, rawDescription: caption }), completedAt: new Date() },
+      });
+      return res.json({ status: "completed", prompt, rawDescription: caption });
+    }
+
+    if (rpStatus.status === "FAILED" || rpStatus.status === "CANCELLED") {
+      const errMsg = rpStatus.output?.error || "RunPod job failed";
+      await prisma.generation.update({ where: { id }, data: { status: "failed", errorMessage: errMsg } });
+      if (DESCRIBE_CREDIT_COST > 0) { try { await refundCredits(userId, DESCRIBE_CREDIT_COST); } catch {} }
+      return res.json({ status: "failed", error: errMsg });
+    }
+
+    // IN_QUEUE or IN_PROGRESS
+    return res.json({ status: "processing" });
+  } catch (err) {
+    console.error("❌ /describe-status error:", err.message);
+    return res.status(500).json({ error: err.message });
   }
 });
 

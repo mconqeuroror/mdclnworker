@@ -223,10 +223,13 @@ function ensureFiniteNumber(value, fieldName) {
 
 // ── RunPod API helpers ────────────────────────────────────────────────────────
 
-async function runpodSubmit(payload) {
+async function runpodSubmit(payload, webhookUrl = null) {
   if (!RUNPOD_API_KEY || !RUNPOD_ENDPOINT) {
     throw new Error("Generation service not configured");
   }
+
+  const body = { input: payload };
+  if (webhookUrl) body.webhook = webhookUrl;
 
   const resp = await fetch(`${RUNPOD_BASE}/run`, {
     method: "POST",
@@ -234,7 +237,8 @@ async function runpodSubmit(payload) {
       Authorization: `Bearer ${RUNPOD_API_KEY}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ input: payload }),
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(20_000),
   });
 
   if (!resp.ok) {
@@ -246,6 +250,44 @@ async function runpodSubmit(payload) {
   const jobId = data.id;
   if (!jobId) throw new Error(`Generation service returned no job id: ${JSON.stringify(data)}`);
   return jobId;
+}
+
+/**
+ * Submit a JoyCaption describe job to RunPod and return the jobId immediately (no polling).
+ * Webhook URL is attached if provided so RunPod can POST results back.
+ */
+export async function submitDescribeJob(imageBase64OrNull, imageUrl, webhookUrl = null) {
+  let imageBase64 = imageBase64OrNull;
+  if (!imageBase64) {
+    if (!imageUrl || !/^https?:\/\//i.test(imageUrl)) {
+      throw new Error(`Cannot analyze image: no valid URL or base64 data provided.`);
+    }
+    imageBase64 = await imageUrlToBase64(imageUrl);
+  }
+
+  const workflow = loadImgToPromptWorkflow();
+  const payload = {
+    prompt: workflow,
+    upload_images: [{ node_id: "52", data: imageBase64, filename: "joycaption_input.jpg" }],
+    output_type: "text",
+    output_node_id: "53",
+  };
+
+  return runpodSubmit(payload, webhookUrl);
+}
+
+/**
+ * Extract the JoyCaption caption text from a completed RunPod job output object.
+ * Returns null if no text found.
+ */
+export function extractCaptionFromRunpodOutput(output) {
+  if (!output) return null;
+  const text =
+    (typeof output.text === "string" && output.text.trim()) ||
+    (output.result && typeof output.result.text === "string" && output.result.text.trim()) ||
+    (output.result?.output_nodes?.["53"]?.text?.[0]) ||
+    (Array.isArray(output.result?.text) && output.result.text[0]);
+  return text ? String(text).trim() : null;
 }
 
 export async function getRunpodJobStatus(jobId) {

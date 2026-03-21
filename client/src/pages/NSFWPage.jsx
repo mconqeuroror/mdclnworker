@@ -763,7 +763,48 @@ function NsfwImg2ImgTab({ modelId, activeLoraObj, chipSelections = {} }) {
         payload.inputImageUrl = sourceImageUrl;
       }
       const response = await api.post("/img2img/describe", payload);
-      setEditablePrompt(response.data.prompt || "");
+      const data = response.data;
+
+      // Async path — server submitted RunPod job and returned a describeJobId
+      if (data.describeJobId) {
+        const describeJobId = data.describeJobId;
+        const maxPolls = 90; // 90 × 3s = 4.5 min
+        let attempts = 0;
+        // isAnalyzing stays true; poll loop clears it when done
+        const pollDescribe = async () => {
+          attempts++;
+          if (attempts > maxPolls) {
+            setIsAnalyzing(false);
+            setAnalyzeError("Analysis timed out. Please try again.");
+            toast.error("Image analysis timed out");
+            return;
+          }
+          try {
+            const sr = await api.get(`/img2img/describe-status/${describeJobId}`);
+            const { status, prompt: p, error } = sr.data;
+            if (status === "completed") {
+              setEditablePrompt(p || "");
+              setIsAnalyzing(false);
+            } else if (status === "failed") {
+              setIsAnalyzing(false);
+              setAnalyzeError(error || "Analysis failed");
+              toast.error("Analysis failed: " + (error || "Unknown error"));
+            } else {
+              setTimeout(pollDescribe, 3000);
+            }
+          } catch (pollErr) {
+            console.warn("describe-status poll error:", pollErr.message);
+            if (attempts < maxPolls) setTimeout(pollDescribe, 4000);
+            else { setIsAnalyzing(false); setAnalyzeError("Analysis timed out"); }
+          }
+        };
+        setTimeout(pollDescribe, 3000);
+        return; // ← finally does NOT run when we return inside try (in this JS pattern, finally WILL run, so we skip setIsAnalyzing below)
+      }
+
+      // Synchronous path (legacy / direct result)
+      setEditablePrompt(data.prompt || "");
+      setIsAnalyzing(false);
     } catch (err) {
       const errData = err.response?.data;
       const msg = errData?.errors?.length
@@ -771,7 +812,6 @@ function NsfwImg2ImgTab({ modelId, activeLoraObj, chipSelections = {} }) {
         : (errData?.error || err.message);
       setAnalyzeError(msg);
       toast.error("Analysis failed: " + msg);
-    } finally {
       setIsAnalyzing(false);
     }
   };

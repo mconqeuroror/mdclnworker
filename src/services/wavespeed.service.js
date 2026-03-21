@@ -159,6 +159,7 @@ async function waitForResult(requestId, maxAttempts = 60) {
       headers: {
         Authorization: `Bearer ${WAVESPEED_API_KEY}`,
       },
+      signal: AbortSignal.timeout(20_000),
     });
 
     if (!response.ok) {
@@ -320,6 +321,10 @@ async function generateImageWithNanoBanana(images, prompt, options = {}) {
       },
     );
 
+    if (!WAVESPEED_API_KEY) {
+      throw new Error("WAVESPEED_API_KEY is not configured -- face swap unavailable");
+    }
+
     const responseText = await submitResponse.text();
 
     if (!submitResponse.ok) {
@@ -433,6 +438,10 @@ async function generateImageWithSeedream(images, prompt, options = {}) {
         body: JSON.stringify(requestBody),
       },
     );
+
+    if (!WAVESPEED_API_KEY) {
+      throw new Error("WAVESPEED_API_KEY is not configured -- face swap unavailable");
+    }
 
     const responseText = await submitResponse.text();
 
@@ -608,9 +617,12 @@ async function faceSwapVideo(videoUrl, faceImageUrl, options = {}) {
       max_duration: options.maxDuration || 0,
     };
 
+    const faceSwapEndpoint = `${WAVESPEED_API_URL}/wavespeed-ai/video-face-swap`;
+    console.log(`🌐 Face swap endpoint: ${faceSwapEndpoint}`);
+
     // Submit task
     const submitResponse = await fetch(
-      `${WAVESPEED_API_URL}/wavespeed-ai/video-face-swap`,
+      faceSwapEndpoint,
       {
         method: "POST",
         headers: {
@@ -618,8 +630,13 @@ async function faceSwapVideo(videoUrl, faceImageUrl, options = {}) {
           Authorization: `Bearer ${WAVESPEED_API_KEY}`,
         },
         body: JSON.stringify(requestBody),
+        signal: AbortSignal.timeout(30_000),
       },
     );
+
+    if (!WAVESPEED_API_KEY) {
+      throw new Error("WAVESPEED_API_KEY is not configured -- face swap unavailable");
+    }
 
     const responseText = await submitResponse.text();
 
@@ -1452,6 +1469,10 @@ async function submitNsfwVideo(imageUrl, prompt, options = {}) {
       },
     );
 
+    if (!WAVESPEED_API_KEY) {
+      throw new Error("WAVESPEED_API_KEY is not configured -- face swap unavailable");
+    }
+
     const responseText = await submitResponse.text();
 
     if (!submitResponse.ok) {
@@ -1531,6 +1552,10 @@ async function submitNsfwVideoExtend(videoUrl, prompt, options = {}) {
         body: JSON.stringify(requestBody),
       },
     );
+
+    if (!WAVESPEED_API_KEY) {
+      throw new Error("WAVESPEED_API_KEY is not configured -- face swap unavailable");
+    }
 
     const responseText = await submitResponse.text();
 
