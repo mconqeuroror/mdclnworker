@@ -4051,8 +4051,33 @@ RULES:
 
   let selections = {};
   try {
-    const cleaned = content.replace(/```json\s*|```\s*/g, "").trim();
-    selections = JSON.parse(cleaned);
+    const stripped = content.replace(/```json\s*|```\s*/g, "").trim();
+
+    // Pass 1: try parsing the first complete {...} block (handles trailing text after closing brace)
+    const jsonMatch = stripped.match(/\{[\s\S]*\}/);
+    let parsed = false;
+    if (jsonMatch) {
+      try {
+        selections = JSON.parse(jsonMatch[0]);
+        parsed = true;
+      } catch {
+        // Pass 2: JSON is malformed (AI thinking mixed in). Extract "key":"value" pairs directly.
+      }
+    }
+
+    if (!parsed) {
+      // Robustly pull out every "key":"value" pair that appears in the string,
+      // ignoring surrounding commentary. First occurrence wins on duplicate keys.
+      const kvRegex = /"([^"\r\n]+)"\s*:\s*"([^"\r\n]*)"/g;
+      let m;
+      while ((m = kvRegex.exec(stripped)) !== null) {
+        const [, k, v] = m;
+        if (!(k in selections)) selections[k] = v;
+      }
+      if (Object.keys(selections).length === 0) {
+        throw new Error("no key-value pairs found in AI response");
+      }
+    }
   } catch (e) {
     console.error("Failed to parse auto-select response:", content);
     throw new Error("AI returned invalid response");

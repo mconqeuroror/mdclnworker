@@ -430,7 +430,6 @@ export async function checkTrainingStatus(requestId) {
     return {
       status: result.status, // "IN_QUEUE", "IN_PROGRESS", "COMPLETED", "FAILED"
       logs: result.logs || [],
-      result: result.response_url ? null : result, // Result is in response_url when completed
     };
   } catch (error) {
     console.error("❌ Status check error:", error.message);
@@ -701,11 +700,6 @@ const POSE_LORAS = [
     node: "291",
     keywords: [],
   },
-  {
-    id: "cowgirl",
-    node: "292",
-    keywords: [],
-  },
   /** Matches workflow slot 293 + HF file "Nsfw Anal Doggystyle" (rear anal / doggy anal — NOT titfuck). */
   {
     id: "anal_doggystyle",
@@ -738,17 +732,31 @@ const ENHANCEMENT_LORAS = {
     strengthRange: [0.25, 0.35],
     defaultStrength: 0.35,
   },
+  /** bjz LoRA covers all blowjob/oral varieties. Trigger word "bjz" must be in prompt when active. */
   deepthroat: {
     url: "https://huggingface.co/bigckck/ndmstr/resolve/main/bjz.safetensors",
     name: "Deepthroat/Blowjob",
-    strengthRange: [0.25, 0.35],
-    defaultStrength: 0.35,
+    strengthRange: [0.35, 0.45],
+    defaultStrength: 0.45,
+    triggerWord: "bjz",
   },
   dildo: {
     url: "https://huggingface.co/bigckck/ndmstr/resolve/main/dildo.safetensors",
     name: "Dildo",
     strengthRange: [0.25, 0.35],
     defaultStrength: 0.35,
+  },
+  /**
+   * Facial / cumshot-on-face LoRA. Trigger word "facial". Optimised for kneeling/lying-down poses
+   * where the female subject faces the camera close-up. Produces realistic loads along the face
+   * rather than dribbles. Pairs with deepthroat for blowjob-ending-in-cumshot scenes.
+   */
+  facial: {
+    url: "https://huggingface.co/bigckck/ndmstr/resolve/main/ZIMAGE_facials_000003000.safetensors",
+    name: "Facial/Cumshot",
+    strengthRange: [0.35, 0.45],
+    defaultStrength: 0.45,
+    triggerWord: "facial",
   },
 };
 
@@ -761,7 +769,6 @@ const RUNNING_MAKEUP_KEYWORDS = ["running makeup", "smeared makeup", "mascara ru
 const POSE_SLOT_URLS = {
   "290": "https://huggingface.co/bigckck/ndmstr/resolve/main/Nsfw Doggystyle facing the camera.safetensors",
   "291": "https://huggingface.co/bigckck/ndmstr/resolve/main/Missionnary.safetensors",
-  "292": "https://huggingface.co/bigckck/ndmstr/resolve/main/Nsfw Cowgirl.safetensors",
   "293": "https://huggingface.co/bigckck/ndmstr/resolve/main/Nsfw Anal Doggystyle.safetensors",
   "294": "https://huggingface.co/bigckck/ndmstr/resolve/main/Nsfw_Handjob.safetensors",
   "295": "https://huggingface.co/bigckck/ndmstr/resolve/main/Nsfw_POV_Missionary_Anal.safetensors",
@@ -1083,20 +1090,21 @@ RULES FOR POSE SELECTION:
 - Mirror selfie / casual girlfriend nude (no partnered sex act): set amateur_nudes to 0.25-0.35 even if pose is "none".
 - If unsure, select "none" - it's better to have no pose LoRA than the wrong one
 
-ENHANCEMENT LORAS (each can be independently activated; strengths 0.25-0.35 only, NEVER above 0.35):
-- "amateur_nudes": Casual girlfriend-style nude photos. Activate for: casual nude selfies, gf nudes, naked in bed/couch/mirror, relaxed nude poses, topless casual moments, sending nudes, lounging naked. Use 0.25-0.35 max.
-- "deepthroat": Blowjob and deepthroat oral sex. Activate for: blowjob, deepthroat, oral sex, sucking, on knees giving head, mouth around cock, licking, oral. Strength 0.25-0.35 max.
-- "masturbation": Solo masturbation scenes. Activate for: masturbating, fingering herself, touching herself, hand between legs/thighs, playing with herself, rubbing pussy. Strength 0.25-0.35 max.
-- "dildo": Using a dildo/vibrator/toy. Activate for: dildo, vibrator, sex toy, inserting toy, using toy on herself. Strength 0.25-0.35 max.
+ENHANCEMENT LORAS (each can be independently activated):
+- "amateur_nudes": Casual girlfriend-style nude photos. Activate for: casual nude selfies, gf nudes, naked in bed/couch/mirror, relaxed nude poses, topless casual moments, sending nudes, lounging naked. Strength 0.25-0.35.
+- "deepthroat": ALL blowjob and oral sex scenes (uses bjz LoRA, trigger word "bjz"). Activate for: blowjob, deepthroat, oral sex, sucking, on knees giving head, mouth around cock, licking, POV oral. Strength 0.35-0.45 (use 0.45 for all oral scenes). ALWAYS set pose to "none" for oral.
+- "masturbation": Solo masturbation scenes. Activate for: masturbating, fingering herself, touching herself, hand between legs/thighs, playing with herself, rubbing pussy. Strength 0.25-0.35.
+- "dildo": Using a dildo/vibrator/toy. Activate for: dildo, vibrator, sex toy, inserting toy, using toy on herself. Strength 0.25-0.35.
+- "facial": Cumshot-on-face / facial scenes (trigger word "facial"). Activate for: cum on face, facial, cumshot on face, jizz on face, shooting load on face, covered in cum facial, cum dripping on face. Strength 0.35-0.45 (use 0.45). Works best with kneeling/lying-down poses facing camera. CAN combine with deepthroat for blowjob-ending-in-cumshot scenes.
 
 RULES FOR ENHANCEMENT LORAS:
 - Multiple CAN be active simultaneously (e.g. amateur_nudes + masturbation for casual gf masturbating)
 - amateur_nudes stacks well with masturbation or dildo for the casual/gf aesthetic
-- For ANY blowjob/oral/deepthroat scene: set deepthroat to 0.30-0.35 and pose to "none"
+- For ANY blowjob/oral/deepthroat scene: set deepthroat to 0.45 and pose to "none"
 - deepthroat should NOT combine with masturbation or dildo (incompatible acts)
+- For blowjob scenes that end in a cumshot/facial: activate BOTH deepthroat=0.45 AND facial=0.45
 - Look at the FULL context: if chips say "on knees" + prompt mentions "mouth" or "oral" = activate deepthroat
 - Look at outfit chips: if outfit is "nude"/"naked"/"topless" + casual scene = consider amateur_nudes
-- Set strength 0.25-0.35 only (NEVER exceed 0.35)
 - If the scene doesn't match any enhancement, set its strength to 0
 
 ${girlStrengthSection}
@@ -1108,7 +1116,7 @@ CUM EFFECT:
 - Set to true ONLY if the prompt explicitly mentions cum/cumshot/creampie/facial cum/cum on body
 
 OUTPUT: Return ONLY valid JSON on one line, no explanation:
-{"pose":"<pose_id or none>","girl_strength":0.XX,"amateur_nudes":0.XX,"deepthroat":0.XX,"masturbation":0.XX,"dildo":0.XX,"makeup":false,"cum":false}`;
+{"pose":"<pose_id or none>","girl_strength":0.XX,"amateur_nudes":0.XX,"deepthroat":0.XX,"masturbation":0.XX,"dildo":0.XX,"facial":0.XX,"makeup":false,"cum":false}`;
 
   console.log(`🤖 AI LoRA selector input: scene="${sceneDescription.substring(0, 80)}", chips=[${chipSummary.substring(0, 100)}], prompt="${finalPrompt.substring(0, 80)}..."`);
 
@@ -1169,10 +1177,13 @@ OUTPUT: Return ONLY valid JSON on one line, no explanation:
     const enhancementStrengths = {};
     for (const key of Object.keys(ENHANCEMENT_LORAS)) {
       const raw = parseFloat(parsed[key]);
-      if (!isNaN(raw) && raw >= 0.35 && raw <= MAX_ADDITIVE_LORA_STRENGTH) {
+      const meta = ENHANCEMENT_LORAS[key];
+      const loraMin = meta?.strengthRange?.[0] ?? 0.25;
+      const loraMax = meta?.strengthRange?.[1] ?? MAX_ADDITIVE_LORA_STRENGTH;
+      if (!isNaN(raw) && raw >= loraMin && raw <= loraMax) {
         enhancementStrengths[key] = raw;
       } else if (!isNaN(raw) && raw > 0) {
-        enhancementStrengths[key] = Math.min(MAX_ADDITIVE_LORA_STRENGTH, Math.max(0.35, raw));
+        enhancementStrengths[key] = Math.min(loraMax, Math.max(loraMin, raw));
       } else {
         enhancementStrengths[key] = 0;
       }
@@ -1200,7 +1211,6 @@ function getPoseDescription(poseId) {
     doggystyle_facing:
       "Penetrative doggystyle / from-behind intercourse only: girl on all fours or bent over with visible rear-entry penetration. NOT kneeling blowjob, NOT standing solo, NOT 'kneeling on floor' without rear sex — those are NOT this LoRA.",
     missionary: "Missionary sex position - girl lying on her back with legs spread during vaginal sex",
-    cowgirl: "Cowgirl / riding position - girl sitting on top, straddling, riding. Covers cowgirl, reverse cowgirl, girl-on-top positions.",
     anal_doggystyle:
       "Anal sex in doggy / rear-entry position — girl on all fours or bent over with rear anal penetration visible. Matches workflow LoRA slot (not titfuck).",
     handjob:
@@ -1243,10 +1253,11 @@ function applyOralBlowjobLoraPolicy(aiSelection, fullPromptText) {
 
   aiSelection.enhancementStrengths = { ...(aiSelection.enhancementStrengths || {}) };
   const cur = Number(aiSelection.enhancementStrengths.deepthroat) || 0;
-  if (cur < 0.35) {
+  if (cur < 0.45) {
     aiSelection.enhancementStrengths.deepthroat = 0.45;
-    console.log("🛡️ Oral scene: enabling deepthroat enhancement LoRA (min 0.45).");
+    console.log("🛡️ Oral scene: enabling deepthroat (bjz) LoRA at 0.45.");
   }
+  // facial CAN combine with blowjob/oral for cumshot-ending scenes — do not zero it out
   aiSelection.enhancementStrengths.masturbation = 0;
   aiSelection.enhancementStrengths.dildo = 0;
 }
@@ -1266,7 +1277,7 @@ function isPartneredExplicitPrompt(text) {
     /\bmissionary sex\b/,
     /\bmissionary position\b.*\b(penis|penetrating|sex)\b/,
     /\b(doggy style|doggy style sex)\b/,
-    /\b(cowgirl|reverse cowgirl|riding)\b.*\b(penis|sex|straddl)\b/,
+    /\b(riding|straddling)\b.*\b(penis|sex|cock)\b/,
     /\b(prone bone|anal sex)\b/,
     /\b(two adults|consensual couple)\b/,
     /\bcreampie\b/,
@@ -1314,8 +1325,6 @@ function applyExplicitPoseHeuristic(aiSelection, fullPromptText) {
     !/\b(anal sex|anal penetration)\b/.test(t)
   ) {
     setPose("doggystyle_facing");
-  } else if (/\bcowgirl\b/.test(t) && /\b(straddl|riding|on top)\b/.test(t)) {
-    setPose("cowgirl");
   }
 
   if (
@@ -1347,15 +1356,18 @@ function applyNudesPackAdditiveLoraHint(aiSelection, hint) {
       );
     }
     aiSelection.pose = null;
+    const dtMax = ENHANCEMENT_LORAS.deepthroat?.strengthRange?.[1] ?? 0.45;
     const dt = Number(hint.deepthroat);
     enh.deepthroat = Number.isFinite(dt) && dt >= 0.25
-      ? Math.min(MAX_ADDITIVE_LORA_STRENGTH, Math.max(Number(enh.deepthroat) || 0, dt))
-      : Math.min(MAX_ADDITIVE_LORA_STRENGTH, Math.max(Number(enh.deepthroat) || 0, 0.35));
+      ? Math.min(dtMax, Math.max(Number(enh.deepthroat) || 0, dt))
+      : Math.min(dtMax, Math.max(Number(enh.deepthroat) || 0, 0.45));
     enh.masturbation = 0;
     enh.dildo = 0;
+    // facial can coexist with oral for cumshot-ending pack rows
     for (const k of Object.keys(enh)) {
+      const loraMax = ENHANCEMENT_LORAS[k]?.strengthRange?.[1] ?? MAX_ADDITIVE_LORA_STRENGTH;
       const v = Number(enh[k]);
-      if (Number.isFinite(v) && v > MAX_ADDITIVE_LORA_STRENGTH) enh[k] = MAX_ADDITIVE_LORA_STRENGTH;
+      if (Number.isFinite(v) && v > loraMax) enh[k] = loraMax;
     }
     aiSelection.enhancementStrengths = enh;
     console.log(`📦 Pack additive hint: oral — deepthroat=${enh.deepthroat}`);
@@ -1406,8 +1418,9 @@ function applyNudesPackAdditiveLoraHint(aiSelection, hint) {
   }
 
   for (const k of Object.keys(enh)) {
+    const loraMax = ENHANCEMENT_LORAS[k]?.strengthRange?.[1] ?? MAX_ADDITIVE_LORA_STRENGTH;
     const v = Number(enh[k]);
-    if (Number.isFinite(v) && v > MAX_ADDITIVE_LORA_STRENGTH) enh[k] = MAX_ADDITIVE_LORA_STRENGTH;
+    if (Number.isFinite(v) && v > loraMax) enh[k] = loraMax;
   }
 
   aiSelection.enhancementStrengths = enh;
@@ -1475,7 +1488,8 @@ export function buildNsfwLoraStackEntries({
     entries.push({ url: sanitizeLoraDownloadUrl(LORA_8_RUNNING_MAKEUP_URL), strength: mk });
   }
 
-  const enhOrder = ["deepthroat", "amateur_nudes", "masturbation", "dildo"];
+  // deepthroat (bjz) and facial both support up to 0.45; others cap at MAX_ADDITIVE_LORA_STRENGTH
+  const enhOrder = ["deepthroat", "facial", "amateur_nudes", "masturbation", "dildo"];
   let enhAdded = 0;
   for (const key of enhOrder) {
     if (entries.length >= 10 || enhAdded >= MAX_SIMULTANEOUS_ENHANCEMENT_LORAS) break;
@@ -1483,7 +1497,9 @@ export function buildNsfwLoraStackEntries({
     if (raw <= 0) continue;
     const meta = ENHANCEMENT_LORAS[key];
     if (!meta?.url) continue;
-    const s = Math.min(MAX_ADDITIVE_LORA_STRENGTH, Math.max(0.35, raw));
+    const loraMin = meta?.strengthRange?.[0] ?? 0.25;
+    const loraMax = meta?.strengthRange?.[1] ?? MAX_ADDITIVE_LORA_STRENGTH;
+    const s = Math.min(loraMax, Math.max(loraMin, raw));
     entries.push({ url: sanitizeLoraDownloadUrl(meta.url), strength: s });
     enhAdded += 1;
   }
@@ -1586,9 +1602,17 @@ function buildComfyWorkflow(params) {
     // Find nodes by ID
     const findNode = (id) => workflowGraph.nodes.find(n => n.id === id);
     
-    // Additive LoRAs (pose / makeup / cum / enhancement) — disabled until further notice.
-    // Only the girl identity LoRA (slot 1) is loaded; num_loras is always 1.
-    const additives = [];
+    // Build AI-selected additive LoRA stack (pose + makeup + enhancement LoRAs).
+    // buildNsfwLoraStackEntries returns [girl, ...additives]; node 250 slots 2+3 take the additives.
+    const allLoraEntries = buildNsfwLoraStackEntries({
+      loraUrl,
+      girlLoraStrength,
+      poseStrengths,
+      makeupStrength,
+      enhancementStrengths,
+    });
+    // Entry 0 is the girl LoRA (already applied via node298 + node250[3]); take up to 2 additives.
+    const additives = allLoraEntries.slice(1, 3);
 
     // Compact slot assignment — no gaps.
     const additive1Url      = additives[0]?.url      ?? "";
@@ -1596,7 +1620,7 @@ function buildComfyWorkflow(params) {
     const additive2Url      = additives[1]?.url      ?? "";
     const additive2Strength = additives[1]?.strength ?? 0;
 
-    // num_loras: how many LoRAs LoadLoraFromUrlOrPath should actually load.
+    // num_loras: girl (always 1) + active additives.
     const activeLorasCount = 1 + additives.length;
 
     console.log(`[NSFW LoRA] girl=${loraUrl ? "✓" : "✗"} | additives=${additives.length}` +
@@ -1732,12 +1756,10 @@ function buildComfyWorkflow(params) {
       delete apiWorkflow["56"];
     }
 
-    // UltimateSDUpscale bypass: if the worker image doesn't have ssitu/ComfyUI_UltimateSDUpscale yet,
-    // remove node 323 (UltimateSDUpscale) and node 329 (UpscaleModelLoader) and rewire any downstream
-    // nodes that took input from node 323 to take from node 25 (VAEDecode) instead.
-    // Default: ON (bypass) until the new worker image with UltimateSDUpscale is deployed.
-    // Set NSFW_COMFY_UPSCALE=1 to pass UltimateSDUpscale through once the worker is rebuilt.
-    if (process.env.NSFW_COMFY_UPSCALE !== "1" && apiWorkflow["323"]) {
+    // UltimateSDUpscale bypass: RunPod worker image does not have ssitu/ComfyUI_UltimateSDUpscale.
+    // Always remove node 323 (UltimateSDUpscale) and 329 (UpscaleModelLoader) and rewire any
+    // downstream nodes that took input from node 323 to take from node 25 (VAEDecode) instead.
+    if (apiWorkflow["323"]) {
       const upscaleInput = apiWorkflow["323"]?.inputs?.image;
       const fallbackImageRef = Array.isArray(upscaleInput) ? upscaleInput : ["25", 0];
       for (const n of Object.values(apiWorkflow)) {
@@ -1936,7 +1958,7 @@ export async function submitNsfwGeneration(params) {
     return { success: false, error: "Prompt is required. Generate a prompt first (Create Prompt)." };
   }
   const hasTriggerAnchor = basePrompt.toLowerCase().includes(String(triggerWord || "").toLowerCase());
-  const prompt = hasTriggerAnchor ? basePrompt : `${triggerWord}, ${basePrompt}`;
+  let prompt = hasTriggerAnchor ? basePrompt : `${triggerWord}, ${basePrompt}`;
 
   // AI decides additive LoRAs from full prompt/context (pose + makeup + effects). Quick flow: girl max 0.65; additive max 0.35.
   const aiSelection = await detectLorasWithAI({
@@ -1950,6 +1972,16 @@ export async function submitNsfwGeneration(params) {
   applyOralBlowjobLoraPolicy(aiSelection, prompt);
   applyExplicitPoseHeuristic(aiSelection, prompt);
   applyNudesPackAdditiveLoraHint(aiSelection, packAdditiveLoraHint);
+
+  // Inject trigger words for active enhancement LoRAs (bjz, facial) that require them in-prompt.
+  for (const [key, strength] of Object.entries(aiSelection.enhancementStrengths || {})) {
+    const tw = ENHANCEMENT_LORAS[key]?.triggerWord;
+    if (tw && Number(strength) > 0 && !prompt.toLowerCase().includes(tw.toLowerCase())) {
+      // Insert right after the girl's trigger word (first token before first comma)
+      prompt = prompt.replace(/^([^,]+,\s*)/, `$1${tw}, `);
+      console.log(`🔑 Injected enhancement trigger word "${tw}" for ${key} LoRA`);
+    }
+  }
 
   const detectedPose = aiSelection.pose;
   const hasRunningMakeup = aiSelection.runningMakeup;

@@ -416,9 +416,9 @@ async function generateImageWithSeedream(images, prompt, options = {}) {
       enable_sync_mode: false,
     };
 
-    // V4.5 uses pixel dimensions like "2048", not "1K"/"2K" strings
-    if (options.size && /^\d{4}$/.test(options.size)) {
-      requestBody.size = options.size;
+    // Valid values: "WIDTHxHEIGHT" (e.g. "1024x1536"), "1k", "2k", "4k"
+    if (options.size && /^(\d+x\d+|[124]k)$/i.test(options.size)) {
+      requestBody.size = options.size.toLowerCase();
     }
 
     // Submit task to Seedream V4.5 Edit endpoint
@@ -523,7 +523,7 @@ export async function generateImageWithSeedreamWaveSpeed(images, prompt, options
     enable_base64_output: false,
     enable_sync_mode: false,
   };
-  if (options.size && /^\d{4}$/.test(options.size)) requestBody.size = options.size;
+  if (options.size && /^(\d+x\d+|[124]k)$/i.test(options.size)) requestBody.size = options.size.toLowerCase();
 
   const WAVESPEED_FETCH_TIMEOUT_MS = 60_000;
   let text;
@@ -1337,7 +1337,7 @@ async function generateTwoPosesFromReference(
     const fullBodyResult = await generateImageWithSeedream(
       [referenceImageUrl, photo2Url],
       fullBodyPrompt,
-      { aspectRatio: "9:16", size: "2048" },
+      { aspectRatio: "9:16", size: "2k" },
     );
 
     if (!fullBodyResult.success) {

@@ -534,10 +534,10 @@ async function generateVideoWithMotionKieInternal(imageUrl, videoUrl, options = 
 
   const prompt = options.videoPrompt || options.prompt || "No distortion, no blur, background matches with the image source, the character's movements are consistent with the video.";
 
-  // Classic = Kling 2.6 motion control pro (1080p). Ultra = Kling 3.0 motion control std (720p).
-  // API: kling-2.6/motion-control and kling-3.0/motion-control; input.mode = "720p" | "1080p"
+  // Classic = Kling 2.6 motion control pro (1080p). Ultra = Kling 3.0 motion control (1020p).
+  // API: kling-2.6/motion-control and kling-3.0/motion-control; input.mode = "720p" | "1080p" | "1020p"
   const model = useUltraMotionControl ? "kling-3.0/motion-control" : "kling-2.6/motion-control";
-  const mode = useUltraMotionControl ? "720p" : "1080p"; // ultra = std (720p), classic = pro (1080p)
+  const mode = useUltraMotionControl ? "1020p" : "1080p";
   const requestBody = {
     model,
     input: {

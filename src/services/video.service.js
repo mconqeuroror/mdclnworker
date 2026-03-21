@@ -4,8 +4,9 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { promisify } from "util";
-import { isR2Configured, uploadBufferToR2 } from "../utils/r2.js";
+import { isR2Configured, uploadBufferToR2, getR2PresignedPutForKey } from "../utils/r2.js";
 import { getFfmpegPathSync } from "../utils/ffmpeg-path.js";
+import { postTranscodeJobToWorker } from "./ffmpeg-worker-client.js";
 
 /** On Vercel /var/task is read-only; use /tmp. Else use cwd/temp. */
 function getWritableTempDir() {
@@ -274,85 +275,70 @@ function calculateBestFrameTimestamp(videoDuration = 10) {
 
 /**
  * Preprocess reference video for Kling: denoise and scale to 720p for better motion quality.
+ * Uses the external ffmpeg worker (same as repurposer/reformatter) — no local ffmpeg required.
  * Returns preprocessed URL or original URL on failure (non-breaking).
  */
 async function preprocessReferenceVideoForKling(videoUrl) {
   if (!videoUrl || !videoUrl.startsWith("http")) return videoUrl;
-  ensureFfmpegPath();
-  const tempDir = getWritableTempDir();
-  const inPath = path.join(tempDir, `ref_${Date.now()}_in.mp4`);
-  const outPath = path.join(tempDir, `ref_${Date.now()}_out.mp4`);
+  if (!isR2Configured()) {
+    console.warn("⚠️ R2 not configured, skipping reference video preprocessing");
+    return videoUrl;
+  }
   try {
-    await mkdirAsync(tempDir, { recursive: true });
-    const response = await axios({ method: "get", url: videoUrl, responseType: "stream" });
-    const writer = fs.createWriteStream(inPath);
-    response.data.pipe(writer);
-    await new Promise((resolve, reject) => {
-      writer.on("finish", resolve);
-      writer.on("error", reject);
+    const key = `generations/${Date.now()}_${Math.random().toString(36).slice(2)}_ref.mp4`;
+    const { uploadUrl, publicUrl } = await getR2PresignedPutForKey(key, "video/mp4", 3600);
+    await postTranscodeJobToWorker({
+      inputUrl: videoUrl,
+      vfFilter: "hqdn3d=1.5:3:6:2.5,scale=-2:720",
+      audioOptions: ["-c:a", "copy"],
+      extraOptions: ["-movflags", "+faststart"],
+      outputPutUrl: { putUrl: uploadUrl, publicUrl, contentType: "video/mp4" },
     });
-    await new Promise((resolve, reject) => {
-      ffmpeg(inPath)
-        .outputOptions(["-vf", "hqdn3d=1.5:3:6:2.5,scale=-2:720", "-c:a", "copy", "-movflags", "+faststart"])
-        .output(outPath)
-        .on("end", () => resolve())
-        .on("error", reject)
-        .run();
-    });
-    if (!isR2Configured()) {
-      console.warn("⚠️ R2 not configured, skipping reference video upload after preprocessing");
-      return videoUrl;
-    }
-    const buffer = fs.readFileSync(outPath);
-    const url = await uploadBufferToR2(buffer, "generations", "mp4", "video/mp4");
-    console.log("✅ Reference video preprocessed (denoise + 720p):", url?.slice(0, 60));
-    return url;
+    console.log("✅ Reference video preprocessed (denoise + 720p):", publicUrl?.slice(0, 60));
+    return publicUrl;
   } catch (err) {
     console.warn("⚠️ Reference video preprocessing failed, using original:", err?.message);
     return videoUrl;
-  } finally {
-    try {
-      if (fs.existsSync(inPath)) await unlinkAsync(inPath);
-      if (fs.existsSync(outPath)) await unlinkAsync(outPath);
-    } catch (_) {}
   }
 }
 
 /**
- * Preprocess audio for talking head: normalize to -14 LUFS and trim leading/trailing silence.
+ * Preprocess audio for talking head: trim leading/trailing silence and normalise to 44100 Hz.
+ * Uses the external ffmpeg worker — no local ffmpeg required.
  * Returns processed buffer or original on failure.
  */
 async function preprocessAudioForTalkingHead(audioBuffer) {
   if (!Buffer.isBuffer(audioBuffer) || audioBuffer.length === 0) return audioBuffer;
-  ensureFfmpegPath();
-  const tempDir = getWritableTempDir();
-  const inPath = path.join(tempDir, `th_audio_${Date.now()}_in.mp3`);
-  const outPath = path.join(tempDir, `th_audio_${Date.now()}_out.mp3`);
+  if (!isR2Configured()) {
+    console.warn("⚠️ R2 not configured, skipping audio preprocessing");
+    return audioBuffer;
+  }
   try {
-    await mkdirAsync(tempDir, { recursive: true });
-    fs.writeFileSync(inPath, audioBuffer);
-    await new Promise((resolve, reject) => {
-      ffmpeg(inPath)
-        .audioFilters([
-          "silenceremove=start_periods=1:start_duration=0.1:start_threshold=-50dB",
-          "silenceremove=stop_periods=1:stop_duration=0.1:stop_threshold=-50dB",
-        ])
-        .audioFrequency(44100)
-        .output(outPath)
-        .on("end", () => resolve())
-        .on("error", reject)
-        .run();
+    // Upload source buffer as a temporary R2 object so the worker can fetch it
+    const inputUrl = await uploadBufferToR2(audioBuffer, "temp-audio", "mp3", "audio/mpeg");
+
+    const outKey = `temp-audio/${Date.now()}_${Math.random().toString(36).slice(2)}_out.mp3`;
+    const { uploadUrl, publicUrl } = await getR2PresignedPutForKey(outKey, "audio/mpeg", 3600);
+
+    await postTranscodeJobToWorker({
+      inputUrl,
+      extraOptions: [
+        "-af",
+        "silenceremove=start_periods=1:start_duration=0.1:start_threshold=-50dB," +
+        "silenceremove=stop_periods=1:stop_duration=0.1:stop_threshold=-50dB",
+        "-ar", "44100",
+      ],
+      outputPutUrl: { putUrl: uploadUrl, publicUrl, contentType: "audio/mpeg" },
     });
-    const outBuffer = fs.readFileSync(outPath);
+
+    const res = await fetch(publicUrl, { signal: AbortSignal.timeout(30_000) });
+    if (!res.ok) throw new Error(`Failed to fetch processed audio: ${res.status}`);
+    const outBuffer = Buffer.from(await res.arrayBuffer());
+    console.log("✅ Talking head audio preprocessed (silence trim + 44100 Hz)");
     return outBuffer;
   } catch (err) {
     console.warn("⚠️ Talking head audio preprocessing failed, using original:", err?.message);
     return audioBuffer;
-  } finally {
-    try {
-      if (fs.existsSync(inPath)) await unlinkAsync(inPath);
-      if (fs.existsSync(outPath)) await unlinkAsync(outPath);
-    } catch (_) {}
   }
 }
 

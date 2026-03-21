@@ -300,6 +300,68 @@ app.post("/job", requireAuth, async (req, res) => {
   }
 });
 
+/**
+ * POST /transcode
+ * Simple single-file ffmpeg transcode — no repurpose pipeline, no aspect-ratio changes.
+ * Used by the main app for operations like reference-video denoise+scale, audio normalization, etc.
+ *
+ * Body: {
+ *   inputUrl: string,
+ *   vfFilter?: string,        // ffmpeg -vf value (e.g. "hqdn3d=1.5:3:6:2.5,scale=-2:720")
+ *   audioOptions?: string[],  // additional audio output opts (e.g. ["-c:a","copy"])
+ *   extraOptions?: string[],  // any other output opts (e.g. ["-movflags","+faststart"])
+ *   outputPutUrl: { putUrl: string, publicUrl: string, contentType?: string }
+ * }
+ */
+app.post("/transcode", requireAuth, async (req, res) => {
+  const { inputUrl, vfFilter, audioOptions = [], extraOptions = [], outputPutUrl } = req.body || {};
+
+  if (!inputUrl || !outputPutUrl?.putUrl || !outputPutUrl?.publicUrl) {
+    return res.status(400).json({ ok: false, error: "Bad request", message: "inputUrl and outputPutUrl (putUrl + publicUrl) are required" });
+  }
+
+  const { execFile } = await import("child_process");
+  const { promisify: prom } = await import("util");
+  const execFileAsync = prom(execFile);
+
+  const tempDir = path.join(os.tmpdir(), `transcode-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  fs.mkdirSync(tempDir, { recursive: true });
+  let inputPath = null;
+  const outExt = (() => {
+    try { return path.extname(new URL(outputPutUrl.publicUrl).pathname) || ".mp4"; } catch { return ".mp4"; }
+  })();
+  const outPath = path.join(tempDir, `out${outExt}`);
+
+  try {
+    inputPath = await downloadToFile(inputUrl);
+    const moved = path.join(tempDir, path.basename(inputPath));
+    fs.renameSync(inputPath, moved);
+    inputPath = moved;
+
+    // Build ffmpeg args
+    const ffmpegBin = process.env.FFMPEG_PATH || "ffmpeg";
+    const args = ["-y", "-i", inputPath];
+    if (vfFilter) args.push("-vf", vfFilter);
+    if (Array.isArray(audioOptions)) args.push(...audioOptions);
+    if (Array.isArray(extraOptions)) args.push(...extraOptions);
+    args.push(outPath);
+
+    console.log(`[transcode] ffmpeg ${args.join(" ")}`);
+    await execFileAsync(ffmpegBin, args, { timeout: 300_000 });
+
+    await uploadToPutUrl(outputPutUrl.putUrl, outPath, outputPutUrl.contentType || "video/mp4");
+
+    const result = { ok: true, outputUrl: outputPutUrl.publicUrl };
+    console.log(`[transcode] ✅ done → ${outputPutUrl.publicUrl.slice(0, 80)}`);
+    res.json(result);
+  } catch (e) {
+    console.error("[transcode] error:", e?.message || e);
+    res.status(500).json({ ok: false, error: e?.message || String(e) });
+  } finally {
+    try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (_) {}
+  }
+});
+
 app.get("/health", async (_req, res) => {
   try {
     await checkFfmpegAvailable();
@@ -315,6 +377,7 @@ app.get("/", (_req, res) => {
     endpoints: [
       "GET /health",
       "POST /job (X-API-Key required; optional callbackUrl, callbackSecret, jobRef)",
+      "POST /transcode (X-API-Key required; inputUrl + vfFilter/audioOptions + outputPutUrl)",
     ],
   });
 });

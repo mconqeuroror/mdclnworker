@@ -335,7 +335,12 @@ export const SCENE_PRESETS = [
   {
     id: "blowjob_pov",
     label: "Blowjob POV",
-    description: "POV blowjob, girl on knees looking up at camera, mouth around average-sized erect penis, one hand on shaft other hand on thigh, messy hair falling forward, bedroom floor, eye contact with camera",
+    description: "bjz, intimate explicit scene, young woman engaged in oral sex, kneeling, lips wrapped around erect penis, gaze directed upwards towards camera, one hand on shaft other hand on thigh, focused determined expression, watery eyes, drool dripping, messy hair falling forward, bedroom floor, raw unapologetic POV",
+  },
+  {
+    id: "cumshot_facial",
+    label: "Cumshot Facial",
+    description: "bjz facial, blowjob ending in facial cumshot, woman kneeling facing camera close-up, cum covering face with realistic load streaks down forehead cheek and chin, eyes closed or looking up submissively, mouth slightly open, saliva and cum mixed, running mascara, satisfied exhausted expression, bedroom floor",
   },
   {
     id: "face_down",
