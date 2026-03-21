@@ -3,6 +3,15 @@
 # Primitive integer [Crystools] (311) → crystian/ComfyUI-Crystools
 # String Literal (41,56) → alexopus/ComfyUI-Image-Saver
 # Fast Groups Bypasser (61) → rgthree/rgthree-comfy
+# Workflow nsfw_core_workflow.json — required node packs:
+# DF_Integer (302,303) → Derfuu/Derfuu_ComfyUI_ModdedNodes
+# Primitive integer [Crystools] (311) → crystian/ComfyUI-Crystools
+# String Literal (41,56) → alexopus/ComfyUI-Image-Saver
+# Seed (rgthree) (57) → rgthree/rgthree-comfy
+# CR SDXL Aspect Ratio / CR Apply LoRA Stack → Suzie1/ComfyUI_Comfyroll_CustomNodes
+# Image Film Grain → WASasquatch/was-node-suite-comfyui
+# LoadLoraFromUrlOrPath (250) → bollerdominik/ComfyUI-load-lora-from-url
+# UltimateSDUpscale (323) → ssitu/ComfyUI_UltimateSDUpscale
 Derfuu/Derfuu_ComfyUI_ModdedNodes
 crystian/ComfyUI-Crystools
 civitai/civitai_comfy_nodes
@@ -18,3 +27,4 @@ bollerdominik/ComfyUI-load-lora-from-url
 chflame163/ComfyUI_LayerStyle_Advance
 1038lab/ComfyUI-JoyCaption
 yolain/ComfyUI-Easy-Use
+ssitu/ComfyUI_UltimateSDUpscale

@@ -14,6 +14,8 @@ REQUIRED_REPOS=(
   "crystian/ComfyUI-Crystools"
   "alexopus/ComfyUI-Image-Saver"
   "rgthree/rgthree-comfy"
+  "WASasquatch/was-node-suite-comfyui"
+  "ssitu/ComfyUI_UltimateSDUpscale"
 )
 
 echo ">>> Installing custom nodes..."

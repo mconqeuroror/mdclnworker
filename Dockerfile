@@ -91,6 +91,10 @@ RUN test -d /workspace/ComfyUI/custom_nodes/ComfyUI-Image-Saver || \
     (echo "ERROR: alexopus/ComfyUI-Image-Saver failed to clone" && exit 1)
 RUN test -d /workspace/ComfyUI/custom_nodes/rgthree-comfy || \
     (echo "ERROR: rgthree/rgthree-comfy failed to clone" && exit 1)
+RUN test -d /workspace/ComfyUI/custom_nodes/was-node-suite-comfyui || \
+    (echo "ERROR: WASasquatch/was-node-suite-comfyui failed to clone" && exit 1)
+RUN test -d /workspace/ComfyUI/custom_nodes/ComfyUI_UltimateSDUpscale || \
+    (echo "ERROR: ssitu/ComfyUI_UltimateSDUpscale failed to clone" && exit 1)
 
 # Install requirements for each custom node
 RUN for dir in /workspace/ComfyUI/custom_nodes/*/; do \
@@ -123,9 +127,17 @@ RUN if [ -f /workspace/ComfyUI/custom_nodes/ComfyUI-JoyCaption/requirements_gguf
     fi
 
 # -----------------------------------------------
-# 6. Models: auto-downloaded to Network Volume by start.sh
-#    OR uncomment below to bake HuggingFace models into image
+# 6. Pre-create model directories so start.sh can skip mkdir
 # -----------------------------------------------
+RUN mkdir -p /workspace/ComfyUI/models/checkpoints \
+             /workspace/ComfyUI/models/clip \
+             /workspace/ComfyUI/models/vae \
+             /workspace/ComfyUI/models/loras \
+             /workspace/ComfyUI/models/unet \
+             /workspace/ComfyUI/models/upscale_models
+
+# Models: auto-downloaded to Network Volume by start.sh
+#    OR uncomment below to bake HuggingFace models into image
 COPY setup_models.sh /workspace/setup_models.sh
 RUN chmod +x /workspace/setup_models.sh
 # Optional: bake models into image (adds ~21GB to image size)

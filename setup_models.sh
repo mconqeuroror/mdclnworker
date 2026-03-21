@@ -8,6 +8,7 @@ mkdir -p "${MODELS_DIR}/clip"
 mkdir -p "${MODELS_DIR}/vae"
 mkdir -p "${MODELS_DIR}/loras"
 mkdir -p "${MODELS_DIR}/unet"
+mkdir -p "${MODELS_DIR}/upscale_models"
 
 echo ">>> Downloading all models..."
 
@@ -21,7 +22,6 @@ wget -q --show-progress -O "${MODELS_DIR}/clip/qwen_3_4b.safetensors" \
 
 # Must match UNETLoader in workflow (same file as start.sh + modelclone attached_assets).
 echo "  [3/4] UNet: zImageTurboNSFW_43BF16AIO.safetensors (CivitAI)..."
-mkdir -p "${MODELS_DIR}/unet"
 if [ -z "${CIVITAI_API_KEY}" ]; then
     echo "  [!!] CIVITAI_API_KEY is not set — skipping UNet bake."
     echo "      Use network volume + start.sh at runtime, or: docker build --build-arg CIVITAI_API_KEY=..."
@@ -31,9 +31,9 @@ else
         "${CIVITAI_URL}"
 fi
 
-echo "  [4/4] Downloading Checkpoint: pornworksRealPorn_Illustrious_v4_04.safetensors (6.5GB)..."
-wget -q --show-progress -O "${MODELS_DIR}/checkpoints/pornworksRealPorn_Illustrious_v4_04.safetensors" \
-    "https://huggingface.co/AI-Porn/pornworks-real-porn-photo-realistic-nsfw-sdxl-and-pony-chekpoint/resolve/main/pornworksRealPorn_Illustrious_v4_04.safetensors"
+echo "  [4/4] Downloading upscaler: 4xFaceUpDAT.pth..."
+wget -q --show-progress -O "${MODELS_DIR}/upscale_models/4xFaceUpDAT.pth" \
+    "https://huggingface.co/Acly/Upscaler/resolve/main/4xFaceUpDAT.pth"
 
 echo ""
 echo ">>> All models downloaded!"
