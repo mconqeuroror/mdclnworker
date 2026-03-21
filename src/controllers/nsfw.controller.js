@@ -2876,11 +2876,8 @@ export async function generateNudesPack(req, res) {
 
     const userOverrideStrength = options.loraStrength || null;
     const adminSamplerOpts = getAdminNsfwSamplerOptions(req, options);
-    const resolutionPreset =
-      options?.resolution ||
-      req.body.resolution ||
-      (req.body.width && req.body.height ? `${req.body.width}x${req.body.height}` : undefined);
-    const resSpec = resolveNsfwResolution(resolutionPreset);
+    // Nudes pack is always 9:16 portrait (IG story / vertical format) — resolution override is ignored
+    const resSpec = resolveNsfwResolution("768x1344");
     const postProcessing = {
       blur: {
         enabled: options?.postProcessing?.blur?.enabled !== false,
@@ -2954,17 +2951,16 @@ export async function generateNudesPack(req, res) {
 
         const promptedRows = await mapWithConcurrencyLimit(rowsWithGen, promptConcurrency, async (row) => {
           const { idx, pose } = row;
-          const poseFragment = pose.promptFragment.trim();
+          // Build a clean natural-language scene description — no meta-noise, no tag dumps.
+          // The AI system prompt already has model identity + looks injected separately.
           const userRequestForAi = [
-            packSceneNote.trim(),
-            `Nudes pack ${idx + 1}/${poseIds.length}: ${pose.title} (${pose.category})`,
+            packSceneNote.trim() || null,
             pose.summary,
-            poseFragment,
           ]
             .filter(Boolean)
-            .join("\n");
+            .join(". ");
 
-          let finalUserPrompt = poseFragment;
+          let finalUserPrompt = pose.summary;
           try {
             const aiPrompt = await runNsfwPromptGenerationForModel(
               model,
@@ -2974,15 +2970,15 @@ export async function generateNudesPack(req, res) {
             );
             if (aiPrompt && typeof aiPrompt === "string" && aiPrompt.trim()) {
               if (isNsfwPromptLogicalConflict(aiPrompt)) {
-                console.warn(`Nudes pack ${pose.id}: AI reported logical conflict — using pose fragment fallback`);
-                finalUserPrompt = poseFragment;
+                console.warn(`Nudes pack ${pose.id}: AI reported logical conflict — using pose summary fallback`);
+                finalUserPrompt = pose.summary;
               } else {
                 finalUserPrompt = aiPrompt.trim();
               }
             }
           } catch (promptErr) {
             console.error(`Nudes pack AI prompt failed for ${pose.id}:`, promptErr?.message || promptErr);
-            finalUserPrompt = poseFragment;
+            finalUserPrompt = pose.summary;
           }
 
           return { ...row, finalUserPrompt, userRequestForAi };
