@@ -1852,7 +1852,7 @@ function buildComfyWorkflowLegacy(params) {
     postProcessing = {},
     seed,
     steps = 50,
-    cfg = 3,
+    cfg = 2.5,
     width = 1344,
     height = 768,
     aspectRatio = "16:9 landscape 1344x768",
@@ -1912,7 +1912,7 @@ function buildComfyWorkflowLegacy(params) {
       inputs: {
         seed: ["57", 0],
         steps: Math.min(10000, Math.max(1, Number(steps) || 50)),
-        cfg: Number(cfg) || 3,
+        cfg: Number(cfg) || 2.5,
         sampler_name: "dpmpp_2m",
         scheduler: "beta",
         denoise: 1,
@@ -2083,7 +2083,7 @@ export async function submitNsfwGeneration(params) {
   const baseCfg =
     adminBaseSamplerCfg != null && Number.isFinite(Number(adminBaseSamplerCfg))
       ? Math.min(8, Math.max(1, Number(adminBaseSamplerCfg)))
-      : 3;
+      : 2.5;
   if (adminBaseSamplerSteps != null || adminBaseSamplerCfg != null) {
     console.log(`🧪 Admin NSFW sampler override: steps=${baseSteps}, cfg=${baseCfg}`);
   }
