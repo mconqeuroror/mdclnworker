@@ -22,6 +22,26 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 /** fal.ai key: official docs use `FAL_KEY`; this repo historically used `FAL_API_KEY` — accept both. */
 const RESOLVED_FAL_KEY = (process.env.FAL_API_KEY || process.env.FAL_KEY || "").trim();
 const FAL_API_URL = "https://queue.fal.run";
+
+/**
+ * Derive the public webhook callback URL for fal.ai webhooks.
+ * Uses same env vars as getKieCallbackUrl: CALLBACK_BASE_URL > APP_URL.
+ * @param {"training"|"faceswap"} path - webhook sub-path
+ * @returns {string|null} Full URL or null if base URL not configured
+ */
+export function getFalCallbackUrl(path = "training") {
+  const base = (
+    process.env.CALLBACK_BASE_URL ||
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.APP_PUBLIC_URL ||
+    process.env.APP_URL ||
+    ""
+  ).trim();
+  if (!base) return null;
+  const clean = base.replace(/\/$/, "");
+  const withProtocol = /^https?:\/\//.test(clean) ? clean : `https://${clean}`;
+  return `${withProtocol}/api/fal/webhook/${path}`;
+}
 const FAL_STORAGE_URL = "https://rest.alpha.fal.ai/storage/upload/initiate";
 /** fal.ai NSFW image generation endpoint for face reference (e.g. comfy/modelclone/...). If unset, face reference step is skipped. */
 const FAL_NSFW_ENDPOINT = process.env.FAL_NSFW_ENDPOINT || "";
@@ -355,6 +375,10 @@ export async function submitLoraTraining(
     default_caption: triggerWord,
     learning_rate: options.learningRate || 0.0005,
   };
+  if (options.webhookUrl) {
+    requestBody.webhook_url = options.webhookUrl;
+    console.log(`🔔 Training webhook URL: ${options.webhookUrl}`);
+  }
 
   try {
     const response = await fetch(
@@ -672,6 +696,8 @@ export default {
   getTrainingResult,
   archiveLoraToR2,
   waitForTrainingCompletion,
+  getFalCallbackUrl,
+  submitFaceSwapJob,
 };
 
 // ============================================
@@ -2471,6 +2497,40 @@ export async function archiveNsfwImageToR2(imageUrl) {
 // ============================================
 // FACE SWAP (for NSFW post-processing)
 // ============================================
+
+/**
+ * Submit a faceswap job to fal.ai without polling — returns the requestId immediately.
+ * Use this for webhook-driven flows; pair with POST /api/fal/webhook/faceswap callback.
+ * @param {string} generatedImageUrl - Image to swap faces into
+ * @param {string} faceReferenceUrl - Reference face to swap in
+ * @param {string|null} webhookUrl - Webhook URL for completion notification
+ * @returns {Promise<string>} requestId
+ */
+export async function submitFaceSwapJob(generatedImageUrl, faceReferenceUrl, webhookUrl = null) {
+  if (!RESOLVED_FAL_KEY) throw new Error("FAL_API_KEY or FAL_KEY not configured");
+
+  const requestBody = { naSwap: generatedImageUrl, ksicht: faceReferenceUrl };
+  if (webhookUrl) requestBody.webhook_url = webhookUrl;
+
+  const response = await fetch(`${FAL_API_URL}/comfy/modelclone/faceswap`, {
+    method: "POST",
+    headers: {
+      Authorization: `Key ${RESOLVED_FAL_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(requestBody),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`faceswap submission failed: ${response.status} - ${errorText}`);
+  }
+
+  const result = await response.json();
+  const requestId = result.request_id ?? result.requestId;
+  if (!requestId) throw new Error("faceswap submission: no request_id in response");
+  return requestId;
+}
 
 /**
  * Face swap using FAL.ai ComfyUI workflow

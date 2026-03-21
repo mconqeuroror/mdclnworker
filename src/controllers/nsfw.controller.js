@@ -28,6 +28,8 @@ import {
   archiveNsfwImageToR2,
   buildNsfwPrompt,
   faceSwapWithFal,
+  submitFaceSwapJob,
+  getFalCallbackUrl,
   isFalConfigured,
 } from "../services/fal.service.js";
 import { submitNsfwVideo, pollNsfwVideo, submitNsfwVideoExtend } from "../services/wavespeed.service.js";
@@ -77,7 +79,7 @@ import {
   getNudesPackAdditiveLoraHint,
 } from "../../shared/nudesPackPoses.js";
 
-async function cleanupTrainingDataset(loraId, modelId) {
+export async function cleanupTrainingDataset(loraId, modelId) {
   try {
     console.log(`🧹 Cleaning up training dataset for LoRA ${loraId || "legacy"}, model ${modelId}...`);
 
@@ -114,7 +116,7 @@ async function cleanupTrainingDataset(loraId, modelId) {
   }
 }
 
-async function awardFirstLoraTrainingBonus({ userId, modelId, targetLoraId = null }) {
+export async function awardFirstLoraTrainingBonus({ userId, modelId, targetLoraId = null }) {
   const BONUS_CREDITS = 200;
   return prisma.$transaction(async (tx) => {
     const existingBonus = await tx.creditTransaction.findFirst({
@@ -339,7 +341,7 @@ OUTPUT: Return ONLY a single decimal number between 0.55 and 0.80. Nothing else.
 // ============================================
 // HELPER: Sync legacy SavedModel fields from TrainedLora
 // ============================================
-async function syncLegacyLoraFields(modelId, loraId) {
+export async function syncLegacyLoraFields(modelId, loraId) {
   if (!loraId) {
     await prisma.savedModel.update({
       where: { id: modelId },
@@ -374,6 +376,59 @@ async function syncLegacyLoraFields(modelId, loraId) {
       nsfwUnlocked: lora.status === "ready" ? true : undefined,
     },
   });
+}
+
+// ============================================
+// SHARED HELPER: Persist a completed LoRA training result to DB.
+// Called by both the polling status-check endpoint and the fal.ai webhook.
+// Returns { loraUrl, firstLoraBonus }.
+// ============================================
+export async function finalizeTrainingCompletion({ loraId, modelId, userId, loraUrl: falUrl, modelName }) {
+  const ARCHIVE_DEADLINE_MS = 120_000;
+  let permanentUrl = falUrl;
+  try {
+    permanentUrl = await Promise.race([
+      archiveLoraToR2(falUrl, modelName, 90_000),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Archive timeout")), ARCHIVE_DEADLINE_MS)),
+    ]);
+  } catch (archiveErr) {
+    console.warn("⚠️ LoRA archive skipped (timeout/error) — using fal URL:", archiveErr?.message);
+  }
+
+  if (loraId) {
+    await prisma.trainedLora.update({
+      where: { id: loraId },
+      data: { status: "ready", loraUrl: permanentUrl, trainedAt: new Date(), error: null },
+    });
+
+    const model = await prisma.savedModel.findUnique({ where: { id: modelId }, select: { id: true, activeLoraId: true } });
+    const isFirstReady = !(await prisma.trainedLora.findFirst({
+      where: { modelId, status: "ready", id: { not: loraId } },
+    }));
+    const updateData = { nsfwUnlocked: true };
+    if (isFirstReady || !model?.activeLoraId) updateData.activeLoraId = loraId;
+    await prisma.savedModel.update({ where: { id: modelId }, data: updateData });
+    await syncLegacyLoraFields(modelId, updateData.activeLoraId || model?.activeLoraId);
+  } else {
+    // Legacy path: SavedModel only (no TrainedLora row)
+    await prisma.savedModel.update({
+      where: { id: modelId },
+      data: { loraStatus: "ready", loraUrl: permanentUrl || falUrl, loraTrainedAt: new Date(), nsfwUnlocked: true },
+    });
+  }
+
+  let firstLoraBonus = 0;
+  try {
+    firstLoraBonus = await awardFirstLoraTrainingBonus({ userId, modelId, targetLoraId: loraId ?? null });
+  } catch (e) {
+    console.error("⚠️ First LoRA bonus check failed (non-critical):", e?.message);
+  }
+
+  cleanupTrainingDataset(loraId, modelId).catch((e) =>
+    console.error("🧹 Training dataset cleanup failed (non-critical):", e?.message)
+  );
+
+  return { loraUrl: permanentUrl, firstLoraBonus };
 }
 
 // ============================================
@@ -2043,10 +2098,18 @@ export async function trainLora(req, res) {
     }
     const captionSubjectClass = normalizeCaptionSubjectClass(aiParams.gender);
 
+    const trainingWebhookUrl = getFalCallbackUrl("training");
+    if (trainingWebhookUrl) {
+      console.log(`🔔 LoRA training webhook: ${trainingWebhookUrl}`);
+    } else {
+      console.warn("⚠️ No CALLBACK_BASE_URL set — LoRA training will rely on polling only");
+    }
+
     const trainingResult = await startLoraTraining(imageUrls, triggerWord, {
       steps: isProTraining ? 9000 : 4500,
       loraRank: isProTraining ? 32 : 16,
       captionSubjectClass,
+      webhookUrl: trainingWebhookUrl,
     });
 
     if (!trainingResult.success) {
@@ -2196,55 +2259,14 @@ export async function getLoraTrainingStatus(req, res) {
             });
             return res.json({ success: true, status: "failed", error: "No LoRA URL", loraId: targetLoraId });
           }
-          const ARCHIVE_DEADLINE_MS = 120_000;
-          let permanentUrl = falUrl;
-          try {
-            permanentUrl = await Promise.race([
-              archiveLoraToR2(falUrl, model.name, 90_000),
-              new Promise((_, reject) => setTimeout(() => reject(new Error("Archive timeout")), ARCHIVE_DEADLINE_MS)),
-            ]);
-          } catch (archiveErr) {
-            console.warn("⚠️ LoRA archive skipped (timeout or error) — using fal URL:", archiveErr?.message);
-          }
 
-          await prisma.trainedLora.update({
-            where: { id: targetLoraId },
-            data: {
-              status: "ready",
-              loraUrl: permanentUrl,
-              trainedAt: new Date(),
-              error: null,
-            },
+          const { loraUrl: permanentUrl, firstLoraBonus } = await finalizeTrainingCompletion({
+            loraId: targetLoraId,
+            modelId,
+            userId,
+            loraUrl: falUrl,
+            modelName: model.name,
           });
-
-          const isFirstReady = !(await prisma.trainedLora.findFirst({
-            where: { modelId, status: "ready", id: { not: targetLoraId } },
-          }));
-
-          const updateData = { nsfwUnlocked: true };
-          if (isFirstReady || !model.activeLoraId) {
-            updateData.activeLoraId = targetLoraId;
-          }
-          await prisma.savedModel.update({
-            where: { id: modelId },
-            data: updateData,
-          });
-
-          await syncLegacyLoraFields(modelId, updateData.activeLoraId || model.activeLoraId);
-
-          let firstLoraBonus = 0;
-          try {
-            firstLoraBonus = await awardFirstLoraTrainingBonus({
-              userId,
-              modelId,
-              targetLoraId,
-            });
-          } catch (bonusErr) {
-            console.error("⚠️ First LoRA bonus check failed (non-critical):", bonusErr.message);
-          }
-
-          cleanupTrainingDataset(targetLoraId, modelId)
-            .catch((err) => console.error("🧹 Training dataset cleanup failed (non-critical):", err.message));
 
           return res.json({
             success: true,
@@ -2320,37 +2342,21 @@ export async function getLoraTrainingStatus(req, res) {
       if (falStatus.status === "COMPLETED") {
         const result = await getTrainingResult(model.loraFalRequestId);
         const falUrl = result?.loraUrl;
-        let permanentUrl = falUrl;
-        if (falUrl) {
-          try {
-            permanentUrl = await Promise.race([
-              archiveLoraToR2(falUrl, model.name, 90_000),
-              new Promise((_, reject) => setTimeout(() => reject(new Error("Archive timeout")), 120_000)),
-            ]);
-          } catch (archiveErr) {
-            console.warn("⚠️ LoRA archive skipped (legacy path):", archiveErr?.message);
-          }
+        if (!falUrl) {
+          await prisma.savedModel.update({
+            where: { id: modelId },
+            data: { loraStatus: "failed", loraError: "Training completed but no LoRA URL returned" },
+          });
+          return res.json({ success: true, status: "failed", error: "No LoRA URL" });
         }
 
-        await prisma.savedModel.update({
-          where: { id: modelId },
-          data: {
-            loraStatus: "ready",
-            loraUrl: permanentUrl || falUrl,
-            loraTrainedAt: new Date(),
-            nsfwUnlocked: true,
-          },
+        const { loraUrl: permanentUrl, firstLoraBonus } = await finalizeTrainingCompletion({
+          loraId: null,
+          modelId,
+          userId,
+          loraUrl: falUrl,
+          modelName: model.name,
         });
-
-        let firstLoraBonus = 0;
-        try {
-          firstLoraBonus = await awardFirstLoraTrainingBonus({ userId, modelId });
-        } catch (bonusErr) {
-          console.error("⚠️ First LoRA bonus check failed (legacy path, non-critical):", bonusErr.message);
-        }
-
-        cleanupTrainingDataset(null, modelId)
-          .catch((err) => console.error("🧹 Training dataset cleanup failed (non-critical):", err.message));
 
         return res.json({
           success: true,
@@ -3199,17 +3205,60 @@ export async function finalizeNsfwRunpodGeneration(generationId, requestId, runp
 
   let permanentUrls = result.outputUrls;
   if (faceReferenceUrl) {
-    console.log(`🔄 [finalize] Face-swapping ${permanentUrls.length} images...`);
-    const swappedUrls = [];
-    for (let i = 0; i < permanentUrls.length; i++) {
-      try {
-        const swapResult = await faceSwapWithFal(permanentUrls[i], faceReferenceUrl);
-        swappedUrls.push(swapResult.success && swapResult.outputUrl ? swapResult.outputUrl : permanentUrls[i]);
-      } catch {
-        swappedUrls.push(permanentUrls[i]);
+    const faceswapWebhookUrl = getFalCallbackUrl("faceswap");
+    if (faceswapWebhookUrl) {
+      // Async path: submit all faceswaps with webhook, store state, return early
+      console.log(`🔄 [finalize] Submitting ${permanentUrls.length} async faceswap(s) via webhook…`);
+      const faceSwapJobs = [];
+      for (let i = 0; i < permanentUrls.length; i++) {
+        try {
+          const reqId = await submitFaceSwapJob(permanentUrls[i], faceReferenceUrl, faceswapWebhookUrl);
+          faceSwapJobs.push({ requestId: reqId, imageIndex: i, originalUrl: permanentUrls[i] });
+          console.log(`  ↗ Faceswap job ${i}: ${reqId}`);
+        } catch (e) {
+          console.warn(`⚠️ [finalize] Faceswap job ${i} submit failed: ${e?.message} — using original`);
+          faceSwapJobs.push({ requestId: null, imageIndex: i, originalUrl: permanentUrls[i] });
+        }
       }
+      // Jobs that failed submission resolve immediately with their original URL
+      const resolvedUrls = {};
+      for (const j of faceSwapJobs) {
+        if (!j.requestId) resolvedUrls[String(j.imageIndex)] = j.originalUrl;
+      }
+      const pending = faceSwapJobs.filter((j) => j.requestId);
+      if (pending.length === 0) {
+        // All failed — fall through to immediate completion with original URLs
+        permanentUrls = faceSwapJobs.map((j) => j.originalUrl);
+      } else {
+        await prisma.generation.update({
+          where: { id: generationId },
+          data: {
+            pipelinePayload: {
+              faceSwapJobs,
+              faceReferenceUrl,
+              totalImages: permanentUrls.length,
+              resolvedUrls,
+              originalUrls: permanentUrls,
+            },
+          },
+        });
+        console.log(`🔄 [finalize] ${generationId.slice(0, 8)} waiting for ${pending.length} faceswap webhook(s)`);
+        return { ok: true, pending: true, reason: "faceswap_pending" };
+      }
+    } else {
+      // Sync fallback: poll inline (original behaviour)
+      console.log(`🔄 [finalize] Face-swapping ${permanentUrls.length} images (sync fallback)…`);
+      const swappedUrls = [];
+      for (let i = 0; i < permanentUrls.length; i++) {
+        try {
+          const swapResult = await faceSwapWithFal(permanentUrls[i], faceReferenceUrl);
+          swappedUrls.push(swapResult.success && swapResult.outputUrl ? swapResult.outputUrl : permanentUrls[i]);
+        } catch {
+          swappedUrls.push(permanentUrls[i]);
+        }
+      }
+      permanentUrls = swappedUrls;
     }
-    permanentUrls = swappedUrls;
   }
 
   const outputUrlValue = permanentUrls.length === 1 ? permanentUrls[0] : JSON.stringify(permanentUrls);

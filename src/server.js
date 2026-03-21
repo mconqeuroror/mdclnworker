@@ -72,6 +72,8 @@ const allowedOrigins = new Set(
     "https://modelclone.app",
     "https://www.modelclone.app",
     "https://api.wavespeed.ai", // WaveSpeed webhooks call our /api/wavespeed/callback
+    "https://queue.fal.run",   // fal.ai webhooks (training + faceswap callbacks)
+    "https://rest.fal.ai",
     ...(process.env.CORS_ALLOWED_ORIGINS || "")
       .split(",")
       .map((value) => value.trim())
@@ -151,10 +153,12 @@ import img2imgRoutes from './routes/img2img.routes.js';
 import viralReelsRoutes from './routes/viral-reels.routes.js';
 import supportRoutes from './routes/support.routes.js';
 import runpodCallbackRoutes from './routes/runpod-callback.routes.js';
+import falCallbackRoutes from './routes/fal-callback.routes.js';
 app.use('/api/stripe/webhook', stripeWebhookRouter);
 app.use('/api/crypto/webhook', cryptoWebhookRouter);
 app.use('/api/kie/callback', kieCallbackRoutes);
 app.use('/api/wavespeed/callback', wavespeedCallbackRoutes);
+app.use('/api/fal/webhook', falCallbackRoutes);
 
 // Request size limits (prevent DOS attacks)
 // NOTE: This comes AFTER webhooks to preserve raw body for signature verification
