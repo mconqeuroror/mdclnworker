@@ -729,20 +729,14 @@ export const cryptoAPI = {
 
 // Creator Studio API
 export const creatorStudioAPI = {
-  generate: async ({ modelId, prompt, referencePhotos = [], aspectRatio = "9:16", resolution = "2K", nanoBananaModel = "nano-banana-pro", useCustomPrompt = false }) => {
+  generate: async ({ prompt, referencePhotos = [], aspectRatio = "1:1", resolution = "1K", nanoBananaModel = "nano-banana-pro" }) => {
     const response = await api.post("/generate/creator-studio", {
-      modelId,
       prompt,
       referencePhotos,
       aspectRatio,
       resolution,
       nanoBananaModel,
-      useCustomPrompt,
     });
-    return response.data;
-  },
-  enhancePrompt: async ({ modelId, prompt }) => {
-    const response = await api.post("/generate/enhance-prompt", { modelId, prompt, mode: "casual" });
     return response.data;
   },
   getHistory: async ({ limit = 20, offset = 0 } = {}) => {

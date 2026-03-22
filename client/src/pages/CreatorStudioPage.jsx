@@ -1,169 +1,284 @@
-import { useState, useEffect, useCallback } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState, useRef, useCallback } from "react";
+import { useQuery } from "@tanstack/react-query";
 import toast from "react-hot-toast";
-import {
-  Sparkles, Wand2, X, ChevronDown, ChevronUp,
-  Loader2, Download, RefreshCw, Clock, CheckCircle2, AlertCircle,
-  Maximize2, Zap, Settings2,
-} from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { creatorStudioAPI, modelAPI } from "../services/api";
+import {
+  X, Plus, Download, Loader2, Maximize2, Wand2, Sparkles, AlertCircle,
+} from "lucide-react";
+import { creatorStudioAPI, uploadFile } from "../services/api";
 import { useAuthStore } from "../store";
 import { useActiveGeneration } from "../hooks/useActiveGeneration";
-import LivePreviewPanel from "../components/LivePreviewPanel";
-import FileUpload from "../components/FileUpload";
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
 
 const ASPECT_RATIOS = [
-  { value: "1:1", label: "1:1", desc: "Square" },
-  { value: "9:16", label: "9:16", desc: "Portrait" },
-  { value: "16:9", label: "16:9", desc: "Landscape" },
-  { value: "3:4", label: "3:4", desc: "Portrait" },
-  { value: "4:3", label: "4:3", desc: "Landscape" },
-  { value: "2:3", label: "2:3", desc: "Tall" },
-  { value: "3:2", label: "3:2", desc: "Wide" },
+  { value: "1:1",  label: "1:1",  hint: "Selfie" },
+  { value: "4:3",  label: "4:3",  hint: null },
+  { value: "2:3",  label: "2:3",  hint: null },
+  { value: "3:2",  label: "3:2",  hint: null },
+  { value: "9:16", label: "9:16", hint: null },
+  { value: "16:9", label: "16:9", hint: null },
+  { value: "5:4",  label: "5:4",  hint: null },
+  { value: "4:5",  label: "4:5",  hint: null },
+  { value: "21:9", label: "21:9", hint: null },
 ];
 
-const RESOLUTIONS = [
-  { value: "1K", label: "1K", desc: "1024px" },
-  { value: "2K", label: "2K", desc: "2048px" },
-  { value: "4K", label: "4K", desc: "4096px" },
-];
+const RESOLUTIONS = ["1K", "2K", "4K"];
+const MAX_REFS = 8;
 
-const NB_MODELS = [
-  { value: "nano-banana-pro", label: "Pro", desc: "Ultra Realism" },
-  { value: "nano-banana-2", label: "v2", desc: "Faster" },
-];
+// ---------------------------------------------------------------------------
+// Styles matching the content-studio floating bar exactly
+// ---------------------------------------------------------------------------
+const BAR_BG = "linear-gradient(115deg, rgba(36,43,50,0.12) 27.54%, rgba(219,219,219,0.12) 85.5%), rgba(15,17,19,0.96)";
 
+// ---------------------------------------------------------------------------
+// Tiny helper — pill chip button
+// ---------------------------------------------------------------------------
+function Chip({ active, onClick, children }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold whitespace-nowrap transition-all select-none ${
+        active
+          ? "bg-white text-black"
+          : "text-slate-400 hover:text-white hover:bg-white/10"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Single reference slot
+// ---------------------------------------------------------------------------
+function RefSlot({ url, onRemove, onAdd, uploading }) {
+  const inputRef = useRef(null);
+
+  if (url) {
+    return (
+      <div className="relative w-10 h-10 rounded-xl overflow-hidden border border-white/10 flex-shrink-0 group">
+        <img src={url} alt="" className="w-full h-full object-cover" />
+        <button
+          onClick={onRemove}
+          className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity"
+        >
+          <X className="w-3.5 h-3.5 text-white" />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <button
+        onClick={() => inputRef.current?.click()}
+        disabled={uploading}
+        className="w-10 h-10 rounded-xl border border-white/10 flex items-center justify-center flex-shrink-0 hover:border-white/30 hover:bg-white/5 transition-all text-slate-500 hover:text-white disabled:opacity-40"
+      >
+        {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+      </button>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) onAdd(file);
+          e.target.value = "";
+        }}
+      />
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Result card in the canvas area
+// ---------------------------------------------------------------------------
+function ResultCard({ gen, onExpand }) {
+  const isProcessing = gen.status === "processing" || gen.status === "pending";
+  const isCompleted  = gen.status === "completed";
+  const isFailed     = gen.status === "failed";
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0 }}
+      className="relative rounded-2xl overflow-hidden border border-white/[0.07] bg-white/[0.03] group"
+      style={{ aspectRatio: "1/1", minWidth: 220, maxWidth: 420, width: "100%" }}
+    >
+      {isCompleted && gen.outputUrl ? (
+        <>
+          <img src={gen.outputUrl} alt="" className="w-full h-full object-cover" />
+          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-end p-3 gap-2">
+            <button
+              onClick={() => onExpand(gen)}
+              className="w-8 h-8 rounded-lg bg-black/50 flex items-center justify-center text-white hover:bg-black/70 backdrop-blur-sm"
+            >
+              <Maximize2 className="w-4 h-4" />
+            </button>
+            <a
+              href={`/api/download?url=${encodeURIComponent(gen.outputUrl)}&filename=creator-${gen.id}.jpg`}
+              download
+              onClick={(e) => e.stopPropagation()}
+              className="w-8 h-8 rounded-lg bg-black/50 flex items-center justify-center text-white hover:bg-black/70 backdrop-blur-sm"
+            >
+              <Download className="w-4 h-4" />
+            </a>
+          </div>
+          {gen.prompt && (
+            <div className="absolute bottom-0 left-0 right-0 px-3 py-2 bg-gradient-to-t from-black/70 to-transparent pointer-events-none">
+              <p className="text-[11px] text-white/70 truncate">{gen.prompt}</p>
+            </div>
+          )}
+        </>
+      ) : isProcessing ? (
+        <div className="w-full h-full flex flex-col items-center justify-center gap-3">
+          <div className="relative">
+            <Loader2 className="w-8 h-8 animate-spin text-purple-400" />
+          </div>
+          <p className="text-xs text-slate-400">Generating…</p>
+        </div>
+      ) : (
+        <div className="w-full h-full flex flex-col items-center justify-center gap-2">
+          <AlertCircle className="w-6 h-6 text-red-400/60" />
+          <p className="text-[11px] text-red-400/70">{gen.errorMessage || "Failed"}</p>
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Lightbox
+// ---------------------------------------------------------------------------
+function Lightbox({ gen, onClose }) {
+  if (!gen) return null;
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[999] flex items-center justify-center bg-black/90 p-4"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ scale: 0.92 }}
+        animate={{ scale: 1 }}
+        exit={{ scale: 0.92 }}
+        className="relative max-w-[90vw] max-h-[90vh]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <img src={gen.outputUrl} alt="" className="max-w-full max-h-[90vh] rounded-2xl object-contain" />
+        <button
+          onClick={onClose}
+          className="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/60 flex items-center justify-center text-white hover:bg-black/80"
+        >
+          <X className="w-4 h-4" />
+        </button>
+        <a
+          href={`/api/download?url=${encodeURIComponent(gen.outputUrl)}&filename=creator-${gen.id}.jpg`}
+          download
+          className="absolute bottom-3 right-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white/10 text-white hover:bg-white/20 backdrop-blur-sm"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <Download className="w-3.5 h-3.5" />
+          Save
+        </a>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main page
+// ---------------------------------------------------------------------------
 export default function CreatorStudioPage() {
-  const user = useAuthStore((s) => s.user);
-  const refreshUser = useAuthStore((s) => s.refreshUser);
-  const queryClient = useQueryClient();
+  const user          = useAuthStore((s) => s.user);
+  const refreshUser   = useAuthStore((s) => s.refreshUser);
 
-  // ── form state ────────────────────────────────────────────────────────────
-  const [selectedModelId, setSelectedModelId] = useState(null);
-  const [prompt, setPrompt] = useState("");
-  const [useCustomPrompt, setUseCustomPrompt] = useState(false);
-  const [aspectRatio, setAspectRatio] = useState("9:16");
-  const [resolution, setResolution] = useState("2K");
-  const [nanoBananaModel, setNanoBananaModel] = useState("nano-banana-pro");
-  const [referencePhotos, setReferencePhotos] = useState([]); // { url, file }[]
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [isEnhancing, setIsEnhancing] = useState(false);
-  const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
+  // form
+  const [prompt, setPrompt]           = useState("");
+  const [refs, setRefs]               = useState(Array(MAX_REFS).fill(null)); // null = empty slot
+  const [uploadingIdx, setUploadingIdx] = useState(null);
+  const [aspectRatio, setAspectRatio] = useState("1:1");
+  const [resolution, setResolution]   = useState("1K");
 
-  // ── generation state ──────────────────────────────────────────────────────
-  const { activeGeneration, isGenerating, startGeneration, pollForCompletion, reset } =
-    useActiveGeneration();
+  // results
+  const { activeGeneration, isGenerating, startGeneration, pollForCompletion, reset } = useActiveGeneration();
+  const [history, setHistory]         = useState([]);
+  const [lightboxGen, setLightboxGen] = useState(null);
 
-  // ── history ───────────────────────────────────────────────────────────────
-  const [history, setHistory] = useState([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
-
-  // ── models ────────────────────────────────────────────────────────────────
-  const { data: modelsData, isLoading: modelsLoading } = useQuery({
-    queryKey: ["user-models"],
-    queryFn: () => modelAPI.getAll(),
+  // load history once
+  const { isLoading: histLoading } = useQuery({
+    queryKey: ["creator-studio-history"],
+    queryFn: async () => {
+      const data = await creatorStudioAPI.getHistory({ limit: 20 });
+      setHistory(data.generations ?? []);
+      return data;
+    },
     staleTime: 30_000,
   });
-  const models = modelsData?.models ?? [];
-  const selectedModel = models.find((m) => m.id === selectedModelId) ?? null;
 
-  // Auto-select first model
-  useEffect(() => {
-    if (!selectedModelId && models.length > 0) {
-      setSelectedModelId(models[0].id);
-    }
-  }, [models, selectedModelId]);
-
-  // ── fetch history ─────────────────────────────────────────────────────────
-  const fetchHistory = useCallback(async () => {
-    setHistoryLoading(true);
+  // upload a single reference file → get back a public URL via the blob upload endpoint
+  const handleAddRef = useCallback(async (file, slotIdx) => {
+    setUploadingIdx(slotIdx);
     try {
-      const data = await creatorStudioAPI.getHistory({ limit: 12 });
-      setHistory(data.generations ?? []);
-    } catch {
-      // non-critical
+      const result = await uploadFile(file);
+      const url = result?.url || result;
+      if (!url) throw new Error("No URL returned");
+      setRefs((prev) => {
+        const next = [...prev];
+        next[slotIdx] = url;
+        return next;
+      });
+    } catch (err) {
+      toast.error("Upload failed: " + (err.message || "Unknown error"));
     } finally {
-      setHistoryLoading(false);
+      setUploadingIdx(null);
     }
   }, []);
 
-  useEffect(() => {
-    fetchHistory();
-  }, [fetchHistory]);
-
-  // ── AI enhance prompt ─────────────────────────────────────────────────────
-  const handleEnhance = async () => {
-    if (!prompt.trim()) {
-      toast.error("Enter a prompt first");
-      return;
-    }
-    setIsEnhancing(true);
-    try {
-      const data = await creatorStudioAPI.enhancePrompt({
-        modelId: selectedModelId,
-        prompt: prompt.trim(),
-      });
-      if (data.enhancedPrompt) {
-        setPrompt(data.enhancedPrompt);
-        setUseCustomPrompt(true);
-        toast.success("Prompt enhanced!");
-      }
-    } catch {
-      toast.error("Failed to enhance prompt");
-    } finally {
-      setIsEnhancing(false);
-    }
+  const removeRef = (idx) => {
+    setRefs((prev) => {
+      const next = [...prev];
+      next[idx] = null;
+      return next;
+    });
   };
 
-  // ── reference photo upload ────────────────────────────────────────────────
-  const handleReferenceUploaded = ({ url }) => {
-    if (referencePhotos.length >= 8) {
-      toast.error("Maximum 8 reference photos");
-      return;
-    }
-    setReferencePhotos((prev) => [...prev, { url }]);
-  };
-
-  const removeReference = (idx) => {
-    setReferencePhotos((prev) => prev.filter((_, i) => i !== idx));
-  };
-
-  // ── generate ──────────────────────────────────────────────────────────────
+  // generate
   const handleGenerate = async () => {
-    if (!selectedModelId) {
-      toast.error("Select a model first");
-      return;
-    }
     if (!prompt.trim()) {
       toast.error("Enter a prompt");
       return;
     }
+    const filledRefs = refs.filter(Boolean);
 
-    startGeneration({ status: "processing", type: "creator-studio" });
+    startGeneration({ status: "processing", type: "creator-studio", prompt: prompt.trim() });
 
     try {
       const data = await creatorStudioAPI.generate({
-        modelId: selectedModelId,
         prompt: prompt.trim(),
-        referencePhotos: referencePhotos.map((r) => r.url),
+        referencePhotos: filledRefs,
         aspectRatio,
         resolution,
-        nanoBananaModel,
-        useCustomPrompt,
       });
 
-      if (!data.success) {
-        throw new Error(data.message || "Generation failed");
-      }
+      if (!data.success) throw new Error(data.message || "Generation failed");
 
-      startGeneration({ ...data.generation });
+      startGeneration({ ...data.generation, prompt: prompt.trim() });
+
       pollForCompletion(data.generation.id, {
         onSuccess: (gen) => {
-          toast.success("Image generated!");
+          toast.success("Done!");
           refreshUser?.();
-          fetchHistory();
-          queryClient.invalidateQueries({ queryKey: ["generations"] });
+          // Prepend completed gen to history
+          setHistory((prev) => [{ ...gen, prompt: prompt.trim() }, ...prev.filter((g) => g.id !== gen.id)]);
         },
         onFailure: (gen) => {
           toast.error(gen.errorMessage || "Generation failed — credits refunded");
@@ -175,439 +290,192 @@ export default function CreatorStudioPage() {
     }
   };
 
-  const creditsLeft = user?.credits ?? 0;
-  // Mirror backend pricing defaults; actual cost is determined server-side
   const COST = resolution === "4K" ? 25 : 20;
+  const creditsLeft = user?.credits ?? 0;
+
+  // All generations to show (active first, then history, deduped)
+  const displayGens = [
+    ...(activeGeneration ? [activeGeneration] : []),
+    ...history.filter((g) => g.id !== activeGeneration?.id),
+  ];
 
   return (
-    <div className="flex h-full min-h-screen bg-[#0a0a0f]">
-      {/* ── Left Panel: Controls ─────────────────────────────────────────────── */}
-      <div className="w-full max-w-[420px] flex-shrink-0 flex flex-col border-r border-white/[0.06] overflow-y-auto">
+    <div className="relative flex flex-col min-h-full bg-[#0a0a0c]">
+
+      {/* ── Canvas — results area ─────────────────────────────────────────── */}
+      <div className="flex-1 px-6 pt-6 pb-64 min-h-screen">
         {/* Header */}
-        <div className="p-6 border-b border-white/[0.06]">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center"
-              style={{ background: "linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%)" }}>
-              <Wand2 className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <h1 className="text-lg font-bold text-white">Creator Studio</h1>
-              <p className="text-xs text-slate-400">NanoBanana Pro · Ultra Realism</p>
-            </div>
+        <div className="flex items-center gap-3 mb-6">
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center"
+            style={{ background: "linear-gradient(135deg,#7c3aed,#4f46e5)" }}>
+            <Wand2 className="w-4 h-4 text-white" />
+          </div>
+          <div>
+            <h1 className="text-sm font-bold text-white">Creator Studio</h1>
+            <p className="text-[11px] text-slate-500">NanoBanana Pro · no model required</p>
           </div>
         </div>
 
-        <div className="flex-1 p-5 space-y-5">
-          {/* Model Selector */}
-          <div>
-            <label className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-2 block">
-              AI Model
-            </label>
-            <button
-              onClick={() => setModelSelectorOpen((v) => !v)}
-              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.06] transition-all"
-            >
-              {selectedModel ? (
-                <>
-                  {selectedModel.photo1Url && (
-                    <img src={selectedModel.photo1Url} alt="" className="w-8 h-8 rounded-lg object-cover flex-shrink-0" />
-                  )}
-                  <div className="flex-1 text-left min-w-0">
-                    <p className="text-sm font-medium text-white truncate">{selectedModel.name || "Unnamed"}</p>
-                    <p className="text-xs text-slate-500">Selected model</p>
-                  </div>
-                </>
-              ) : (
-                <span className="text-sm text-slate-400 flex-1 text-left">
-                  {modelsLoading ? "Loading models…" : "Select a model"}
-                </span>
-              )}
-              <ChevronDown className={`w-4 h-4 text-slate-400 flex-shrink-0 transition-transform ${modelSelectorOpen ? "rotate-180" : ""}`} />
-            </button>
+        {/* Empty state */}
+        {displayGens.length === 0 && !histLoading && (
+          <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4">
+            <div className="w-20 h-20 rounded-3xl flex items-center justify-center"
+              style={{ background: "rgba(124,58,237,0.08)", border: "1px solid rgba(124,58,237,0.15)" }}>
+              <Sparkles className="w-8 h-8 text-purple-400/60" />
+            </div>
+            <p className="text-slate-500 text-sm">Your creations will appear here</p>
+          </div>
+        )}
 
-            <AnimatePresence>
-              {modelSelectorOpen && (
-                <motion.div
-                  initial={{ opacity: 0, y: -4, height: 0 }}
-                  animate={{ opacity: 1, y: 0, height: "auto" }}
-                  exit={{ opacity: 0, y: -4, height: 0 }}
-                  className="overflow-hidden"
-                >
-                  <div className="mt-2 rounded-xl border border-white/[0.08] bg-[#0d0d16] overflow-hidden max-h-[280px] overflow-y-auto">
-                    {models.length === 0 ? (
-                      <p className="text-sm text-slate-500 p-4 text-center">No models yet</p>
-                    ) : (
-                      models.map((m) => (
-                        <button
-                          key={m.id}
-                          onClick={() => { setSelectedModelId(m.id); setModelSelectorOpen(false); }}
-                          className={`w-full flex items-center gap-3 px-4 py-3 hover:bg-white/[0.04] transition-colors text-left border-b border-white/[0.04] last:border-0 ${
-                            selectedModelId === m.id ? "bg-purple-500/10" : ""
-                          }`}
-                        >
-                          {m.photo1Url && (
-                            <img src={m.photo1Url} alt="" className="w-8 h-8 rounded-lg object-cover flex-shrink-0" />
-                          )}
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium text-white truncate">{m.name || "Unnamed"}</p>
-                            <p className="text-xs text-slate-500">
-                              {[m.photo1Url, m.photo2Url, m.photo3Url].filter(Boolean).length} photo{[m.photo1Url, m.photo2Url, m.photo3Url].filter(Boolean).length !== 1 ? "s" : ""}
-                            </p>
-                          </div>
-                          {selectedModelId === m.id && (
-                            <CheckCircle2 className="w-4 h-4 text-purple-400 ml-auto flex-shrink-0" />
-                          )}
-                        </button>
-                      ))
-                    )}
-                  </div>
-                </motion.div>
-              )}
+        {/* Generation grid */}
+        {displayGens.length > 0 && (
+          <div className="flex flex-wrap gap-4 justify-start">
+            <AnimatePresence mode="popLayout">
+              {displayGens.map((gen) => (
+                <ResultCard
+                  key={gen.id}
+                  gen={gen}
+                  onExpand={setLightboxGen}
+                />
+              ))}
             </AnimatePresence>
           </div>
+        )}
+      </div>
 
-          {/* Prompt */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-xs font-semibold text-slate-400 uppercase tracking-widest">
-                Prompt
-              </label>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setUseCustomPrompt((v) => !v)}
-                  className={`text-[10px] font-semibold px-2 py-1 rounded-md transition-colors ${
-                    useCustomPrompt
-                      ? "bg-purple-500/20 text-purple-300 border border-purple-500/30"
-                      : "bg-white/[0.05] text-slate-400 border border-white/[0.08]"
-                  }`}
-                >
-                  {useCustomPrompt ? "Custom" : "AI Enhanced"}
-                </button>
-              </div>
-            </div>
-            <div className="relative">
-              <textarea
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                placeholder="Describe the scene, pose, outfit, environment…"
-                rows={4}
-                className="w-full bg-white/[0.03] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 resize-none focus:outline-none focus:border-purple-500/50 focus:bg-white/[0.05] transition-all"
-              />
-            </div>
-            <button
-              onClick={handleEnhance}
-              disabled={isEnhancing || !prompt.trim()}
-              className="mt-2 w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-              style={{
-                background: "linear-gradient(135deg, rgba(124,58,237,0.2) 0%, rgba(79,70,229,0.2) 100%)",
-                border: "1px solid rgba(124,58,237,0.3)",
-                color: "#c4b5fd",
-              }}
-            >
-              {isEnhancing ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Sparkles className="w-4 h-4" />
-              )}
-              Enhance with AI · 10 cr
-            </button>
-          </div>
+      {/* ── Floating bottom bar ───────────────────────────────────────────── */}
+      <div className="hidden md:flex justify-center fixed bottom-4 left-56 right-6 z-20 pointer-events-none">
+        <div
+          className="pointer-events-auto w-full max-w-2xl flex flex-col items-stretch justify-center p-3 rounded-2xl"
+          style={{ background: BAR_BG }}
+        >
+          {/* Prompt row */}
+          <textarea
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                handleGenerate();
+              }
+            }}
+            placeholder="Describe the scene you imagine"
+            rows={2}
+            className="w-full bg-transparent text-sm text-white placeholder-slate-500 resize-none outline-none px-1 py-1 leading-relaxed"
+          />
 
-          {/* Aspect Ratio */}
-          <div>
-            <label className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-2 block">
-              Aspect Ratio
-            </label>
-            <div className="flex flex-wrap gap-2">
-              {ASPECT_RATIOS.map((ar) => (
-                <button
-                  key={ar.value}
-                  onClick={() => setAspectRatio(ar.value)}
-                  className={`flex-1 min-w-[60px] px-3 py-2 rounded-lg text-xs font-semibold transition-all ${
-                    aspectRatio === ar.value
-                      ? "bg-purple-600 text-white"
-                      : "bg-white/[0.04] text-slate-400 hover:text-white hover:bg-white/[0.08] border border-white/[0.06]"
-                  }`}
-                >
-                  {ar.label}
-                </button>
+          {/* Controls row */}
+          <div className="flex items-center gap-3 mt-2 flex-wrap">
+
+            {/* REFS label + 8 slots */}
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest mr-0.5">Refs</span>
+              {refs.map((url, i) => (
+                <RefSlot
+                  key={i}
+                  url={url}
+                  uploading={uploadingIdx === i}
+                  onRemove={() => removeRef(i)}
+                  onAdd={(file) => handleAddRef(file, i)}
+                />
               ))}
             </div>
+
+            <div className="w-px h-6 bg-white/[0.08] flex-shrink-0" />
+
+            {/* ASPECT */}
+            <div className="flex items-center gap-1 flex-shrink-0 flex-wrap">
+              <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest mr-0.5">Aspect</span>
+              {ASPECT_RATIOS.map((ar) => (
+                <Chip key={ar.value} active={aspectRatio === ar.value} onClick={() => setAspectRatio(ar.value)}>
+                  {ar.hint ?? ar.label}
+                </Chip>
+              ))}
+            </div>
+
+            <div className="w-px h-6 bg-white/[0.08] flex-shrink-0" />
+
+            {/* RES */}
+            <div className="flex items-center gap-1 flex-shrink-0">
+              <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest mr-0.5">Res</span>
+              {RESOLUTIONS.map((r) => (
+                <Chip key={r} active={resolution === r} onClick={() => setResolution(r)}>
+                  {r}
+                </Chip>
+              ))}
+            </div>
+
+            {/* Generate button — pushed to the right */}
+            <div className="flex-1 flex justify-end">
+              <button
+                onClick={handleGenerate}
+                disabled={isGenerating || !prompt.trim()}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                style={{
+                  background: isGenerating
+                    ? "rgba(124,58,237,0.35)"
+                    : "linear-gradient(135deg,#7c3aed,#4f46e5)",
+                  boxShadow: isGenerating ? "none" : "0 0 18px rgba(124,58,237,0.45)",
+                  color: "white",
+                }}
+              >
+                {isGenerating ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Wand2 className="w-4 h-4" />
+                )}
+                {isGenerating ? "Generating…" : `Generate · ${COST} cr`}
+              </button>
+            </div>
           </div>
 
-          {/* Advanced toggle */}
-          <button
-            onClick={() => setShowAdvanced((v) => !v)}
-            className="w-full flex items-center gap-2 text-slate-400 hover:text-white text-sm transition-colors"
-          >
-            <Settings2 className="w-4 h-4" />
-            <span>Advanced Settings</span>
-            {showAdvanced ? <ChevronUp className="w-4 h-4 ml-auto" /> : <ChevronDown className="w-4 h-4 ml-auto" />}
-          </button>
-
-          <AnimatePresence>
-            {showAdvanced && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: "auto" }}
-                exit={{ opacity: 0, height: 0 }}
-                className="overflow-hidden space-y-5"
-              >
-                {/* Resolution */}
-                <div>
-                  <label className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-2 block">
-                    Resolution
-                  </label>
-                  <div className="flex gap-2">
-                    {RESOLUTIONS.map((r) => (
-                      <button
-                        key={r.value}
-                        onClick={() => setResolution(r.value)}
-                        className={`flex-1 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all text-center ${
-                          resolution === r.value
-                            ? "bg-purple-600 text-white"
-                            : "bg-white/[0.04] text-slate-400 hover:text-white hover:bg-white/[0.08] border border-white/[0.06]"
-                        }`}
-                      >
-                        <div>{r.label}</div>
-                        <div className="text-[10px] opacity-60 mt-0.5">{r.desc}</div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* NanoBanana Model */}
-                <div>
-                  <label className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-2 block">
-                    Engine
-                  </label>
-                  <div className="flex gap-2">
-                    {NB_MODELS.map((m) => (
-                      <button
-                        key={m.value}
-                        onClick={() => setNanoBananaModel(m.value)}
-                        className={`flex-1 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all text-center ${
-                          nanoBananaModel === m.value
-                            ? "bg-purple-600 text-white"
-                            : "bg-white/[0.04] text-slate-400 hover:text-white hover:bg-white/[0.08] border border-white/[0.06]"
-                        }`}
-                      >
-                        <div>{m.label}</div>
-                        <div className="text-[10px] opacity-60 mt-0.5">{m.desc}</div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Custom reference photos */}
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="text-xs font-semibold text-slate-400 uppercase tracking-widest">
-                      Custom References
-                    </label>
-                    <span className="text-[10px] text-slate-500">{referencePhotos.length}/8 · overrides model photos</span>
-                  </div>
-
-                  {referencePhotos.length > 0 && (
-                    <div className="grid grid-cols-4 gap-2 mb-3">
-                      {referencePhotos.map((ref, i) => (
-                        <div key={i} className="relative group aspect-square rounded-lg overflow-hidden border border-white/[0.08]">
-                          <img src={ref.url} alt="" className="w-full h-full object-cover" />
-                          <button
-                            onClick={() => removeReference(i)}
-                            className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity"
-                          >
-                            <X className="w-4 h-4 text-white" />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {referencePhotos.length < 8 && (
-                    <FileUpload
-                      type="image"
-                      onUpload={handleReferenceUploaded}
-                    />
-                  )}
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* Generate Button */}
-          <button
-            onClick={handleGenerate}
-            disabled={isGenerating || !selectedModelId || !prompt.trim()}
-            className="w-full flex items-center justify-center gap-2.5 py-3.5 rounded-xl font-semibold text-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-            style={{
-              background: isGenerating
-                ? "rgba(124,58,237,0.3)"
-                : "linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%)",
-              boxShadow: isGenerating ? "none" : "0 0 24px rgba(124,58,237,0.4)",
-              color: "white",
-            }}
-          >
-            {isGenerating ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Generating…
-              </>
-            ) : (
-              <>
-                <Zap className="w-4 h-4" />
-                Generate · {COST} cr
-              </>
-            )}
-          </button>
-
-          {/* Credits indicator */}
-          <p className="text-center text-xs text-slate-500">
+          {/* Credits hint */}
+          <p className="text-[10px] text-slate-600 mt-1.5 text-right pr-1">
             {creditsLeft} credits available
           </p>
         </div>
       </div>
 
-      {/* ── Right Panel: Preview + History ───────────────────────────────────── */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Live Preview */}
-        <div className="flex-1 flex flex-col p-6 gap-6 overflow-y-auto">
-          {/* Active generation */}
-          {(isGenerating || activeGeneration) && (
-            <div>
-              <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-3">Live Preview</p>
-              <LivePreviewPanel
-                type="image"
-                latestGeneration={activeGeneration}
-                onDownload={() => {}}
-              />
-            </div>
-          )}
-
-          {/* Empty state */}
-          {!isGenerating && !activeGeneration && (
-            <div className="flex-1 flex items-center justify-center min-h-[300px]">
-              <div className="text-center">
-                <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4"
-                  style={{ background: "rgba(124,58,237,0.1)", border: "1px solid rgba(124,58,237,0.2)" }}>
-                  <Wand2 className="w-7 h-7 text-purple-400" />
-                </div>
-                <p className="text-white font-medium">Ready to create</p>
-                <p className="text-sm text-slate-500 mt-1">Configure your prompt and hit Generate</p>
-              </div>
-            </div>
-          )}
-
-          {/* History */}
-          {history.length > 0 && (
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                  <Clock className="w-3.5 h-3.5" />
-                  Recent Creations
-                </p>
-                <button
-                  onClick={fetchHistory}
-                  className="text-slate-500 hover:text-white transition-colors"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                </button>
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                {history.map((gen) => (
-                  <HistoryCard key={gen.id} gen={gen} />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {historyLoading && history.length === 0 && (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="w-5 h-5 animate-spin text-slate-500" />
-            </div>
-          )}
+      {/* ── Mobile fallback bar ──────────────────────────────────────────── */}
+      <div className="md:hidden fixed bottom-0 left-0 right-0 z-20 p-3" style={{ background: BAR_BG }}>
+        <textarea
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          placeholder="Describe the scene you imagine"
+          rows={2}
+          className="w-full bg-transparent text-sm text-white placeholder-slate-500 resize-none outline-none px-1 mb-2"
+        />
+        <div className="flex gap-2 flex-wrap mb-2">
+          <span className="text-[10px] text-slate-500 uppercase tracking-widest self-center">Aspect</span>
+          {ASPECT_RATIOS.map((ar) => (
+            <Chip key={ar.value} active={aspectRatio === ar.value} onClick={() => setAspectRatio(ar.value)}>
+              {ar.hint ?? ar.label}
+            </Chip>
+          ))}
         </div>
-      </div>
-    </div>
-  );
-}
-
-function HistoryCard({ gen }) {
-  const [expanded, setExpanded] = useState(false);
-  const isProcessing = gen.status === "processing";
-  const isFailed = gen.status === "failed";
-  const isCompleted = gen.status === "completed";
-
-  return (
-    <>
-      <div
-        className="relative group rounded-xl overflow-hidden border border-white/[0.06] bg-white/[0.02] cursor-pointer aspect-square"
-        onClick={() => isCompleted && setExpanded(true)}
-      >
-        {isCompleted && gen.outputUrl ? (
-          <img src={gen.outputUrl} alt="" className="w-full h-full object-cover" />
-        ) : isProcessing ? (
-          <div className="w-full h-full flex items-center justify-center bg-purple-500/5">
-            <Loader2 className="w-6 h-6 animate-spin text-purple-400" />
-          </div>
-        ) : (
-          <div className="w-full h-full flex items-center justify-center">
-            <AlertCircle className="w-6 h-6 text-red-400/60" />
-          </div>
-        )}
-
-        {isCompleted && gen.outputUrl && (
-          <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-            <Maximize2 className="w-5 h-5 text-white" />
-          </div>
-        )}
-
-        <div className="absolute bottom-0 left-0 right-0 px-2 py-1.5 bg-gradient-to-t from-black/70 to-transparent">
-          <p className="text-[9px] text-slate-300 truncate">{gen.prompt || "No prompt"}</p>
+        <div className="flex gap-2 items-center mb-3">
+          <span className="text-[10px] text-slate-500 uppercase tracking-widest">Res</span>
+          {RESOLUTIONS.map((r) => (
+            <Chip key={r} active={resolution === r} onClick={() => setResolution(r)}>{r}</Chip>
+          ))}
+          <div className="flex-1" />
+          <button
+            onClick={handleGenerate}
+            disabled={isGenerating || !prompt.trim()}
+            className="px-4 py-2 rounded-xl text-sm font-semibold disabled:opacity-40"
+            style={{ background: "linear-gradient(135deg,#7c3aed,#4f46e5)", color: "white" }}
+          >
+            {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : `Generate · ${COST} cr`}
+          </button>
         </div>
       </div>
 
       {/* Lightbox */}
       <AnimatePresence>
-        {expanded && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[999] flex items-center justify-center bg-black/90 p-4"
-            onClick={() => setExpanded(false)}
-          >
-            <motion.div
-              initial={{ scale: 0.9 }}
-              animate={{ scale: 1 }}
-              exit={{ scale: 0.9 }}
-              className="relative max-w-[90vw] max-h-[90vh]"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <img
-                src={gen.outputUrl}
-                alt=""
-                className="max-w-full max-h-[90vh] rounded-xl object-contain"
-              />
-              <button
-                onClick={() => setExpanded(false)}
-                className="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/60 flex items-center justify-center text-white hover:bg-black/80 transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
-              <a
-                href={`/api/download?url=${encodeURIComponent(gen.outputUrl)}&filename=creator-studio-${gen.id}.jpg`}
-                download
-                className="absolute bottom-3 right-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white/10 text-white hover:bg-white/20 transition-colors backdrop-blur-sm"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <Download className="w-3.5 h-3.5" />
-                Save
-              </a>
-            </motion.div>
-          </motion.div>
+        {lightboxGen && (
+          <Lightbox gen={lightboxGen} onClose={() => setLightboxGen(null)} />
         )}
       </AnimatePresence>
-    </>
+    </div>
   );
 }
