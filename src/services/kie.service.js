@@ -18,6 +18,7 @@ import {
   validateKlingImageToVideoInput,
   validateKlingMotionInputs,
 } from "../utils/fileValidation.js";
+import { verifyUrlReachable } from "../utils/kieUpload.js";
 
 const KIE_API_KEY = process.env.KIE_API_KEY;
 const KIE_API_URL = "https://api.kie.ai/api/v1";
@@ -648,19 +649,13 @@ async function generateVideoWithMotionKieInternal(imageUrl, videoUrl, options = 
   const img = typeof imageUrl === "string" ? imageUrl.trim() : String(imageUrl || "");
   const vid = typeof videoUrl === "string" ? videoUrl.trim() : String(videoUrl || "");
 
-  // Soft pre-flight check — warn on failure but never block; KIE validates URLs itself.
   try {
-    const headRes = await fetch(img, { method: "HEAD", signal: AbortSignal.timeout(15_000) });
-    console.log(`[KIE/kling-motion] Image HEAD: ${headRes.status}, content-type: ${headRes.headers.get("content-type")}, size: ${headRes.headers.get("content-length")} bytes`);
-    if (!headRes.ok) console.warn(`[KIE/kling-motion] ⚠️ Image URL HEAD ${headRes.status} — submitting anyway`);
+    await verifyUrlReachable(img, "Motion input image");
+    await verifyUrlReachable(vid, "Motion input video");
   } catch (e) {
-    console.warn(`[KIE/kling-motion] ⚠️ Image URL check timed out/failed: ${e.message} — submitting anyway`);
-  }
-  try {
-    const videoHead = await fetch(vid, { method: "HEAD", signal: AbortSignal.timeout(15_000) });
-    if (!videoHead.ok) console.warn(`[KIE/kling-motion] ⚠️ Video URL HEAD ${videoHead.status} — submitting anyway`);
-  } catch (e) {
-    console.warn(`[KIE/kling-motion] ⚠️ Video URL check timed out/failed: ${e.message} — submitting anyway`);
+    throw new Error(
+      `Motion media URL is not reachable (KIE must download it). Re-upload your image/video and try again. ${e?.message || ""}`,
+    );
   }
 
   const prompt = options.videoPrompt || options.prompt || "No distortion, no blur, background matches with the image source, the character's movements are consistent with the video.";

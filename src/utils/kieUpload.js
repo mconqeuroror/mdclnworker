@@ -111,6 +111,11 @@ function getCachedMirror(sourceUrl) {
   return entry.blobUrl;
 }
 
+/** Drop cache entry so the next mirror re-fetches and re-uploads. */
+function forgetMirror(sourceUrl) {
+  mirrorCache.delete(sourceUrl);
+}
+
 function rememberMirror(sourceUrl, blobUrl) {
   mirrorCache.set(sourceUrl, {
     blobUrl,
@@ -134,8 +139,8 @@ function shouldFallbackToSourceUrl(sourceUrl) {
   return !sourceUrl.includes("r2.dev");
 }
 
-/** Verify a URL is reachable (HEAD). Throws if not 2xx. */
-async function verifyUrlReachable(url, label = "url") {
+/** Verify a URL is reachable (HEAD / Range GET). Throws if not 2xx. */
+export async function verifyUrlReachable(url, label = "url") {
   let res = await fetch(url, { method: "HEAD", signal: AbortSignal.timeout(30_000) });
   if (!res.ok && (res.status === 403 || res.status === 405)) {
     res = await fetch(url, {
@@ -192,15 +197,18 @@ export async function mirrorToBlob(sourceUrl) {
         if (!res.ok) throw new Error(`Download failed: HTTP ${res.status}`);
 
         const buffer = Buffer.from(await res.arrayBuffer());
+        if (buffer.length === 0) {
+          throw new Error("Downloaded file is empty — source URL has no content");
+        }
         const ct = res.headers.get("content-type") || "image/jpeg";
 
-        const ext = sourceUrl.match(/\.(mp4|webm|jpg|jpeg|webp|png)(\?|$)/i)?.[1]?.toLowerCase()
+        const ext = sourceUrl.match(/\.(mp4|webm|mov|jpg|jpeg|webp|png)(\?|$)/i)?.[1]?.toLowerCase()
           || (ct.includes("mp4") ? "mp4" : ct.includes("webm") ? "webm"
             : ct.includes("jpg") || ct.includes("jpeg") ? "jpg"
             : ct.includes("webp") ? "webp" : "jpg");
 
         let outBuffer = buffer;
-        if (ext !== "mp4" && ext !== "webm") {
+        if (ext !== "mp4" && ext !== "webm" && ext !== "mov") {
           const dims = getImageDimensions(buffer, ext);
           if (dims) {
             console.log(`[Blob/KIE relay] Image dimensions: ${dims.width}x${dims.height}`);
@@ -226,13 +234,23 @@ export async function mirrorToBlob(sourceUrl) {
           }
         }
 
-        const finalCt = ext === "mp4" ? "video/mp4" : ext === "webm" ? "video/webm"
-          : ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg";
+        const finalCt =
+          ext === "mp4" ? "video/mp4"
+            : ext === "webm" ? "video/webm"
+              : ext === "mov" ? "video/quicktime"
+                : ext === "png" ? "image/png"
+                  : ext === "webp" ? "image/webp" : "image/jpeg";
+
+        // Video mirrors must stay on durable Blob paths: kie-relay/ is short-lived and must not be
+        // reused if a stale cache points at a deleted object (KIE then sees "URL has no content").
+        const isVideo = ext === "mp4" || ext === "webm" || ext === "mov";
+        const blobFolder = isVideo ? "user-uploads" : "kie-relay";
 
         const blobUrl = await uploadBufferToBlob(
           outBuffer,
-          getBlobFilename(sourceUrl, ext),
+          isVideo ? `motion-kie-${getBlobFilename(sourceUrl, ext)}` : getBlobFilename(sourceUrl, ext),
           finalCt,
+          blobFolder,
         );
         await verifyUrlReachable(blobUrl, "Blob upload");
         rememberMirror(sourceUrl, blobUrl);

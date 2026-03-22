@@ -280,6 +280,12 @@ function calculateBestFrameTimestamp(videoDuration = 10) {
  */
 async function preprocessReferenceVideoForKling(videoUrl) {
   if (!videoUrl || !videoUrl.startsWith("http")) return videoUrl;
+  // Already on Vercel Blob — KIE can fetch it; avoid R2 transcode → remirror chain that can yield
+  // short-lived relay URLs or empty worker output.
+  if (videoUrl.includes("vercel-storage.com") || videoUrl.includes("blob.vercel.app")) {
+    console.log("✅ Reference video already on Vercel Blob — skipping ffmpeg preprocess");
+    return videoUrl;
+  }
   if (!isR2Configured()) {
     console.warn("⚠️ R2 not configured, skipping reference video preprocessing");
     return videoUrl;
