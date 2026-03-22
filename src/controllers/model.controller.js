@@ -86,6 +86,17 @@ async function registerKieTask(taskId, entityType, entityId, step, userId, paylo
   });
 }
 
+function isMissingVoiceStudioTableError(error) {
+  const message = String(error?.message || "").toLowerCase();
+  return (
+    (message.includes("modelvoice") || message.includes("generatedvoiceaudio")) &&
+    (message.includes("does not exist") ||
+      message.includes("no such table") ||
+      message.includes("relation") ||
+      message.includes("table"))
+  );
+}
+
 /**
  * Create a new saved model
  */
@@ -337,10 +348,30 @@ export async function deleteModel(req, res) {
       }
     }
 
+    let modelVoices = [];
+    let generatedVoiceAudios = [];
+    try {
+      [modelVoices, generatedVoiceAudios] = await Promise.all([
+        prisma.modelVoice.findMany({
+          where: { modelId: id },
+          select: { elevenLabsVoiceId: true, previewUrl: true, sampleAudioUrl: true },
+        }),
+        prisma.generatedVoiceAudio.findMany({
+          where: { modelId: id },
+          select: { audioUrl: true },
+        }),
+      ]);
+    } catch (error) {
+      if (!isMissingVoiceStudioTableError(error)) {
+        throw error;
+      }
+      console.warn("Voice Studio tables missing during model delete; skipping related voice cleanup.");
+    }
+
     const voiceIdsToDelete = new Set(
       [
         model.elevenLabsVoiceId,
-        ...model.modelVoices.map((voice) => voice.elevenLabsVoiceId),
+        ...modelVoices.map((voice) => voice.elevenLabsVoiceId),
       ].filter(Boolean),
     );
     for (const voiceId of voiceIdsToDelete) {
@@ -352,8 +383,8 @@ export async function deleteModel(req, res) {
     const r2UrlsToDelete = new Set(
       [
         model.modelVoicePreviewUrl,
-        ...model.modelVoices.flatMap((voice) => [voice.previewUrl, voice.sampleAudioUrl]),
-        ...model.generatedVoiceAudios.map((audio) => audio.audioUrl),
+        ...modelVoices.flatMap((voice) => [voice.previewUrl, voice.sampleAudioUrl]),
+        ...generatedVoiceAudios.map((audio) => audio.audioUrl),
       ].filter(Boolean),
     );
     for (const url of r2UrlsToDelete) {

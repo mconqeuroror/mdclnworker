@@ -39,6 +39,17 @@ import {
   mergeVoiceDescriptionWithLanguage,
 } from "../constants/voiceStudioLanguages.js";
 
+function isMissingVoiceStudioTableError(error) {
+  const message = String(error?.message || "").toLowerCase();
+  return (
+    (message.includes("modelvoice") || message.includes("generatedvoiceaudio")) &&
+    (message.includes("does not exist") ||
+      message.includes("no such table") ||
+      message.includes("relation") ||
+      message.includes("table"))
+  );
+}
+
 function consentOk(value) {
   return value === true || value === "true" || value === "1" || value === 1;
 }
@@ -192,10 +203,34 @@ async function getOwnedModel(userId, modelId, extraSelect = {}) {
 }
 
 async function getModelVoicesForUser(userId, modelId) {
-  return prisma.modelVoice.findMany({
-    where: { userId, modelId },
-    orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
-  });
+  try {
+    return await prisma.modelVoice.findMany({
+      where: { userId, modelId },
+      orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
+    });
+  } catch (error) {
+    if (isMissingVoiceStudioTableError(error)) {
+      console.warn("ModelVoice table missing; returning empty voice list until migration is applied.");
+      return [];
+    }
+    throw error;
+  }
+}
+
+async function getGeneratedVoiceHistoryForUser(userId, modelId) {
+  try {
+    return await prisma.generatedVoiceAudio.findMany({
+      where: { userId, modelId },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    });
+  } catch (error) {
+    if (isMissingVoiceStudioTableError(error)) {
+      console.warn("GeneratedVoiceAudio table missing; returning empty voice history until migration is applied.");
+      return [];
+    }
+    throw error;
+  }
 }
 
 async function syncSavedModelDefaultVoice(tx, modelId) {
@@ -261,11 +296,7 @@ async function buildVoiceStudioPayload(userId, modelId) {
   const [model, voices, history, config] = await Promise.all([
     getOwnedModel(userId, modelId),
     getModelVoicesForUser(userId, modelId),
-    prisma.generatedVoiceAudio.findMany({
-      where: { userId, modelId },
-      orderBy: { createdAt: "desc" },
-      take: 50,
-    }),
+    getGeneratedVoiceHistoryForUser(userId, modelId),
     getVoicePlatformConfig(),
   ]);
 

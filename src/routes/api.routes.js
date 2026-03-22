@@ -1930,11 +1930,15 @@ router.post(
 );
 
 // Cron-safe watchdog for callback-only KIE flows (no auth, requires CRON_SECRET)
+let warnedMissingCronSecretForKieRecovery = false;
 router.get("/cron/kie-recovery", async (req, res) => {
   const secret = req.query.secret || req.headers["x-cron-secret"];
   const isVercelCron = Boolean(req.headers["x-vercel-cron"]);
   if (!process.env.CRON_SECRET) {
-    console.warn("[cron/kie-recovery] CRON_SECRET is not set; relying on x-vercel-cron header only.");
+    if (!warnedMissingCronSecretForKieRecovery) {
+      warnedMissingCronSecretForKieRecovery = true;
+      console.warn("[cron/kie-recovery] CRON_SECRET is not set; relying on x-vercel-cron header only.");
+    }
   }
   if (!isVercelCron && process.env.CRON_SECRET && secret !== process.env.CRON_SECRET) {
     return res.status(401).json({ error: "Unauthorized" });

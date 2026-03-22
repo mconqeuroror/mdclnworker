@@ -15,20 +15,42 @@ export const VOICE_MAX_DURATION_SEC = 300;
  * Singleton row id for VoicePlatformConfig
  */
 const CONFIG_ID = "global";
+const DEFAULT_VOICE_PLATFORM_CONFIG = {
+  id: CONFIG_ID,
+  maxCustomElevenLabsVoices: 200,
+};
+
+function isMissingVoicePlatformConfigTable(error) {
+  const message = String(error?.message || "").toLowerCase();
+  return (
+    message.includes("voiceplatformconfig") &&
+    (message.includes("does not exist") ||
+      message.includes("no such table") ||
+      message.includes("relation") ||
+      message.includes("table"))
+  );
+}
 
 export async function getVoicePlatformConfig() {
-  let row = await prisma.voicePlatformConfig.findUnique({
-    where: { id: CONFIG_ID },
-  });
-  if (!row) {
-    row = await prisma.voicePlatformConfig.create({
-      data: {
-        id: CONFIG_ID,
-        maxCustomElevenLabsVoices: 200,
-      },
+  try {
+    let row = await prisma.voicePlatformConfig.findUnique({
+      where: { id: CONFIG_ID },
     });
+    if (!row) {
+      row = await prisma.voicePlatformConfig.create({
+        data: DEFAULT_VOICE_PLATFORM_CONFIG,
+      });
+    }
+    return row;
+  } catch (error) {
+    if (isMissingVoicePlatformConfigTable(error)) {
+      console.warn(
+        "VoicePlatformConfig table missing; using default voice platform config until migration is applied.",
+      );
+      return { ...DEFAULT_VOICE_PLATFORM_CONFIG };
+    }
+    throw error;
   }
-  return row;
 }
 
 export async function updateVoicePlatformMaxVoices(maxCustomElevenLabsVoices) {

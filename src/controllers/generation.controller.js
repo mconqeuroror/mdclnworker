@@ -541,8 +541,6 @@ async function processVideoMotionInBackground(
         kieAccessibleVideoUrl,
         {
           videoPrompt: prompt || "",
-          mode: "1080p",
-          characterOrientation: "video",
           ultra,
           onTaskSubmitted: async (taskId) => {
             await prisma.generation.update({
@@ -989,9 +987,7 @@ export async function generateCompleteRecreation(req, res) {
       const kieImageUrl2 = await ensureKieAccessibleUrl(imageResult.outputUrl, "generated image");
       const videoResult = await requestQueue.enqueue(async () => {
         return await generateVideoWithMotionKie(kieImageUrl2, kieVideoUrl2, {
-          mode: "1080p",
           videoPrompt: videoPrompt || "",
-          characterOrientation: "video",
           ultra,
           onTaskSubmitted: async (taskId) => {
             await prisma.generation.update({
@@ -1743,9 +1739,7 @@ export async function completeVideoGeneration(req, res) {
     const kieImageUrl3 = await ensureKieAccessibleUrl(selectedImageUrl, "selected image");
     const result = await requestQueue.enqueue(async () => {
       return await generateVideoWithMotionKie(kieImageUrl3, kieVideoUrl3, {
-        mode: "1080p",
         videoPrompt: prompt,
-        characterOrientation: "video",
         ultra,
         onTaskSubmitted: async (taskId) => {
           await prisma.generation.update({
@@ -1940,8 +1934,6 @@ async function processQuickVideoInBackground(
     const kieImageUrl4 = await ensureKieAccessibleUrl(imageResult.outputUrl, "generated image");
     const videoResult = await requestQueue.enqueue(async () => {
       return await generateVideoWithMotionKie(kieImageUrl4, kieVideoUrl4, {
-        mode: "1080p",
-        characterOrientation: "video",
         ultra,
         onTaskSubmitted: async (taskId) => {
           await prisma.generation.update({
@@ -2101,8 +2093,6 @@ export async function generateVideoDirectly(req, res) {
 
       const result = await requestQueue.enqueue(async () =>
         generateVideoWithMotionKie(kieImageUrl, kieVideoUrl, {
-          mode: "1080p",
-          characterOrientation: "video",
           ultra,
           onTaskSubmitted: async (taskId) => {
             await prisma.generation.update({

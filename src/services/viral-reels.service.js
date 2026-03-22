@@ -270,9 +270,13 @@ export async function cleanupStaleLogs() {
 export async function scrapeProfile(profileId) {
   const profile = await prisma.reelFinderProfile.findUnique({ where: { id: profileId } });
   if (!profile) throw new Error("Profile not found");
+  const username = String(profile.username || "").replace(/^@/, "").trim().toLowerCase();
+  if (!username || !/^[a-z0-9._]{1,30}$/.test(username)) {
+    throw new Error("Profile has an invalid Instagram username");
+  }
 
   const items = await callApify({
-    username: [profile.username],
+    username: [username],
     resultsLimit: APIFY_RESULTS_LIMIT,
     skipPinnedPosts: false,
     includeSharesCount: true,

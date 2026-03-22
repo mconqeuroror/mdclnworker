@@ -39,6 +39,15 @@ function prettyDate(value) {
   }
 }
 
+function getApiErrorMessage(error, fallback) {
+  return (
+    error?.response?.data?.message ||
+    error?.response?.data?.error ||
+    error?.message ||
+    fallback
+  );
+}
+
 export default function CreatorStudioVoiceTab({ initialModelId = null }) {
   const user = useAuthStore((state) => state.user);
   const refreshUser = useAuthStore((state) => state.refreshUser);
@@ -92,6 +101,14 @@ export default function CreatorStudioVoiceTab({ initialModelId = null }) {
   const pricing = voiceStudio.pricing || {};
   const limits = voiceStudio.limits || {};
   const creditsAvailable = voiceStudio.creditsAvailable ?? user?.credits ?? 0;
+  const voiceStudioErrorMessage = getApiErrorMessage(
+    voiceStudioQuery.error,
+    "Failed to load Voice Studio for this model.",
+  );
+  const modelsErrorMessage = getApiErrorMessage(
+    modelsQuery.error,
+    "Failed to load your models.",
+  );
   const selectedVoice = voices.find((voice) => voice.id === selectedVoiceId) || voices[0] || null;
   const estimatedChars = audioScript.trim().length;
   const estimatedSecs = estimateSecsFromChars(estimatedChars);
@@ -303,6 +320,10 @@ export default function CreatorStudioVoiceTab({ initialModelId = null }) {
             <div className="flex items-center gap-2 text-sm text-slate-400">
               <Loader2 className="h-4 w-4 animate-spin" /> Loading models...
             </div>
+          ) : modelsQuery.isError ? (
+            <div className="rounded-2xl border border-red-400/20 bg-red-500/5 p-4 text-sm text-red-200">
+              {modelsErrorMessage}
+            </div>
           ) : models.length === 0 ? (
             <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-400">
               Create a model first to use Voice Studio.
@@ -334,6 +355,10 @@ export default function CreatorStudioVoiceTab({ initialModelId = null }) {
           {!selectedModelId ? null : voiceStudioQuery.isLoading ? (
             <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-8 text-sm text-slate-400 flex items-center gap-2">
               <Loader2 className="h-4 w-4 animate-spin" /> Loading voice studio...
+            </div>
+          ) : voiceStudioQuery.isError ? (
+            <div className="rounded-3xl border border-red-400/20 bg-red-500/5 p-8 text-sm text-red-200">
+              {voiceStudioErrorMessage}
             </div>
           ) : !model ? (
             <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-8 text-sm text-slate-400">

@@ -98,8 +98,6 @@ async function runQuickVideoContinuation(generationId, payload, imageUrl) {
 
     const videoResult = await requestQueue.enqueue(() =>
       generateVideoWithMotionKie(kieImageUrl, kieVideoUrl, {
-        mode: "1080p",
-        characterOrientation: "video",
         ultra: !!ultra,
         onTaskSubmitted: async (videoTaskId) => {
           await prisma.generation.update({
@@ -171,9 +169,7 @@ async function runCompleteRecreationContinuation(generationId, payload, imageUrl
 
     const videoResult = await requestQueue.enqueue(() =>
       generateVideoWithMotionKie(kieImageUrl, kieVideoUrl, {
-        mode: "1080p",
         videoPrompt: videoPrompt || "",
-        characterOrientation: "video",
         ultra: !!ultra,
         onTaskSubmitted: async (videoTaskId) => {
           await prisma.generation.update({

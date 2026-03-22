@@ -17,6 +17,7 @@ import { getErrorMessageForDb } from "../lib/userError.js";
 const router = express.Router();
 const WAVESPEED_WEBHOOK_SECRET = process.env.WAVESPEED_WEBHOOK_SECRET;
 const CORS_ORIGIN = "https://api.wavespeed.ai";
+let warnedMissingWaveSpeedWebhookSecret = false;
 
 function setCorsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", CORS_ORIGIN);
@@ -90,7 +91,10 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
         return ack();
       }
     } else if (process.env.NODE_ENV === "production") {
-      console.warn("[WaveSpeed Callback] WAVESPEED_WEBHOOK_SECRET not set");
+      if (!warnedMissingWaveSpeedWebhookSecret) {
+        warnedMissingWaveSpeedWebhookSecret = true;
+        console.warn("[WaveSpeed Callback] WAVESPEED_WEBHOOK_SECRET not set");
+      }
     }
 
     let body;
