@@ -44,6 +44,7 @@ import {
   IDENTITY_RECREATE_MODEL_CLOTHES,
   IDENTITY_RECREATE_REFERENCE_CLOTHES,
 } from "../constants/identityRecreationPrompts.js";
+import { persistKieGenerationCorrelation } from "../utils/kieTaskCorrelation.js";
 
 const PERSISTED_IMAGE_TYPES = new Set([
   "image",
@@ -543,11 +544,12 @@ async function processVideoMotionInBackground(
           videoPrompt: prompt || "",
           ultra,
           onTaskSubmitted: async (taskId) => {
-            await prisma.generation.update({
-              where: { id: generationId },
-              data: { replicateModel: `kie-task:${taskId}` },
+            await persistKieGenerationCorrelation({
+              taskId,
+              generationId,
+              userId,
+              kind: "video-motion",
             });
-            await registerKieTaskForGeneration(taskId, generationId, userId, "video-motion");
           },
         },
       );
@@ -990,18 +992,26 @@ export async function generateCompleteRecreation(req, res) {
           videoPrompt: videoPrompt || "",
           ultra,
           onTaskSubmitted: async (taskId) => {
-            await prisma.generation.update({
-              where: { id: videoGen.id },
-              data: { replicateModel: `kie-task:${taskId}`, pipelinePayload: null },
+            await persistKieGenerationCorrelation({
+              taskId,
+              generationId: videoGen.id,
+              userId,
+              kind: "video-motion",
+              extraGenerationData: { pipelinePayload: null },
             });
-            await registerKieTaskForGeneration(taskId, videoGen.id, userId, "video-motion");
           },
         });
       });
 
       if (videoResult.success && videoResult.deferred) {
         if (videoResult.taskId) {
-          await registerKieTaskForGeneration(videoResult.taskId, videoGen.id, userId, "video-motion");
+          await persistKieGenerationCorrelation({
+            taskId: videoResult.taskId,
+            generationId: videoGen.id,
+            userId,
+            kind: "video-motion",
+            extraGenerationData: { pipelinePayload: null },
+          });
         }
         res.json({
           success: true,
@@ -1742,18 +1752,24 @@ export async function completeVideoGeneration(req, res) {
         videoPrompt: prompt,
         ultra,
         onTaskSubmitted: async (taskId) => {
-          await prisma.generation.update({
-            where: { id: generation.id },
-            data: { replicateModel: `kie-task:${taskId}` },
+          await persistKieGenerationCorrelation({
+            taskId,
+            generationId: generation.id,
+            userId,
+            kind: "video-motion",
           });
-          await registerKieTaskForGeneration(taskId, generation.id, userId, "video-motion");
         },
       });
     });
 
     if (result.success && result.deferred) {
       if (result.taskId) {
-        await registerKieTaskForGeneration(result.taskId, generation.id, userId, "video-motion");
+        await persistKieGenerationCorrelation({
+          taskId: result.taskId,
+          generationId: generation.id,
+          userId,
+          kind: "video-motion",
+        });
       }
       res.json({
         success: true,
@@ -1936,18 +1952,24 @@ async function processQuickVideoInBackground(
       return await generateVideoWithMotionKie(kieImageUrl4, kieVideoUrl4, {
         ultra,
         onTaskSubmitted: async (taskId) => {
-          await prisma.generation.update({
-            where: { id: generationId },
-            data: { replicateModel: `kie-task:${taskId}` },
+          await persistKieGenerationCorrelation({
+            taskId,
+            generationId,
+            userId,
+            kind: "video-motion",
           });
-          await registerKieTaskForGeneration(taskId, generationId, userId, "video-motion");
         },
       });
     });
 
     if (videoResult.success && videoResult.deferred) {
       if (videoResult.taskId) {
-        await registerKieTaskForGeneration(videoResult.taskId, generationId, userId, "video-motion");
+        await persistKieGenerationCorrelation({
+          taskId: videoResult.taskId,
+          generationId,
+          userId,
+          kind: "video-motion",
+        });
       }
       console.log("\n✅ Video task submitted; result will arrive via callback (task " + videoResult.taskId + ")");
       return;
@@ -2095,18 +2117,24 @@ export async function generateVideoDirectly(req, res) {
         generateVideoWithMotionKie(kieImageUrl, kieVideoUrl, {
           ultra,
           onTaskSubmitted: async (taskId) => {
-            await prisma.generation.update({
-              where: { id: generation.id },
-              data: { replicateModel: `kie-task:${taskId}` },
+            await persistKieGenerationCorrelation({
+              taskId,
+              generationId: generation.id,
+              userId,
+              kind: "video-motion",
             });
-            await registerKieTaskForGeneration(taskId, generation.id, userId, "video-motion");
           },
         })
       );
 
       if (result?.success && result?.deferred) {
         if (result.taskId) {
-          await registerKieTaskForGeneration(result.taskId, generation.id, userId, "video-motion");
+          await persistKieGenerationCorrelation({
+            taskId: result.taskId,
+            generationId: generation.id,
+            userId,
+            kind: "video-motion",
+          });
         }
         return res.json({
           success: true,

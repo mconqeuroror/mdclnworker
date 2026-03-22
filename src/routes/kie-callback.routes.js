@@ -515,31 +515,51 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
       return ack();
     }
 
+    const genSelect = {
+      id: true,
+      userId: true,
+      modelId: true,
+      creditsCost: true,
+      status: true,
+      type: true,
+    };
+
+    // Retry: KIE may callback before Prisma commits task correlation (kie-task: / kieTask row).
     let gen = null;
-    if (mappedTask?.entityType === "generation") {
-      gen = await prisma.generation.findUnique({
-        where: { id: mappedTask.entityId },
-        select: { id: true, userId: true, modelId: true, creditsCost: true, status: true, type: true },
-      });
+    let mappedForGen = mappedTask;
+    for (let attempt = 0; attempt < 8 && !gen; attempt++) {
+      if (attempt > 0) {
+        await new Promise((r) => setTimeout(r, 100 * attempt));
+        mappedForGen = await prisma.kieTask.findUnique({ where: { taskId } });
+      }
+
+      if (mappedForGen?.entityType === "generation") {
+        gen = await prisma.generation.findUnique({
+          where: { id: mappedForGen.entityId },
+          select: genSelect,
+        });
+      }
+      if (!gen) {
+        gen = await prisma.generation.findFirst({
+          where: { replicateModel: `kie-task:${taskId}` },
+          select: genSelect,
+        });
+      }
+      if (!gen) {
+        gen = await prisma.generation.findFirst({
+          where: { pipelinePayload: { path: ["videoTaskId"], equals: taskId } },
+          select: genSelect,
+        });
+      }
     }
-    if (!gen) {
-      gen = await prisma.generation.findFirst({
-        where: { replicateModel: `kie-task:${taskId}` },
-        select: { id: true, userId: true, modelId: true, creditsCost: true, status: true, type: true },
-      });
-    }
-    if (!gen) {
-      gen = await prisma.generation.findFirst({
-        where: { pipelinePayload: { path: ["videoTaskId"], equals: taskId } },
-        select: { id: true, userId: true, modelId: true, creditsCost: true, status: true, type: true },
-      });
-    }
+
     if (!gen) {
       console.warn("[KIE Callback] No generation found for taskId %s — job may run forever; check CALLBACK_BASE_URL and replicateModel/pipelinePayload", taskId?.slice(0, 12));
       return ack();
     }
 
-    if (!mappedTask) {
+    const kieTaskRowNow = await prisma.kieTask.findUnique({ where: { taskId } });
+    if (!kieTaskRowNow) {
       await upsertKieTask(taskId, "generation", gen.id, "final", gen.userId, { type: gen.type });
     }
 

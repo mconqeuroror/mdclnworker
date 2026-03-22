@@ -8,38 +8,7 @@ import { ensureKieAccessibleUrl } from "../utils/kieUpload.js";
 import { preprocessReferenceVideoForKling } from "./video.service.js";
 import requestQueue from "./queue.service.js";
 import { getErrorMessageForDb } from "../lib/userError.js";
-
-async function registerKieTaskForGeneration(taskId, generationId, kind = "pipeline-video") {
-  if (!taskId || !generationId) return;
-  const gen = await prisma.generation.findUnique({
-    where: { id: generationId },
-    select: { userId: true },
-  });
-  await prisma.kieTask.upsert({
-    where: { taskId },
-    update: {
-      entityType: "generation",
-      entityId: generationId,
-      step: "final",
-      userId: gen?.userId || null,
-      status: "processing",
-      payload: { type: kind },
-      errorMessage: null,
-      outputUrl: null,
-      completedAt: null,
-    },
-    create: {
-      taskId,
-      provider: "kie",
-      entityType: "generation",
-      entityId: generationId,
-      step: "final",
-      userId: gen?.userId || null,
-      status: "processing",
-      payload: { type: kind },
-    },
-  });
-}
+import { persistKieGenerationCorrelation } from "../utils/kieTaskCorrelation.js";
 
 /**
  * Find generation by pipelinePayload.imageTaskId and run the video step.
@@ -100,21 +69,28 @@ async function runQuickVideoContinuation(generationId, payload, imageUrl) {
       generateVideoWithMotionKie(kieImageUrl, kieVideoUrl, {
         ultra: !!ultra,
         onTaskSubmitted: async (videoTaskId) => {
-          await prisma.generation.update({
-            where: { id: generationId },
-            data: {
-              replicateModel: `kie-task:${videoTaskId}`,
+          await persistKieGenerationCorrelation({
+            taskId: videoTaskId,
+            generationId,
+            kind: "quick-video",
+            extraGenerationData: {
               pipelinePayload: { ...payload, videoTaskId },
             },
           });
-          await registerKieTaskForGeneration(videoTaskId, generationId, "quick-video");
         },
       })
     );
 
     if (videoResult?.success && videoResult?.deferred) {
       if (videoResult.taskId) {
-        await registerKieTaskForGeneration(videoResult.taskId, generationId, "quick-video");
+        await persistKieGenerationCorrelation({
+          taskId: videoResult.taskId,
+          generationId,
+          kind: "quick-video",
+          extraGenerationData: {
+            pipelinePayload: { ...payload, videoTaskId: videoResult.taskId },
+          },
+        });
       }
       console.log("[KIE Pipeline] quick_video video step submitted for gen %s [%s]", generationId, ultra ? "pro" : "std");
       return true;
@@ -172,21 +148,28 @@ async function runCompleteRecreationContinuation(generationId, payload, imageUrl
         videoPrompt: videoPrompt || "",
         ultra: !!ultra,
         onTaskSubmitted: async (videoTaskId) => {
-          await prisma.generation.update({
-            where: { id: generationId },
-            data: {
-              replicateModel: `kie-task:${videoTaskId}`,
+          await persistKieGenerationCorrelation({
+            taskId: videoTaskId,
+            generationId,
+            kind: "complete-recreation-video",
+            extraGenerationData: {
               pipelinePayload: { ...payload, videoTaskId },
             },
           });
-          await registerKieTaskForGeneration(videoTaskId, generationId, "complete-recreation-video");
         },
       })
     );
 
     if (videoResult?.success && videoResult?.deferred) {
       if (videoResult.taskId) {
-        await registerKieTaskForGeneration(videoResult.taskId, generationId, "complete-recreation-video");
+        await persistKieGenerationCorrelation({
+          taskId: videoResult.taskId,
+          generationId,
+          kind: "complete-recreation-video",
+          extraGenerationData: {
+            pipelinePayload: { ...payload, videoTaskId: videoResult.taskId },
+          },
+        });
       }
       console.log("[KIE Pipeline] complete_recreation video step submitted for gen", generationId);
       return true;

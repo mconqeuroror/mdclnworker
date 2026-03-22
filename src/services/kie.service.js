@@ -120,19 +120,91 @@ async function waitForRateSlot(label) {
 // ─── API calls ────────────────────────────────────────────────────────────────
 
 /**
+ * KIE expects `input` as an object. Some clients double-encode it as a JSON string.
+ * Motion-control must have `input_urls` / `video_urls` as arrays of URL strings (see docs/api used doc.md).
+ */
+function normalizeKieCreateRequestBody(rawBody, label) {
+  if (!rawBody || typeof rawBody !== "object" || Array.isArray(rawBody)) {
+    throw new Error(`[KIE] Invalid request body for ${label}: expected object`);
+  }
+  const body = { ...rawBody };
+  let input = body.input;
+  if (typeof input === "string") {
+    try {
+      input = JSON.parse(input);
+    } catch {
+      throw new Error(`[KIE] Invalid request body for ${label}: input must be an object (failed to parse JSON string)`);
+    }
+  }
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new Error(`[KIE] Invalid request body for ${label}: input must be an object, not a JSON string`);
+  }
+
+  const model = String(body.model || "");
+  if (model.includes("motion-control")) {
+    const coerceUrlArray = (v, field) => {
+      if (v == null) return [];
+      if (Array.isArray(v)) {
+        return v
+          .map((x) => {
+            if (typeof x === "string" && x.trim().startsWith("http")) return x.trim();
+            if (x && typeof x === "object" && typeof x.url === "string" && x.url.startsWith("http")) return x.url.trim();
+            return null;
+          })
+          .filter(Boolean);
+      }
+      if (typeof v === "string") {
+        const s = v.trim();
+        if (s.startsWith("http")) return [s];
+        try {
+          const p = JSON.parse(s);
+          if (Array.isArray(p)) return coerceUrlArray(p, field);
+          if (p && typeof p === "object") {
+            return coerceUrlArray(p.video_urls || p.input_urls || [], field);
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+      if (typeof v === "object" && v !== null && typeof v.input === "string") {
+        try {
+          const inner = JSON.parse(v.input);
+          if (inner && typeof inner === "object") {
+            if (field === "video_urls" && inner.video_urls) return coerceUrlArray(inner.video_urls, field);
+            if (field === "input_urls" && inner.input_urls) return coerceUrlArray(inner.input_urls, field);
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+      return [];
+    };
+
+    const next = { ...input };
+    next.input_urls = coerceUrlArray(next.input_urls, "input_urls");
+    next.video_urls = coerceUrlArray(next.video_urls, "video_urls");
+    if (!next.input_urls.length || !next.video_urls.length) {
+      throw new Error(
+        `[KIE] Invalid motion-control payload for ${label}: input_urls and video_urls must each contain at least one http(s) URL`,
+      );
+    }
+    body.input = next;
+  } else {
+    body.input = input;
+  }
+
+  return body;
+}
+
+/**
  * Submit a task to KIE API. Returns taskId string.
  */
 async function kieCreateTask(requestBody, label = "task") {
   await waitForRateSlot(label);
 
-  if (!requestBody || typeof requestBody !== "object" || Array.isArray(requestBody)) {
-    throw new Error(`[KIE] Invalid request body for ${label}: expected object`);
-  }
-  if (!requestBody.input || typeof requestBody.input !== "object" || Array.isArray(requestBody.input)) {
-    throw new Error(`[KIE] Invalid request body for ${label}: input must be an object, not a JSON string`);
-  }
+  const body = normalizeKieCreateRequestBody(requestBody, label);
 
-  console.log(`[KIE] Submitting ${label}:`, JSON.stringify(requestBody).slice(0, 300));
+  console.log(`[KIE] Submitting ${label}:`, JSON.stringify(body).slice(0, 300));
 
   const res = await fetch(`${KIE_API_URL}/jobs/createTask`, {
     method: "POST",
@@ -140,7 +212,7 @@ async function kieCreateTask(requestBody, label = "task") {
       "Content-Type": "application/json",
       Authorization: `Bearer ${KIE_API_KEY}`,
     },
-    body: JSON.stringify(requestBody),
+    body: JSON.stringify(body),
     signal: AbortSignal.timeout(30_000),
   });
 
@@ -539,16 +611,19 @@ async function generateVideoWithMotionKieInternal(imageUrl, videoUrl, options = 
     throw new Error(validation.message);
   }
 
+  const img = typeof imageUrl === "string" ? imageUrl.trim() : String(imageUrl || "");
+  const vid = typeof videoUrl === "string" ? videoUrl.trim() : String(videoUrl || "");
+
   // Soft pre-flight check — warn on failure but never block; KIE validates URLs itself.
   try {
-    const headRes = await fetch(imageUrl, { method: "HEAD", signal: AbortSignal.timeout(15_000) });
+    const headRes = await fetch(img, { method: "HEAD", signal: AbortSignal.timeout(15_000) });
     console.log(`[KIE/kling-motion] Image HEAD: ${headRes.status}, content-type: ${headRes.headers.get("content-type")}, size: ${headRes.headers.get("content-length")} bytes`);
     if (!headRes.ok) console.warn(`[KIE/kling-motion] ⚠️ Image URL HEAD ${headRes.status} — submitting anyway`);
   } catch (e) {
     console.warn(`[KIE/kling-motion] ⚠️ Image URL check timed out/failed: ${e.message} — submitting anyway`);
   }
   try {
-    const videoHead = await fetch(videoUrl, { method: "HEAD", signal: AbortSignal.timeout(15_000) });
+    const videoHead = await fetch(vid, { method: "HEAD", signal: AbortSignal.timeout(15_000) });
     if (!videoHead.ok) console.warn(`[KIE/kling-motion] ⚠️ Video URL HEAD ${videoHead.status} — submitting anyway`);
   } catch (e) {
     console.warn(`[KIE/kling-motion] ⚠️ Video URL check timed out/failed: ${e.message} — submitting anyway`);
@@ -557,15 +632,15 @@ async function generateVideoWithMotionKieInternal(imageUrl, videoUrl, options = 
   const prompt = options.videoPrompt || options.prompt || "No distortion, no blur, background matches with the image source, the character's movements are consistent with the video.";
 
   const model = useUltraMotionControl ? "kling-3.0/motion-control" : "kling-2.6/motion-control";
-  // Match the published KIE motion-control examples literally for both models.
+  // Match docs/api used doc.md (OpenAPI): mode 720p | character_orientation default "video" (recommended).
   const mode = "720p";
-  const characterOrientation = "image";
+  const characterOrientation = "video";
   const requestBody = {
     model,
     input: {
       prompt,
-      input_urls: [imageUrl],
-      video_urls: [videoUrl],
+      input_urls: [img],
+      video_urls: [vid],
       character_orientation: characterOrientation,
       mode,
       ...(useUltraMotionControl ? { background_source: "input_video" } : {}),
