@@ -966,14 +966,19 @@ export default function CreatorStudioPage({ sidebarCollapsed = false }) {
         <>
           {/* Canvas — results area */}
           <div className="flex-1 px-6 pt-4 pb-64 min-h-screen">
-            <div className="flex items-center gap-3 mb-6">
-              <div className="w-9 h-9 rounded-xl flex items-center justify-center"
-                style={{ background: "linear-gradient(135deg,#7c3aed,#4f46e5)" }}>
-                <Wand2 className="w-4 h-4 text-white" />
+            <div className="flex items-center gap-4 mb-8">
+              <div className="relative flex-shrink-0">
+                <div className="w-14 h-14 rounded-2xl flex items-center justify-center"
+                  style={{
+                    background: "linear-gradient(135deg,#7c3aed 0%,#4f46e5 100%)",
+                    boxShadow: "0 0 0 1px rgba(139,92,246,0.4), 0 0 24px rgba(109,40,217,0.45)",
+                  }}>
+                  <Wand2 className="w-6 h-6 text-white" />
+                </div>
               </div>
               <div>
-                <h1 className="text-sm font-bold text-white">NanoBanana Pro</h1>
-                <p className="text-[11px] text-slate-500">No model required</p>
+                <h1 className="text-2xl font-bold text-white tracking-tight">NanoBanana Pro</h1>
+                <p className="text-sm text-slate-400 mt-0.5">No model required · generate anything</p>
               </div>
             </div>
 
@@ -999,12 +1004,28 @@ export default function CreatorStudioPage({ sidebarCollapsed = false }) {
           </div>
 
           {/* Floating bottom bar — desktop */}
+          <style>{`
+            @keyframes bar-spin {
+              from { transform: rotate(0deg); }
+              to   { transform: rotate(360deg); }
+            }
+          `}</style>
           <div
             className="hidden md:flex justify-center fixed bottom-4 right-6 z-20 pointer-events-none transition-all duration-300"
             style={{ left: sidebarCollapsed ? "72px" : "260px" }}
           >
+            {/* Spinning-border wrapper */}
+            <div className="pointer-events-auto w-full max-w-2xl relative rounded-2xl overflow-hidden p-px">
+              {/* Rotating conic-gradient that forms the animated border */}
+              <div style={{
+                position: "absolute",
+                inset: "-150%",
+                background: "conic-gradient(from 0deg, transparent 320deg, rgba(255,255,255,0.08) 345deg, rgba(255,255,255,0.55) 358deg, rgba(255,255,255,0.08) 360deg, transparent 360deg)",
+                animation: "bar-spin 4s linear infinite",
+                pointerEvents: "none",
+              }} />
             <div
-              className="pointer-events-auto w-full max-w-2xl flex flex-col items-stretch justify-center p-3 rounded-2xl"
+              className="relative w-full flex flex-col items-stretch justify-center p-3 rounded-2xl"
               style={{ background: BAR_BG }}
             >
               <textarea
@@ -1069,6 +1090,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false }) {
               </div>
               <p className="text-[10px] text-slate-600 mt-1.5 text-right pr-1">{creditsLeft} credits available</p>
             </div>
+            </div>{/* /spinning-border wrapper */}
           </div>
 
           {/* Mobile bar */}
