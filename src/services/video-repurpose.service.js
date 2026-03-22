@@ -475,7 +475,7 @@ function buildFfmpegCommand(inputVideo, outputVideo, watermarkPath, filtersCfg, 
   const hasAudio = sourceInfo.hasAudio;
   const duration = sourceInfo.duration;
 
-  const cmd = [FFMPEG_BIN, "-y", "-i", inputVideo];
+  const cmd = [FFMPEG_BIN, "-y", "-fflags", "+discardcorrupt", "-err_detect", "ignore_err", "-i", inputVideo];
   const useWatermark = isEnabled(filtersCfg, "apply_watermark") && watermarkPath;
   if (useWatermark) cmd.push("-i", watermarkPath);
 

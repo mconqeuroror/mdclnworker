@@ -1313,7 +1313,7 @@ export default function VideoRepurposerPage({ embedded }) {
           stopPolling();
           setIsGenerating(false);
           setProgress(0);
-          toast.error(job.error || "Processing failed");
+          toast.error(getSafeErrorText(job.error, "Processing failed"));
         }
       } catch {
         // keep polling
@@ -1372,7 +1372,7 @@ export default function VideoRepurposerPage({ embedded }) {
       stopPolling();
       const data = workerRes.data;
       if (!data?.ok) {
-        toast.error(data?.error || "Worker failed");
+        toast.error(getSafeErrorText(data?.error, "Worker failed"));
         setIsGenerating(false);
         return;
       }
@@ -1392,7 +1392,8 @@ export default function VideoRepurposerPage({ embedded }) {
       fetchHistory();
     } catch (err) {
       stopPolling();
-      const msg = err.response?.data?.error || err?.message || "Processing failed";
+      const rawErr = err.response?.data?.error ?? err.response?.data ?? err?.message;
+      const msg = getSafeErrorText(rawErr, "Processing failed");
       toast.error(msg);
       setIsGenerating(false);
       setJobStatus(null);
