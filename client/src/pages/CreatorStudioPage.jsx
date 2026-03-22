@@ -865,6 +865,8 @@ export default function CreatorStudioPage({ sidebarCollapsed = false }) {
   const [activeTab, setActiveTab] = useState("generate");
   const user        = useAuthStore((s) => s.user);
   const refreshUser = useAuthStore((s) => s.refreshUser);
+  const isAdminUser = user?.role === "admin";
+  const visibleTabs = isAdminUser ? TABS : TABS.filter((t) => t.id !== "avatars");
 
   // NanoBanana state
   const [prompt, setPrompt]             = useState("");
@@ -885,6 +887,12 @@ export default function CreatorStudioPage({ sidebarCollapsed = false }) {
     },
     staleTime: 30_000,
   });
+
+  useEffect(() => {
+    if (!isAdminUser && activeTab === "avatars") {
+      setActiveTab("generate");
+    }
+  }, [isAdminUser, activeTab]);
 
   const handleAddRef = useCallback(async (file, slotIdx) => {
     setUploadingIdx(slotIdx);
@@ -937,7 +945,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false }) {
 
       {/* ── Tab switcher ─────────────────────────────────────────────────── */}
       <div className="flex items-center gap-1 px-6 pt-5 pb-1 z-10 relative">
-        {TABS.map(tab => {
+        {visibleTabs.map(tab => {
           const Icon = tab.icon;
           const active = activeTab === tab.id;
           return (

@@ -14,6 +14,7 @@ import express from "express";
 import multer from "multer";
 import prisma from "../lib/prisma.js";
 import { authMiddleware } from "../middleware/auth.middleware.js";
+import { adminMiddleware } from "../middleware/admin.middleware.js";
 import { getGenerationPricing } from "../services/generation-pricing.service.js";
 import { textToSpeech } from "../services/elevenlabs.service.js";
 import { uploadBufferToR2 } from "../utils/r2.js";
@@ -27,7 +28,7 @@ import {
 } from "../services/heygen.service.js";
 
 const router = express.Router();
-router.use(authMiddleware);
+router.use(authMiddleware, adminMiddleware);
 
 const upload = multer({
   storage: multer.memoryStorage(),
