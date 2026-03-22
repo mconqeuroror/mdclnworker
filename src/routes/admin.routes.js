@@ -1015,6 +1015,20 @@ router.post("/send-marketing-email", async (req, res) => {
         }
       }
     };
+    const mapWithConcurrency = async (items, concurrency, handler) => {
+      const out = new Array(items.length);
+      let cursorIdx = 0;
+      const workerCount = Math.max(1, Math.min(concurrency, items.length || 1));
+      const workers = Array.from({ length: workerCount }, async () => {
+        while (true) {
+          const idx = cursorIdx++;
+          if (idx >= items.length) return;
+          out[idx] = await handler(items[idx], idx);
+        }
+      });
+      await Promise.all(workers);
+      return out;
+    };
 
     let nextCursor = startCursor;
     for (let i = startCursor; i < users.length; i += BATCH_SIZE) {
@@ -1039,23 +1053,26 @@ router.post("/send-marketing-email", async (req, res) => {
       } catch (error) {
         console.error(`Batch ${batchNo} failed as bulk, retrying per-recipient...`, error?.message || error);
         pushError(`Batch ${batchNo} bulk failure: ${error?.message || "unknown error"}`);
-        const settled = await Promise.allSettled(
-          batch.map((user) =>
-            sendBatchWithRetry([{
+        const settled = await mapWithConcurrency(batch, 20, async (user) => {
+          try {
+            await sendBatchWithRetry([{
               to: user.email,
               from: { email: fromEmail, name: BRAND.name },
               subject,
               html: buildEmailHtml(user.name ? user.name.split(" ")[0] : null, user.email),
               trackingSettings: NO_TRACKING,
-            }], 2)
-          )
-        );
+            }], 2);
+            return { ok: true };
+          } catch (err) {
+            return { ok: false, err };
+          }
+        });
         settled.forEach((r, idx) => {
-          if (r.status === "fulfilled") {
+          if (r?.ok) {
             sent += 1;
           } else {
             failed += 1;
-            pushError(`${batch[idx].email}: ${r.reason?.message || "send failed"}`);
+            pushError(`${batch[idx].email}: ${r?.err?.message || "send failed"}`);
           }
         });
         console.log(`Batch ${batchNo}: fallback complete (total sent: ${sent}, failed: ${failed})`);

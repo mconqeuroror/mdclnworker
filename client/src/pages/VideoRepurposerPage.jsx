@@ -55,7 +55,7 @@ import {
   Coins,
 } from "lucide-react";
 import toast from "react-hot-toast";
-import api from "../services/api";
+import api, { uploadFile, getUploadConfig } from "../services/api";
 import { useAuthStore } from "../store";
 import { REPURPOSE_DEVICE_OPTIONS } from "../data/repurposeDeviceOptions";
 import { hasPremiumAccess } from "../utils/premiumAccess";
@@ -1366,24 +1366,35 @@ export default function VideoRepurposerPage({ embedded }) {
         typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
           ? crypto.randomUUID()
           : `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
-      const form = new FormData();
-      form.append("jobId", jobId);
-      form.append("video", videoFile);
-      if (watermarkFile) form.append("watermark", watermarkFile);
-      form.append("settings", JSON.stringify(settings));
+      const uploadCfg = await getUploadConfig();
+      if (!uploadCfg?.directToBlob) {
+        throw new Error("Direct blob uploads are not enabled. This route avoids Vercel 4MB limits and must be enabled.");
+      }
+
+      setJobStatus("uploading");
+      setProgress(4);
+      setStatusMsg("Uploading input to blob…");
+      const videoUrl = await uploadFile(videoFile);
+      let watermarkUrl = null;
+      if (watermarkFile) {
+        watermarkUrl = await uploadFile(watermarkFile);
+      }
 
       setJobId(jobId);
       setJobStatus("processing");
       setProgress(8);
-      setStatusMsg("Uploading…");
+      setStatusMsg("Submitting worker job…");
       stopPolling();
       pollRef.current = setInterval(() => {
         void pollJob(jobId);
       }, 650);
       void pollJob(jobId);
 
-      const workerRes = await api.post("/video-repurpose/generate-with-worker", form, {
-        headers: { "Content-Type": "multipart/form-data" },
+      const workerRes = await api.post("/video-repurpose/generate-with-worker", {
+        jobId,
+        videoUrl,
+        ...(watermarkUrl ? { watermarkUrl } : {}),
+        settings,
       });
       stopPolling();
       const data = workerRes.data;
