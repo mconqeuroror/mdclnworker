@@ -126,6 +126,14 @@ const GENERATION_PRICING_GROUPS = [
     ],
   },
   {
+    title: 'Real Avatars (HeyGen)',
+    fields: [
+      { key: 'avatarCreation', label: 'Avatar creation (one-time fee)' },
+      { key: 'avatarMonthly', label: 'Avatar monthly maintenance' },
+      { key: 'avatarVideoPerSec', label: 'Avatar video generation (per second)' },
+    ],
+  },
+  {
     title: 'Prompt tools',
     fields: [
       { key: 'enhancePromptDefault', label: 'Enhance prompt (default)' },

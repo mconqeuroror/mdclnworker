@@ -745,6 +745,41 @@ export const creatorStudioAPI = {
   },
 };
 
+// Real Avatars API
+export const avatarAPI = {
+  list: async (modelId) => {
+    const response = await api.get(`/avatars?modelId=${modelId}`);
+    return response.data;
+  },
+
+  create: async (formData) => {
+    const response = await api.post("/avatars", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+    return response.data;
+  },
+
+  delete: async (id) => {
+    const response = await api.delete(`/avatars/${id}`);
+    return response.data;
+  },
+
+  generateVideo: async (avatarId, { script }) => {
+    const response = await api.post(`/avatars/${avatarId}/generate`, { script });
+    return response.data;
+  },
+
+  getVideoStatus: async (videoId) => {
+    const response = await api.get(`/avatars/videos/${videoId}`);
+    return response.data;
+  },
+
+  listVideos: async (avatarId) => {
+    const response = await api.get(`/avatars/${avatarId}/videos`);
+    return response.data;
+  },
+};
+
 // Model API
 export const modelAPI = {
   create: async (data) => {

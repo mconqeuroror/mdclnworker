@@ -19,6 +19,11 @@ export const DEFAULT_GENERATION_PRICING = Object.freeze({
   creatorStudio1K2K: 20,
   creatorStudio4K: 25,
 
+  // Real Avatars — HeyGen Photo Avatar IV
+  avatarCreation: 1000,   // one-time creation fee
+  avatarMonthly: 500,     // monthly maintenance per avatar
+  avatarVideoPerSec: 5,   // per second of generated video
+
   videoRecreateStdPerSec: 10,
   videoRecreateUltraPerSec: 25,
   videoPrompt5s: 60,

@@ -185,6 +185,7 @@ import designerStudioRoutes from "./designer-studio.routes.js";
 import referralRoutes from "./referral.routes.js";
 import draftRoutes from "./draft.routes.js";
 import reformatterRoutes from "./reformatter.routes.js";
+import avatarRoutes from "./avatar.routes.js";
 import { sendFrontendErrorAlert } from "../services/email.service.js";
 import rateLimit from "express-rate-limit";
 import { getAppBranding } from "../services/branding.service.js";
@@ -1916,6 +1917,11 @@ router.use("/crypto", nowpaymentsRoutes);
 router.use("/referrals", referralRoutes);
 router.use("/drafts", draftRoutes);
 router.use("/reformatter", reformatterRoutes);
+
+// ============================================
+// REAL AVATARS (HeyGen Photo Avatar IV)
+// ============================================
+router.use("/avatars", avatarRoutes);
 
 // ============================================
 // ADMIN ROUTES (Backup, Stats, User Management)
