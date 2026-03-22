@@ -206,6 +206,7 @@ model ModelVoice {
   name              String
   description       String?              @db.Text
   language          String?
+  gender            String?
   previewUrl        String?
   sampleAudioUrl    String?
   isDefault         Boolean              @default(false)

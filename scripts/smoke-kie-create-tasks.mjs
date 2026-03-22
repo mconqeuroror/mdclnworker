@@ -113,6 +113,21 @@ async function run() {
         },
       },
     },
+    {
+      label: "video recreate kling-3.0/motion-control (string input + 720p)",
+      body: {
+        model: "kling-3.0/motion-control",
+        callBackUrl: "https://example.com/api/kie/callback",
+        input: JSON.stringify({
+          prompt: "smooth realistic motion",
+          input_urls: [sampleImage],
+          video_urls: [sampleVideo],
+          mode: "720p",
+          character_orientation: "video",
+          background_source: "input_video",
+        }),
+      },
+    },
   ];
 
   const out = [];

@@ -54,3 +54,28 @@ export function mergeVoiceDescriptionWithLanguage(userDescription, languageCode)
   const label = opt?.label || languageCode;
   return `Primary language for this voice: ${label} (${languageCode}). ${base}`;
 }
+
+/**
+ * @param {string} raw
+ * @returns {"" | "female" | "male" | "neutral"}
+ */
+export function normalizeVoiceStudioGender(raw) {
+  const g = String(raw ?? "").trim().toLowerCase();
+  if (g === "male" || g === "female" || g === "neutral") return g;
+  return "";
+}
+
+/**
+ * Voice design (TTV): gender hint + language hint + user text for ElevenLabs.
+ * @param {string} userDescription
+ * @param {string} languageCode - normalized
+ * @param {string} genderRaw
+ */
+export function mergeVoiceDescriptionForDesign(userDescription, languageCode, genderRaw) {
+  let base = String(userDescription || "").trim();
+  const gender = normalizeVoiceStudioGender(genderRaw);
+  if (gender === "male") base = `Male voice. ${base}`;
+  else if (gender === "female") base = `Female voice. ${base}`;
+  else if (gender === "neutral") base = `Gender-neutral voice. ${base}`;
+  return mergeVoiceDescriptionWithLanguage(base, languageCode);
+}

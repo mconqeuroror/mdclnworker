@@ -37,6 +37,8 @@ import {
   VOICE_STUDIO_LANGUAGE_OPTIONS,
   normalizeVoiceStudioLanguageCode,
   mergeVoiceDescriptionWithLanguage,
+  mergeVoiceDescriptionForDesign,
+  normalizeVoiceStudioGender,
 } from "../constants/voiceStudioLanguages.js";
 
 function isMissingVoiceStudioTableError(error) {
@@ -153,6 +155,7 @@ function mapModelVoice(voice) {
     name: voice.name,
     description: voice.description,
     language: voice.language,
+    gender: voice.gender || null,
     previewUrl: voice.previewUrl,
     sampleAudioUrl: voice.sampleAudioUrl,
     isDefault: Boolean(voice.isDefault),
@@ -182,6 +185,7 @@ function mapGeneratedVoiceAudio(audio) {
     previewUrl: audio.previewUrlSnapshot,
     createdAt: audio.createdAt,
     completedAt: audio.completedAt,
+    updatedAt: audio.updatedAt,
   };
 }
 
@@ -832,7 +836,8 @@ export async function postModelVoicesDesignConfirm(req, res) {
     const generatedVoiceId = String(req.body?.generatedVoiceId || "").trim();
     const voiceDescription = String(req.body?.voiceDescription || "").trim();
     const language = normalizeVoiceStudioLanguageCode(req.body?.language);
-    const fullDescription = mergeVoiceDescriptionWithLanguage(voiceDescription, language);
+    const gender = normalizeVoiceStudioGender(req.body?.gender);
+    const fullDescription = mergeVoiceDescriptionForDesign(voiceDescription, language, gender);
 
     if (!consentOk(req.body?.consentConfirmed)) {
       return res.status(400).json({
@@ -906,6 +911,7 @@ export async function postModelVoicesDesignConfirm(req, res) {
           name: voiceName,
           description: voiceDescription,
           language,
+          gender: gender || null,
           previewUrl,
           isDefault: existingVoices.length === 0,
         },
@@ -1043,6 +1049,7 @@ export async function postModelVoicesClone(req, res) {
           name: voiceName,
           description: `Clone for model ${model.name}`,
           language,
+          gender: gender || null,
           previewUrl,
           sampleAudioUrl,
           isDefault: existingVoices.length === 0,
@@ -1195,7 +1202,7 @@ export async function postGenerateModelVoiceAudio(req, res) {
       });
     }
 
-    const [model, voice, sourceAudio] = await Promise.all([
+    const [model, voice, existingAudio] = await Promise.all([
       getOwnedModel(userId, modelId),
       prisma.modelVoice.findFirst({
         where: { id: voiceId, modelId, userId },
@@ -1203,7 +1210,6 @@ export async function postGenerateModelVoiceAudio(req, res) {
       regenerateFromId
         ? prisma.generatedVoiceAudio.findFirst({
             where: { id: regenerateFromId, modelId, userId },
-            select: { id: true },
           })
         : Promise.resolve(null),
     ]);
@@ -1214,8 +1220,14 @@ export async function postGenerateModelVoiceAudio(req, res) {
     if (!voice) {
       return res.status(404).json({ success: false, message: "Voice not found" });
     }
-    if (regenerateFromId && !sourceAudio) {
+    if (regenerateFromId && !existingAudio) {
       return res.status(404).json({ success: false, message: "Original audio not found for regeneration." });
+    }
+    if (regenerateFromId && existingAudio?.status === "processing") {
+      return res.status(409).json({
+        success: false,
+        message: "This clip is already regenerating. Wait for it to finish.",
+      });
     }
 
     const estimatedDurationSec = estimateAudioDuration(script, voice.elevenLabsVoiceId);
@@ -1238,6 +1250,92 @@ export async function postGenerateModelVoiceAudio(req, res) {
     await deductCredits(userId, creditsCost);
     creditsCharged = creditsCost;
 
+    /** In-place regeneration: same history row, new file replaces old R2 object. */
+    if (regenerateFromId && existingAudio) {
+      audioRecordId = regenerateFromId;
+      const previousStatus = existingAudio.status;
+      const previousErrorMessage = existingAudio.errorMessage;
+
+      await prisma.generatedVoiceAudio.update({
+        where: { id: regenerateFromId },
+        data: { status: "processing", errorMessage: null },
+      });
+
+      try {
+        const audioBuffer = await textToSpeech(script, voice.elevenLabsVoiceId, {
+          modelId: VOICE_TTS_MODEL_ID,
+          stability: 0.5,
+          similarityBoost: 0.75,
+          style: 0.15,
+        });
+        const audioUrl = await storeGeneratedVoiceAudioMp3(audioBuffer);
+        const oldUrl = existingAudio.audioUrl;
+
+        const completedRecord = await prisma.$transaction(async (tx) => {
+          const record = await tx.generatedVoiceAudio.update({
+            where: { id: regenerateFromId },
+            data: {
+              voiceId: voice.id,
+              script,
+              characterCount: script.length,
+              estimatedDurationSec,
+              creditsCost,
+              isRegeneration: true,
+              status: "completed",
+              audioUrl,
+              actualDurationSec: estimatedDurationSec,
+              completedAt: new Date(),
+              voiceNameSnapshot: voice.name,
+              voiceTypeSnapshot: voice.type,
+              elevenLabsVoiceIdSnapshot: voice.elevenLabsVoiceId,
+              previewUrlSnapshot: voice.previewUrl,
+              errorMessage: null,
+            },
+          });
+
+          await tx.creditTransaction.create({
+            data: {
+              userId,
+              amount: -creditsCost,
+              type: "usage",
+              description: `Voice audio regeneration for model ${model.name}`,
+            },
+          });
+
+          return record;
+        });
+
+        await deleteManagedR2Url(oldUrl);
+
+        const payload = await buildVoiceStudioPayload(userId, modelId);
+        return res.json({
+          success: true,
+          audio: mapGeneratedVoiceAudio(completedRecord),
+          creditsUsed: creditsCost,
+          ...payload,
+        });
+      } catch (regenError) {
+        console.error("postGenerateModelVoiceAudio (regen):", regenError);
+        if (creditsCharged > 0) {
+          await refundCredits(userId, creditsCharged).catch(() => {});
+          creditsCharged = 0;
+        }
+        await prisma.generatedVoiceAudio
+          .update({
+            where: { id: regenerateFromId },
+            data: {
+              status: previousStatus,
+              errorMessage: previousErrorMessage,
+            },
+          })
+          .catch(() => {});
+        return res.status(regenError.statusCode || 500).json({
+          success: false,
+          message: regenError.message || "Failed to regenerate audio",
+        });
+      }
+    }
+
     const initialRecord = await prisma.generatedVoiceAudio.create({
       data: {
         userId,
@@ -1247,8 +1345,8 @@ export async function postGenerateModelVoiceAudio(req, res) {
         characterCount: script.length,
         estimatedDurationSec,
         creditsCost,
-        isRegeneration: Boolean(regenerateFromId),
-        sourceAudioId: regenerateFromId,
+        isRegeneration: false,
+        sourceAudioId: null,
         status: "processing",
         voiceNameSnapshot: voice.name,
         voiceTypeSnapshot: voice.type,
@@ -1282,7 +1380,7 @@ export async function postGenerateModelVoiceAudio(req, res) {
           userId,
           amount: -creditsCost,
           type: "usage",
-          description: `Voice audio ${regenerateFromId ? "regeneration" : "generation"} for model ${model.name}`,
+          description: `Voice audio generation for model ${model.name}`,
         },
       });
 

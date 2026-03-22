@@ -1,11 +1,15 @@
 import prisma from "../lib/prisma.js";
 
-export const VOICE_DESIGN_CREDITS_INITIAL = 1000;
-export const VOICE_DESIGN_CREDITS_RECREATE = 500;
-export const VOICE_CLONE_CREDITS_INITIAL = 2000;
-export const VOICE_CLONE_CREDITS_RECREATE = 1000;
-export const VOICE_AUDIO_CREDITS_PER_1K_CHARS = 36;
-export const VOICE_AUDIO_REGEN_CREDITS_PER_1K_CHARS = 18;
+/** First saved voice on a model (design path). */
+export const VOICE_DESIGN_CREDITS_INITIAL = 500;
+/** Additional saved voices on the same model (design path). */
+export const VOICE_DESIGN_CREDITS_RECREATE = 250;
+/** First saved voice (clone path). */
+export const VOICE_CLONE_CREDITS_INITIAL = 1000;
+/** Additional saved voices (clone path). */
+export const VOICE_CLONE_CREDITS_RECREATE = 500;
+export const VOICE_AUDIO_CREDITS_PER_1K_CHARS = 72;
+export const VOICE_AUDIO_REGEN_CREDITS_PER_1K_CHARS = 36;
 export const VOICE_TTS_MODEL_ID = "eleven_v3";
 export const VOICE_MAX_SAVED_VOICES_PER_MODEL = 3;
 export const VOICE_MAX_CHARS = 5000;

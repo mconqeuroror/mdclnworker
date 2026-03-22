@@ -120,8 +120,9 @@ async function waitForRateSlot(label) {
 // ─── API calls ────────────────────────────────────────────────────────────────
 
 /**
- * KIE expects `input` as an object. Some clients double-encode it as a JSON string.
- * Motion-control must have `input_urls` / `video_urls` as arrays of URL strings (see docs/api used doc.md).
+ * Motion-control: build `input` as an object first (validate URLs), then serialize to a JSON **string**
+ * for createTask — this matches the wire format KIE accepts in production (nested object also works for some routes).
+ * Other models keep `input` as an object.
  */
 function normalizeKieCreateRequestBody(rawBody, label) {
   if (!rawBody || typeof rawBody !== "object" || Array.isArray(rawBody)) {
@@ -188,6 +189,43 @@ function normalizeKieCreateRequestBody(rawBody, label) {
         `[KIE] Invalid motion-control payload for ${label}: input_urls and video_urls must each contain at least one http(s) URL`,
       );
     }
+
+    /**
+     * Mode enums differ by model (KIE OpenAPI):
+     * - kling-3.0/motion-control: "std" (720p) | "pro" (1080p). Values like "720p" are rejected → 500/422.
+     * - kling-2.6/motion-control: "720p" | "1080p"
+     */
+    const mRaw = String(next.mode ?? "").trim().toLowerCase();
+    if (model.includes("kling-3.0") || model.includes("kling-3")) {
+      if (mRaw === "1080p" || mRaw === "pro" || mRaw === "professional") {
+        next.mode = "pro";
+      } else if (
+        mRaw === "720p" ||
+        mRaw === "std" ||
+        mRaw === "standard" ||
+        mRaw === ""
+      ) {
+        next.mode = "std";
+      } else {
+        console.warn(`[KIE] Unknown motion mode "${next.mode}" for ${model} — using std`);
+        next.mode = "std";
+      }
+    } else if (model.includes("kling-2.6")) {
+      if (mRaw === "1080p" || mRaw === "pro" || mRaw === "professional") {
+        next.mode = "1080p";
+      } else if (
+        mRaw === "720p" ||
+        mRaw === "std" ||
+        mRaw === "standard" ||
+        mRaw === ""
+      ) {
+        next.mode = "720p";
+      } else {
+        console.warn(`[KIE] Unknown motion mode "${next.mode}" for ${model} — using 720p`);
+        next.mode = "720p";
+      }
+    }
+
     body.input = next;
   } else {
     body.input = input;
@@ -204,7 +242,20 @@ async function kieCreateTask(requestBody, label = "task") {
 
   const body = normalizeKieCreateRequestBody(requestBody, label);
 
-  console.log(`[KIE] Submitting ${label}:`, JSON.stringify(body).slice(0, 300));
+  const modelName = String(body.model || "");
+  const motionControl = modelName.includes("motion-control");
+  if (motionControl) {
+    if (typeof body.input !== "string") {
+      throw new Error(`[KIE] motion-control createTask expects input as JSON string (got ${typeof body.input})`);
+    }
+  } else if (typeof body.input !== "object" || body.input === null || Array.isArray(body.input)) {
+    throw new Error(`[KIE] createTask requires input as object (got ${typeof body.input})`);
+  }
+
+  console.log(
+    `[KIE] Submitting ${label} (input=${typeof body.input}${motionControl ? ", motion-control" : ""}):`,
+    JSON.stringify(body).slice(0, 320),
+  );
 
   const res = await fetch(`${KIE_API_URL}/jobs/createTask`, {
     method: "POST",
@@ -632,9 +683,15 @@ async function generateVideoWithMotionKieInternal(imageUrl, videoUrl, options = 
   const prompt = options.videoPrompt || options.prompt || "No distortion, no blur, background matches with the image source, the character's movements are consistent with the video.";
 
   const model = useUltraMotionControl ? "kling-3.0/motion-control" : "kling-2.6/motion-control";
-  // Match docs/api used doc.md (OpenAPI): mode 720p | character_orientation default "video" (recommended).
-  const mode = "720p";
-  const characterOrientation = "video";
+  const want1080 =
+    options.motion1080p === true ||
+    options.motionMode === "1080p" ||
+    options.motionMode === "pro";
+  const mode = want1080 ? "1080p" : "720p";
+  const characterOrientation =
+    options.characterOrientation === "image" || options.characterOrientation === "video"
+      ? options.characterOrientation
+      : "video";
   const requestBody = {
     model,
     input: {

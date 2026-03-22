@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS "ModelVoice" (
   "name" TEXT NOT NULL,
   "description" TEXT,
   "language" TEXT,
+  "gender" TEXT,
   "previewUrl" TEXT,
   "sampleAudioUrl" TEXT,
   "isDefault" BOOLEAN NOT NULL DEFAULT FALSE,

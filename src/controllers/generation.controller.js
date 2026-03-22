@@ -3687,6 +3687,7 @@ export async function getVoices(req, res) {
           elevenLabsVoiceId: true,
           type: true,
           name: true,
+          gender: true,
           previewUrl: true,
           isDefault: true,
         },
@@ -3703,7 +3704,7 @@ export async function getVoices(req, res) {
             voiceType: voice.type || "design",
             category: "custom",
             labels: {
-              gender: "female",
+              gender: voice.gender || "female",
               source: "model_custom",
               default: voice.isDefault ? "true" : "false",
             },

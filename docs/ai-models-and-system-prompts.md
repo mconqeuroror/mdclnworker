@@ -27,7 +27,7 @@ This document is the in-depth map of:
 | NSFW video generation | i2v | `wavespeed-ai/wan-2.2-spicy/image-to-video` | WaveSpeed | `src/services/wavespeed.service.js` |
 | NSFW video extend | extend | `wavespeed-ai/wan-2.2-spicy/video-extend` | WaveSpeed | `src/services/wavespeed.service.js` |
 | Motion recreate | std/ultra job type | `kling-2.6/motion-control`, `kling-3.0/motion-control` | KIE.AI | `src/services/kie.service.js` |
-| Motion recreate params | quality mode | `input.mode: "pro"` | KIE.AI | `src/services/kie.service.js` |
+| Motion recreate params | **Motion-control** `input` is sent as a **JSON string** on the wire; `input.mode` **`720p`** / **`1080p`** for both **2.6** and **3.0** (KIE accepts this). Legacy **`std`**/**`pro`** are mapped to 720p/1080p. | KIE.AI | `src/services/kie.service.js` |
 | LoRA training | training pipeline | `fal-ai/z-image-turbo-trainer-v2` | fal.ai | `src/services/fal.service.js` |
 | LoRA captioning helper | dataset captions | `x-ai/grok-4.1-fast` | OpenRouter/xAI | `src/services/fal.service.js` |
 | LoRA auto-assign helper | pose/additive LoRA selection | `x-ai/grok-4.1-fast` | OpenRouter/xAI | `src/services/fal.service.js` |
@@ -393,3 +393,9 @@ Dynamic placeholders:
 
 - Updated from current codebase state at time of generation.
 - If prompt templates change, update this file alongside code changes.
+
+# Google - Nano Banana Pro
+
+## OpenAPI Specification
+
+```yaml
