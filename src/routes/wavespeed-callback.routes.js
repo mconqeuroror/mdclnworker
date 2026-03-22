@@ -103,6 +103,7 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
 
     const taskId = body.id ?? body.request_id ?? body.task_id;
     const status = body.status;
+    const normalizedStatus = String(status || "").toLowerCase();
     const outputs = body.outputs;
     const errorMsg = body.error;
 
@@ -111,7 +112,10 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
       return ack();
     }
 
-    const outputUrl = status === "completed" && Array.isArray(outputs) && outputs.length > 0
+    const isSuccessStatus = ["completed", "succeeded", "success", "finished"].includes(normalizedStatus);
+    const isFailedStatus = ["failed", "error", "cancelled", "canceled"].includes(normalizedStatus);
+
+    const outputUrl = isSuccessStatus && Array.isArray(outputs) && outputs.length > 0
       ? (typeof outputs[0] === "string" ? outputs[0] : outputs[0]?.url)
       : null;
     const finalUrl = (outputUrl && outputUrl.startsWith("http"))
@@ -123,12 +127,12 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
       where: { pipelinePayload: { path: ["imageTaskId"], equals: String(taskId) } },
       select: { id: true },
     });
-    if (pipelineGen && status === "completed" && finalUrl) {
+    if (pipelineGen && isSuccessStatus && finalUrl) {
       await runPipelineContinuation(String(taskId), finalUrl);
       console.log("[WaveSpeed Callback] Paired pipeline gen %s to taskId %s", pipelineGen.id.slice(0, 8), String(taskId).slice(0, 12));
       return ack();
     }
-    if (pipelineGen && status !== "completed") {
+    if (pipelineGen && isFailedStatus) {
       const err = errorMsg || "WaveSpeed task failed";
       await prisma.generation.update({
         where: { id: pipelineGen.id },
@@ -140,7 +144,12 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
     }
 
     const gen = await prisma.generation.findFirst({
-      where: { replicateModel: `wavespeed-seedream:${taskId}` },
+      where: {
+        OR: [
+          { replicateModel: `wavespeed-seedream:${taskId}` },
+          { replicateModel: String(taskId) }, // nsfw-video / nsfw-video-extend store raw requestId
+        ],
+      },
       select: { id: true, userId: true, modelId: true, status: true, type: true },
     });
 
@@ -154,7 +163,7 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
       return ack();
     }
 
-    if (status === "completed" && finalUrl) {
+    if (isSuccessStatus && finalUrl) {
       await prisma.generation.update({
         where: { id: gen.id },
         data: { status: "completed", outputUrl: finalUrl, completedAt: new Date() },
@@ -175,7 +184,7 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
         }
       } catch {}
       console.log("[WaveSpeed Callback] completed %s", gen.id.slice(0, 8));
-    } else {
+    } else if (isFailedStatus) {
       const err = errorMsg || (status === "failed" ? "WaveSpeed task failed" : "Unknown status");
       await prisma.generation.update({
         where: { id: gen.id },
@@ -183,6 +192,9 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
       });
       try { await refundGeneration(gen.id); } catch {}
       console.log("[WaveSpeed Callback] failed %s: %s", gen.id.slice(0, 8), err);
+    } else {
+      // Ignore non-terminal statuses from webhook and let polling/callback continue.
+      console.log("[WaveSpeed Callback] task %s status=%s (non-terminal), waiting", String(taskId).slice(0, 12), String(status));
     }
   } catch (err) {
     console.error("[WaveSpeed Callback] Error:", err?.message || err);

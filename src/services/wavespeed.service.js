@@ -1457,8 +1457,18 @@ async function submitNsfwVideo(imageUrl, prompt, options = {}) {
       seed: seed,
     };
 
+    const callbackUrl = getWaveSpeedCallbackUrl();
+    const submitUrl = callbackUrl
+      ? `${WAVESPEED_API_URL}/wavespeed-ai/wan-2.2-spicy/image-to-video?webhook=${encodeURIComponent(callbackUrl)}`
+      : `${WAVESPEED_API_URL}/wavespeed-ai/wan-2.2-spicy/image-to-video`;
+    if (callbackUrl) {
+      console.log(`🔔 WaveSpeed NSFW video webhook: ${callbackUrl}`);
+    } else {
+      console.warn("⚠️ No WaveSpeed callback URL configured for NSFW video; relying on polling");
+    }
+
     const submitResponse = await fetch(
-      `${WAVESPEED_API_URL}/wavespeed-ai/wan-2.2-spicy/image-to-video`,
+      submitUrl,
       {
         method: "POST",
         headers: {
@@ -1541,8 +1551,18 @@ async function submitNsfwVideoExtend(videoUrl, prompt, options = {}) {
       seed: seed,
     };
 
+    const callbackUrl = getWaveSpeedCallbackUrl();
+    const submitUrl = callbackUrl
+      ? `${WAVESPEED_API_URL}/wavespeed-ai/wan-2.2-spicy/video-extend?webhook=${encodeURIComponent(callbackUrl)}`
+      : `${WAVESPEED_API_URL}/wavespeed-ai/wan-2.2-spicy/video-extend`;
+    if (callbackUrl) {
+      console.log(`🔔 WaveSpeed NSFW video-extend webhook: ${callbackUrl}`);
+    } else {
+      console.warn("⚠️ No WaveSpeed callback URL configured for NSFW video-extend; relying on polling");
+    }
+
     const submitResponse = await fetch(
-      `${WAVESPEED_API_URL}/wavespeed-ai/wan-2.2-spicy/video-extend`,
+      submitUrl,
       {
         method: "POST",
         headers: {

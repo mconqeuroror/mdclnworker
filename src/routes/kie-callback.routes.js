@@ -152,10 +152,10 @@ function parseResultJsonAndGetUrl(resultJson) {
 async function mirrorResultToR2(outputUrl, contentTypeHint = "video/mp4") {
   if (!isR2Configured()) return outputUrl;
   const maxAttempts = 3;
-  const delayMs = 1500;
+  const delayMs = 2500;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      const dl = await fetch(outputUrl, { signal: AbortSignal.timeout(60_000) });
+      const dl = await fetch(outputUrl, { signal: AbortSignal.timeout(90_000) });
       if (!dl.ok) throw new Error(`HTTP ${dl.status}`);
       const buf = Buffer.from(await dl.arrayBuffer());
       const ct = dl.headers.get("content-type") || contentTypeHint;

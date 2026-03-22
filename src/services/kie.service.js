@@ -519,14 +519,14 @@ async function generateVideoWithMotionKieInternal(imageUrl, videoUrl, options = 
 
   // Soft pre-flight check — warn on failure but never block; KIE validates URLs itself.
   try {
-    const headRes = await fetch(imageUrl, { method: "HEAD", signal: AbortSignal.timeout(8_000) });
+    const headRes = await fetch(imageUrl, { method: "HEAD", signal: AbortSignal.timeout(15_000) });
     console.log(`[KIE/kling-motion] Image HEAD: ${headRes.status}, content-type: ${headRes.headers.get("content-type")}, size: ${headRes.headers.get("content-length")} bytes`);
     if (!headRes.ok) console.warn(`[KIE/kling-motion] ⚠️ Image URL HEAD ${headRes.status} — submitting anyway`);
   } catch (e) {
     console.warn(`[KIE/kling-motion] ⚠️ Image URL check timed out/failed: ${e.message} — submitting anyway`);
   }
   try {
-    const videoHead = await fetch(videoUrl, { method: "HEAD", signal: AbortSignal.timeout(8_000) });
+    const videoHead = await fetch(videoUrl, { method: "HEAD", signal: AbortSignal.timeout(15_000) });
     if (!videoHead.ok) console.warn(`[KIE/kling-motion] ⚠️ Video URL HEAD ${videoHead.status} — submitting anyway`);
   } catch (e) {
     console.warn(`[KIE/kling-motion] ⚠️ Video URL check timed out/failed: ${e.message} — submitting anyway`);
@@ -534,10 +534,10 @@ async function generateVideoWithMotionKieInternal(imageUrl, videoUrl, options = 
 
   const prompt = options.videoPrompt || options.prompt || "No distortion, no blur, background matches with the image source, the character's movements are consistent with the video.";
 
-  // Classic = Kling 2.6 motion control pro (1080p). Ultra = Kling 3.0 motion control (1020p).
-  // API: kling-2.6/motion-control and kling-3.0/motion-control; input.mode = "720p" | "1080p" | "1020p"
+  // Per official KIE docs, motion-control uses mode enums "std" | "pro"
+  // (resolution is implied by model+mode), not raw strings like "1080p"/"1020p".
   const model = useUltraMotionControl ? "kling-3.0/motion-control" : "kling-2.6/motion-control";
-  const mode = useUltraMotionControl ? "1020p" : "1080p";
+  const mode = "pro";
   const requestBody = {
     model,
     input: {
@@ -569,7 +569,6 @@ async function generateVideoWithMotionKieInternal(imageUrl, videoUrl, options = 
 
     try {
       const motionLabel = useUltraMotionControl ? "kling-motion-ultra" : "kling-motion";
-      await waitForRateSlot(motionLabel);
       console.log(`[KIE/${motionLabel}] Submitting to KIE (${useUltraMotionControl ? "pro/3.0" : "std/2.6"}) attempt ${attempt}:`, JSON.stringify(requestBody.input).slice(0, 200));
       const taskId = await kieCreateTask(requestBody, motionLabel);
 

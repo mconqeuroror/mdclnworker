@@ -281,7 +281,7 @@ export async function refundCredits(userId, amount) {
             totalCreditsUsed: { decrement: safeDecrement },
           },
         });
-      }, { timeout: 30000 }),
+      }, { timeout: 60000 }),
     { attempts: 3, delayMs: 1000, label: `refundCredits(${userId}, ${amount})` },
   );
 }
@@ -338,7 +338,7 @@ export async function refundGeneration(generationId) {
 
         console.log(`💰 Refunded ${amount} credits for generation ${generationId}`);
         return amount;
-      }, { timeout: 30000 }),
+      }, { timeout: 60000 }),
     { attempts: 3, delayMs: 1000, label: `refundGeneration(${generationId})` },
   );
 }
