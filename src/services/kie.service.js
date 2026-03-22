@@ -297,10 +297,10 @@ async function kieRun(requestBody, label, timeoutMs, options = {}) {
   let lastErr;
   const callbackUrl = getKieCallbackUrl();
   const forcePolling = options.forcePolling === true; // e.g. create-model-with-AI reference image — no generation record to pair callback to
-  if (!forcePolling && !callbackUrl) {
-    throw new Error(`[KIE] Callback URL is required for ${label} (set KIE_CALLBACK_URL / CALLBACK_BASE_URL)`);
-  }
   const useCallback = !!callbackUrl && !forcePolling;
+  if (!useCallback && !forcePolling) {
+    console.warn(`[KIE] No callback URL for ${label}; falling back to polling mode`);
+  }
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     if (attempt > 1) {
@@ -534,10 +534,12 @@ async function generateVideoWithMotionKieInternal(imageUrl, videoUrl, options = 
 
   const prompt = options.videoPrompt || options.prompt || "No distortion, no blur, background matches with the image source, the character's movements are consistent with the video.";
 
-  // Per official KIE docs, motion-control uses mode enums "std" | "pro"
-  // (resolution is implied by model+mode), not raw strings like "1080p"/"1020p".
+  // KIE mode enums differ across model revisions/docs. Try a safe fallback set.
+  // Ultra historically used 1020p, classic used 1080p; newer docs also use std/pro.
   const model = useUltraMotionControl ? "kling-3.0/motion-control" : "kling-2.6/motion-control";
-  const mode = "pro";
+  const modeCandidates = useUltraMotionControl
+    ? ["1020p", "pro", "std", "1080p", "720p"]
+    : ["1080p", "pro", "std", "720p"];
   const requestBody = {
     model,
     input: {
@@ -545,16 +547,19 @@ async function generateVideoWithMotionKieInternal(imageUrl, videoUrl, options = 
       input_urls: [imageUrl],
       video_urls: [videoUrl],
       character_orientation: "video",
-      mode,
+      // set dynamically per candidate before submission
+      mode: modeCandidates[0],
     },
   };
 
   const callbackUrl = getKieCallbackUrl();
-  if (!callbackUrl) {
-    throw new Error("[KIE/kling-motion] Callback URL is required (set KIE_CALLBACK_URL / CALLBACK_BASE_URL)");
+  const useCallback = !!callbackUrl;
+  if (useCallback) {
+    requestBody.callBackUrl = callbackUrl;
+    console.log(`[KIE/kling-motion] Using callback URL: ${callbackUrl}`);
+  } else {
+    console.warn("[KIE/kling-motion] No callback URL configured; falling back to polling");
   }
-  requestBody.callBackUrl = callbackUrl;
-  console.log(`[KIE/kling-motion] Using callback URL: ${callbackUrl}`);
 
   // Use kieRun for retry logic, but fire onTaskSubmitted after first successful submission
   const MAX_ATTEMPTS = 3;
@@ -569,17 +574,49 @@ async function generateVideoWithMotionKieInternal(imageUrl, videoUrl, options = 
 
     try {
       const motionLabel = useUltraMotionControl ? "kling-motion-ultra" : "kling-motion";
-      console.log(`[KIE/${motionLabel}] Submitting to KIE (${useUltraMotionControl ? "pro/3.0" : "std/2.6"}) attempt ${attempt}:`, JSON.stringify(requestBody.input).slice(0, 200));
-      const taskId = await kieCreateTask(requestBody, motionLabel);
+      let taskId = null;
+      let lastModeErr = null;
+      for (const mode of modeCandidates) {
+        requestBody.input.mode = mode;
+        try {
+          console.log(
+            `[KIE/${motionLabel}] Submitting to KIE (${useUltraMotionControl ? "ultra/3.0" : "std/2.6"}) mode=${mode} attempt ${attempt}:`,
+            JSON.stringify(requestBody.input).slice(0, 220),
+          );
+          taskId = await kieCreateTask(requestBody, motionLabel);
+          break;
+        } catch (modeErr) {
+          const m = String(modeErr?.message || "").toLowerCase();
+          const isModeValidation =
+            m.includes("mode is not within the range of allowed options") ||
+            (m.includes("mode") && (m.includes("invalid") || m.includes("allowed")));
+          if (isModeValidation) {
+            lastModeErr = modeErr;
+            console.warn(`[KIE/${motionLabel}] mode=${mode} rejected by API, trying fallback mode`);
+            continue;
+          }
+          throw modeErr;
+        }
+      }
+      if (!taskId) {
+        throw lastModeErr || new Error("[KIE/kling-motion] all mode candidates were rejected");
+      }
 
       // Fire callback after first successful task creation
       if (typeof options.onTaskSubmitted === "function") {
         try { await options.onTaskSubmitted(taskId); } catch (_) {}
       }
 
-      // Callback-only retrieval: results are finalized in /api/kie/callback
-      console.log(`[KIE/kling-motion] Deferred: result will arrive via callback for task ${taskId}`);
-      return { success: true, deferred: true, taskId };
+      if (useCallback) {
+        // Callback-only retrieval: results are finalized in /api/kie/callback
+        console.log(`[KIE/kling-motion] Deferred: result will arrive via callback for task ${taskId}`);
+        return { success: true, deferred: true, taskId };
+      }
+
+      // Poll fallback when callback URL is unavailable.
+      const rawUrl = await kiePollTask(taskId, KIE_POLL_TIMEOUT_VIDEO_MS, motionLabel);
+      const outputUrl = await archiveToR2(rawUrl);
+      return { success: true, outputUrl, taskId };
     } catch (err) {
       lastErr = err;
       const msg = (err?.message || "").toLowerCase();
