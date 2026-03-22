@@ -100,7 +100,7 @@ const MIRROR_FETCH_TIMEOUT_MS = 90_000;
 
 /** Verify a URL is reachable (HEAD). Throws if not 2xx. */
 async function verifyUrlReachable(url, label = "url") {
-  const head = await fetch(url, { method: "HEAD", signal: AbortSignal.timeout(15_000) });
+  const head = await fetch(url, { method: "HEAD", signal: AbortSignal.timeout(30_000) });
   if (!head.ok) {
     throw new Error(`${label} returned ${head.status} — file unreachable; re-upload and try again.`);
   }

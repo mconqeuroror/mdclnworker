@@ -534,13 +534,14 @@ async function generateVideoWithMotionKieInternal(imageUrl, videoUrl, options = 
 
   const prompt = options.videoPrompt || options.prompt || "No distortion, no blur, background matches with the image source, the character's movements are consistent with the video.";
 
-  // Deterministic mode mapping for video recreate:
-  // - kling-2.6/motion-control => 1080p
-  // - kling-3.0/motion-control => pro
+  // Model-specific mode candidates based on conflicting KIE docs/examples:
+  // - kling-2.6 docs show enum 720p/1080p
+  // - kling-3.0 text mentions std/pro, but examples still show 720p
+  // Try the documented candidates in a sensible order per model.
   const model = useUltraMotionControl ? "kling-3.0/motion-control" : "kling-2.6/motion-control";
   const modeCandidates = useUltraMotionControl
-    ? ["pro"]
-    : ["1080p"];
+    ? ["720p", "1080p", "pro", "std"]
+    : ["1080p", "720p", "pro", "std"];
   const requestBody = {
     model,
     input: {
@@ -550,6 +551,7 @@ async function generateVideoWithMotionKieInternal(imageUrl, videoUrl, options = 
       character_orientation: "video",
       // set dynamically per candidate before submission
       mode: modeCandidates[0],
+      ...(useUltraMotionControl ? { background_source: "input_video" } : {}),
     },
   };
 
