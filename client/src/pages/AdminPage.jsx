@@ -1211,7 +1211,7 @@ export default function AdminPage() {
         if (spendOpt.minCents != null) audience.minSpendCents = spendOpt.minCents;
         if (spendOpt.maxCents != null) audience.maxSpendCents = spendOpt.maxCents;
       }
-      const r = await api.post('/admin/send-marketing-email', {
+      const basePayload = {
         subject: emailBuilder.subject,
         headline: emailBuilder.headline,
         bodyText: emailBuilder.bodyText,
@@ -1222,11 +1222,61 @@ export default function AdminPage() {
         videoUrl: emailBuilder.videoUrl || undefined,
         ...(Object.keys(audience || {}).length ? { audience } : {}),
         ...(isTest ? { testEmail: emailBuilder.testEmail } : {}),
-      });
-      if (r.data?.success) {
-        setEmailSendResult(r.data);
-        toast.success(isTest ? 'Test email sent' : `Sent to ${r.data.sent} users`);
-      } else toast.error('Send failed');
+      };
+
+      if (isTest) {
+        const r = await api.post('/admin/send-marketing-email', basePayload);
+        if (r.data?.success) {
+          setEmailSendResult(r.data);
+          toast.success('Test email sent');
+        } else {
+          toast.error('Send failed');
+        }
+        return;
+      }
+
+      // Production send: iterate cursor windows so we never hit Vercel 300s timeout.
+      let cursor = 0;
+      let totalSent = 0;
+      let totalFailed = 0;
+      let totalUsers = 0;
+      let excluded = 0;
+      const allErrors = [];
+      const MAX_ERRORS = 200;
+
+      for (let guard = 0; guard < 500; guard++) {
+        const r = await api.post('/admin/send-marketing-email', { ...basePayload, cursor });
+        if (!r.data?.success) throw new Error('Send failed');
+
+        totalSent += Number(r.data.sent || 0);
+        totalFailed += Number(r.data.failed || 0);
+        totalUsers = Number(r.data.totalUsers || totalUsers);
+        excluded = Number(r.data.excluded || excluded);
+        if (Array.isArray(r.data.errors)) {
+          for (const err of r.data.errors) {
+            if (allErrors.length < MAX_ERRORS) allErrors.push(err);
+          }
+        }
+
+        setEmailSendResult({
+          success: true,
+          totalUsers,
+          excluded,
+          sent: totalSent,
+          failed: totalFailed,
+          errors: allErrors.length ? allErrors : undefined,
+          hasMore: Boolean(r.data.hasMore),
+          nextCursor: Number(r.data.nextCursor || 0),
+        });
+
+        if (!r.data.hasMore) {
+          toast.success(`Campaign complete: sent ${totalSent}/${totalUsers}`);
+          return;
+        }
+        cursor = Number(r.data.nextCursor || 0);
+      }
+
+      throw new Error('Campaign did not finish (guard limit reached)');
     } catch (e) { toast.error(e?.response?.data?.error || 'Send failed'); }
     finally { setSendingEmail(false); }
   };

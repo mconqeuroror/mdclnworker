@@ -635,7 +635,7 @@ router.post(
  */
 router.post("/send-marketing-email", async (req, res) => {
   try {
-    const { subject, heroImageUrl, imageUrls, videoUrl, headline, bodyText, ctaText, ctaUrl, testEmail, audience } = req.body;
+    const { subject, heroImageUrl, imageUrls, videoUrl, headline, bodyText, ctaText, ctaUrl, testEmail, audience, cursor } = req.body;
 
     if (!subject || !headline || !bodyText) {
       return res.status(400).json({ error: "subject, headline, and bodyText are required" });
@@ -843,11 +843,15 @@ router.post("/send-marketing-email", async (req, res) => {
 
     console.log(`Sending marketing email to ${users.length} users (${unsubSet.size} excluded as unsubscribed)...`);
 
+    const startCursor = Math.max(0, parseInt(cursor, 10) || 0);
     let sent = 0;
     let failed = 0;
     const errors = [];
-    const BATCH_SIZE = 250;
+    // SendGrid v3 Mail Send supports up to 1000 personalizations/recipients per request.
+    const BATCH_SIZE = 1000;
     const MAX_RECORDED_ERRORS = 200;
+    const RUN_BUDGET_MS = 240_000; // stay below Vercel 300s hard timeout
+    const runStartedAt = Date.now();
 
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const getErrorStatus = (err) =>
@@ -885,7 +889,12 @@ router.post("/send-marketing-email", async (req, res) => {
       }
     };
 
-    for (let i = 0; i < users.length; i += BATCH_SIZE) {
+    let nextCursor = startCursor;
+    for (let i = startCursor; i < users.length; i += BATCH_SIZE) {
+      if (Date.now() - runStartedAt > RUN_BUDGET_MS) {
+        nextCursor = i;
+        break;
+      }
       const batch = users.slice(i, i + BATCH_SIZE);
       const messages = batch.map((user) => ({
         to: user.email,
@@ -924,14 +933,23 @@ router.post("/send-marketing-email", async (req, res) => {
         });
         console.log(`Batch ${batchNo}: fallback complete (total sent: ${sent}, failed: ${failed})`);
       }
+      nextCursor = i + batch.length;
     }
 
-    console.log(`Marketing email complete: ${sent} sent, ${failed} failed`);
+    const hasMore = nextCursor < users.length;
+    if (hasMore) {
+      console.log(`Marketing email partial run: ${sent} sent, ${failed} failed, next cursor ${nextCursor}/${users.length}`);
+    } else {
+      console.log(`Marketing email complete: ${sent} sent, ${failed} failed`);
+    }
 
     res.json({
       success: true,
       totalUsers: users.length,
       excluded: unsubSet.size,
+      cursorStart: startCursor,
+      nextCursor,
+      hasMore,
       sent,
       failed,
       errors: errors.length > 0 ? errors : undefined,
