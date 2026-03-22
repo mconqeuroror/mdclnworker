@@ -4415,13 +4415,13 @@ export async function generateAdvancedNsfw(req, res) {
     const kieAspectRatio = aspectRatio === "1024x1024" ? "1:1" : aspectRatio;
 
     if (model === "seedream") {
-      console.log("Using Seedream 4.5 Edit via KIE");
+      console.log("Using Seedream 4.5 Edit via WaveSpeed");
       result = await generateImageWithSeedreamWaveSpeed(identityImages, prompt, {
         aspectRatio: kieAspectRatio,
         onTaskCreated: async (taskId) => {
           await prisma.generation.update({
             where: { id: generationId },
-            data: { replicateModel: `kie-task:${taskId}` },
+            data: { replicateModel: `wavespeed-seedream:${taskId}` },
           });
         },
       });
@@ -4466,7 +4466,12 @@ export async function generateAdvancedNsfw(req, res) {
     if (result?.success && result?.deferred && result?.taskId) {
       await prisma.generation.update({
         where: { id: generationId },
-        data: { replicateModel: `kie-task:${result.taskId}` },
+        data: {
+          replicateModel:
+            model === "seedream"
+              ? `wavespeed-seedream:${result.taskId}`
+              : `kie-task:${result.taskId}`,
+        },
       });
       if (model !== "seedream") {
         await prisma.kieTask.upsert({

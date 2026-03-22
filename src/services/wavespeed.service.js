@@ -1199,7 +1199,7 @@ async function generateTwoPosesFromReference(
     console.log(`âœ… Portrait generated: ${photo2Url}`);
 
     // STEP 2: Generate full body shot using Seedream (better for full-body anatomy)
-    console.log("\n📸 STEP 2/2: Generating full body shot (kie.ai Seedream V4.5 Edit)...");
+    console.log("\n📸 STEP 2/2: Generating full body shot (WaveSpeed Seedream V4.5 Edit)...");
     const fullBodyPromptParts = [
       "Using images 1 and 2 as identity reference, create a full body photo of the same person.",
       "Preserve exact identity: face structure, skin tone, hairline, eye shape and key facial details from references.",
@@ -1214,7 +1214,8 @@ async function generateTwoPosesFromReference(
     const fullBodyResult = await generateImageWithSeedream(
       [referenceImageUrl, photo2Url],
       fullBodyPrompt,
-      { aspectRatio: "9:16", size: "2k" },
+      // This flow must return outputUrl in-process (Stripe / special-offer) — no DB row to pair a webhook to.
+      { aspectRatio: "9:16", size: "2k", forcePolling: true },
     );
 
     if (!fullBodyResult.success) {
