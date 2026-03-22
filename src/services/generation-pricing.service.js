@@ -25,6 +25,8 @@ export const DEFAULT_GENERATION_PRICING = Object.freeze({
   avatarVideoPerSec: 5,   // per second of generated video
 
   videoRecreateStdPerSec: 10,
+  /** 2.6 motion-control at 1080p (user-facing “Motion Control Pro”) */
+  videoRecreateMotionProPerSec: 18,
   videoRecreateUltraPerSec: 25,
   videoPrompt5s: 60,
   videoPrompt10s: 100,

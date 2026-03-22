@@ -523,6 +523,7 @@ async function processVideoMotionInBackground(
   creditsNeeded,
   keepAudio = true,
   ultra = false,
+  motion1080p = false,
 ) {
   try {
     console.log(
@@ -543,6 +544,7 @@ async function processVideoMotionInBackground(
         {
           videoPrompt: prompt || "",
           ultra,
+          motion1080p: Boolean(ultra || motion1080p),
           onTaskSubmitted: async (taskId) => {
             await persistKieGenerationCorrelation({
               taskId,
@@ -632,8 +634,11 @@ export async function generateVideoWithMotion(req, res) {
       keepAudio = true,
       ultra = false,
       ultraMode,
+      motionPro = false,
+      motionProMode,
     } = req.body;
     const useUltra = ultra === true || ultraMode === true;
+    const useMotionPro = motionPro === true || motionProMode === true;
     userId = req.user.userId;
 
     // Validate required fields
@@ -690,10 +695,16 @@ export async function generateVideoWithMotion(req, res) {
     const user = await checkAndExpireCredits(userId);
     const totalCredits = getTotalCredits(user);
     const pricing = await getGenerationPricing();
-    // CREDIT FORMULA: std = duration*videoRecreateStdPerSec, ultra = duration*videoRecreateUltraPerSec
+    const motionProPerSec =
+      typeof pricing.videoRecreateMotionProPerSec === "number"
+        ? pricing.videoRecreateMotionProPerSec
+        : 18;
+    // Tiers: 720p 2.6 (std) | 1080p 2.6 (motion pro) | 1080p 3.0 (ultra)
     const creditsNeeded = useUltra
       ? Math.ceil(videoDuration * pricing.videoRecreateUltraPerSec)
-      : Math.ceil(videoDuration * pricing.videoRecreateStdPerSec);
+      : useMotionPro
+        ? Math.ceil(videoDuration * motionProPerSec)
+        : Math.ceil(videoDuration * pricing.videoRecreateStdPerSec);
 
     if (totalCredits < creditsNeeded) {
       return res.status(403).json({
@@ -705,7 +716,8 @@ export async function generateVideoWithMotion(req, res) {
     // Deduct credits BEFORE generation
     await deductCredits(userId, creditsNeeded);
     creditsDeducted = creditsNeeded; // Track for emergency refund
-    console.log(`💳 Deducted ${creditsNeeded} credits upfront (${useUltra ? "ultra" : "std"})`);
+    const tierLog = useUltra ? "pro-plus" : useMotionPro ? "pro-1080p" : "std-720p";
+    console.log(`💳 Deducted ${creditsNeeded} credits upfront (motion ${tierLog})`);
 
     const generation = await prisma.generation.create({
       data: {
@@ -740,6 +752,7 @@ export async function generateVideoWithMotion(req, res) {
       creditsNeeded,
       keepAudio,
       useUltra,
+      useUltra ? false : useMotionPro,
     ).catch((error) => {
       console.error("❌ Background processing error:", error);
     });
@@ -1866,7 +1879,7 @@ async function processQuickVideoInBackground(
   ultra = false,
 ) {
   try {
-    const tierLabel = ultra ? "pro (Kling 3.0)" : "std (Kling 2.6)";
+    const tierLabel = ultra ? "motion-pro-plus" : "motion-classic";
     console.log(
       `\n🔄 Starting background processing for generation ${generationId} [${tierLabel}]`,
     );
@@ -2028,8 +2041,20 @@ export async function generateVideoDirectly(req, res) {
   let userId = null;
 
   try {
-    const { modelId, referenceVideoUrl, videoDuration, tempId, ultra = false, selectedImageUrl } = req.body; // selectedImageUrl = user's first frame (identity already applied) → skip identity step
+    const {
+      modelId,
+      referenceVideoUrl,
+      videoDuration,
+      tempId,
+      ultra = false,
+      ultraMode,
+      motionPro = false,
+      motionProMode,
+      selectedImageUrl,
+    } = req.body; // selectedImageUrl = user's first frame (identity already applied) → skip identity step
     userId = req.user.userId;
+    const useUltraDirect = ultra === true || ultraMode === true;
+    const useMotionProDirect = motionPro === true || motionProMode === true;
 
     // Validate inputs
     if (!referenceVideoUrl) {
@@ -2069,9 +2094,15 @@ export async function generateVideoDirectly(req, res) {
     const user = await checkAndExpireCredits(userId);
     const totalCredits = getTotalCredits(user);
     const pricing = await getGenerationPricing();
-    const creditsNeeded = ultra
+    const motionProPerSecDirect =
+      typeof pricing.videoRecreateMotionProPerSec === "number"
+        ? pricing.videoRecreateMotionProPerSec
+        : 18;
+    const creditsNeeded = useUltraDirect
       ? Math.ceil(videoDuration * pricing.videoRecreateUltraPerSec)
-      : Math.ceil(videoDuration * pricing.videoRecreateStdPerSec);
+      : useMotionProDirect
+        ? Math.ceil(videoDuration * motionProPerSecDirect)
+        : Math.ceil(videoDuration * pricing.videoRecreateStdPerSec);
 
     if (totalCredits < creditsNeeded) {
       return res.status(403).json({
@@ -2096,7 +2127,7 @@ export async function generateVideoDirectly(req, res) {
           inputVideoUrl: referenceVideoUrl,
           status: "processing",
           creditsCost: creditsNeeded,
-          replicateModel: ultra ? "kie-kling-3.0-motion-control" : "kie-kling-2.6-motion-control",
+          replicateModel: useUltraDirect ? "kie-kling-3.0-motion-control" : "kie-kling-2.6-motion-control",
           duration: videoDuration,
         },
       });
@@ -2115,7 +2146,8 @@ export async function generateVideoDirectly(req, res) {
 
       const result = await requestQueue.enqueue(async () =>
         generateVideoWithMotionKie(kieImageUrl, kieVideoUrl, {
-          ultra,
+          ultra: useUltraDirect,
+          motion1080p: useUltraDirect || useMotionProDirect,
           onTaskSubmitted: async (taskId) => {
             await persistKieGenerationCorrelation({
               taskId,
@@ -2219,7 +2251,7 @@ export async function generateVideoDirectly(req, res) {
       referenceVideoUrl,
       userId,
       creditsNeeded,
-      ultra,
+      useUltraDirect,
     ).catch((error) => {
       console.error("❌ Background processing error:", error);
     });

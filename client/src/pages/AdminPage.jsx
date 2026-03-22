@@ -143,8 +143,9 @@ const GENERATION_PRICING_GROUPS = [
   {
     title: 'Video',
     fields: [
-      { key: 'videoRecreateStdPerSec', label: 'Video recreate — credits / sec (std)' },
-      { key: 'videoRecreateUltraPerSec', label: 'Video recreate — credits / sec (ultra)' },
+      { key: 'videoRecreateStdPerSec', label: 'Video recreate — credits / sec (720p / 2.6)' },
+      { key: 'videoRecreateMotionProPerSec', label: 'Video recreate — credits / sec (1080p / 2.6 Pro)' },
+      { key: 'videoRecreateUltraPerSec', label: 'Video recreate — credits / sec (1080p / 3.0 Ultra)' },
       { key: 'videoPrompt5s', label: 'Video from prompt — 5s' },
       { key: 'videoPrompt10s', label: 'Video from prompt — 10s' },
       { key: 'videoFaceSwapPerSec', label: 'Video face swap — credits / sec' },

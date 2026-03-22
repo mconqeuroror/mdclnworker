@@ -191,42 +191,25 @@ function normalizeKieCreateRequestBody(rawBody, label) {
     }
 
     /**
-     * Mode enums differ by model (KIE OpenAPI):
-     * - kling-3.0/motion-control: "std" (720p) | "pro" (1080p). Values like "720p" are rejected → 500/422.
-     * - kling-2.6/motion-control: "720p" | "1080p"
+     * Align with content-studio: both kling-2.6 and kling-3.0 motion-control use `720p` | `1080p`
+     * (KIE accepts this in production). Map legacy std/pro → 720p/1080p.
      */
     const mRaw = String(next.mode ?? "").trim().toLowerCase();
-    if (model.includes("kling-3.0") || model.includes("kling-3")) {
-      if (mRaw === "1080p" || mRaw === "pro" || mRaw === "professional") {
-        next.mode = "pro";
-      } else if (
-        mRaw === "720p" ||
-        mRaw === "std" ||
-        mRaw === "standard" ||
-        mRaw === ""
-      ) {
-        next.mode = "std";
-      } else {
-        console.warn(`[KIE] Unknown motion mode "${next.mode}" for ${model} — using std`);
-        next.mode = "std";
-      }
-    } else if (model.includes("kling-2.6")) {
-      if (mRaw === "1080p" || mRaw === "pro" || mRaw === "professional") {
-        next.mode = "1080p";
-      } else if (
-        mRaw === "720p" ||
-        mRaw === "std" ||
-        mRaw === "standard" ||
-        mRaw === ""
-      ) {
-        next.mode = "720p";
-      } else {
-        console.warn(`[KIE] Unknown motion mode "${next.mode}" for ${model} — using 720p`);
-        next.mode = "720p";
-      }
+    if (mRaw === "1080p" || mRaw === "pro" || mRaw === "professional") {
+      next.mode = "1080p";
+    } else if (
+      mRaw === "720p" ||
+      mRaw === "std" ||
+      mRaw === "standard" ||
+      mRaw === ""
+    ) {
+      next.mode = "720p";
+    } else {
+      console.warn(`[KIE] Unknown motion mode "${next.mode}" for ${model} — using 720p`);
+      next.mode = "720p";
     }
 
-    body.input = next;
+    body.input = JSON.stringify(next);
   } else {
     body.input = input;
   }
@@ -651,12 +634,12 @@ async function generateTextToImageNanoBananaKieInternal(prompt, options = {}) {
  * Kling 3.0 image-to-video with motion (recreate video).
  * @param {string} imageUrl - starting frame image
  * @param {string} videoUrl - reference video for motion (passed as end frame or element)
- * @param {object} options - { prompt, duration, mode, onTaskSubmitted }
+ * @param {object} options - { prompt, videoPrompt, ultra, ultraMode, motion1080p, motionMode, characterOrientation, onTaskSubmitted }
  */
 async function generateVideoWithMotionKieInternal(imageUrl, videoUrl, options = {}) {
   console.log(`[KIE/kling-motion] image="${imageUrl.slice(0, 120)}"`);
   console.log(`[KIE/kling-motion] video="${videoUrl.slice(0, 120)}"`);
-  const useUltraMotionControl = options.ultra === true;
+  const useUltraMotionControl = options.ultra === true || options.ultraMode === true;
   const validation = await validateKlingMotionInputs(imageUrl, videoUrl, useUltraMotionControl);
   if (!validation.valid) {
     throw new Error(validation.message);

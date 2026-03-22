@@ -34,6 +34,11 @@ import {
   Coins,
 } from "lucide-react";
 
+/** Video recreate per-second defaults (align with server `generation-pricing.service`) */
+const VIDEO_RECREATE_STD_PER_SEC = 10;
+const VIDEO_RECREATE_MOTION_PRO_PER_SEC = 18;
+const VIDEO_RECREATE_ULTRA_PER_SEC = 25;
+
 // Gallery Image Picker - lets user pick from previously generated images
 function GalleryImagePicker({ modelId, selectedImage, onSelect, accentColor = "purple" }) {
   const [page, setPage] = useState(1);
@@ -1746,7 +1751,12 @@ function VideoGeneration() {
   const [galleryPromptImage, setGalleryPromptImage] = useState(null); // Gallery-selected image for prompt video
   const [galleryTalkingImage, setGalleryTalkingImage] = useState(null); // Gallery-selected image for talking head
   const [keepAudioFromVideo, setKeepAudioFromVideo] = useState(true); // Keep original audio
-  const [recreateUltraMode, setRecreateUltraMode] = useState(false); // Ultra = Kling 3.0 motion control
+  const [recreateMotionProMode, setRecreateMotionProMode] = useState(false); // 2.6 motion @ 1080p
+  const [recreateUltraMode, setRecreateUltraMode] = useState(false); // 3.0 motion @ 1080p (no vendor branding in UI)
+
+  useEffect(() => {
+    if (recreateUltraMode) setRecreateMotionProMode(false);
+  }, [recreateUltraMode]);
 
   // Auto-select first model when models load
   useEffect(() => {
@@ -1778,6 +1788,7 @@ function VideoGeneration() {
     if (d.talkingHeadPrompt !== undefined) setTalkingHeadPrompt(d.talkingHeadPrompt);
     if (d.targetGender !== undefined) setTargetGender(d.targetGender);
     if (d.keepAudioFromVideo !== undefined) setKeepAudioFromVideo(d.keepAudioFromVideo);
+    if (d.recreateMotionProMode !== undefined) setRecreateMotionProMode(d.recreateMotionProMode);
     if (d.recreateUltraMode !== undefined) setRecreateUltraMode(d.recreateUltraMode);
     if (d.languageFilter !== undefined) setLanguageFilter(d.languageFilter);
     if (d.promptVideoImage) setPromptVideoImage(d.promptVideoImage);
@@ -1801,6 +1812,7 @@ function VideoGeneration() {
       talkingHeadPrompt,
       targetGender,
       keepAudioFromVideo,
+      recreateMotionProMode,
       recreateUltraMode,
       languageFilter,
       promptVideoImage: promptVideoImage || null,
@@ -1819,7 +1831,7 @@ function VideoGeneration() {
       referenceVideo?.url,
     ].filter(Boolean);
     saveVideoDraft(data, imageUrls);
-  }, [method, selectedModel, promptVideoPrompt, promptVideoDuration, selectedVoice, talkingHeadText, talkingHeadPrompt, targetGender, keepAudioFromVideo, recreateUltraMode, languageFilter, promptVideoImage, faceImage, talkingHeadImage, videoStartingImage, sourceVideo, referenceVideo]);
+  }, [method, selectedModel, promptVideoPrompt, promptVideoDuration, selectedVoice, talkingHeadText, talkingHeadPrompt, targetGender, keepAudioFromVideo, recreateMotionProMode, recreateUltraMode, languageFilter, promptVideoImage, faceImage, talkingHeadImage, videoStartingImage, sourceVideo, referenceVideo]);
 
   const loadVoices = useCallback(async (forModelId) => {
     try {
@@ -2244,9 +2256,13 @@ function VideoGeneration() {
       return;
     }
 
-    const creditsNeeded = recreateUltraMode
-      ? Math.ceil(referenceVideoDuration * 25)
-      : Math.ceil(referenceVideoDuration * 10);
+    const perSec =
+      recreateUltraMode
+        ? VIDEO_RECREATE_ULTRA_PER_SEC
+        : recreateMotionProMode
+          ? VIDEO_RECREATE_MOTION_PRO_PER_SEC
+          : VIDEO_RECREATE_STD_PER_SEC;
+    const creditsNeeded = Math.ceil(referenceVideoDuration * perSec);
     if (credits < creditsNeeded) {
       toast.error(
         `Need ${creditsNeeded} 🪙 for ${referenceVideoDuration}s video. You have ${credits} 🪙.`,
@@ -2265,6 +2281,7 @@ function VideoGeneration() {
         prompt: videoPrompt.trim() || "",
         keepAudio: keepAudioFromVideo,
         ultraMode: recreateUltraMode,
+        motionProMode: recreateUltraMode ? false : recreateMotionProMode,
       });
 
       await refreshUserCredits();
@@ -2281,6 +2298,7 @@ function VideoGeneration() {
         setVideoStartingImage(null);
         setKeepAudioFromVideo(true);
         setRecreateUltraMode(false);
+        setRecreateMotionProMode(false);
         clearVideoDraft();
       }
     } catch (error) {
@@ -2290,6 +2308,13 @@ function VideoGeneration() {
       setRecreateVideoGenerating(false);
     }
   };
+
+  const recreateCreditsPerSec =
+    recreateUltraMode
+      ? VIDEO_RECREATE_ULTRA_PER_SEC
+      : recreateMotionProMode
+        ? VIDEO_RECREATE_MOTION_PRO_PER_SEC
+        : VIDEO_RECREATE_STD_PER_SEC;
 
   return (
     <div
@@ -2504,31 +2529,62 @@ function VideoGeneration() {
             </div>
             <FileUpload type="video" acceptOnlyMp4 onUpload={(file) => handleReferenceVideoUpload(file)} preview={referenceVideo} large />
             {referenceVideoDuration > 0 && (
-              <div className="mt-2 flex items-center gap-2">
+              <div className="mt-2 flex flex-wrap items-center gap-2">
                 <span className="px-2 py-0.5 text-[10px] font-medium rounded-full" style={{ background: 'rgba(34,197,94,0.15)', color: '#22C55E' }}>
                   <span className="inline-flex items-center gap-0.5">
-                    {referenceVideoDuration}s = {recreateUltraMode ? Math.ceil(referenceVideoDuration * 25) : Math.ceil(referenceVideoDuration * 10)} <Coins className="w-2.5 h-2.5" />
+                    {referenceVideoDuration}s = {Math.ceil(referenceVideoDuration * recreateCreditsPerSec)} <Coins className="w-2.5 h-2.5" />
                   </span>
                 </span>
                 <span className="px-1.5 py-0.5 text-[8px] font-bold rounded-full tracking-wide" style={{ background: 'linear-gradient(135deg, rgba(34,197,94,0.25), rgba(22,163,74,0.15))', border: '1px solid rgba(34,197,94,0.4)', color: '#4ade80' }}>
-                  {recreateUltraMode ? "ULTRA" : "STD"}
+                  {recreateUltraMode ? "ULTRA · 1080p" : recreateMotionProMode ? "PRO · 1080p" : "720p"}
+                </span>
+                <span className="text-[9px] text-slate-500">
+                  {recreateUltraMode
+                    ? "Motion Control Pro · 3.0 · 1080p"
+                    : recreateMotionProMode
+                      ? "Motion Control Pro · 2.6 · 1080p"
+                      : "Motion Control · 2.6 · 720p"}
                 </span>
               </div>
             )}
           </div>
 
-          {/* Mode Toggle */}
-          <div className="mb-5 flex items-center gap-3">
+          {/* Quality: Motion Control Pro (2.6 @ 1080p) */}
+          <div className={`mb-3 flex items-start gap-3 ${recreateUltraMode ? "opacity-40 pointer-events-none" : ""}`}>
             <button
+              type="button"
+              onClick={() => !recreateUltraMode && setRecreateMotionProMode(!recreateMotionProMode)}
+              disabled={recreateUltraMode}
+              className={`relative mt-0.5 w-10 h-5 shrink-0 rounded-full transition-all flex items-center ${recreateMotionProMode && !recreateUltraMode ? "bg-violet-500" : "bg-slate-600"}`}
+              data-testid="toggle-recreate-motion-pro-mode"
+            >
+              <div className={`w-4 h-4 bg-white rounded-full transition-transform shadow-sm ${recreateMotionProMode && !recreateUltraMode ? "translate-x-[22px]" : "translate-x-0.5"}`} />
+            </button>
+            <div className="min-w-0">
+              <p className="text-[11px] text-slate-300 font-medium">Motion Control Pro</p>
+              <p className="text-[10px] text-slate-500 leading-snug">
+                2.6 engine · 1080p · ~{VIDEO_RECREATE_MOTION_PRO_PER_SEC} <Coins className="w-2.5 h-2.5 inline" />/sec
+                {recreateUltraMode ? <span className="block text-slate-600 mt-0.5">Off while Ultra is enabled.</span> : null}
+              </p>
+            </div>
+          </div>
+
+          {/* Ultra: 3.0 @ 1080p */}
+          <div className="mb-5 flex items-start gap-3">
+            <button
+              type="button"
               onClick={() => setRecreateUltraMode(!recreateUltraMode)}
-              className={`relative w-10 h-5 rounded-full transition-all flex items-center ${recreateUltraMode ? 'bg-fuchsia-500' : 'bg-slate-600'}`}
+              className={`relative mt-0.5 w-10 h-5 shrink-0 rounded-full transition-all flex items-center ${recreateUltraMode ? "bg-fuchsia-500" : "bg-slate-600"}`}
               data-testid="toggle-recreate-ultra-mode"
             >
-              <div className={`w-4 h-4 bg-white rounded-full transition-transform shadow-sm ${recreateUltraMode ? 'translate-x-[22px]' : 'translate-x-0.5'}`} />
+              <div className={`w-4 h-4 bg-white rounded-full transition-transform shadow-sm ${recreateUltraMode ? "translate-x-[22px]" : "translate-x-0.5"}`} />
             </button>
-            <span className="text-[11px] text-slate-400">
-              Ultra motion mode (Kling 3.0 Motion Control) {recreateUltraMode ? <span className="text-fuchsia-300 font-bold">(ON)</span> : <span className="text-slate-500 font-bold">(OFF)</span>}
-            </span>
+            <div className="min-w-0">
+              <p className="text-[11px] text-slate-300 font-medium">Ultra motion</p>
+              <p className="text-[10px] text-slate-500 leading-snug">
+                Motion Control Pro · 3.0 · 1080p · ~{VIDEO_RECREATE_ULTRA_PER_SEC} <Coins className="w-2.5 h-2.5 inline" />/sec
+              </p>
+            </div>
           </div>
 
           {/* Optional Prompt */}
@@ -2560,14 +2616,14 @@ function VideoGeneration() {
           </div>
 
           {/* Generate Button */}
-          {referenceVideoDuration > 0 && credits < (recreateUltraMode ? Math.ceil(referenceVideoDuration * 25) : Math.ceil(referenceVideoDuration * 10)) ? (
+          {referenceVideoDuration > 0 && credits < Math.ceil(referenceVideoDuration * recreateCreditsPerSec) ? (
             <button
               onClick={() => setShowCreditsModal(true)}
               className="w-full py-3.5 rounded-xl font-semibold flex items-center justify-center gap-2 transition-all bg-white text-black hover:bg-white/90"
               data-testid="button-get-credits-recreate-video"
             >
               <CreditCard className="w-4 h-4" />
-              Get Credits <span className="inline-flex items-center gap-0.5 text-red-500">({recreateUltraMode ? Math.ceil(referenceVideoDuration * 25) : Math.ceil(referenceVideoDuration * 10)} <Coins className="w-3.5 h-3.5" />)</span>
+              Get Credits <span className="inline-flex items-center gap-0.5 text-red-500">({Math.ceil(referenceVideoDuration * recreateCreditsPerSec)} <Coins className="w-3.5 h-3.5" />)</span>
             </button>
           ) : (
             <button
@@ -2585,7 +2641,7 @@ function VideoGeneration() {
                 <>
                   <Video className="w-5 h-5" />
                   Generate Video <span className="inline-flex items-center gap-0.5 text-yellow-400">{referenceVideoDuration > 0
-                    ? <>{recreateUltraMode ? Math.ceil(referenceVideoDuration * 25) : Math.ceil(referenceVideoDuration * 10)} <Coins className="w-3.5 h-3.5" /></>
+                    ? <>{Math.ceil(referenceVideoDuration * recreateCreditsPerSec)} <Coins className="w-3.5 h-3.5" /></>
                     : <>~ <Coins className="w-3.5 h-3.5" /></>}</span>
                 </>
               )}

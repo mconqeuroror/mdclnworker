@@ -466,6 +466,9 @@ export const generationAPI = {
       videoDuration,
       tempId,
       ultra: options.ultra === true,
+      ultraMode: options.ultraMode === true,
+      motionPro: options.motionPro === true,
+      motionProMode: options.motionProMode === true,
       selectedImageUrl: options.selectedImageUrl || undefined,
     };
     console.log("📦 [API] generateVideoDirectly request body:", requestBody);
