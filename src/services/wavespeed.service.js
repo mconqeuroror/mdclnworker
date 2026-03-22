@@ -2,11 +2,10 @@ import { isR2Configured, uploadBufferToR2 } from "../utils/r2.js";
 import {
   generateImageWithNanoBananaKie,
   generateTextToImageNanoBananaKie,
-  generateImageWithSeedreamKie,
-  generateImageWithIdentityKie,
   getKieCallbackUrl,
 } from "./kie.service.js";
 import { IDENTITY_RECREATE_MODEL_CLOTHES } from "../constants/identityRecreationPrompts.js";
+import { validateSeedreamEditImages } from "../utils/fileValidation.js";
 
 /**
  * Image APIs (Google/KIE) reject prompts that imply minors. Never emit ages under 18 in provider-facing text.
@@ -310,12 +309,121 @@ async function generateImageWithNanoBanana(images, prompt, options = {}) {
  */
 async function generateImageWithSeedream(images, prompt, options = {}) {
   try {
-    console.log("[Seedream] Routing image edit through KIE seedream/4.5-edit");
-    return await generateImageWithSeedreamKie(images, prompt, {
-      aspectRatio: options.aspectRatio || "9:16",
-      quality: options.quality || "basic",
-      onTaskCreated: options.onTaskCreated,
-    });
+    if (!WAVESPEED_API_KEY) {
+      throw new Error("WAVESPEED_API_KEY is not configured -- Seedream edit unavailable");
+    }
+    if (!Array.isArray(images) || images.length === 0) {
+      throw new Error("Seedream edit requires at least one reference image");
+    }
+    if (!prompt || !String(prompt).trim()) {
+      throw new Error("Seedream edit requires a prompt");
+    }
+
+    const validation = await validateSeedreamEditImages(images);
+    if (!validation.valid) {
+      throw new Error(validation.message);
+    }
+
+    const requestBody = {
+      images: images.slice(0, 10),
+      prompt: String(prompt).trim(),
+      enable_sync_mode: false,
+      enable_base64_output: false,
+      ...(typeof options.size === "string" && options.size.trim()
+        ? { size: options.size.trim() }
+        : {}),
+    };
+
+    const callbackUrl =
+      options.forcePolling === true ? null : getWaveSpeedCallbackUrl();
+    const baseSubmitUrl = `${WAVESPEED_API_URL}/bytedance/seedream-v4.5/edit`;
+    const attempts = callbackUrl
+      ? [
+          {
+            url: `${baseSubmitUrl}?webhook=${encodeURIComponent(callbackUrl)}`,
+            label: "query:webhook",
+          },
+          {
+            url: baseSubmitUrl,
+            label: "plain-body",
+          },
+        ]
+      : [{ url: baseSubmitUrl, label: "plain-body" }];
+
+    console.log("[Seedream] Submitting image edit to WaveSpeed bytedance/seedream-v4.5/edit");
+    if (callbackUrl) {
+      console.log(`[Seedream] WaveSpeed webhook: ${callbackUrl}`);
+    }
+
+    let submitResponse = null;
+    let responseText = "";
+    for (const attempt of attempts) {
+      submitResponse = await fetch(attempt.url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${WAVESPEED_API_KEY}`,
+        },
+        body: JSON.stringify(requestBody),
+        signal: AbortSignal.timeout(30_000),
+      });
+      responseText = await submitResponse.text();
+      if (submitResponse.ok) {
+        break;
+      }
+      if (attempts.length > 1) {
+        console.warn(
+          `[Seedream] Submit failed (${attempt.label}) HTTP ${submitResponse.status}; trying next variant`,
+        );
+      }
+    }
+
+    if (!submitResponse?.ok) {
+      console.error(`❌ Seedream API Error ${submitResponse?.status}:`, responseText);
+      throw new Error(
+        `Failed to submit Seedream edit: ${submitResponse?.status || "unknown"} - ${responseText}`,
+      );
+    }
+
+    let submitData;
+    try {
+      submitData = JSON.parse(responseText);
+    } catch {
+      throw new Error(`Invalid JSON response: ${responseText.substring(0, 200)}`);
+    }
+
+    const requestId =
+      submitData.data?.id ||
+      submitData.request_id ||
+      submitData.id ||
+      submitData.requestId ||
+      submitData.task_id ||
+      submitData.taskId ||
+      submitData.prediction_id;
+
+    if (!requestId) {
+      throw new Error("No request ID in Seedream response");
+    }
+
+    if (typeof options.onTaskCreated === "function") {
+      await options.onTaskCreated(requestId);
+    }
+
+    if (callbackUrl) {
+      return {
+        success: true,
+        deferred: true,
+        taskId: requestId,
+      };
+    }
+
+    const result = await waitForResult(requestId, 60);
+    return {
+      success: true,
+      outputUrl: result.outputUrl,
+      thumbnailUrl: result.thumbnailUrl,
+      requestId,
+    };
   } catch (error) {
     console.error("ERROR in Seedream 4.5 Edit:", error.message);
     return {
@@ -326,24 +434,20 @@ async function generateImageWithSeedream(images, prompt, options = {}) {
 }
 
 /**
- * Backward-compatible alias: Seedream 4.5 Edit now runs via KIE.
+ * Backward-compatible alias for the WaveSpeed Seedream 4.5 Edit endpoint.
  */
 export async function generateImageWithSeedreamWaveSpeed(images, prompt, options = {}) {
-  return await generateImageWithSeedreamKie(images, prompt, {
-    aspectRatio: options.aspectRatio || "9:16",
-    quality: options.quality || "basic",
-    onTaskCreated: options.onTaskCreated,
-  });
+  return await generateImageWithSeedream(images, prompt, options);
 }
 
 /**
- * Backward-compatible alias: identity recreation now runs via KIE Seedream.
+ * Identity recreation via WaveSpeed Seedream 4.5 Edit.
  */
 export async function generateImageWithIdentityWaveSpeed(identityImages, targetImage, options = {}) {
-  return await generateImageWithIdentityKie(identityImages, targetImage, {
-    aspectRatio: options.aspectRatio || "9:16",
-    quality: options.quality || "basic",
-    customImagePrompt: options.customImagePrompt || IDENTITY_RECREATE_MODEL_CLOTHES,
+  const allImages = [...(identityImages || []), targetImage].filter(Boolean);
+  return await generateImageWithSeedream(allImages, options.customImagePrompt || IDENTITY_RECREATE_MODEL_CLOTHES, {
+    size: options.size,
+    forcePolling: options.forcePolling,
     onTaskCreated: options.onTaskCreated,
   });
 }

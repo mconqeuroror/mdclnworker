@@ -279,7 +279,7 @@ export async function generateImageWithIdentity(req, res) {
           inputImageUrl: JSON.stringify({ identityImages, targetImage }),
           status: "processing",
           creditsCost: 10,
-          replicateModel: "kie-seedream-4.5-edit",
+          replicateModel: "wavespeed-seedream-v4.5-edit",
         },
       });
       generationRecords.push({ gen, tempId, index: i + 1 });
@@ -301,7 +301,7 @@ export async function generateImageWithIdentity(req, res) {
       let successfulCount = 0;
       const startTime = Date.now();
 
-      // Ensure identity images and target are accessible to KIE before processing
+      // Ensure identity images and target are accessible to the provider before processing
       const [kieIdentityImages, kieTargetImage] = await Promise.all([
         Promise.all(identityImages.map((u, i) => ensureKieAccessibleUrl(u, `identity-${i+1}`))),
         ensureKieAccessibleUrl(targetImage, "target-image"),
@@ -315,12 +315,12 @@ export async function generateImageWithIdentity(req, res) {
 
             const result = await requestQueue.enqueue(async () => {
               return await generateImageWithIdentityWaveSpeed(kieIdentityImages, kieTargetImage, {
-                aspectRatio: aspectRatio || "9:16",
+                size,
                 customImagePrompt: customPrompt,
                 onTaskCreated: async (taskId) => {
                   await prisma.generation.update({
                     where: { id: generation.id },
-                    data: { replicateModel: `kie-task:${taskId}` },
+                    data: { replicateModel: `wavespeed-seedream:${taskId}` },
                   });
                 },
               });
@@ -329,10 +329,10 @@ export async function generateImageWithIdentity(req, res) {
             if (result.success && result.deferred && result.taskId) {
               await prisma.generation.update({
                 where: { id: generation.id },
-                data: { replicateModel: `kie-task:${result.taskId}` },
+                data: { replicateModel: `wavespeed-seedream:${result.taskId}` },
               });
               successfulCount++;
-              console.log(`✅ Image ${index} submitted; result will arrive via callback (task ${result.taskId})`);
+              console.log(`✅ Image ${index} submitted to WaveSpeed; result will arrive via callback (task ${result.taskId})`);
             } else if (result.success && result.outputUrl) {
               await prisma.generation.update({
                 where: { id: generation.id },
@@ -906,7 +906,7 @@ export async function generateCompleteRecreation(req, res) {
         inputImageUrl: JSON.stringify({ modelIdentityImages, videoScreenshot }),
         status: "processing",
         creditsCost: 10,
-        replicateModel: "kie-seedream-4.5-edit",
+        replicateModel: "wavespeed-seedream-v4.5-edit",
       },
     });
     imageGenId = imageGen.id;
@@ -944,7 +944,7 @@ export async function generateCompleteRecreation(req, res) {
     });
     videoGenId = videoGen.id;
 
-    console.log("\n📍 STEP 1/2: Submitting image to KIE Seedream (inputs already on Blob)...");
+    console.log("\n📍 STEP 1/2: Submitting image to WaveSpeed Seedream (inputs already on Blob)...");
     const imageResult = await requestQueue.enqueue(async () => {
       return await generateImageWithIdentityWaveSpeed(kieModelImages, kieVideoScreenshot, {
         aspectRatio: "9:16",
@@ -1589,7 +1589,7 @@ export async function prepareVideoGeneration(req, res) {
           outputUrl: variation.imageUrl,
           status: "completed",
           creditsCost: 10,
-          replicateModel: "kie-seedream-4.5-edit",
+          replicateModel: "wavespeed-seedream-v4.5-edit",
           completedAt: new Date(),
         },
       });
@@ -2836,8 +2836,8 @@ export async function generatePromptBasedImage(req, res) {
       return res.status(400).json({ success: false, message: providerInputCheck.message });
     }
 
-    const aiModel = useSeedream ? "kie-seedream-4.5-edit" : "kie-nano-banana-pro";
-    console.log(`\n${useSeedream ? "🌙" : "🍌"} PROMPT-BASED GENERATION (${useSeedream ? "KIE Seedream 4.5 Edit" : "KIE Nano Banana Pro"})`);
+    const aiModel = useSeedream ? "wavespeed-seedream-v4.5-edit" : "kie-nano-banana-pro";
+    console.log(`\n${useSeedream ? "🌙" : "🍌"} PROMPT-BASED GENERATION (${useSeedream ? "WaveSpeed Seedream 4.5 Edit" : "KIE Nano Banana Pro"})`);
     console.log(`📸 Model: ${model.name || "Unnamed"}`);
     console.log(`💭 User prompt: ${prompt}`);
     console.log(`📝 Final prompt: ${finalPrompt}`);
@@ -2923,7 +2923,7 @@ async function processPromptImageInBackground(
 ) {
   try {
     const emoji = useSeedream ? "🌙" : "🍌";
-    const modelName = useSeedream ? "KIE Seedream 4.5 Edit" : "KIE Nano Banana Pro";
+    const modelName = useSeedream ? "WaveSpeed Seedream 4.5 Edit" : "KIE Nano Banana Pro";
     console.log(`\n${emoji} [BG] Starting prompt image processing for ${generationId} (${modelName})`);
 
     // Upload inputs to Blob first so KIE/WaveSpeed can fetch immediately when we submit
@@ -2941,11 +2941,10 @@ async function processPromptImageInBackground(
         const onTaskCreated = async (taskId) => {
           await prisma.generation.update({
             where: { id: generationId },
-            data: { replicateModel: `kie-task:${taskId}` },
+            data: { replicateModel: `wavespeed-seedream:${taskId}` },
           });
         };
         return await generateImageWithSeedreamWaveSpeed(kieImages, customPrompt, {
-          aspectRatio: "9:16",
           onTaskCreated,
         });
       } else {
@@ -2968,7 +2967,7 @@ async function processPromptImageInBackground(
       await prisma.generation.update({
         where: { id: generationId },
         data: {
-          replicateModel: `kie-task:${result.taskId}`,
+          replicateModel: `wavespeed-seedream:${result.taskId}`,
         },
       });
       console.log(`✅ [BG] Prompt image submitted; result will arrive via callback (task ${result.taskId})`);

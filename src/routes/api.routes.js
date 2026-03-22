@@ -1319,7 +1319,7 @@ router.post(
       });
       const enrichedPrompt = appearancePrefix + prompt.trim();
 
-      const replicateModelLabel = engine === "seedream" ? "kie-seedream-4.5-edit" : "kie-nano-banana-pro";
+      const replicateModelLabel = engine === "seedream" ? "wavespeed-seedream-v4.5-edit" : "kie-nano-banana-pro";
       const generation = await prisma.generation.create({
         data: {
           userId,
@@ -1361,14 +1361,20 @@ router.post(
         const { generateImageWithSeedreamWaveSpeed } = await import("../services/wavespeed.service.js");
         const { getUserFriendlyGenerationError } = await import("../utils/generationErrorMessages.js");
         const opts = engine === "seedream"
-          ? { aspectRatio: "9:16" }
+          ? {}
           : { aspectRatio: "9:16", resolution: "2K", outputFormat: "png" };
         opts.onTaskCreated = async (taskId) => {
           await prisma.generation.update({
             where: { id: generation.id },
-            data: { replicateModel: `kie-task:${taskId}` },
+            data: {
+              replicateModel: engine === "seedream"
+                ? `wavespeed-seedream:${taskId}`
+                : `kie-task:${taskId}`,
+            },
           });
-          await registerKieTaskForGeneration(taskId, generation.id, userId, "advanced-image");
+          if (engine !== "seedream") {
+            await registerKieTaskForGeneration(taskId, generation.id, userId, "advanced-image");
+          }
         };
         try {
           const result = engine === "seedream"
@@ -1377,16 +1383,22 @@ router.post(
           if (result?.success && result?.deferred && result?.taskId) {
             await prisma.generation.update({
               where: { id: generation.id },
-              data: { replicateModel: `kie-task:${result.taskId}` },
+              data: {
+                replicateModel: engine === "seedream"
+                  ? `wavespeed-seedream:${result.taskId}`
+                  : `kie-task:${result.taskId}`,
+              },
             });
-            await registerKieTaskForGeneration(result.taskId, generation.id, userId, "advanced-image");
-            console.log(`🍌 [Advanced] KIE ${engine} submitted; result will arrive via callback (task ${result.taskId})`);
+            if (engine !== "seedream") {
+              await registerKieTaskForGeneration(result.taskId, generation.id, userId, "advanced-image");
+            }
+            console.log(`🍌 [Advanced] ${engine === "seedream" ? "WaveSpeed" : "KIE"} ${engine} submitted; result will arrive via callback (task ${result.taskId})`);
           } else if (result?.success && result?.outputUrl) {
             await prisma.generation.update({
               where: { id: generation.id },
               data: { status: "completed", outputUrl: result.outputUrl, completedAt: new Date() },
             });
-            console.log(`🍌 [Advanced] KIE ${engine} complete: ${generation.id}`);
+            console.log(`🍌 [Advanced] ${engine === "seedream" ? "WaveSpeed" : "KIE"} ${engine} complete: ${generation.id}`);
           } else {
             const errMsg = result?.error || "Generation failed";
             const friendlyMessage = getUserFriendlyGenerationError(errMsg);
@@ -1395,7 +1407,7 @@ router.post(
               where: { id: generation.id },
               data: { status: "failed", errorMessage: getErrorMessageForDb(friendlyMessage), completedAt: new Date() },
             }).catch(() => {});
-            console.error(`🍌 [Advanced] KIE ${engine} failed: ${generation.id}`, errMsg);
+            console.error(`🍌 [Advanced] ${engine === "seedream" ? "WaveSpeed" : "KIE"} ${engine} failed: ${generation.id}`, errMsg);
           }
         } catch (err) {
           console.error("Advanced generation KIE error:", err);
