@@ -60,7 +60,7 @@ import { useAuthStore } from "../store";
 import { REPURPOSE_DEVICE_OPTIONS } from "../data/repurposeDeviceOptions";
 import { hasPremiumAccess } from "../utils/premiumAccess";
 import { useDraft } from "../hooks/useDraft";
-import { MapContainer, TileLayer, Marker, useMapEvents } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
@@ -132,6 +132,20 @@ function MapClickHandler({ onPick }) {
       onPick(e.latlng.lat, e.latlng.lng);
     },
   });
+  return null;
+}
+
+/** Pans/zooms the map when user picks an address from search (jumpNonce increments). Map clicks only move the pin; they do not increment jumpNonce. */
+function MapFlyToPin({ lat, lng, jumpNonce }) {
+  const map = useMap();
+  const lastJumpRef = useRef(0);
+  useEffect(() => {
+    if (jumpNonce === 0 || jumpNonce === lastJumpRef.current) return;
+    lastJumpRef.current = jumpNonce;
+    if (lat == null || lng == null || !Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    const z = Math.max(map.getZoom(), 14);
+    map.flyTo([lat, lng], z, { duration: 0.6 });
+  }, [jumpNonce, lat, lng, map]);
   return null;
 }
 
@@ -954,6 +968,8 @@ export default function VideoRepurposerPage({ embedded }) {
   const [locationSearch, setLocationSearch] = useState("");
   const [locationResults, setLocationResults] = useState([]);
   const [locationSearching, setLocationSearching] = useState(false);
+  /** Increment when user selects a Nominatim result so the map flies to that pin (not on map-click pin moves). */
+  const [locationMapJumpNonce, setLocationMapJumpNonce] = useState(0);
   const [showGallery, setShowGallery] = useState(false);
   const [customPresets, setCustomPresets] = useState(() => {
     try { return JSON.parse(localStorage.getItem("repurposer_custom_presets") || "[]"); } catch { return []; }
@@ -1764,8 +1780,8 @@ export default function VideoRepurposerPage({ embedded }) {
                 <MapPin className="w-4 h-4 text-emerald-400" />
                 Location
               </h3>
-              {/* Address search */}
-              <div className="relative mb-2">
+              {/* Address search — z-index above Leaflet (~400) so dropdown overlays the map */}
+              <div className="relative z-[10001] mb-2">
                 <input
                   type="text"
                   value={locationSearch}
@@ -1788,11 +1804,14 @@ export default function VideoRepurposerPage({ embedded }) {
                     }
                   }}
                   placeholder="Search address… (press Enter)"
-                  className="w-full px-2 py-1.5 rounded-lg bg-white/5 border border-white/10 text-[11px] text-white placeholder:text-slate-600 focus:outline-none focus:border-white/40"
+                  className="relative z-0 w-full px-2 py-1.5 rounded-lg bg-white/5 border border-white/10 text-[11px] text-white placeholder:text-slate-600 focus:outline-none focus:border-white/40"
                 />
-                {locationSearching && <Loader2 className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 animate-spin text-slate-400" />}
+                {locationSearching && <Loader2 className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 animate-spin text-slate-400 z-[10003]" />}
                 {locationResults.length > 0 && (
-                  <div className="absolute z-50 top-full left-0 right-0 mt-1 rounded-lg border border-white/10 overflow-hidden" style={{ background: "#0d0f11" }}>
+                  <div
+                    className="absolute left-0 right-0 top-full z-[10002] mt-1 max-h-48 overflow-y-auto rounded-lg border border-white/10 shadow-2xl overflow-hidden"
+                    style={{ background: "#0d0f11" }}
+                  >
                     {locationResults.map((r) => (
                       <button
                         key={r.place_id}
@@ -1804,6 +1823,7 @@ export default function VideoRepurposerPage({ embedded }) {
                           updateMeta("gps_location", { ...metadata.gps_location, enabled: true, mode: "pinpoint", lat, lng });
                           setLocationSearch(r.display_name);
                           setLocationResults([]);
+                          setLocationMapJumpNonce((n) => n + 1);
                         }}
                       >
                         {r.display_name}
@@ -1813,7 +1833,7 @@ export default function VideoRepurposerPage({ embedded }) {
                 )}
               </div>
               <p className="text-[10px] text-slate-500 mb-2">Or click the map to pin a location.</p>
-              <div className="rounded-lg overflow-hidden border border-white/10" style={{ height: 200 }}>
+              <div className="relative z-0 rounded-lg overflow-hidden border border-white/10" style={{ height: 200 }}>
                 <MapContainer
                   center={[metadata.gps_location.lat ?? 39.8, metadata.gps_location.lng ?? -98.5]}
                   zoom={metadata.gps_location.lat != null ? 10 : 3}
@@ -1826,6 +1846,7 @@ export default function VideoRepurposerPage({ embedded }) {
                   {metadata.gps_location.lat != null && (
                     <Marker position={[metadata.gps_location.lat, metadata.gps_location.lng]} />
                   )}
+                  <MapFlyToPin lat={metadata.gps_location.lat} lng={metadata.gps_location.lng} jumpNonce={locationMapJumpNonce} />
                   <MapClickHandler
                     onPick={(lat, lng) =>
                       updateMeta("gps_location", { ...metadata.gps_location, enabled: true, mode: "pinpoint", lat, lng })
