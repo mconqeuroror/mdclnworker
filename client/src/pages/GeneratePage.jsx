@@ -449,11 +449,6 @@ export default function GeneratePage({ setActiveTab: setDashboardTab, openVoiceS
   const [activeTab, setActiveTab] = useState("image");
   const [isTabDrawerOpen, setIsTabDrawerOpen] = useState(false);
   const [hasSelectedTopTab, setHasSelectedTopTab] = useState(false);
-  const { getTutorial } = useTutorialCatalog();
-  const videoTutorialRecreate = getTutorial("generate.video.recreate", "Recreate Video Tutorial");
-  const videoTutorialPrompt = getTutorial("generate.video.prompt", "Prompt Video Tutorial");
-  const videoTutorialFaceSwap = getTutorial("generate.video.faceswap", "Face Swap Video Tutorial");
-  const videoTutorialTalking = getTutorial("generate.video.talking", "Talking Video Tutorial");
 
   useEffect(() => {
     const handleBack = () => {
@@ -1655,6 +1650,11 @@ function ImageGeneration() {
 
 function VideoGeneration() {
   const { user, updateCredits, refreshUserCredits } = useAuthStore();
+  const { getTutorial } = useTutorialCatalog();
+  const videoTutorialRecreate = getTutorial("generate.video.recreate", "Recreate Video Tutorial");
+  const videoTutorialPrompt = getTutorial("generate.video.prompt", "Prompt Video Tutorial");
+  const videoTutorialFaceSwap = getTutorial("generate.video.faceswap", "Face Swap Video Tutorial");
+  const videoTutorialTalking = getTutorial("generate.video.talking", "Talking Video Tutorial");
   const credits = user?.credits ?? 0;
 
   // Only show failed generations in LivePreviewPanel if they failed recently (last 5 min)
