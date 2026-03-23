@@ -1471,7 +1471,11 @@ router.get("/jobs/:jobId/download/:fileName", async (req, res) => {
     if (!dbJob) return res.status(404).json({ ok: false, error: "Job not found." });
     const output = dbJob.outputs?.find((o) => o.fileName === safeName);
     if (!output?.fileUrl) return res.status(404).json({ ok: false, error: "File not found." });
-    return res.redirect(302, output.fileUrl);
+    if (output.fileUrl.startsWith("http")) {
+      const proxyUrl = `/api/download?url=${encodeURIComponent(output.fileUrl)}&filename=${encodeURIComponent(safeName)}`;
+      return res.redirect(302, proxyUrl);
+    }
+    return res.status(404).json({ ok: false, error: "File URL is invalid." });
   } catch (e) {
     console.error("Download DB fallback error:", e?.message);
     return res.status(500).json({ ok: false, error: "Download failed." });
