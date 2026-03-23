@@ -995,7 +995,21 @@ async function uploadFileMultipart(file, onProgress) {
 export const uploadFile = async (file, onProgress) => {
   const config = await getUploadConfig();
   if (config.directToBlob) {
-    return uploadFileDirectToBlob(file, onProgress);
+    try {
+      return await uploadFileDirectToBlob(file, onProgress);
+    } catch (err) {
+      const msg = String(err?.message || "").toLowerCase();
+      const status = err?.response?.status;
+      const isBlobEndpointIssue =
+        status === 404 ||
+        msg.includes("errors/not-found") ||
+        msg.includes("route post:/api/errors/not-found") ||
+        msg.includes("failed to fetch") ||
+        msg.includes("endpoint not found");
+      if (!isBlobEndpointIssue) throw err;
+      console.warn("[upload] direct-to-blob failed; falling back to multipart /upload:", err?.message || err);
+      return uploadFileMultipart(file, onProgress);
+    }
   }
   return uploadFileMultipart(file, onProgress);
 };

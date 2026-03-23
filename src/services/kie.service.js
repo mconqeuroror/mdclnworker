@@ -660,7 +660,7 @@ async function generateVideoWithMotionKieInternal(imageUrl, videoUrl, options = 
     );
   }
 
-  const prompt = options.videoPrompt || options.prompt || "No distortion, no blur, background matches with the image source, the character's movements are consistent with the video.";
+  const prompt = options.videoPrompt || options.prompt || "The character's appearance, clothing, and face match the reference image exactly. Full body movements, gestures, and actions are precisely synchronized with the reference video. All held objects such as phones, props, or accessories move naturally with the hands and body - no props are static or frozen. Fingers, wrists, and arms animate fluidly. Background matches the reference image. No distortion, no blur, no warping of the character's features.";
 
   const model = useUltraMotionControl ? "kling-3.0/motion-control" : "kling-2.6/motion-control";
   const want1080 =
