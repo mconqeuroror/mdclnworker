@@ -20,6 +20,25 @@ body {
   overflow-x: hidden;
 }
 
+html,
+body,
+#root {
+  width: 100%;
+  max-width: 100%;
+}
+
+img,
+video,
+canvas,
+svg {
+  max-width: 100%;
+}
+
+/* Prevent flex/grid children from forcing horizontal overflow */
+* {
+  min-width: 0;
+}
+
 /* ===== SCROLLBAR ===== */
 ::-webkit-scrollbar {
   width: 8px;
@@ -46,6 +65,11 @@ body {
 
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
+}
+
+.overflow-x-auto {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
 }
 
 /* ===== SPINNING BORDER (credits card) ===== */
@@ -573,5 +597,12 @@ textarea:focus {
   .card-3d:hover,
   .card-hover:hover {
     transform: none !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .safe-mobile-pad {
+    padding-left: max(0.75rem, env(safe-area-inset-left));
+    padding-right: max(0.75rem, env(safe-area-inset-right));
   }
 }

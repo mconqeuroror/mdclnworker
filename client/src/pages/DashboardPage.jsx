@@ -242,7 +242,7 @@ export default function DashboardPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-black text-white">
+    <div className="min-h-screen bg-black text-white overflow-x-hidden">
       {/* Desktop Sidebar - hidden on mobile */}
       <div className="hidden md:block">
         <AppSidebar
@@ -315,7 +315,7 @@ export default function DashboardPage() {
             animate={{ x: 0 }}
             exit={{ x: "100%" }}
             transition={{ type: "spring", damping: 25, stiffness: 300 }}
-            className="md:hidden fixed right-0 top-0 h-full w-72 z-50 p-4"
+            className="md:hidden fixed right-0 top-0 h-full w-[min(92vw,20rem)] z-50 p-4"
             style={{ background: "linear-gradient(180deg, rgba(15,15,23,0.98) 0%, rgba(10,10,18,0.99) 50%, rgba(5,5,12,1) 100%)" }}
           >
             <div className="absolute left-0 top-0 bottom-0 w-px bg-gradient-to-b from-white/[0.08] via-white/[0.04] to-transparent" />
@@ -482,8 +482,8 @@ export default function DashboardPage() {
       </AnimatePresence>
 
       {/* Content - with left margin for sidebar on desktop */}
-      <main className={`relative z-10 pt-16 md:pt-14 pb-12 min-h-screen transition-all duration-300 ${isSidebarCollapsed ? "md:ml-[80px]" : "md:ml-[260px]"}`}>
-        <div className={`relative z-10 p-4 md:p-6 ${isSidebarCollapsed ? "mx-auto w-full max-w-[1600px]" : ""}`}>
+      <main className={`relative z-10 pt-16 md:pt-14 pb-12 min-h-screen transition-all duration-300 overflow-x-hidden ${isSidebarCollapsed ? "md:ml-[80px]" : "md:ml-[260px]"}`}>
+        <div className={`relative z-10 p-3 sm:p-4 md:p-6 ${isSidebarCollapsed ? "mx-auto w-full max-w-[1600px]" : ""}`}>
           {activeTab === "home" && <HomePage setActiveTab={setActiveTab} setShowEarnModal={setShowEarnModal} setShowReferralModal={setShowReferralModal} onOpenCreateModel={() => { setUploadRealMode(false); setShowCreateModelModal(true); }} onOpenUploadReal={() => { setUploadRealMode(true); setShowCreateModelModal(true); }} onOpenCredits={() => setShowAddCredits(true)} />}
           {activeTab === "models" && <ModelsPage sidebarCollapsed={isSidebarCollapsed} openVoiceStudioForModel={openVoiceStudioForModel} />}
 {activeTab === "generate" && <GeneratePage setActiveTab={setActiveTab} openVoiceStudioForModel={openVoiceStudioForModel} />}

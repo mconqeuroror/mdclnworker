@@ -1728,21 +1728,35 @@ export async function reconcileAllSubscriptions(req, res) {
 
 export async function reconcileReferralCommissions(req, res) {
   try {
+    const scanAllRaw = req.body?.scanAll ?? req.query?.scanAll ?? false;
+    const scanAll = String(scanAllRaw).toLowerCase() === "true" || scanAllRaw === true;
     const requestedLimit = parseInt(req.body?.limit ?? req.query?.limit ?? "250", 10);
-    const limit = Math.min(1000, Math.max(1, Number.isFinite(requestedLimit) ? requestedLimit : 250));
+    const limit = scanAll
+      ? null
+      : Math.min(5000, Math.max(1, Number.isFinite(requestedLimit) ? requestedLimit : 250));
     const dryRunRaw = req.body?.dryRun ?? req.query?.dryRun ?? true;
     const dryRun = String(dryRunRaw).toLowerCase() !== "false";
 
-    const referredUsers = await prisma.user.findMany({
-      where: { referredByUserId: { not: null } },
-      take: limit,
-      orderBy: { createdAt: "asc" },
-      select: {
-        id: true,
-        email: true,
-        referredByUserId: true,
-      },
-    });
+    const referredUsers = scanAll
+      ? await prisma.user.findMany({
+          where: { referredByUserId: { not: null } },
+          orderBy: { createdAt: "asc" },
+          select: {
+            id: true,
+            email: true,
+            referredByUserId: true,
+          },
+        })
+      : await prisma.user.findMany({
+          where: { referredByUserId: { not: null } },
+          take: limit,
+          orderBy: { createdAt: "asc" },
+          select: {
+            id: true,
+            email: true,
+            referredByUserId: true,
+          },
+        });
 
     const summary = {
       scanned: referredUsers.length,
@@ -1885,14 +1899,15 @@ export async function reconcileReferralCommissions(req, res) {
         adminEmail: req.user.email || null,
         action: dryRun ? "reconcile_referrals_dry_run" : "reconcile_referrals_execute",
         targetType: "referral_commission",
-        detailsJson: JSON.stringify({ limit, summary }),
+        detailsJson: JSON.stringify({ limit: limit ?? "all", scanAll, summary }),
       },
     }).catch(() => {});
 
     return res.json({
       success: true,
       dryRun,
-      limit,
+      limit: limit ?? "all",
+      scanAll,
       summary,
       items,
     });

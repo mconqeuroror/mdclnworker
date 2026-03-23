@@ -80,14 +80,11 @@ const COUNTRY_LIST = [
   { code: 'ZM', name: 'Zambia' }, { code: 'ZW', name: 'Zimbabwe' },
 ].sort((a, b) => a.name.localeCompare(b.name));
 
-// Spend ranges for email audience: value is [minCents, maxCents] or null for "Any"
+// Spend ranges for email audience.
 const SPEND_RANGE_OPTIONS = [
   { value: '', label: 'Any (no filter)', minCents: null, maxCents: null },
-  { value: '0-1000', label: '$0 – $10', minCents: 0, maxCents: 1000 },
-  { value: '1000-5000', label: '$10 – $50', minCents: 1000, maxCents: 5000 },
-  { value: '5000-10000', label: '$50 – $100', minCents: 5000, maxCents: 10000 },
-  { value: '10000-50000', label: '$100 – $500', minCents: 10000, maxCents: 50000 },
-  { value: '50000-plus', label: '$500+', minCents: 50000, maxCents: null },
+  { value: 'spent-zero', label: '$0 only', minCents: 0, maxCents: 0 },
+  { value: 'spent-any', label: 'Spent any amount (>$0)', minCents: 1, maxCents: null },
 ];
 
 // Marketing languages (same as user preferences)
@@ -155,10 +152,21 @@ const GENERATION_PRICING_GROUPS = [
   },
 ];
 
+const KNOWN_GENERATION_PRICING_KEYS = new Set(
+  GENERATION_PRICING_GROUPS.flatMap((group) => group.fields.map((field) => field.key)),
+);
+
+const formatPricingKeyLabel = (key) =>
+  String(key || "")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
 // ── Primitive UI components ───────────────────────────────────────────────────
 
 const Section = ({ children, className = '' }) => (
-  <div className={`rounded-2xl border border-white/[0.07] bg-white/[0.03] p-6 ${className}`}>
+  <div className={`rounded-2xl border border-white/[0.07] bg-white/[0.03] p-4 sm:p-6 ${className}`}>
     {children}
   </div>
 );
@@ -523,6 +531,7 @@ export default function AdminPage() {
   const [loadingVoicePlatform, setLoadingVoicePlatform] = useState(false);
   const [savingVoicePlatform, setSavingVoicePlatform] = useState(false);
   const [reconcileLimit, setReconcileLimit] = useState(250);
+  const [reconcileAllUsers, setReconcileAllUsers] = useState(false);
   const [reconcileResult, setReconcileResult] = useState(null);
   const [reconciliationLimit, setReconciliationLimit] = useState(100);
 
@@ -875,7 +884,8 @@ export default function AdminPage() {
     try {
       const r = await api.post('/admin/referrals/reconcile', {
         dryRun,
-        limit: reconcileLimit,
+        scanAll: reconcileAllUsers,
+        limit: reconcileAllUsers ? null : reconcileLimit,
       });
       if (r.data?.success) {
         setReconcileResult(r.data);
@@ -1584,15 +1594,15 @@ export default function AdminPage() {
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white">
-      <div className="max-w-6xl mx-auto px-5 py-8 space-y-4">
+      <div className="max-w-6xl mx-auto px-3 sm:px-5 py-5 sm:py-8 space-y-4">
 
         {/* ── Header ──────────────────────────────────────────────────────── */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-6 gap-3 flex-wrap">
           <div>
             <h1 className="text-lg font-semibold tracking-tight">Admin</h1>
             <p className="text-xs text-gray-500 mt-0.5">Platform management</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
             <GhostBtn onClick={() => navigate('/designer-studio')}>
               <Palette className="w-3.5 h-3.5" />
               Designer Studio
@@ -2213,14 +2223,24 @@ export default function AdminPage() {
                 <p className="text-[11px] text-gray-500 mt-1">Dry run first, then execute to backfill missed first-purchase referral credits.</p>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
+                <label className="inline-flex items-center gap-1.5 text-[11px] text-gray-300">
+                  <input
+                    type="checkbox"
+                    checked={reconcileAllUsers}
+                    onChange={(e) => setReconcileAllUsers(e.target.checked)}
+                    className="rounded"
+                  />
+                  Scan all users
+                </label>
                 <input
                   type="number"
                   min={1}
-                  max={1000}
+                  max={5000}
                   value={reconcileLimit}
-                  onChange={(e) => setReconcileLimit(Math.max(1, Math.min(1000, parseInt(e.target.value || '1', 10))))}
+                  onChange={(e) => setReconcileLimit(Math.max(1, Math.min(5000, parseInt(e.target.value || '1', 10))))}
+                  disabled={reconcileAllUsers}
                   className="w-24 px-2 py-1.5 rounded-lg border border-white/[0.07] bg-white/[0.03] text-xs"
-                  title="Max users to scan"
+                  title={reconcileAllUsers ? 'Disabled when scanning all users' : 'Max users to scan'}
                 />
                 <GhostBtn onClick={() => handleReferralReconcile(true)} disabled={reconcileLoading}>
                   {reconcileLoading ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Search className="w-3 h-3" />}
@@ -2387,7 +2407,7 @@ export default function AdminPage() {
             const totalPaid   = referralData.users.reduce((s, u) => s + (u.totalPaidCents || 0), 0);
             const totalElig   = referralData.users.reduce((s, u) => s + (u.eligibleCents || 0), 0);
             return (
-              <div className="grid grid-cols-3 gap-2.5 mb-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 mb-4">
                 <KpiCard label="Total Rewards" value={fmt$(totalReward)} sub="all time" />
                 <KpiCard label="Total Paid" value={fmt$(totalPaid)} sub="disbursed" />
                 <KpiCard label="Owed" value={fmt$(totalElig)} sub="eligible, not yet paid" />
@@ -2688,6 +2708,43 @@ export default function AdminPage() {
                       </div>
                     </div>
                   ))}
+                  {Object.keys(genPricing).filter((key) => !KNOWN_GENERATION_PRICING_KEYS.has(key)).length > 0 && (
+                    <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-4">
+                      <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wider mb-3">Other endpoints</p>
+                      <div className="grid sm:grid-cols-2 gap-3">
+                        {Object.keys(genPricing)
+                          .filter((key) => !KNOWN_GENERATION_PRICING_KEYS.has(key))
+                          .sort((a, b) => a.localeCompare(b))
+                          .map((key) => {
+                            const def = genPricingDefaults?.[key];
+                            const val = genPricing[key];
+                            return (
+                              <label key={key} className="flex flex-col gap-1">
+                                <span className="text-[11px] text-gray-500">{formatPricingKeyLabel(key)}</span>
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    step={1}
+                                    value={Number.isFinite(Number(val)) ? val : 0}
+                                    onChange={(e) => {
+                                      const n = parseInt(e.target.value, 10);
+                                      setGenPricing((p) => ({ ...p, [key]: Number.isFinite(n) && n >= 0 ? n : 0 }));
+                                    }}
+                                    className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-white/[0.07] bg-white/[0.03] text-xs text-white outline-none focus:border-white/20 transition [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                  />
+                                  {def != null && def !== val && (
+                                    <span className="text-[10px] text-gray-600 whitespace-nowrap" title="Default">
+                                      def {def}
+                                    </span>
+                                  )}
+                                </div>
+                              </label>
+                            );
+                          })}
+                      </div>
+                    </div>
+                  )}
                   <div className="flex flex-wrap items-center gap-2">
                     <PrimaryBtn onClick={saveGenerationPricing} disabled={savingGenPricing}>
                       {savingGenPricing ? 'Saving…' : 'Save pricing'}
@@ -2849,7 +2906,7 @@ export default function AdminPage() {
           />
 
           {/* Summary row */}
-          <div className="grid grid-cols-3 gap-2.5 mb-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 mb-4">
             <KpiCard label="Tracked Profiles" value={reelProfiles.length} sub={`${reelProfiles.filter((p) => p.isActive).length} active`} />
             <KpiCard label="Total Reels" value={reelProfiles.reduce((s, p) => s + (p._count?.reels || 0), 0).toLocaleString()} />
             <KpiCard label="Last Log Status" value={reelLogs[0]?.status || '—'} sub={reelLogs[0] ? fmtDate(reelLogs[0].startedAt) : undefined} />
@@ -2913,7 +2970,7 @@ export default function AdminPage() {
               <div className="mt-3 p-3 rounded-lg border border-white/[0.05] bg-white/[0.01]">
                 <p className="text-[11px] text-gray-400 font-medium mb-1">Rolling Schedule (Groups 0–5)</p>
                 <p className="text-[11px] text-gray-600 mb-2">One group scraped daily — each profile every ~6 days.</p>
-                <div className="grid grid-cols-3 gap-1">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1">
                   {[0,1,2,3,4,5].map((g) => (
                     <div key={g} className="flex items-center gap-1.5 text-[11px] text-gray-500">
                       <span className="w-4 h-4 rounded bg-white/[0.05] text-gray-400 font-mono text-[10px] flex items-center justify-center">{g}</span>
@@ -3248,7 +3305,7 @@ export default function AdminPage() {
                 </div>
               )}
               {!!emailBuilder.imageUrls?.length && (
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {emailBuilder.imageUrls.map((url, i) => (
                     <img key={`${url}-${i}`} src={url} alt="" className="w-full h-16 object-cover rounded-lg border border-white/[0.07]" />
                   ))}
@@ -3262,7 +3319,7 @@ export default function AdminPage() {
                   <input type="checkbox" checked={emailAudience.verifiedOnly} onChange={(e) => setEmailAudience((a) => ({ ...a, verifiedOnly: e.target.checked }))} className="rounded" />
                   Verified users only
                 </label>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div>
                     <p className="text-[10px] text-gray-500 mb-0.5">Subscription status</p>
                     <div className="flex flex-wrap gap-1.5">
