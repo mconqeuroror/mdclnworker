@@ -897,7 +897,7 @@ async function handleGenerateWithWorkerFromUrl(req, res, userId) {
         file_name: fn,
         download_url: fileUrl.startsWith("http") ? fileUrl : `/video-repurpose/jobs/${jobId}/download/${fn}`,
         fileUrl,
-        metadata_warnings: [],
+        metadata_warnings: wr.outputMetadataWarnings?.[i] || [],
       };
     });
 
@@ -1342,7 +1342,7 @@ router.post(
             ? fileUrl
             : `/video-repurpose/jobs/${jobId}/download/${fn}`,
           fileUrl,
-          metadata_warnings: [],
+          metadata_warnings: wr.outputMetadataWarnings?.[i] || [],
         };
       });
 
