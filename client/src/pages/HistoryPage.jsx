@@ -153,6 +153,7 @@ export default function HistoryPage() {
   const [loadError, setLoadError] = useState(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [pagination, setPagination] = useState({ total: 0, limit: PAGE_SIZE, offset: 0 });
+  const [retentionMaxPerModel, setRetentionMaxPerModel] = useState(null);
   const [previewItem, setPreviewItem] = useState(null);
   const [viewMode, setViewMode] = useState("grid");
 
@@ -207,6 +208,9 @@ export default function HistoryPage() {
       if (response.data.success) {
         if (!refreshLatest) setLoadError(null);
         const nextGens = response.data.generations || [];
+        const maxCompletedPerModel =
+          response.data?.retention?.maxCompletedPerModel ?? null;
+        setRetentionMaxPerModel(maxCompletedPerModel);
         const nextPagination = response.data.pagination || {
           total: 0,
           limit: requestLimit,
@@ -662,7 +666,11 @@ export default function HistoryPage() {
           {/* Storage info */}
           <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-slate-400" style={{ background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.1)' }}>
             <Info className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-            <span>We store up to <strong className="text-slate-300">200 generations per model</strong>. Older content is automatically removed when the limit is reached. Download anything you want to keep!</span>
+            {retentionMaxPerModel == null ? (
+              <span>Automatic history cleanup is currently <strong className="text-slate-300">disabled</strong>. Content is kept unless you delete it manually.</span>
+            ) : (
+              <span>We store up to <strong className="text-slate-300">{retentionMaxPerModel} generations per model</strong>. Older content is automatically removed when the limit is reached. Download anything you want to keep!</span>
+            )}
           </div>
 
           {/* Generations Grid/List */}

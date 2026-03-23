@@ -1237,6 +1237,9 @@ export async function getGenerations(req, res) {
       success: true,
       generations: healedGenerations,
       pagination: { total, limit: parseInt(limit), offset: parseInt(offset) },
+      retention: {
+        maxCompletedPerModel: getMaxCompletedGenerationsPerModel(),
+      },
     });
   } catch (error) {
     console.error("Get generations error:", error);
@@ -1288,14 +1291,24 @@ export async function getMonthlyStats(req, res) {
  * Oldest completed rows are deleted when over the cap. Runs after each successful completion
  * (KIE callback, WaveSpeed callback, generation poller).
  *
- * Env: MAX_COMPLETED_GENERATIONS_PER_MODEL
- *   - unset → 200 (legacy default)
- *   - 0 or negative → disabled (no automatic deletion)
- *   - positive integer → max completed rows kept per (userId, modelId)
+ * IMPORTANT: cleanup is opt-in to prevent surprise content loss.
+ *
+ * Env:
+ *   - ENABLE_GENERATION_AUTO_CLEANUP=true|1|yes|on → enable cleanup logic
+ *   - MAX_COMPLETED_GENERATIONS_PER_MODEL
+ *       - unset while enabled → 200
+ *       - 0 or negative → disabled (no automatic deletion)
+ *       - positive integer → max completed rows kept per (userId, modelId)
  */
 const MAX_GENERATIONS_PER_MODEL_CAP = 500_000;
 
 export function getMaxCompletedGenerationsPerModel() {
+  const enabled = String(process.env.ENABLE_GENERATION_AUTO_CLEANUP || "")
+    .trim()
+    .toLowerCase();
+  const isEnabled = ["1", "true", "yes", "on"].includes(enabled);
+  if (!isEnabled) return null;
+
   const raw = process.env.MAX_COMPLETED_GENERATIONS_PER_MODEL;
   if (raw === undefined || String(raw).trim() === "") return 200;
   const n = parseInt(String(raw).trim(), 10);
