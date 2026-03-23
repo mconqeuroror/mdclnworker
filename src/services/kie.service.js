@@ -194,15 +194,16 @@ function normalizeKieCreateRequestBody(rawBody, label) {
     /** App product: motion recreate is always 1080p for 2.6 and 3.0 (ignore legacy 720p in stored payloads). */
     next.mode = "1080p";
 
-    // Match content-studio payload shape for maximum compatibility.
-    const characterOrientation =
-      next.character_orientation === "image" || next.character_orientation === "video"
-        ? next.character_orientation
-        : "video";
-    next.character_orientation = characterOrientation;
+    // kling-2.6 fails when character_orientation is present; keep it only for 3.0.
     if (model.includes("kling-3.0")) {
+      const characterOrientation =
+        next.character_orientation === "image" || next.character_orientation === "video"
+          ? next.character_orientation
+          : "video";
+      next.character_orientation = characterOrientation;
       if (!next.background_source) next.background_source = "input_video";
     } else {
+      delete next.character_orientation;
       delete next.background_source;
     }
 
@@ -667,9 +668,9 @@ async function generateVideoWithMotionKieInternal(imageUrl, videoUrl, options = 
     video_urls: [vid],
     mode,
   };
-  // Keep parity with content-studio request shape.
-  inputObj.character_orientation = "video";
   if (useUltraMotionControl) {
+    // 3.0 supports character_orientation + background_source.
+    inputObj.character_orientation = "video";
     inputObj.background_source = "input_video";
   }
 
