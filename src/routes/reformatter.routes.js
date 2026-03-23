@@ -6,6 +6,7 @@ import { authMiddleware } from "../middleware/auth.middleware.js";
 import { isR2Configured, getR2PresignedPutForKey } from "../utils/r2.js";
 import { convertAndStoreMedia, isConvertibleMedia } from "../services/media-reformatter.service.js";
 import { postRepurposeJobToWorker } from "../services/ffmpeg-worker-client.js";
+import { isVercelBlobConfigured, mirrorToBlob } from "../utils/kieUpload.js";
 
 const router = express.Router();
 const CONVERTER_JOB_RETENTION_DAYS = 30;
@@ -30,6 +31,27 @@ function getFileNameFromUrl(sourceUrl, fallback = "upload.bin") {
   } catch {
     return fallback;
   }
+}
+
+async function buildWorkerOutputTarget(userId, jobId, isVideo) {
+  if (isVercelBlobConfigured()) {
+    return {
+      vercelBlobOutput: true,
+      outputBlobPrefix: `content-studio/conversions/${userId}/${jobId}`,
+    };
+  }
+  if (!isR2Configured()) {
+    throw new Error("File storage is not configured (Blob/R2)");
+  }
+  const outputExt = isVideo ? "mp4" : "jpg";
+  const contentType = isVideo ? "video/mp4" : "image/jpeg";
+  const fileName = `converted.${outputExt}`;
+  const key = `conversions/${userId}/${jobId}/${fileName}`;
+  const { uploadUrl, publicUrl } = await getR2PresignedPutForKey(key, contentType, 3600);
+  return {
+    outputPutUrls: [{ putUrl: uploadUrl, publicUrl, contentType }],
+    fallbackPublicUrl: publicUrl,
+  };
 }
 
 /** Browser (ffmpeg.wasm) path: create a converter job and return presigned PUT URL so client can convert in browser and upload result. */
@@ -137,8 +159,8 @@ router.post("/prepare-input", authMiddleware, express.json(), async (req, res) =
  */
 router.post("/convert-with-worker", authMiddleware, express.json(), async (req, res) => {
   try {
-    if (!isR2Configured()) {
-      return res.status(503).json({ success: false, message: "File storage is not configured" });
+    if (!isVercelBlobConfigured() && !isR2Configured()) {
+      return res.status(503).json({ success: false, message: "File storage is not configured (Blob/R2)" });
     }
     const userId = req.user?.id || req.user?.userId;
     if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
@@ -170,20 +192,21 @@ router.post("/convert-with-worker", authMiddleware, express.json(), async (req, 
     void (async () => {
       try {
         const outputExt = isVideo ? "mp4" : "jpg";
-        const contentType = isVideo ? "video/mp4" : "image/jpeg";
-        const fileName = `converted.${outputExt}`;
-        const key = `conversions/${userId}/${job.id}/${fileName}`;
-        const { uploadUrl, publicUrl } = await getR2PresignedPutForKey(key, contentType, 3600);
+        const target = await buildWorkerOutputTarget(userId, job.id, isVideo);
+        const workerInputUrl = isVercelBlobConfigured()
+          ? await mirrorToBlob(inputUrlRaw.trim())
+          : inputUrlRaw.trim();
 
         const wr = await postRepurposeJobToWorker({
-          inputUrl: inputUrlRaw.trim(),
+          inputUrl: workerInputUrl,
           isImage,
           settings: { copies: 1, filters: {}, metadata: {} },
-          outputPutUrls: [{ putUrl: uploadUrl, publicUrl, contentType }],
+          ...(target.outputPutUrls ? { outputPutUrls: target.outputPutUrls } : {}),
+          ...(target.vercelBlobOutput ? { vercelBlobOutput: true, outputBlobPrefix: target.outputBlobPrefix } : {}),
           jobRef: { converterJobId: job.id, source: "reformatter-convert-with-worker" },
         });
 
-        const outUrl = wr.outputUrls?.[0] || publicUrl;
+        const outUrl = wr.outputUrls?.[0] || target.fallbackPublicUrl || "";
         const expiresAt = new Date(Date.now() + CONVERTER_JOB_RETENTION_DAYS * 24 * 60 * 60 * 1000);
         await prisma.converterJob.update({
           where: { id: job.id },

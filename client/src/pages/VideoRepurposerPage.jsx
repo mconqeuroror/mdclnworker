@@ -613,18 +613,9 @@ function VideoComparer() {
     formData.append("videoB", videoB);
 
     const uploadForCompare = async (file) => {
-      const contentType = file?.type || "application/octet-stream";
-      const prep = await api.post("/upload/presign", { contentType, folder: "uploads" });
-      const uploadUrl = prep?.data?.uploadUrl;
-      const publicUrl = prep?.data?.publicUrl;
-      if (!uploadUrl || !publicUrl) throw new Error("Could not get upload URL for compare.");
-      const put = await fetch(uploadUrl, {
-        method: "PUT",
-        body: file,
-        headers: { "Content-Type": contentType },
-      });
-      if (!put.ok) throw new Error(`Upload failed (${put.status})`);
-      return publicUrl;
+      const url = await uploadFile(file);
+      if (!url) throw new Error("Could not upload compare file.");
+      return url;
     };
 
     try {

@@ -1196,11 +1196,8 @@ export async function processVideoBatch(inputVideo, watermarkPath, outputDir, se
       if (useWasm) await runFfmpegWasm(ffmpegCmd);
       else await runFfmpeg(ffmpegCmd);
     } catch (e) {
-      const shouldRetryMuted = shouldAttemptMuteRetry(sourceInfo, e?.message || "");
-      if (!shouldRetryMuted) {
-        try { if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath); } catch {}
-        throw new Error(`FFmpeg failed for copy #${i + 1}: ${e.message}`);
-      }
+      // Always attempt one muted retry after a primary failure.
+      // This recovers jobs where ffprobe/diagnostics miss corrupt AAC details.
       retriedWithoutAudio = true;
       const muteCmd = buildFfmpegCommand(inputVideo, outputPath, watermarkPath, filtersCfg, values, sourceInfo, { disableAudio: true });
       try {
@@ -1208,7 +1205,9 @@ export async function processVideoBatch(inputVideo, watermarkPath, outputDir, se
         else await runFfmpeg(muteCmd);
       } catch (e2) {
         try { if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath); } catch {}
-        throw new Error(`FFmpeg failed for copy #${i + 1} (audio fallback also failed): ${e2.message}`);
+        throw new Error(
+          `FFmpeg failed for copy #${i + 1}: primary=${e?.message || "unknown"}; audio-disabled retry=${e2?.message || "unknown"}`
+        );
       }
     }
 
@@ -1222,7 +1221,7 @@ export async function processVideoBatch(inputVideo, watermarkPath, outputDir, se
     const metaResult = await applyMetadata(outputPath, metadataCfgForCopy);
     if (retriedWithoutAudio) {
       if (!Array.isArray(metaResult.warnings)) metaResult.warnings = [];
-      metaResult.warnings.push("Input audio stream was corrupt; output generated without audio track.");
+      metaResult.warnings.push("Primary ffmpeg pass failed; output generated using audio-disabled retry.");
     }
 
     try {

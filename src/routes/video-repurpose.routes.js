@@ -28,6 +28,7 @@ import { getSafeErrorMessage } from "../utils/safe-error.js";
 import { buildAiRepurposeFilters } from "../services/repurpose-ai-filters.js";
 import { checkAndExpireCredits, deductCredits, getTotalCredits } from "../services/credit.service.js";
 import { getPublicAppBaseUrl } from "../lib/app-public-url.js";
+import { isVercelBlobConfigured, uploadBufferToBlob, mirrorToBlob } from "../utils/kieUpload.js";
 
 const execFileAsync = promisify(execFileCb);
 const MAX_VIDEO_DURATION_SEC = 60;
@@ -77,6 +78,16 @@ const compareGlobalWaitQueue = [];
 const COMPARE_WAIT_TIMEOUT_MS = 10_000;
 
 const AI_REPURPOSE_CREDIT_COST = 10;
+
+async function buildWorkerOutputTarget({ userId, jobId, copies, isImage }) {
+  if (!isVercelBlobConfigured()) {
+    throw new Error("BLOB_READ_WRITE_TOKEN is required for worker repurpose.");
+  }
+  return {
+    vercelBlobOutput: true,
+    outputBlobPrefix: `content-studio/repurpose/${userId}/${jobId}`,
+  };
+}
 
 async function applyRepurposeSmartFiltersAndCharge(userId, settings, { isImage, hasAudio }) {
   if (settings.useAiOptimization !== true) return { ok: true };
@@ -758,8 +769,8 @@ async function handleGenerateFromUrl(req, res, userId) {
 
 async function handleGenerateWithWorkerFromUrl(req, res, userId) {
   const { videoUrl, watermarkUrl, settings: settingsRaw } = req.body || {};
-  if (!isR2Configured()) {
-    return res.status(503).json({ ok: false, error: "Storage not configured. Worker repurpose requires R2." });
+  if (!isVercelBlobConfigured()) {
+    return res.status(503).json({ ok: false, error: "Blob storage not configured. Set BLOB_READ_WRITE_TOKEN." });
   }
   if (!videoUrl || typeof videoUrl !== "string") {
     return res.status(400).json({ ok: false, error: "videoUrl is required." });
@@ -866,25 +877,19 @@ async function handleGenerateWithWorkerFromUrl(req, res, userId) {
     }).catch(() => {});
   };
 
-  const outputExt = isImage ? "jpg" : "mp4";
-  const contentType = isImage ? "image/jpeg" : "video/mp4";
-  const outputPutUrls = [];
-  for (let i = 1; i <= copies; i++) {
-    const fileName = `repurpose_${String(i).padStart(3, "0")}.${outputExt}`;
-    const key = `repurpose/${userId}/${jobId}/${fileName}`;
-    const { uploadUrl, publicUrl } = await getR2PresignedPutForKey(key, contentType, 3600);
-    outputPutUrls.push({ putUrl: uploadUrl, publicUrl, contentType });
-  }
+  const outputTarget = await buildWorkerOutputTarget({ userId, jobId, copies, isImage });
 
   await patchJobProgress(22, "Sending to FFmpeg worker…");
   const baseUrl = getPublicAppBaseUrl();
   const progressUrl = baseUrl ? `${baseUrl}/api/video-repurpose/worker-progress` : undefined;
+  const effectiveInputUrl = await mirrorToBlob(videoUrl);
+  const effectiveWatermarkUrl = watermarkUrl ? await mirrorToBlob(watermarkUrl) : undefined;
   const workerPayload = {
-    inputUrl: videoUrl,
-    watermarkUrl: watermarkUrl || undefined,
+    inputUrl: effectiveInputUrl,
+    watermarkUrl: effectiveWatermarkUrl,
     settings,
     isImage,
-    outputPutUrls,
+    ...outputTarget,
     jobRef: { jobId, source: "modelclone-generate-with-worker-url" },
     ...(progressUrl ? { progressUrl } : {}),
   };
@@ -1150,8 +1155,8 @@ router.post(
       if (req.body?.videoUrl && !req.files?.video?.[0]) {
         return handleGenerateWithWorkerFromUrl(req, res, userId);
       }
-      if (!isR2Configured()) {
-        return res.status(503).json({ ok: false, error: "Storage not configured. Worker repurpose requires R2." });
+      if (!isVercelBlobConfigured()) {
+        return res.status(503).json({ ok: false, error: "Blob storage not configured. Set BLOB_READ_WRITE_TOKEN." });
       }
       if (!req.files?.video?.[0]) {
         return res.status(400).json({ ok: false, error: "Missing file. Upload a video or image." });
@@ -1221,8 +1226,6 @@ router.post(
       const videoExt = path.extname(req.files.video[0].originalname || "").replace(/^\./, "") || (isImage ? "jpg" : "mp4");
       const videoBuffer = fs.readFileSync(videoPath);
       const videoContentType = req.files.video[0].mimetype || (isImage ? "image/jpeg" : "video/mp4");
-      const videoKey = `repurpose-input/${userId}/${jobId}/input.${videoExt}`;
-
       await prisma.repurposeJob.create({
         data: {
           id: jobId,
@@ -1261,29 +1264,18 @@ router.post(
         }).catch(() => {});
       };
 
-      await uploadToR2(videoBuffer, videoKey, videoContentType);
-      await patchJobProgress(16, "Preparing signed URLs…");
-      const inputUrl = await getPresignedGetUrl(videoKey, 7200);
+      await patchJobProgress(16, "Preparing storage…");
+      const inputUrl = await uploadBufferToBlob(videoBuffer, `input.${videoExt}`, videoContentType, "user-uploads");
 
       let watermarkUrl = null;
       if (watermarkPath && fs.existsSync(watermarkPath)) {
         const wBuf = fs.readFileSync(watermarkPath);
         const wExt = path.extname(req.files.watermark?.[0]?.originalname || "").replace(/^\./, "") || "png";
-        const wKey = `repurpose-input/${userId}/${jobId}/watermark.${wExt}`;
         const wCt = req.files.watermark?.[0]?.mimetype || "image/png";
-        await uploadToR2(wBuf, wKey, wCt);
-        watermarkUrl = await getPresignedGetUrl(wKey, 7200);
+        watermarkUrl = await uploadBufferToBlob(wBuf, `watermark.${wExt}`, wCt, "user-uploads");
       }
 
-      const outputExt = isImage ? "jpg" : "mp4";
-      const contentType = isImage ? "image/jpeg" : "video/mp4";
-      const outputPutUrls = [];
-      for (let i = 1; i <= copies; i++) {
-        const fileName = `repurpose_${String(i).padStart(3, "0")}.${outputExt}`;
-        const key = `repurpose/${userId}/${jobId}/${fileName}`;
-        const { uploadUrl, publicUrl } = await getR2PresignedPutForKey(key, contentType, 3600);
-        outputPutUrls.push({ putUrl: uploadUrl, publicUrl, contentType });
-      }
+      const outputTarget = await buildWorkerOutputTarget({ userId, jobId, copies, isImage });
 
       await patchJobProgress(22, "Sending to FFmpeg worker…");
 
@@ -1295,7 +1287,7 @@ router.post(
         watermarkUrl: watermarkUrl || undefined,
         settings,
         isImage,
-        outputPutUrls,
+        ...outputTarget,
         jobRef: { jobId, source: "modelclone-generate-with-worker" },
         ...(progressUrl ? { progressUrl } : {}),
       };
