@@ -2217,6 +2217,7 @@ function isAllowedDownloadHost(hostname) {
     "cloudfront.net",
     "wavespeed.ai",
     "replicate.delivery",
+    "vercel-storage.com",
   ];
   const lower = String(hostname || "").toLowerCase();
   return allowedDomains.some(
