@@ -191,19 +191,23 @@ function normalizeKieCreateRequestBody(rawBody, label) {
       );
     }
 
-    /** App product: motion recreate is always 1080p for 2.6 and 3.0 (ignore legacy 720p in stored payloads). */
-    next.mode = "1080p";
-
-    // kling-2.6 fails when character_orientation is present; keep it only for 3.0.
+    // Keep motion-control payload structure aligned with the known working content-studio format.
+    const mRaw = String(next.mode ?? "").trim().toLowerCase();
+    if (mRaw === "1080p" || mRaw === "pro" || mRaw === "professional") {
+      next.mode = "1080p";
+    } else if (mRaw === "720p" || mRaw === "std" || mRaw === "standard" || mRaw === "") {
+      next.mode = "720p";
+    } else {
+      next.mode = "720p";
+    }
+    const characterOrientation =
+      next.character_orientation === "image" || next.character_orientation === "video"
+        ? next.character_orientation
+        : "video";
+    next.character_orientation = characterOrientation;
     if (model.includes("kling-3.0")) {
-      const characterOrientation =
-        next.character_orientation === "image" || next.character_orientation === "video"
-          ? next.character_orientation
-          : "video";
-      next.character_orientation = characterOrientation;
       if (!next.background_source) next.background_source = "input_video";
     } else {
-      delete next.character_orientation;
       delete next.background_source;
     }
 
@@ -632,8 +636,8 @@ async function generateTextToImageNanoBananaKieInternal(prompt, options = {}) {
  * Kling 3.0 image-to-video with motion (recreate video).
  * @param {string} imageUrl - starting frame image
  * @param {string} videoUrl - reference video for motion (passed as end frame or element)
- * @param {object} options - { prompt, videoPrompt, ultra, ultraMode, onTaskSubmitted }
- * Classic = kling-2.6/motion-control @ 1080p. Ultra = kling-3.0/motion-control @ 1080p + background_source.
+ * @param {object} options - { prompt, videoPrompt, ultra, ultraMode, motion1080p, motionMode, characterOrientation, onTaskSubmitted }
+ * Payload shape matches content-studio for both 2.6 and 3.0 motion-control.
  */
 async function generateVideoWithMotionKieInternal(imageUrl, videoUrl, options = {}) {
   console.log(`[KIE/kling-motion] image="${imageUrl.slice(0, 120)}"`);
@@ -659,18 +663,23 @@ async function generateVideoWithMotionKieInternal(imageUrl, videoUrl, options = 
   const prompt = options.videoPrompt || options.prompt || "No distortion, no blur, background matches with the image source, the character's movements are consistent with the video.";
 
   const model = useUltraMotionControl ? "kling-3.0/motion-control" : "kling-2.6/motion-control";
-  /** Product: both tiers are 1080p (2.6 classic vs 3.0 ultra). */
-  const mode = "1080p";
+  const want1080 =
+    options.motion1080p === true ||
+    options.motionMode === "1080p" ||
+    options.motionMode === "pro";
+  const mode = want1080 ? "1080p" : "720p";
 
   const inputObj = {
     prompt,
     input_urls: [img],
     video_urls: [vid],
     mode,
+    character_orientation:
+      options.characterOrientation === "image" || options.characterOrientation === "video"
+        ? options.characterOrientation
+        : "video",
   };
   if (useUltraMotionControl) {
-    // 3.0 supports character_orientation + background_source.
-    inputObj.character_orientation = "video";
     inputObj.background_source = "input_video";
   }
 
