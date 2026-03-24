@@ -2,7 +2,8 @@
  * WaveSpeed webhook — WaveSpeed POSTs here when a task completes (e.g. Seedream V4.5 Edit).
  * Payload: { id, model, input, outputs?, status, created_at, error? }
  * Always return 200 quickly so WaveSpeed does not retry.
- * Verify signature: HMAC_SHA256(secret_without_whsec_prefix, "{webhook-id}.{webhook-timestamp}.{raw_body}")
+ * If WAVESPEED_WEBHOOK_SECRET is set, verify HMAC_SHA256(secret_without_whsec_prefix, "{webhook-id}.{webhook-timestamp}.{raw_body}").
+ * If unset, requests are accepted (logs a one-time warning) — set the secret in production for security.
  */
 import express from "express";
 import crypto from "crypto";
@@ -90,12 +91,11 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
         console.warn("[WaveSpeed Callback] Invalid signature");
         return res.status(401).json({ error: "Invalid signature" });
       }
-    } else if (process.env.NODE_ENV === "production") {
-      if (!warnedMissingWaveSpeedWebhookSecret) {
-        warnedMissingWaveSpeedWebhookSecret = true;
-        console.warn("[WaveSpeed Callback] WAVESPEED_WEBHOOK_SECRET not set");
-      }
-      return res.status(503).json({ error: "Webhook signing not configured" });
+    } else if (!warnedMissingWaveSpeedWebhookSecret) {
+      warnedMissingWaveSpeedWebhookSecret = true;
+      console.warn(
+        "[WaveSpeed Callback] WAVESPEED_WEBHOOK_SECRET not set — accepting webhooks without signature verification (set secret in production for security)",
+      );
     }
 
     let body;
