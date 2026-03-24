@@ -7,12 +7,89 @@ import { uploadToCloudinary as uploadFile } from "../services/api";
 import api from "../services/api";
 import GenerateAIModelForm from "./GenerateAIModelForm";
 
+const LOCALE_STORAGE_KEY = "app_locale";
 const TABS = {
   UPLOAD: "upload",
   GENERATE: "generate",
 };
+const COPY = {
+  en: {
+    photoUploaded: "Photo uploaded!",
+    uploadFailed: "Upload failed",
+    fillAllFields: "Please fill all fields",
+    modelCreated: 'Model "{name}" created!',
+    createModelFailed: "Failed to create model",
+    modelName: "Model Name",
+    modelNamePlaceholder: "e.g. Sophia",
+    uploadPhotos: "Upload Photos",
+    generateAiModel: "Generate AI Model",
+    photo1Label: "Photo 1 — Close-up Selfie",
+    photo1Desc: "Clear face shot, well-lit",
+    photo2Label: "Photo 2 — Face Portrait",
+    photo2Desc: "Different angle, natural expression",
+    photo3Label: "Photo 3 — Full Body Shot",
+    photo3Desc: "Shows full figure, good lighting",
+    cancel: "Cancel",
+    creating: "Creating…",
+    createModel: "Create Model",
+    enterNameToContinue: "Please enter a model name above to continue",
+    uploading: "Uploading…",
+    uploaded: "Uploaded",
+    dropHere: "Drop here",
+    clickOrDrag: "Click or drag photo",
+  },
+  ru: {
+    photoUploaded: "Фото загружено!",
+    uploadFailed: "Ошибка загрузки",
+    fillAllFields: "Пожалуйста, заполните все поля",
+    modelCreated: 'Модель "{name}" создана!',
+    createModelFailed: "Не удалось создать модель",
+    modelName: "Имя модели",
+    modelNamePlaceholder: "например, София",
+    uploadPhotos: "Загрузить фото",
+    generateAiModel: "Сгенерировать ИИ-модель",
+    photo1Label: "Фото 1 — Крупный план (селфи)",
+    photo1Desc: "Чёткое лицо, хорошее освещение",
+    photo2Label: "Фото 2 — Портрет лица",
+    photo2Desc: "Другой ракурс, естественное выражение",
+    photo3Label: "Фото 3 — В полный рост",
+    photo3Desc: "Видна фигура полностью, хорошее освещение",
+    cancel: "Отмена",
+    creating: "Создание…",
+    createModel: "Создать модель",
+    enterNameToContinue: "Сначала введите имя модели выше",
+    uploading: "Загрузка…",
+    uploaded: "Загружено",
+    dropHere: "Отпустите файл здесь",
+    clickOrDrag: "Нажмите или перетащите фото",
+  },
+};
+
+function resolveLocale() {
+  try {
+    const qsLang = new URLSearchParams(window.location.search).get("lang");
+    const normalizedQs = String(qsLang || "").toLowerCase();
+    if (normalizedQs === "ru" || normalizedQs === "en") {
+      localStorage.setItem(LOCALE_STORAGE_KEY, normalizedQs);
+      return normalizedQs;
+    }
+    const saved = String(localStorage.getItem(LOCALE_STORAGE_KEY) || "").toLowerCase();
+    if (saved === "ru" || saved === "en") return saved;
+    const browser = String(navigator.language || "").toLowerCase();
+    return browser.startsWith("ru") ? "ru" : "en";
+  } catch {
+    return "en";
+  }
+}
+
+function formatCopy(text, vars = {}) {
+  return String(text).replace(/\{(\w+)\}/g, (_, key) =>
+    vars[key] == null ? `{${key}}` : String(vars[key]),
+  );
+}
 
 export default function CreateModelModal({ isOpen, onClose, onSuccess, onNeedCredits, initialMode, sidebarCollapsed = false }) {
+  const copy = COPY[resolveLocale()] || COPY.en;
   const [activeTab, setActiveTab] = useState(initialMode === "generate" ? TABS.GENERATE : TABS.UPLOAD);
   const [name, setName] = useState("");
   const [photos, setPhotos] = useState({
@@ -38,9 +115,9 @@ export default function CreateModelModal({ isOpen, onClose, onSuccess, onNeedCre
     try {
       const url = await uploadFile(file);
       setPhotos((prev) => ({ ...prev, [photoKey]: url }));
-      toast.success("Photo uploaded!");
+      toast.success(copy.photoUploaded);
     } catch (error) {
-      toast.error("Upload failed");
+      toast.error(copy.uploadFailed);
     } finally {
       setUploading((prev) => ({ ...prev, [photoKey]: false }));
     }
@@ -48,7 +125,7 @@ export default function CreateModelModal({ isOpen, onClose, onSuccess, onNeedCre
 
   const handleCreate = async () => {
     if (!name || !photos.photo1 || !photos.photo2 || !photos.photo3) {
-      toast.error("Please fill all fields");
+      toast.error(copy.fillAllFields);
       return;
     }
     setCreating(true);
@@ -60,12 +137,12 @@ export default function CreateModelModal({ isOpen, onClose, onSuccess, onNeedCre
         photo3Url: photos.photo3,
       });
       if (response.data.success) {
-        toast.success(`Model "${name}" created!`);
+        toast.success(formatCopy(copy.modelCreated, { name }));
         onSuccess();
         handleClose();
       }
     } catch (error) {
-      toast.error(error.response?.data?.message || "Failed to create model");
+      toast.error(error.response?.data?.message || copy.createModelFailed);
     } finally {
       setCreating(false);
     }
@@ -123,13 +200,13 @@ export default function CreateModelModal({ isOpen, onClose, onSuccess, onNeedCre
 
               <div className="px-4 pt-4 pb-2 pr-12 shrink-0">
                 <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                  Model Name
+                  {copy.modelName}
                 </label>
                 <input
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. Sophia"
+                  placeholder={copy.modelNamePlaceholder}
                   className="w-full px-3 py-2.5 text-sm glass-card rounded-xl focus:border-white/20 transition"
                   data-testid="input-model-name"
                 />
@@ -153,7 +230,7 @@ export default function CreateModelModal({ isOpen, onClose, onSuccess, onNeedCre
                       <span className="absolute left-0 top-2 bottom-2 w-0.5 rounded-full bg-gradient-to-b from-white/90 to-white/45 pointer-events-none" />
                     )}
                     <ImagePlus className="w-4 h-4" />
-                    <span className="font-medium">Upload Photos</span>
+                    <span className="font-medium">{copy.uploadPhotos}</span>
                   </button>
                   <button
                     onClick={() => setActiveTab(TABS.GENERATE)}
@@ -168,7 +245,7 @@ export default function CreateModelModal({ isOpen, onClose, onSuccess, onNeedCre
                       <span className="absolute left-0 top-2 bottom-2 w-0.5 rounded-full bg-gradient-to-b from-white/90 to-white/45 pointer-events-none" />
                     )}
                     <Sparkles className="w-4 h-4" />
-                    <span className="font-medium">Generate AI Model</span>
+                    <span className="font-medium">{copy.generateAiModel}</span>
                   </button>
                 </div>
 
@@ -184,22 +261,22 @@ export default function CreateModelModal({ isOpen, onClose, onSuccess, onNeedCre
                       className="space-y-3"
                     >
                       <PhotoUpload
-                        label="Photo 1 — Close-up Selfie"
-                        description="Clear face shot, well-lit"
+                        label={copy.photo1Label}
+                        description={copy.photo1Desc}
                         photo={photos.photo1}
                         uploading={uploading.photo1}
                         onUpload={(file) => handleUpload(file, "photo1")}
                       />
                       <PhotoUpload
-                        label="Photo 2 — Face Portrait"
-                        description="Different angle, natural expression"
+                        label={copy.photo2Label}
+                        description={copy.photo2Desc}
                         photo={photos.photo2}
                         uploading={uploading.photo2}
                         onUpload={(file) => handleUpload(file, "photo2")}
                       />
                       <PhotoUpload
-                        label="Photo 3 — Full Body Shot"
-                        description="Shows full figure, good lighting"
+                        label={copy.photo3Label}
+                        description={copy.photo3Desc}
                         photo={photos.photo3}
                         uploading={uploading.photo3}
                         onUpload={(file) => handleUpload(file, "photo3")}
@@ -211,7 +288,7 @@ export default function CreateModelModal({ isOpen, onClose, onSuccess, onNeedCre
                           className="flex-1 py-2.5 rounded-xl glass hover:bg-white/10 transition text-sm font-medium"
                           data-testid="button-cancel-upload"
                         >
-                          Cancel
+                          {copy.cancel}
                         </button>
                         <button
                           onClick={handleCreate}
@@ -222,12 +299,12 @@ export default function CreateModelModal({ isOpen, onClose, onSuccess, onNeedCre
                           {creating ? (
                             <>
                               <div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" />
-                              Creating…
+                              {copy.creating}
                             </>
                           ) : (
                             <>
                               <Check className="w-4 h-4" />
-                              Create Model
+                              {copy.createModel}
                             </>
                           )}
                         </button>
@@ -245,12 +322,13 @@ export default function CreateModelModal({ isOpen, onClose, onSuccess, onNeedCre
                         <div className="text-center py-10">
                           <Sparkles className="w-10 h-10 text-purple-400 mx-auto mb-3 opacity-50" />
                           <p className="text-sm text-gray-400">
-                            Please enter a model name above to continue
+                            {copy.enterNameToContinue}
                           </p>
                         </div>
                       ) : (
                         <GenerateAIModelForm
                           name={name}
+                          copy={copy}
                           onSuccess={handleAIModelSuccess}
                           onCancel={() => setActiveTab(TABS.UPLOAD)}
                           onNeedCredits={onNeedCredits}
@@ -270,6 +348,7 @@ export default function CreateModelModal({ isOpen, onClose, onSuccess, onNeedCre
 }
 
 function PhotoUpload({ label, description, photo, uploading, onUpload }) {
+  const copy = COPY[resolveLocale()] || COPY.en;
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop: (files) => onUpload(files[0]),
     accept: { "image/jpeg": [], "image/png": [] },
@@ -297,7 +376,7 @@ function PhotoUpload({ label, description, photo, uploading, onUpload }) {
         {uploading ? (
           <div className="flex items-center gap-2 text-slate-400">
             <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-            <span className="text-xs">Uploading…</span>
+            <span className="text-xs">{copy.uploading}</span>
           </div>
         ) : photo ? (
           <>
@@ -305,7 +384,7 @@ function PhotoUpload({ label, description, photo, uploading, onUpload }) {
             <div className="absolute inset-0 bg-black/40 flex items-center justify-center gap-1.5">
               <div className="flex items-center gap-1.5 bg-green-500/90 px-2.5 py-1 rounded-lg text-xs font-medium">
                 <Check className="w-3 h-3" />
-                Uploaded
+                {copy.uploaded}
               </div>
             </div>
           </>
@@ -313,7 +392,7 @@ function PhotoUpload({ label, description, photo, uploading, onUpload }) {
           <div className="flex items-center gap-2 text-slate-500">
             <Upload className="w-4 h-4" />
             <span className="text-xs">
-              {isDragActive ? "Drop here" : "Click or drag photo"}
+              {isDragActive ? copy.dropHere : copy.clickOrDrag}
             </span>
           </div>
         )}
