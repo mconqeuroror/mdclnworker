@@ -8,6 +8,8 @@ import api, { stripeAPI, authAPI } from '../services/api';
 import toast from 'react-hot-toast';
 import { queryClient } from '../lib/queryClient';
 import { hasBillingAccess, hasPremiumAccess } from '../utils/premiumAccess';
+import { resolveLocale } from '../components/generateAIModelFormCopy';
+import { SETTINGS_PAGE_COPY, formatSettingsCopy } from '../data/settingsPageCopy';
 
 export default function SettingsPage() {
   const { user, refreshUserCredits, updateUser } = useAuthStore();
@@ -15,6 +17,7 @@ export default function SettingsPage() {
   const [showRetentionModal, setShowRetentionModal] = useState(false);
   const canAccessPremium = hasPremiumAccess(user);
   const canAccessBilling = hasBillingAccess(user);
+  const t = SETTINGS_PAGE_COPY[resolveLocale()] || SETTINGS_PAGE_COPY.en;
   
   // Change password state
   const [currentPassword, setCurrentPassword] = useState('');
@@ -88,7 +91,7 @@ export default function SettingsPage() {
   const cancelMutation = useMutation({
     mutationFn: () => stripeAPI.cancelSubscription(),
     onSuccess: () => {
-      toast.success('Subscription will be cancelled at the end of the billing period');
+      toast.success(t.toastCancelScheduled);
       queryClient.invalidateQueries({ queryKey: ['/api/stripe/subscription-status'] });
       queryClient.invalidateQueries({ queryKey: ['/api/auth/profile'] });
       refreshUserCredits();
@@ -96,7 +99,7 @@ export default function SettingsPage() {
       setShowRetentionModal(false);
     },
     onError: (error) => {
-      toast.error(error.response?.data?.error || 'Failed to cancel subscription');
+      toast.error(error.response?.data?.error || t.toastCancelFailed);
     }
   });
 
@@ -110,8 +113,21 @@ export default function SettingsPage() {
   };
 
   const getTierName = (tier) => {
-    if (!tier) return 'Free';
+    if (!tier) return t.tierFree;
+    const k = String(tier).toLowerCase();
+    if (k === 'starter') return t.tierStarter;
+    if (k === 'pro') return t.tierPro;
+    if (k === 'business') return t.tierBusiness;
     return tier.charAt(0).toUpperCase() + tier.slice(1);
+  };
+
+  const subscriptionStatusLabel = (status) => {
+    if (!status) return '';
+    const k = String(status).toLowerCase();
+    if (k === 'active') return t.statusActive;
+    if (k === 'trial') return t.statusTrial;
+    if (k === 'canceled' || k === 'cancelled') return t.statusCanceled;
+    return status;
   };
 
   const getTierPrice = (tier) => {
@@ -127,12 +143,12 @@ export default function SettingsPage() {
     e.preventDefault();
     
     if (newPassword !== confirmPassword) {
-      toast.error('New passwords do not match');
+      toast.error(t.toastPasswordMismatch);
       return;
     }
     
     if (newPassword.length < 6) {
-      toast.error('Password must be at least 6 characters');
+      toast.error(t.toastPasswordShort);
       return;
     }
     
@@ -144,13 +160,13 @@ export default function SettingsPage() {
       });
       
       if (response.data.success) {
-        toast.success('Password changed successfully');
+        toast.success(t.toastPasswordChanged);
         setCurrentPassword('');
         setNewPassword('');
         setConfirmPassword('');
       }
     } catch (error) {
-      toast.error(error.response?.data?.message || 'Failed to change password');
+      toast.error(error.response?.data?.message || t.toastPasswordFailed);
     } finally {
       setChangingPassword(false);
     }
@@ -167,7 +183,7 @@ export default function SettingsPage() {
         setShow2FASetup(true);
       }
     } catch (error) {
-      toast.error(error.response?.data?.message || 'Failed to generate 2FA secret');
+      toast.error(error.response?.data?.message || t.toast2FAGenFailed);
     } finally {
       setSetting2FA(false);
     }
@@ -175,7 +191,7 @@ export default function SettingsPage() {
 
   const handleVerify2FA = async () => {
     if (verifyCode.length !== 6) {
-      toast.error('Please enter a 6-digit code');
+      toast.error(t.toast2FAEnterCode);
       return;
     }
     
@@ -183,7 +199,7 @@ export default function SettingsPage() {
     try {
       const data = await authAPI.verify2FA(verifyCode);
       if (data.success) {
-        toast.success('Two-factor authentication enabled!');
+        toast.success(t.toast2FAEnabled);
         setShow2FASetup(false);
         setVerifyCode('');
         setTwoFactorSecret(null);
@@ -191,7 +207,7 @@ export default function SettingsPage() {
         queryClient.invalidateQueries({ queryKey: ['/api/auth/2fa/status'] });
       }
     } catch (error) {
-      toast.error(error.response?.data?.message || 'Invalid code. Please try again.');
+      toast.error(error.response?.data?.message || t.toast2FAInvalid);
       setVerifyCode('');
     } finally {
       setSetting2FA(false);
@@ -200,7 +216,7 @@ export default function SettingsPage() {
 
   const handleDisable2FA = async () => {
     if (disableCode.length !== 6) {
-      toast.error('Please enter a 6-digit code');
+      toast.error(t.toast2FAEnterCode);
       return;
     }
     
@@ -208,13 +224,13 @@ export default function SettingsPage() {
     try {
       const data = await authAPI.disable2FA(disableCode);
       if (data.success) {
-        toast.success('Two-factor authentication disabled');
+        toast.success(t.toast2FADisabled);
         setShowDisable2FA(false);
         setDisableCode('');
         queryClient.invalidateQueries({ queryKey: ['/api/auth/2fa/status'] });
       }
     } catch (error) {
-      toast.error(error.response?.data?.message || 'Invalid code');
+      toast.error(error.response?.data?.message || t.toast2FAInvalidDisable);
       setDisableCode('');
     } finally {
       setSetting2FA(false);
@@ -224,7 +240,7 @@ export default function SettingsPage() {
   const handleUpdateName = async () => {
     const nextName = displayName.trim();
     if (!nextName) {
-      toast.error('Name is required');
+      toast.error(t.toastNameRequired);
       return;
     }
     setSavingName(true);
@@ -232,10 +248,10 @@ export default function SettingsPage() {
       const data = await authAPI.updateProfile(nextName);
       if (data.success && data.user) {
         updateUser({ name: data.user.name });
-        toast.success('Name updated');
+        toast.success(t.toastNameUpdated);
       }
     } catch (error) {
-      toast.error(error.response?.data?.message || 'Failed to update name');
+      toast.error(error.response?.data?.message || t.toastNameFailed);
     } finally {
       setSavingName(false);
     }
@@ -243,7 +259,7 @@ export default function SettingsPage() {
 
   const handleRequestEmailChange = async () => {
     if (!newEmail.trim() || !emailPassword) {
-      toast.error('Enter new email and current password');
+      toast.error(t.toastEmailFields);
       return;
     }
     setRequestingEmailChange(true);
@@ -251,10 +267,10 @@ export default function SettingsPage() {
       const data = await authAPI.requestEmailChange(newEmail.trim(), emailPassword);
       if (data.success) {
         setEmailChangeToken(data.emailChangeToken);
-        toast.success('Verification code sent to new email');
+        toast.success(t.toastEmailCodeSent);
       }
     } catch (error) {
-      toast.error(error.response?.data?.message || 'Failed to request email change');
+      toast.error(error.response?.data?.message || t.toastEmailChangeFailed);
     } finally {
       setRequestingEmailChange(false);
     }
@@ -262,7 +278,7 @@ export default function SettingsPage() {
 
   const handleVerifyEmailChange = async () => {
     if (!emailCode || emailCode.length !== 6 || !emailChangeToken) {
-      toast.error('Enter the 6-digit code');
+      toast.error(t.toastEmailCodeEnter);
       return;
     }
     setVerifyingEmailChange(true);
@@ -274,10 +290,10 @@ export default function SettingsPage() {
         setEmailPassword('');
         setEmailCode('');
         setEmailChangeToken('');
-        toast.success('Email updated successfully');
+        toast.success(t.toastEmailUpdated);
       }
     } catch (error) {
-      toast.error(error.response?.data?.message || 'Failed to verify email change');
+      toast.error(error.response?.data?.message || t.toastEmailVerifyFailed);
     } finally {
       setVerifyingEmailChange(false);
     }
@@ -285,7 +301,7 @@ export default function SettingsPage() {
 
   return (
     <div className="max-w-4xl mx-auto px-3 sm:px-6">
-      <h1 className="text-2xl sm:text-4xl font-bold mb-4 sm:mb-8">Settings</h1>
+      <h1 className="text-2xl sm:text-4xl font-bold mb-4 sm:mb-8">{t.pageTitle}</h1>
 
       <div className="space-y-4 sm:space-y-6">
         {/* Account Info */}
@@ -296,12 +312,12 @@ export default function SettingsPage() {
         >
           <h2 className="text-lg sm:text-xl font-bold mb-3 sm:mb-4 flex items-center gap-2">
             <User className="w-4 h-4 sm:w-5 sm:h-5" />
-            Account Information
+            {t.accountInfo}
           </h2>
           
           <div className="space-y-2 sm:space-y-3">
             <div>
-              <label className="text-xs sm:text-sm text-gray-400">Name</label>
+              <label className="text-xs sm:text-sm text-gray-400">{t.name}</label>
               <div className="mt-1 flex flex-col sm:flex-row gap-2">
                 <input
                   value={displayName}
@@ -315,12 +331,12 @@ export default function SettingsPage() {
                   className="inline-flex items-center gap-2 px-5 py-2 rounded-lg font-semibold text-black bg-white hover:bg-slate-100 transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
                   data-testid="button-update-name"
                 >
-                  {savingName ? 'Saving...' : 'Save Name'}
+                  {savingName ? t.saving : t.saveName}
                 </button>
               </div>
             </div>
             <div>
-              <label className="text-xs sm:text-sm text-gray-400">Email</label>
+              <label className="text-xs sm:text-sm text-gray-400">{t.email}</label>
               <p className="text-base sm:text-lg break-all">{user?.email}</p>
               {user?.authProvider === 'email' ? (
                 <div className="mt-3 space-y-2">
@@ -330,7 +346,7 @@ export default function SettingsPage() {
                       value={newEmail}
                       onChange={(e) => setNewEmail(e.target.value)}
                       className="w-full px-4 py-2.5 rounded-xl glass-card focus:border-white/20 focus:outline-none text-white"
-                      placeholder="New email"
+                      placeholder={t.placeholderNewEmail}
                       data-testid="input-settings-new-email"
                     />
                     <input
@@ -338,7 +354,7 @@ export default function SettingsPage() {
                       value={emailPassword}
                       onChange={(e) => setEmailPassword(e.target.value)}
                       className="w-full px-4 py-2.5 rounded-xl glass-card focus:border-white/20 focus:outline-none text-white"
-                      placeholder="Current password"
+                      placeholder={t.placeholderCurrentPassword}
                       data-testid="input-settings-email-password"
                     />
                   </div>
@@ -348,7 +364,7 @@ export default function SettingsPage() {
                     className="inline-flex items-center gap-2 px-5 py-2 rounded-lg font-semibold text-black bg-white hover:bg-slate-100 transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
                     data-testid="button-request-email-change"
                   >
-                    {requestingEmailChange ? 'Sending...' : 'Verify New Email'}
+                    {requestingEmailChange ? t.sending : t.verifyNewEmail}
                   </button>
                   {emailChangeToken && (
                     <div className="flex flex-col sm:flex-row gap-2">
@@ -357,7 +373,7 @@ export default function SettingsPage() {
                         value={emailCode}
                         onChange={(e) => setEmailCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                         className="w-full px-4 py-2.5 rounded-xl glass-card focus:border-white/20 focus:outline-none text-white tracking-widest"
-                        placeholder="6-digit verification code"
+                        placeholder={t.placeholderEmailCode}
                         data-testid="input-settings-email-code"
                       />
                       <button
@@ -366,29 +382,29 @@ export default function SettingsPage() {
                         className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-black bg-white hover:bg-slate-100 transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
                         data-testid="button-confirm-email-change"
                       >
-                        {verifyingEmailChange ? 'Verifying...' : 'Confirm Email'}
+                        {verifyingEmailChange ? t.verifying : t.confirmEmail}
                       </button>
                     </div>
                   )}
                 </div>
               ) : (
                 <p className="mt-2 text-xs text-slate-400">
-                  Email changes are only available for email/password accounts.
+                  {t.emailOAuthOnly}
                 </p>
               )}
             </div>
             <div>
-              <label className="text-xs sm:text-sm text-gray-400">Account Status</label>
+              <label className="text-xs sm:text-sm text-gray-400">{t.accountStatus}</label>
               <p className="text-base sm:text-lg flex items-center gap-2">
                 {user?.isVerified ? (
                   <>
                     <span className="w-2 h-2 rounded-full bg-green-500" />
-                    Verified
+                    {t.verified}
                   </>
                 ) : (
                   <>
                     <span className="w-2 h-2 rounded-full bg-yellow-500" />
-                    Pending
+                    {t.pending}
                   </>
                 )}
               </p>
@@ -404,20 +420,20 @@ export default function SettingsPage() {
         >
           <h2 className="text-lg sm:text-xl font-bold mb-3 sm:mb-4 flex items-center gap-2">
             <FileText className="w-4 h-4 sm:w-5 sm:h-5" />
-            Communication preferences
+            {t.commPrefsTitle}
           </h2>
           <p className="text-xs sm:text-sm text-gray-400 mb-4">
-            Region is set from your signup location; you can change it below. Choose your preferred language for marketing emails.
+            {t.commPrefsHint}
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
             <div>
-              <label className="text-xs sm:text-sm text-gray-400 block mb-1">Region (country)</label>
+              <label className="text-xs sm:text-sm text-gray-400 block mb-1">{t.regionLabel}</label>
               <select
                 value={region}
                 onChange={(e) => setRegion(e.target.value)}
                 className="w-full px-3.5 py-2 rounded-lg glass-card focus:border-white/20 focus:outline-none text-white"
               >
-                <option value="">Not set</option>
+                <option value="">{t.optionNotSet}</option>
                 <option value="US">United States</option>
                 <option value="GB">United Kingdom</option>
                 <option value="DE">Germany</option>
@@ -435,13 +451,13 @@ export default function SettingsPage() {
               </select>
             </div>
             <div>
-              <label className="text-xs sm:text-sm text-gray-400 block mb-1">Marketing email language</label>
+              <label className="text-xs sm:text-sm text-gray-400 block mb-1">{t.marketingLangLabel}</label>
               <select
                 value={marketingLanguage}
                 onChange={(e) => setMarketingLanguage(e.target.value)}
                 className="w-full px-3.5 py-2 rounded-lg glass-card focus:border-white/20 focus:outline-none text-white"
               >
-                <option value="">Any / Default</option>
+                <option value="">{t.optionAnyDefault}</option>
                 <option value="en">English</option>
                 <option value="sk">Slovenčina</option>
                 <option value="de">Deutsch</option>
@@ -460,10 +476,10 @@ export default function SettingsPage() {
                 if (data?.success && data?.user) {
                   updateUser(data.user);
                   queryClient.invalidateQueries({ queryKey: ['/api/auth/profile'] });
-                  toast.success('Communication preferences saved');
+                  toast.success(t.toastPrefsSaved);
                 }
               } catch (e) {
-                toast.error(e?.response?.data?.message || 'Failed to save preferences');
+                toast.error(e?.response?.data?.message || t.toastPrefsFailed);
               } finally {
                 setSavingPrefs(false);
               }
@@ -471,7 +487,7 @@ export default function SettingsPage() {
             disabled={savingPrefs}
             className="inline-flex items-center gap-2 px-5 py-2 rounded-lg font-semibold text-black bg-white hover:bg-slate-100 transition-all hover:scale-[1.02] disabled:opacity-50"
           >
-            {savingPrefs ? 'Saving...' : 'Save preferences'}
+            {savingPrefs ? t.savingPrefs : t.savePreferences}
           </button>
         </motion.div>
 
@@ -479,31 +495,31 @@ export default function SettingsPage() {
         <div className="glass-panel rounded-xl sm:rounded-2xl p-4 sm:p-6">
           <h2 className="text-lg sm:text-xl font-bold mb-3 sm:mb-4 flex items-center gap-2">
             <ShieldCheck className="w-4 h-4 sm:w-5 sm:h-5 text-slate-300" />
-            Two-Factor Authentication
+            {t.twoFactorTitle}
           </h2>
           
           {twoFactorLoading ? (
-            <p className="text-gray-400 text-sm">Loading 2FA status...</p>
+            <p className="text-gray-400 text-sm">{t.twoFactorLoading}</p>
           ) : twoFactorStatus?.twoFactorEnabled ? (
             // 2FA is enabled
             <div className="space-y-4">
               <div className="flex items-center gap-3 p-4 rounded-xl bg-green-500/10 border border-green-500/20">
                 <CheckCircle className="w-6 h-6 text-green-400" />
                 <div>
-                  <p className="font-semibold text-green-400">2FA is Enabled</p>
-                  <p className="text-sm text-gray-400">Your account is protected with two-factor authentication</p>
+                  <p className="font-semibold text-green-400">{t.twoFactorEnabledTitle}</p>
+                  <p className="text-sm text-gray-400">{t.twoFactorEnabledHint}</p>
                 </div>
               </div>
               
               {showDisable2FA ? (
                 <div className="space-y-4 p-4 rounded-xl bg-red-500/5 border border-red-500/20">
-                  <p className="text-sm text-gray-300">Enter your 2FA code to disable two-factor authentication:</p>
+                  <p className="text-sm text-gray-300">{t.twoFactorDisablePrompt}</p>
                   <input
                     type="text"
                     value={disableCode}
                     onChange={(e) => setDisableCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                     className="w-full px-4 py-3 rounded-xl glass-card focus:border-white/20 focus:outline-none text-white text-center tracking-widest font-mono"
-                    placeholder="000000"
+                    placeholder={t.placeholderCode6}
                     maxLength={6}
                     data-testid="input-disable-2fa-code"
                   />
@@ -512,7 +528,7 @@ export default function SettingsPage() {
                       onClick={() => { setShowDisable2FA(false); setDisableCode(''); }}
                       className="flex-1 px-4 py-2 rounded-xl glass-card transition font-semibold"
                     >
-                      Cancel
+                      {t.cancel}
                     </button>
                     <button
                       onClick={handleDisable2FA}
@@ -520,7 +536,7 @@ export default function SettingsPage() {
                       className="flex-1 px-4 py-2 rounded-xl bg-red-500/20 hover:bg-red-500/30 text-red-400 transition font-semibold disabled:opacity-50"
                       data-testid="button-confirm-disable-2fa"
                     >
-                      {setting2FA ? 'Disabling...' : 'Disable 2FA'}
+                      {setting2FA ? t.disabling : t.disable2FA}
                     </button>
                   </div>
                 </div>
@@ -530,7 +546,7 @@ export default function SettingsPage() {
                   className="text-red-400 hover:text-red-300 transition text-sm"
                   data-testid="button-disable-2fa"
                 >
-                  Disable two-factor authentication
+                  {t.disable2FALink}
                 </button>
               )}
             </div>
@@ -540,14 +556,14 @@ export default function SettingsPage() {
               <div className="p-4 rounded-xl bg-white/5 border border-white/10">
                 <h3 className="font-semibold mb-2 flex items-center gap-2">
                   <Smartphone className="w-5 h-5 text-white/70" />
-                  Step 1: Scan QR Code
+                  {t.step1ScanQr}
                 </h3>
                 <p className="text-sm text-gray-400 mb-4">
-                  Open your authenticator app (Google Authenticator, Authy, etc.) and scan this QR code:
+                  {t.step1Hint}
                 </p>
                 {twoFactorQR && (
                   <div className="flex justify-center p-4 bg-white rounded-xl">
-                    <img src={twoFactorQR} alt="2FA QR Code" className="w-48 h-48" />
+                    <img src={twoFactorQR} alt={t.twoFactorQrAlt} className="w-48 h-48" />
                   </div>
                 )}
                 {twoFactorSecret && (
@@ -561,16 +577,16 @@ export default function SettingsPage() {
               </div>
               
               <div className="p-4 rounded-xl glass-card">
-                <h3 className="font-semibold mb-2">Step 2: Verify Code</h3>
+                <h3 className="font-semibold mb-2">{t.step2Verify}</h3>
                 <p className="text-sm text-gray-400 mb-4">
-                  Enter the 6-digit code from your authenticator app:
+                  {t.step2Hint}
                 </p>
                 <input
                   type="text"
                   value={verifyCode}
                   onChange={(e) => setVerifyCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                   className="w-full px-4 py-3 rounded-xl glass-card focus:border-white/20 focus:outline-none text-white text-center tracking-widest font-mono text-lg"
-                  placeholder="000000"
+                  placeholder={t.placeholderCode6}
                   maxLength={6}
                   data-testid="input-verify-2fa-code"
                 />
@@ -581,7 +597,7 @@ export default function SettingsPage() {
                   onClick={() => { setShow2FASetup(false); setVerifyCode(''); setTwoFactorSecret(null); setTwoFactorQR(null); }}
                   className="flex-1 px-4 py-3 rounded-xl glass-card transition font-semibold"
                 >
-                  Cancel
+                  {t.cancel}
                 </button>
                 <button
                   onClick={handleVerify2FA}
@@ -589,7 +605,7 @@ export default function SettingsPage() {
                   className="flex-1 px-4 py-3 rounded-xl font-semibold text-black bg-white hover:bg-white/90 transition-all disabled:opacity-50"
                   data-testid="button-verify-2fa"
                 >
-                  {setting2FA ? 'Verifying...' : 'Enable 2FA'}
+                  {setting2FA ? t.verifying : t.enable2FA}
                 </button>
               </div>
             </div>
@@ -597,7 +613,7 @@ export default function SettingsPage() {
             // 2FA not enabled
             <div className="space-y-4">
               <p className="text-gray-400 text-sm">
-                Add an extra layer of security to your account. When enabled, you'll need to enter a code from your authenticator app each time you log in.
+                {t.twoFactorIntro}
               </p>
               <button
                 onClick={handleSetup2FA}
@@ -605,7 +621,7 @@ export default function SettingsPage() {
                 className="inline-flex items-center gap-2 px-5 py-2 rounded-lg font-semibold text-black bg-white hover:bg-slate-100 transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
                 data-testid="button-setup-2fa"
               >
-                {setting2FA ? 'Loading...' : 'Set Up Two-Factor Authentication'}
+                {setting2FA ? t.loadingGeneric : t.setup2FA}
               </button>
             </div>
           )}
@@ -617,24 +633,24 @@ export default function SettingsPage() {
         >
           <h2 className="text-lg sm:text-xl font-bold mb-3 sm:mb-4 flex items-center gap-2">
             <Lock className="w-4 h-4 sm:w-5 sm:h-5" />
-            Change Password
+            {t.changePasswordTitle}
           </h2>
           
           {user?.authProvider !== 'email' ? (
             <p className="text-sm text-slate-400">
-              Password change is only available for email/password accounts.
+              {t.passwordOAuthOnly}
             </p>
           ) : (
           <form onSubmit={handleChangePassword} className="space-y-4">
             <div>
-              <label className="text-xs sm:text-sm text-gray-400 block mb-1">Current Password</label>
+              <label className="text-xs sm:text-sm text-gray-400 block mb-1">{t.currentPassword}</label>
               <div className="relative">
                 <input
                   type={showCurrentPassword ? "text" : "password"}
                   value={currentPassword}
                   onChange={(e) => setCurrentPassword(e.target.value)}
                   className="w-full px-4 py-3 rounded-xl glass-card focus:border-white/20 focus:outline-none text-white pr-12"
-                  placeholder="Enter current password"
+                  placeholder={t.placeholderCurrentPw}
                   data-testid="input-current-password"
                 />
                 <button
@@ -648,14 +664,14 @@ export default function SettingsPage() {
             </div>
             
             <div>
-              <label className="text-xs sm:text-sm text-gray-400 block mb-1">New Password</label>
+              <label className="text-xs sm:text-sm text-gray-400 block mb-1">{t.newPassword}</label>
               <div className="relative">
                 <input
                   type={showNewPassword ? "text" : "password"}
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   className="w-full px-4 py-3 rounded-xl glass-card focus:border-white/20 focus:outline-none text-white pr-12"
-                  placeholder="Enter new password (min 6 characters)"
+                  placeholder={t.placeholderNewPw}
                   data-testid="input-new-password"
                 />
                 <button
@@ -669,13 +685,13 @@ export default function SettingsPage() {
             </div>
             
             <div>
-              <label className="text-xs sm:text-sm text-gray-400 block mb-1">Confirm New Password</label>
+              <label className="text-xs sm:text-sm text-gray-400 block mb-1">{t.confirmPassword}</label>
               <input
                 type="password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 className="w-full px-4 py-3 rounded-xl glass-card focus:border-white/20 focus:outline-none text-white"
-                placeholder="Confirm new password"
+                placeholder={t.placeholderConfirmPw}
                 data-testid="input-confirm-password"
               />
             </div>
@@ -686,7 +702,7 @@ export default function SettingsPage() {
               className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-black bg-white hover:bg-slate-100 transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
               data-testid="button-change-password"
             >
-              {changingPassword ? 'Changing...' : 'Change Password'}
+              {changingPassword ? t.changingPassword : t.changePassword}
             </button>
           </form>
           )}
@@ -702,50 +718,52 @@ export default function SettingsPage() {
           >
             <h2 className="text-lg sm:text-xl font-bold mb-3 sm:mb-4 flex items-center gap-2">
               <CreditCard className="w-4 h-4 sm:w-5 sm:h-5" />
-              {canAccessPremium ? 'Subscription' : 'Billing'}
+              {canAccessPremium ? t.subscriptionTitle : t.billingTitle}
             </h2>
             
             {subscriptionLoading && canAccessPremium ? (
-              <p className="text-gray-400 text-sm sm:text-base">Loading subscription details...</p>
+              <p className="text-gray-400 text-sm sm:text-base">{t.loadingSubscription}</p>
             ) : (
               <div className="space-y-3 sm:space-y-4">
                 {canAccessPremium && (
                   <>
                     <div className="flex items-center justify-between gap-4">
                       <div>
-                        <label className="text-xs sm:text-sm text-gray-400">Current Plan</label>
+                        <label className="text-xs sm:text-sm text-gray-400">{t.currentPlan}</label>
                         <p className="text-xl sm:text-2xl font-bold text-white">
                           {getTierName(user.subscriptionTier)}
                         </p>
                       </div>
                       <div className="text-right">
-                        <label className="text-xs sm:text-sm text-gray-400">Price</label>
+                        <label className="text-xs sm:text-sm text-gray-400">{t.price}</label>
                         <p className="text-xl sm:text-2xl font-bold">
-                          {getTierPrice(user.subscriptionTier)}<span className="text-xs sm:text-sm text-gray-400">/mo</span>
+                          {getTierPrice(user.subscriptionTier)}<span className="text-xs sm:text-sm text-gray-400">{t.perMonth}</span>
                         </p>
                       </div>
                     </div>
 
                     <div>
-                      <label className="text-xs sm:text-sm text-gray-400">Status</label>
+                      <label className="text-xs sm:text-sm text-gray-400">{t.status}</label>
                       {subscription?.cancelAtPeriodEnd ? (
                         <p className="text-base sm:text-lg flex items-center gap-2">
                           <span className="w-2 h-2 rounded-full bg-orange-500" />
                           <span className="text-orange-400">
-                            Cancels on {new Date(subscription.currentPeriodEnd * 1000).toLocaleDateString()}
+                            {formatSettingsCopy(t.cancelsOn, {
+                              date: new Date(subscription.currentPeriodEnd * 1000).toLocaleDateString(),
+                            })}
                           </span>
                         </p>
                       ) : (
                         <p className="text-base sm:text-lg flex items-center gap-2">
                           <span className="w-2 h-2 rounded-full bg-green-500" />
-                          {user.subscriptionStatus === 'active' ? 'Active' : user.subscriptionStatus}
+                          {subscriptionStatusLabel(user.subscriptionStatus)}
                         </p>
                       )}
                     </div>
 
                     {subscription?.currentPeriodEnd && !subscription?.cancelAtPeriodEnd && (
                       <div>
-                        <label className="text-xs sm:text-sm text-gray-400">Next Billing Date</label>
+                        <label className="text-xs sm:text-sm text-gray-400">{t.nextBilling}</label>
                         <p className="text-base sm:text-lg">{new Date(subscription.currentPeriodEnd * 1000).toLocaleDateString()}</p>
                       </div>
                     )}
@@ -754,7 +772,7 @@ export default function SettingsPage() {
 
                 {!canAccessPremium && (
                   <p className="text-gray-400 text-sm sm:text-base">
-                    View your payment history and manage payment methods through the billing portal.
+                    {t.billingPortalHint}
                   </p>
                 )}
 
@@ -767,7 +785,7 @@ export default function SettingsPage() {
                         const { url } = await stripeAPI.createPortalSession();
                         window.open(url, '_blank');
                       } catch (error) {
-                        toast.error('Failed to open billing portal');
+                        toast.error(t.toastBillingPortalFailed);
                       } finally {
                         setOpeningPortal(false);
                       }
@@ -777,7 +795,7 @@ export default function SettingsPage() {
                     data-testid="button-manage-billing"
                   >
                     <CreditCard className="w-4 h-4" />
-                    {openingPortal ? 'Opening...' : (canAccessPremium ? 'Manage Subscription' : 'View Billing')}
+                    {openingPortal ? t.opening : (canAccessPremium ? t.manageSubscription : t.viewBilling)}
                     {!openingPortal && <ExternalLink className="w-3.5 h-3.5 opacity-70" />}
                   </button>
                   {user?.stripeSubscriptionId && !subscription?.cancelAtPeriodEnd && (
@@ -787,7 +805,7 @@ export default function SettingsPage() {
                       data-testid="button-cancel-subscription"
                     >
                       <AlertTriangle className="w-4 h-4" />
-                      Cancel
+                      {t.cancelAction}
                     </button>
                   )}
                 </div>
@@ -805,7 +823,7 @@ export default function SettingsPage() {
         >
           <h2 className="text-lg sm:text-xl font-bold mb-3 sm:mb-4 flex items-center gap-2">
             <Shield className="w-4 h-4 sm:w-5 sm:h-5" />
-            Legal & Privacy
+            {t.legalTitle}
           </h2>
           
           <div className="space-y-3">
@@ -814,21 +832,21 @@ export default function SettingsPage() {
               className="flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 transition"
             >
               <FileText className="w-5 h-5 text-gray-400" />
-              <span>Terms of Service</span>
+              <span>{t.terms}</span>
             </Link>
             <Link
               to="/privacy"
               className="flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 transition"
             >
               <Shield className="w-5 h-5 text-gray-400" />
-              <span>Privacy Policy</span>
+              <span>{t.privacy}</span>
             </Link>
             <Link
               to="/cookies"
               className="flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 transition"
             >
               <Cookie className="w-5 h-5 text-gray-400" />
-              <span>Cookie Policy</span>
+              <span>{t.cookies}</span>
             </Link>
           </div>
         </motion.div>
@@ -856,7 +874,7 @@ export default function SettingsPage() {
                   <div className="p-2 rounded-lg bg-red-500/20">
                     <AlertTriangle className="w-6 h-6 text-red-400" />
                   </div>
-                  <h3 className="text-xl font-bold">Cancel Subscription?</h3>
+                  <h3 className="text-xl font-bold">{t.modalCancelTitle}</h3>
                 </div>
                 <button
                   onClick={() => setShowCancelModal(false)}
@@ -868,8 +886,7 @@ export default function SettingsPage() {
               </div>
 
               <p className="text-gray-300 mb-6">
-                Your subscription will remain active until the end of your current billing period, 
-                then you'll lose access to premium features.
+                {t.modalCancelBody}
               </p>
 
               <div className="flex gap-3">
@@ -878,14 +895,14 @@ export default function SettingsPage() {
                   className="flex-1 px-6 py-3 bg-white/10 hover:bg-white/20 rounded-xl font-semibold transition"
                   data-testid="button-keep-subscription"
                 >
-                  Keep Subscription
+                  {t.keepSubscription}
                 </button>
                 <button
                   onClick={handleCancelClick}
                   className="flex-1 px-6 py-3 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-xl font-semibold transition"
                   data-testid="button-proceed-cancel"
                 >
-                  Proceed to Cancel
+                  {t.proceedCancel}
                 </button>
               </div>
             </motion.div>
@@ -916,8 +933,8 @@ export default function SettingsPage() {
                     <TrendingUp className="w-8 h-8 text-white/70" />
                   </div>
                   <div>
-                    <h3 className="text-2xl font-bold">Before You Go...</h3>
-                    <p className="text-gray-400">We have a special offer for you</p>
+                    <h3 className="text-2xl font-bold">{t.retentionTitle}</h3>
+                    <p className="text-gray-400">{t.retentionSubtitle}</p>
                   </div>
                 </div>
                 <button
@@ -933,23 +950,31 @@ export default function SettingsPage() {
                 <div className="p-4 rounded-xl glass-card">
                   <h4 className="font-bold text-lg mb-2 flex items-center gap-2">
                     <span className="text-2xl">💎</span>
-                    Think about what you'll lose
+                    {t.retentionThinkTitle}
                   </h4>
                   <p className="text-gray-300 text-sm">
-                    You're currently getting amazing value with your {getTierName(user.subscriptionTier)} plan. 
-                    Consider what you'll miss out on if you cancel.
+                    {formatSettingsCopy(t.retentionThinkBody, { tier: getTierName(user.subscriptionTier) })}
                   </p>
                 </div>
 
                 <div className="p-4 rounded-xl glass-card">
-                  <h4 className="font-bold mb-2">Benefits you'll lose:</h4>
+                  <h4 className="font-bold mb-2">{t.retentionBenefitsTitle}</h4>
                   <ul className="text-sm text-gray-300 space-y-1">
-                    <li>• {user.subscriptionTier === 'starter' ? '2,900' : user.subscriptionTier === 'pro' ? '8,900' : '24,900'} credits every month</li>
-                    <li>• Access to all premium AI models</li>
-                    <li>• Priority customer support</li>
-                    <li>• Commercial usage license</li>
-                    <li>• {user.subscriptionTier === 'pro' && '11% cheaper per credit'}</li>
-                    <li>• {user.subscriptionTier === 'business' && '20% cheaper per credit + API access'}</li>
+                    <li>
+                      {formatSettingsCopy(t.retentionCreditsMonthly, {
+                        credits:
+                          user.subscriptionTier === 'starter'
+                            ? '2,900'
+                            : user.subscriptionTier === 'pro'
+                              ? '8,900'
+                              : '24,900',
+                      })}
+                    </li>
+                    <li>{t.retentionPremiumModels}</li>
+                    <li>{t.retentionPrioritySupport}</li>
+                    <li>{t.retentionCommercial}</li>
+                    {user.subscriptionTier === 'pro' && <li>{t.retentionProLine}</li>}
+                    {user.subscriptionTier === 'business' && <li>{t.retentionBusinessLine}</li>}
                   </ul>
                 </div>
               </div>
@@ -961,17 +986,17 @@ export default function SettingsPage() {
                   className="flex-1 px-6 py-3 glass-card rounded-xl font-semibold transition disabled:opacity-50"
                   data-testid="button-confirm-cancel"
                 >
-                  {cancelMutation.isPending ? 'Cancelling...' : 'Cancel Anyway'}
+                  {cancelMutation.isPending ? t.cancelling : t.cancelAnyway}
                 </button>
                 <button
                   onClick={() => {
                     setShowRetentionModal(false);
-                    toast.success('Great choice! We\'re glad to have you stay');
+                    toast.success(t.toastGladYouStay);
                   }}
                   className="flex-1 px-6 py-3 bg-white text-black hover:bg-white/90 rounded-xl font-semibold transition"
                   data-testid="button-stay-subscribed"
                 >
-                  Keep My Subscription
+                  {t.keepMySubscription}
                 </button>
               </div>
             </motion.div>

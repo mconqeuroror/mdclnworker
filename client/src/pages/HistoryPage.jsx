@@ -92,6 +92,31 @@ const PAGE_COPY = {
     previewPrompt: "Prompt",
     previewNegativePrompt: "Negative Prompt",
     previewFullBuiltPrompt: "Full Built Prompt",
+    filterImage: "Image",
+    filterPromptBased: "Prompt Based",
+    filterVideo: "Video",
+    filterFaceSwap: "Face Swap",
+    filterTalkingHead: "Talking Head",
+    filterRecreateVideo: "Recreate Video",
+    filterCreatorStudio: "Creator Studio",
+    download: "Download",
+    delete: "Delete",
+    altGenerated: "Generated",
+    genTypeImage: "Image",
+    genTypeImageIdentity: "Identity",
+    genTypePromptImage: "Prompt Image",
+    genTypeFaceSwapImage: "Face Swap Image",
+    genTypeAdvancedImage: "Advanced Image",
+    genTypeNsfw: "NSFW",
+    genTypeVideo: "Video",
+    genTypePromptVideo: "Prompt Video",
+    genTypeFaceSwap: "Face Swap",
+    genTypeFaceswap: "Face Swap",
+    genTypeTalkingHead: "Talking Head",
+    genTypeNsfwVideo: "NSFW Video",
+    genTypeNsfwVideoExtend: "NSFW Extend",
+    genTypeRecreateVideo: "Recreate Video",
+    genTypeCreatorStudio: "Creator Studio",
   },
   ru: {
     title: "История",
@@ -135,6 +160,31 @@ const PAGE_COPY = {
     previewPrompt: "Промпт",
     previewNegativePrompt: "Негативный промпт",
     previewFullBuiltPrompt: "Полный собранный промпт",
+    filterImage: "Изображение",
+    filterPromptBased: "По промпту",
+    filterVideo: "Видео",
+    filterFaceSwap: "Замена лица",
+    filterTalkingHead: "Говорящая голова",
+    filterRecreateVideo: "Пересоздание видео",
+    filterCreatorStudio: "Студия автора",
+    download: "Скачать",
+    delete: "Удалить",
+    altGenerated: "Сгенерировано",
+    genTypeImage: "Изображение",
+    genTypeImageIdentity: "Идентичность",
+    genTypePromptImage: "Промпт-изображение",
+    genTypeFaceSwapImage: "Фото со сменой лица",
+    genTypeAdvancedImage: "Продвинутое изображение",
+    genTypeNsfw: "NSFW",
+    genTypeVideo: "Видео",
+    genTypePromptVideo: "Промпт-видео",
+    genTypeFaceSwap: "Замена лица",
+    genTypeFaceswap: "Замена лица",
+    genTypeTalkingHead: "Говорящая голова",
+    genTypeNsfwVideo: "NSFW-видео",
+    genTypeNsfwVideoExtend: "Продление NSFW",
+    genTypeRecreateVideo: "Пересоздание видео",
+    genTypeCreatorStudio: "Студия автора",
   },
 };
 
@@ -159,6 +209,43 @@ function formatCopy(text, vars = {}) {
   return String(text).replace(/\{(\w+)\}/g, (_, key) =>
     vars[key] == null ? `{${key}}` : String(vars[key]),
   );
+}
+
+function contentFilterLabel(type, copy) {
+  if (type === "all") return copy.all;
+  const map = {
+    image: copy.filterImage,
+    "prompt-based": copy.filterPromptBased,
+    video: copy.filterVideo,
+    "face-swap": copy.filterFaceSwap,
+    "talking-head": copy.filterTalkingHead,
+    "recreate-video": copy.filterRecreateVideo,
+    "creator-studio": copy.filterCreatorStudio,
+  };
+  return map[type] || type;
+}
+
+function generationTypeLabel(genType, copy) {
+  const map = {
+    image: copy.genTypeImage,
+    "image-identity": copy.genTypeImageIdentity,
+    "prompt-image": copy.genTypePromptImage,
+    "face-swap-image": copy.genTypeFaceSwapImage,
+    "advanced-image": copy.genTypeAdvancedImage,
+    nsfw: copy.genTypeNsfw,
+    video: copy.genTypeVideo,
+    "prompt-video": copy.genTypePromptVideo,
+    "face-swap": copy.genTypeFaceSwap,
+    faceswap: copy.genTypeFaceswap,
+    "talking-head": copy.genTypeTalkingHead,
+    "nsfw-video": copy.genTypeNsfwVideo,
+    "nsfw-video-extend": copy.genTypeNsfwVideoExtend,
+    "recreate-video": copy.genTypeRecreateVideo,
+    "creator-studio": copy.genTypeCreatorStudio,
+  };
+  const label = map[genType];
+  if (label) return label;
+  return String(genType || "").replace(/-/g, " ");
 }
 
 function useMainViewportBounds() {
@@ -402,7 +489,7 @@ export default function HistoryPage() {
   });
 
   const lookupModels = models.filter((model) =>
-    (model?.name || "Unnamed").toLowerCase().includes(modelLookup.trim().toLowerCase())
+    (model?.name || copy.unnamed).toLowerCase().includes(modelLookup.trim().toLowerCase())
   );
 
   const toggleSelection = (genId) => {
@@ -624,7 +711,7 @@ export default function HistoryPage() {
                         {selectedType === type && (
                           <span className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-gradient-to-b from-white/90 to-white/45 pointer-events-none" />
                         )}
-                        {type === "all" ? copy.all : type.replace("-", " ").replace(/\b\w/g, (l) => l.toUpperCase())}
+                        {contentFilterLabel(type, copy)}
                       </button>
                     ))}
                   </div>
@@ -891,7 +978,7 @@ const GenerationCard = memo(function GenerationCard({ generation, models, isSele
             {isVideo ? (
               <LazyVideo src={primaryUrl} videoClassName="object-cover" className="w-full h-full" muted loop playsInline />
             ) : (
-              <LazyImage src={getMediumUrl(primaryUrl)} alt="Generated" className="w-full h-full object-cover" />
+              <LazyImage src={getMediumUrl(primaryUrl)} alt={copy.altGenerated} className="w-full h-full object-cover" />
             )}
             <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center">
               <Eye className="w-5 h-5 text-white" />
@@ -914,7 +1001,7 @@ const GenerationCard = memo(function GenerationCard({ generation, models, isSele
 
         {/* Type badge */}
         <div className="absolute top-2 right-2 px-1.5 py-0.5 rounded text-[9px] uppercase tracking-wider font-medium bg-black/50 backdrop-blur-sm text-white/80">
-          {generation.type.replace("-", " ")}
+          {generationTypeLabel(generation.type, copy)}
         </div>
 
         {/* Multi-output badge */}
@@ -930,7 +1017,7 @@ const GenerationCard = memo(function GenerationCard({ generation, models, isSele
         {model && (
           <div className="flex items-center gap-1.5 mb-1.5">
             <LazyImage src={getThumbnailUrl(model.photo1Url)} className="w-4 h-4 rounded-full object-cover" alt="" />
-            <span className="text-xs text-slate-400 truncate">{model.name || "Unnamed"}</span>
+            <span className="text-xs text-slate-400 truncate">{model.name || copy.unnamed}</span>
           </div>
         )}
         <div className="text-[10px] text-slate-600">
@@ -985,7 +1072,7 @@ const GenerationListItem = memo(function GenerationListItem({ generation, models
           isVideo ? (
             <LazyVideo src={primaryUrl} videoClassName="object-cover" className="w-full h-full" muted />
           ) : (
-            <LazyImage src={getThumbnailUrl(primaryUrl)} alt="Generated" className="w-full h-full object-cover" />
+            <LazyImage src={getThumbnailUrl(primaryUrl)} alt={copy.altGenerated} className="w-full h-full object-cover" />
           )
         ) : (
           <div className="w-full h-full flex items-center justify-center text-[10px] text-red-400">{copy.statusFailed || "Failed"}</div>
@@ -995,7 +1082,7 @@ const GenerationListItem = memo(function GenerationListItem({ generation, models
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-0.5">
           <span className="text-sm font-medium text-white">
-            {generation.type.replace("-", " ").replace(/\b\w/g, (l) => l.toUpperCase())}
+            {generationTypeLabel(generation.type, copy)}
           </span>
           <span className="px-1.5 py-0.5 rounded text-[9px] bg-green-500/20 text-green-400">
             {generation.status}
@@ -1004,7 +1091,7 @@ const GenerationListItem = memo(function GenerationListItem({ generation, models
         {model && (
           <div className="flex items-center gap-1.5 text-xs text-slate-500">
             <LazyImage src={getThumbnailUrl(model.photo1Url)} className="w-3.5 h-3.5 rounded-full object-cover" alt="" />
-            <span>{model.name || "Unnamed"}</span>
+            <span>{model.name || copy.unnamed}</span>
           </div>
         )}
         <div className="text-[10px] text-slate-600 mt-0.5">
@@ -1021,7 +1108,7 @@ const GenerationListItem = memo(function GenerationListItem({ generation, models
             data-testid={`download-${generation.id}`}
           >
             <Download className="w-3.5 h-3.5" />
-            Download
+            {copy.download}
           </button>
           <button
             onClick={onDelete}
@@ -1084,7 +1171,7 @@ const PreviewModal = memo(function PreviewModal({ item, onClose, onDownload }) {
               <video src={activeUrl} controls autoPlay loop className="max-w-full max-h-[65vh] rounded-lg object-contain" />
             ) : (
               <div className="relative">
-                <img src={activeUrl} alt="Generated content" className="max-w-full max-h-[65vh] rounded-lg object-contain" />
+                <img src={activeUrl} alt={copy.altGenerated} className="max-w-full max-h-[65vh] rounded-lg object-contain" />
 
                 {urls.length > 1 && (
                   <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-2">
@@ -1211,7 +1298,7 @@ const PreviewModal = memo(function PreviewModal({ item, onClose, onDownload }) {
               style={{ background: "#ffffff", border: "1px solid rgba(255,255,255,0.2)" }}
             >
               <Download className="w-5 h-5 text-black" />
-              Download
+              {copy.download}
             </button>
           </div>
         </div>

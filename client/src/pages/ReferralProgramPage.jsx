@@ -2,10 +2,13 @@ import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { Copy, RefreshCw } from "lucide-react";
 import { referralAPI } from "../services/api";
+import { resolveLocale } from "../components/generateAIModelFormCopy";
+import { REFERRAL_PAGE_COPY, formatReferralCopy } from "../data/referralProgramCopy";
 
 const formatUsd = (cents) => `$${((cents || 0) / 100).toFixed(2)}`;
 
 export default function ReferralProgramPage() {
+  const t = REFERRAL_PAGE_COPY[resolveLocale()] || REFERRAL_PAGE_COPY.en;
   const [loading, setLoading] = useState(true);
   const [savingCode, setSavingCode] = useState(false);
   const [requestingPayout, setRequestingPayout] = useState(false);
@@ -36,7 +39,7 @@ export default function ReferralProgramPage() {
 
   const handleSaveSuffix = async () => {
     if (!suffix.trim()) {
-      toast.error("Please enter a referral suffix");
+      toast.error(t.enterSuffix);
       return;
     }
     setSavingCode(true);
@@ -58,7 +61,7 @@ export default function ReferralProgramPage() {
   const handleCopyLink = async () => {
     if (!overview?.referralLink) return;
     await navigator.clipboard.writeText(overview.referralLink);
-    toast.success("Referral link copied");
+    toast.success(t.copied);
   };
 
   const handleRequestPayout = async () => {
@@ -70,14 +73,14 @@ export default function ReferralProgramPage() {
     try {
       const data = await referralAPI.requestPayout(walletAddress.trim());
       if (data.success) {
-        toast.success("Payout request submitted");
+        toast.success(t.payoutSubmitted);
         setWalletAddress("");
         await loadOverview();
       } else {
-        toast.error(data.message || "Failed to submit payout request");
+        toast.error(data.message || t.payoutFailed);
       }
     } catch (error) {
-      toast.error(error?.response?.data?.message || "Failed to submit payout request");
+      toast.error(error?.response?.data?.message || t.payoutFailed);
     } finally {
       setRequestingPayout(false);
     }
@@ -96,20 +99,21 @@ export default function ReferralProgramPage() {
   return (
     <div className="space-y-6">
       <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-        <h2 className="text-xl font-semibold text-white">Referral Program</h2>
+        <h2 className="text-xl font-semibold text-white">{t.title}</h2>
         <p className="text-sm text-gray-400 mt-1">
-          Earn 15% from each referred user's first purchase. Payout threshold is {formatUsd(summary.minPayoutCents)}.
+          {formatReferralCopy(t.intro, { amount: formatUsd(summary.minPayoutCents) })}
         </p>
-        <p className="text-xs text-gray-500 mt-2">
-          Tracking uses referral links + referral code + IP/device attribution hints to improve reliability across sessions.
-        </p>
+        <p className="text-xs text-gray-500 mt-2">{t.trackingNote}</p>
 
         <div className="grid md:grid-cols-5 gap-3 mt-4">
-          <StatCard label="Registered Referrals" value={String(summary.registeredReferralsCount || 0)} />
-          <StatCard label="Total Referred Spend" value={formatUsd(summary.totalReferredSpendCents)} />
-          <StatCard label="Total Reward" value={formatUsd(summary.totalRewardCents)} />
-          <StatCard label="Already Paid" value={formatUsd(summary.totalPaidCents)} />
-          <StatCard label={summary.eligibleCents < 0 ? "Balance Owed" : "Eligible Now"} value={formatUsd(summary.eligibleCents)} />
+          <StatCard label={t.statRegistered} value={String(summary.registeredReferralsCount || 0)} />
+          <StatCard label={t.statSpend} value={formatUsd(summary.totalReferredSpendCents)} />
+          <StatCard label={t.statReward} value={formatUsd(summary.totalRewardCents)} />
+          <StatCard label={t.statPaid} value={formatUsd(summary.totalPaidCents)} />
+          <StatCard
+            label={summary.eligibleCents < 0 ? t.statBalanceOwed : t.statEligibleNow}
+            value={formatUsd(summary.eligibleCents)}
+          />
         </div>
       </div>
 
@@ -124,7 +128,7 @@ export default function ReferralProgramPage() {
               playsInline
               preload="metadata"
             >
-              Your browser does not support the video tag.
+              {t.videoUnsupported}
             </video>
           </div>
         </div>
@@ -144,7 +148,7 @@ export default function ReferralProgramPage() {
             disabled={savingCode}
             className="px-4 py-2 rounded-xl border border-white/35 bg-white text-black hover:bg-white/90 transition-all disabled:opacity-45 disabled:cursor-not-allowed"
           >
-            {savingCode ? "Saving..." : "Save Suffix"}
+            {savingCode ? t.saving : t.saveSuffix}
           </button>
         </div>
         <p className="text-xs text-gray-500 mt-2">
@@ -166,7 +170,7 @@ export default function ReferralProgramPage() {
               className="px-3 py-2 rounded-xl border border-white/35 bg-white text-black hover:bg-white/90 flex items-center gap-2 justify-center transition-all"
             >
               <Copy className="w-4 h-4" />
-              Copy
+              {t.copy}
             </button>
           </div>
         )}
@@ -195,7 +199,7 @@ export default function ReferralProgramPage() {
                 disabled={requestingPayout || !summary.canRequestPayout}
                 className="px-4 py-2 rounded-xl border border-emerald-400/35 bg-emerald-500/15 backdrop-blur-xl text-emerald-200 hover:bg-emerald-500/25 transition-all disabled:opacity-45 disabled:cursor-not-allowed"
               >
-                {requestingPayout ? "Submitting..." : "Get Paid"}
+                {requestingPayout ? t.submitting : t.getPaid}
               </button>
             </div>
             <p className="text-xs text-gray-500 mt-2">
@@ -207,11 +211,11 @@ export default function ReferralProgramPage() {
 
       <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
         <div className="flex items-center justify-between">
-          <h3 className="font-semibold text-white">Referred Users</h3>
+          <h3 className="font-semibold text-white">{t.referredHeading}</h3>
           <button
             onClick={loadOverview}
             className="p-2 rounded-lg border border-white/10 hover:bg-white/10"
-            title="Refresh"
+            title={t.refreshTitle}
           >
             <RefreshCw className="w-4 h-4" />
           </button>
@@ -236,7 +240,7 @@ export default function ReferralProgramPage() {
               {(!overview?.referrals || overview.referrals.length === 0) && (
                 <tr>
                   <td colSpan={3} className="py-4 text-gray-500">
-                    No referred users yet.
+                    {t.noReferrals}
                   </td>
                 </tr>
               )}

@@ -1,12 +1,32 @@
 import { useState } from "react";
 import { BookOpen, X, ArrowRight } from "lucide-react";
+import { resolveLocale } from "./generateAIModelFormCopy";
 
 const STORAGE_KEYS = {
   sfw: "course-tip-sfw-dismissed",
   nsfw: "course-tip-nsfw-dismissed",
 };
 
+const COURSE_TIP_COPY = {
+  en: {
+    messageSfw:
+      "First time generating? Watch our course to learn how to get the best results from your AI model.",
+    messageNsfw:
+      "New to NSFW generation? Watch our course to learn LoRA training, image generation, and video creation.",
+    watchCourse: "Watch Course",
+  },
+  ru: {
+    messageSfw:
+      "Первый раз генерируете? Посмотрите курс — как получить лучший результат от ИИ-модели.",
+    messageNsfw:
+      "Новичок в NSFW-генерации? В курсе — LoRA, изображения и видео.",
+    watchCourse: "Смотреть курс",
+  },
+};
+
 export default function CourseTipBanner({ type = "sfw", onNavigateToCourse }) {
+  const locale = resolveLocale();
+  const copy = COURSE_TIP_COPY[locale] || COURSE_TIP_COPY.en;
   const storageKey = STORAGE_KEYS[type] || STORAGE_KEYS.sfw;
   const [dismissed, setDismissed] = useState(() => {
     return localStorage.getItem(storageKey) === "true";
@@ -43,7 +63,7 @@ export default function CourseTipBanner({ type = "sfw", onNavigateToCourse }) {
           className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-slate-300 hover:text-white transition-colors"
           data-testid={`button-course-tip-${type}`}
         >
-          Watch Course
+          {copy.watchCourse}
           <ArrowRight className="w-3 h-3" />
         </button>
       </div>

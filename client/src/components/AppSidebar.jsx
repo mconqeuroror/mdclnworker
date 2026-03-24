@@ -67,7 +67,7 @@ const SIDEBAR_COPY = {
     dashboard: "Панель",
     myModels: "Мои модели",
     generate: "Создать",
-    creatorStudio: "Creator Studio",
+    creatorStudio: "Студия автора",
     voiceStudio: "Голосовая студия",
     reformatter: "Конвертер",
     history: "История",

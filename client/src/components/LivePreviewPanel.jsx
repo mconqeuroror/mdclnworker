@@ -1,12 +1,48 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Eye, Download, Loader2, AlertTriangle, Clock, CheckCircle, X, Maximize2, Info } from 'lucide-react';
+import { Download, Loader2, AlertTriangle, Clock, CheckCircle, X, Maximize2, Info } from 'lucide-react';
+import { resolveLocale } from './generateAIModelFormCopy';
+
+const LIVE_PREVIEW_COPY = {
+  en: {
+    title: 'Live Preview',
+    processing: 'Processing',
+    done: 'Done',
+    failed: 'Failed',
+    emptyHint: 'Your result will appear here',
+    generating: 'Generating...',
+    usuallyVideo: 'Usually 2-3 minutes',
+    usuallyImage: 'Usually 10-30 seconds',
+    fullscreen: 'Fullscreen',
+    download: 'Download',
+    genFailed: 'Generation failed',
+    refundHint: 'If this generation charged credits, a refund is applied automatically.',
+    altGenerated: 'Generated',
+  },
+  ru: {
+    title: 'Превью',
+    processing: 'Обработка',
+    done: 'Готово',
+    failed: 'Ошибка',
+    emptyHint: 'Результат появится здесь',
+    generating: 'Генерация...',
+    usuallyVideo: 'Обычно 2–3 минуты',
+    usuallyImage: 'Обычно 10–30 секунд',
+    fullscreen: 'На весь экран',
+    download: 'Скачать',
+    genFailed: 'Ошибка генерации',
+    refundHint: 'Если списали кредиты, возврат начисляется автоматически.',
+    altGenerated: 'Результат',
+  },
+};
 
 export default function LivePreviewPanel({ 
   type = 'image',
   latestGeneration = null,
   onDownload
 }) {
+  const locale = resolveLocale();
+  const t = LIVE_PREVIEW_COPY[locale] || LIVE_PREVIEW_COPY.en;
   const [previewOpen, setPreviewOpen] = useState(false);
   
   const isProcessing = latestGeneration?.status === 'processing' || latestGeneration?.status === 'pending';
@@ -61,26 +97,26 @@ export default function LivePreviewPanel({
             >
               <Info className={`w-3 h-3 ${isProcessing ? "text-green-400" : "text-slate-300"}`} />
             </div>
-            <h3 className="text-[11px] uppercase tracking-[0.15em] text-slate-400 font-medium">Live Preview</h3>
+            <h3 className="text-[11px] uppercase tracking-[0.15em] text-slate-400 font-medium">{t.title}</h3>
           </div>
           {latestGeneration && (
             <div className="flex items-center gap-2">
               {isProcessing && (
                 <span className="px-2 py-0.5 rounded-full flex items-center gap-1.5 text-[10px] font-medium" style={{ background: 'rgba(59,130,246,0.15)', color: '#60A5FA' }}>
                   <Loader2 className="w-3 h-3 animate-spin" />
-                  Processing
+                  {t.processing}
                 </span>
               )}
               {isCompleted && (
                 <span className="px-2 py-0.5 rounded-full flex items-center gap-1.5 text-[10px] font-medium" style={{ background: 'rgba(34,197,94,0.15)', color: '#4ADE80' }}>
                   <CheckCircle className="w-3 h-3" />
-                  Done
+                  {t.done}
                 </span>
               )}
               {isFailed && (
                 <span className="px-2 py-0.5 rounded-full flex items-center gap-1.5 text-[10px] font-medium" style={{ background: 'rgba(239,68,68,0.15)', color: '#F87171' }}>
                   <AlertTriangle className="w-3 h-3" />
-                  Failed
+                  {t.failed}
                 </span>
               )}
             </div>
@@ -102,7 +138,7 @@ export default function LivePreviewPanel({
               <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
                 <Clock className="w-6 h-6 text-slate-600" />
               </div>
-              <p className="text-[11px] text-slate-500">Your result will appear here</p>
+              <p className="text-[11px] text-slate-500">{t.emptyHint}</p>
             </div>
           ) : isProcessing ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center">
@@ -110,11 +146,11 @@ export default function LivePreviewPanel({
                 <div className="w-14 h-14 rounded-full" style={{ border: '3px solid rgba(255,255,255,0.1)' }} />
                 <div className="absolute inset-0 w-14 h-14 rounded-full animate-spin" style={{ border: '3px solid transparent', borderTopColor: 'rgba(255,255,255,0.7)' }} />
               </div>
-              <p className="text-sm font-medium text-slate-300">Generating...</p>
+              <p className="text-sm font-medium text-slate-300">{t.generating}</p>
               {hasLiveProgress ? (
                 <div className="mt-2 w-[180px]">
                   <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
-                    <span>{liveStage || "Processing"}</span>
+                    <span>{liveStage || t.processing}</span>
                     <span>{liveProgress}%</span>
                   </div>
                   <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
@@ -126,7 +162,7 @@ export default function LivePreviewPanel({
                 </div>
               ) : (
                 <p className="text-[10px] text-slate-500 mt-1">
-                  {isVideo ? 'Usually 2-3 minutes' : 'Usually 10-30 seconds'}
+                  {isVideo ? t.usuallyVideo : t.usuallyImage}
                 </p>
               )}
             </div>
@@ -145,7 +181,7 @@ export default function LivePreviewPanel({
               ) : (
                 <img
                   src={latestGeneration.outputUrl}
-                  alt="Generated"
+                  alt={t.altGenerated}
                   className="w-full h-full object-contain"
                 />
               )}
@@ -160,7 +196,7 @@ export default function LivePreviewPanel({
                     data-testid="button-preview-fullscreen"
                   >
                     <Maximize2 className="w-3.5 h-3.5" />
-                    Fullscreen
+                    {t.fullscreen}
                   </button>
                   <button
                     onClick={handleDownload}
@@ -168,7 +204,7 @@ export default function LivePreviewPanel({
                     data-testid="button-download-result"
                   >
                     <Download className="w-3.5 h-3.5" />
-                    Download
+                    {t.download}
                   </button>
                 </div>
               </div>
@@ -179,9 +215,9 @@ export default function LivePreviewPanel({
                 <AlertTriangle className="w-6 h-6 text-red-400" />
               </div>
               <p className="text-sm font-medium text-red-400 text-center">
-                {latestGeneration?.errorMessage || "Generation failed"}
+                {latestGeneration?.errorMessage || t.genFailed}
               </p>
-              <p className="text-[10px] text-slate-500 mt-1">If this generation charged credits, a refund is applied automatically.</p>
+              <p className="text-[10px] text-slate-500 mt-1">{t.refundHint}</p>
             </div>
           ) : null}
         </div>
@@ -213,7 +249,7 @@ export default function LivePreviewPanel({
           ) : (
             <img
               src={latestGeneration.outputUrl}
-              alt="Generated"
+              alt={t.altGenerated}
               className="max-w-full max-h-full object-contain rounded-lg"
               onClick={(e) => e.stopPropagation()}
             />

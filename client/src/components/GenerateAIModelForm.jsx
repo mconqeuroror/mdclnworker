@@ -35,6 +35,15 @@ import api from "../services/api";
 import { useAuthStore } from "../store";
 import { useDropzone } from "react-dropzone";
 import { selectorCategories } from "../data/nsfwSelectors";
+import {
+  displayModelLooksGroupLabel,
+  displayModelLooksOption,
+} from "../data/modelLooksDisplayRu";
+import {
+  AI_MODEL_FORM_COPY,
+  resolveLocale,
+  formatCopy,
+} from "./generateAIModelFormCopy";
 
 const OUTFIT_TYPE_OPTIONS = [
   { value: "", label: "Default", description: "AI decides" },
@@ -67,22 +76,21 @@ const POSE_STYLE_OPTIONS = [
   { value: "natural", label: "Natural", description: "Relaxed & genuine" },
 ];
 
-const POSES_STEPS = [
-  { step: 1, label: "Close-up Selfie" },
-  { step: 2, label: "Portrait" },
-  { step: 3, label: "Full Body Shot" },
-];
-
 const PHOTO_CONFIGS_DEFAULT = [
   { label: "Selfie (1:1)", prompt: "", referencePhotos: [], expanded: true },
   { label: "Portrait (3:4)", prompt: "", referencePhotos: [], expanded: false },
   { label: "Full Body (9:16)", prompt: "", referencePhotos: [], expanded: false },
 ];
 
-function GeneratingOverlay({ phase, progress }) {
+function GeneratingOverlay({ phase, progress, copy }) {
   const isPhase1 = phase === 1;
   const branding = useBranding();
   const isActive = !!progress?.message || !!progress?.step;
+  const poseSteps = [
+    { step: 1, label: copy.poseStep1 },
+    { step: 2, label: copy.poseStep2 },
+    { step: 3, label: copy.poseStep3 },
+  ];
 
   return createPortal(
     <motion.div
@@ -110,18 +118,16 @@ function GeneratingOverlay({ phase, progress }) {
       </div>
 
       <h2 className="mt-6 sm:mt-8 text-xl sm:text-2xl font-bold text-white">
-        {isPhase1 ? "Generating Reference Image" : "Generating Model Photos"}
+        {isPhase1 ? copy.overlayTitleRef : copy.overlayTitlePhotos}
       </h2>
       <p className="mt-2 sm:mt-3 text-sm sm:text-lg text-gray-300 px-4">
         {progress.message ||
-          (isPhase1
-            ? "Creating your AI model reference..."
-            : "This may take 1-2 minutes")}
+          (isPhase1 ? copy.overlaySubRef : copy.overlaySubPhotos)}
       </p>
 
       {!isPhase1 && (
         <div className="mt-6 sm:mt-10 flex items-center gap-1 sm:gap-2 px-2 sm:px-4">
-          {POSES_STEPS.map((item, index) => (
+          {poseSteps.map((item, index) => (
             <div key={item.step} className="flex items-center">
               <div className="flex flex-col items-center">
                 <div
@@ -151,7 +157,7 @@ function GeneratingOverlay({ phase, progress }) {
                   {item.label}
                 </span>
               </div>
-              {index < POSES_STEPS.length - 1 && (
+              {index < poseSteps.length - 1 && (
                 <div
                   className={`w-4 sm:w-8 h-1 mx-0.5 sm:mx-1 rounded transition-all duration-500 ${
                     progress.step > item.step ? "bg-green-500" : "bg-gray-700"
@@ -165,21 +171,24 @@ function GeneratingOverlay({ phase, progress }) {
 
       <p className="mt-10 text-sm text-gray-500">
         {isPhase1
-          ? "Generating reference portrait from your parameters..."
-          : `Step ${progress.step}/3: ${POSES_STEPS[progress.step - 1]?.label || "Processing"}`}
+          ? copy.overlayFooterRef
+          : formatCopy(copy.overlayFooterStep, {
+              step: progress.step || 0,
+              label: poseSteps[progress.step - 1]?.label || copy.overlayStepProcessing,
+            })}
       </p>
     </motion.div>,
     document.body,
   );
 }
 
-function PhotoConfigUploader({ index, config, onUpdate, disabled }) {
+function PhotoConfigUploader({ index, config, onUpdate, disabled, copy }) {
   const [uploading, setUploading] = useState(false);
   const [describing, setDescribing] = useState(false);
 
   const handleAutoDescribe = async () => {
     if (!config.referencePhotos.length) {
-      toast.error("Upload a reference photo first");
+      toast.error(copy.toastUploadRefFirst);
       return;
     }
     setDescribing(true);
@@ -193,12 +202,12 @@ function PhotoConfigUploader({ index, config, onUpdate, disabled }) {
         let desc = result.description;
         desc = desc.replace(/\bthe subject\b/gi, "").replace(/\s{2,}/g, " ").trim();
         onUpdate(index, { ...config, prompt: desc });
-        toast.success("Prompt filled from photo");
+        toast.success(copy.toastPromptFromPhoto);
       } else {
-        toast.error(result.message || "Failed to analyze photo");
+        toast.error(result.message || copy.toastAnalyzeFail);
       }
     } catch (err) {
-      toast.error(err.response?.data?.message || "Failed to analyze photo");
+      toast.error(err.response?.data?.message || copy.toastAnalyzeFail);
     } finally {
       setDescribing(false);
     }
@@ -206,7 +215,7 @@ function PhotoConfigUploader({ index, config, onUpdate, disabled }) {
 
   const handleDrop = async (files) => {
     if (config.referencePhotos.length + files.length > 5) {
-      toast.error("Maximum 5 reference photos per section");
+      toast.error(copy.toastMaxPhotos);
       return;
     }
     setUploading(true);
@@ -220,9 +229,9 @@ function PhotoConfigUploader({ index, config, onUpdate, disabled }) {
         ...config,
         referencePhotos: [...config.referencePhotos, ...urls],
       });
-      toast.success(`${urls.length} photo${urls.length > 1 ? "s" : ""} uploaded`);
+      toast.success(formatCopy(copy.toastUploadOk, { count: urls.length }));
     } catch (error) {
-      toast.error("Upload failed");
+      toast.error(copy.toastUploadFailed);
     } finally {
       setUploading(false);
     }
@@ -249,7 +258,7 @@ function PhotoConfigUploader({ index, config, onUpdate, disabled }) {
         <div className="flex flex-wrap gap-2">
           {config.referencePhotos.map((url, i) => (
             <div key={i} className="relative w-14 h-14 rounded-lg overflow-hidden border border-white/10">
-              <img src={url} alt={`Ref ${i + 1}`} className="w-full h-full object-cover" />
+              <img src={url} alt={`${copy.refAlt} ${i + 1}`} className="w-full h-full object-cover" />
               <button
                 onClick={() => removePhoto(i)}
                 className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-red-500/80 flex items-center justify-center hover:bg-red-500 transition"
@@ -275,15 +284,15 @@ function PhotoConfigUploader({ index, config, onUpdate, disabled }) {
           {uploading ? (
             <div className="flex items-center justify-center gap-2">
               <Loader2 className="w-3 h-3 animate-spin text-purple-400" />
-              <span className="text-gray-300">Uploading...</span>
+              <span className="text-gray-300">{copy.uploading}</span>
             </div>
           ) : (
             <div className="flex items-center justify-center gap-1.5 text-gray-400">
               <Plus className="w-3 h-3" />
               <span>
                 {config.referencePhotos.length === 0
-                  ? "Add reference photos (1-5)"
-                  : `Add more (${config.referencePhotos.length}/5)`}
+                  ? copy.addRefPhotos
+                  : formatCopy(copy.addMorePhotos, { n: config.referencePhotos.length })}
               </span>
             </div>
           )}
@@ -296,10 +305,10 @@ function PhotoConfigUploader({ index, config, onUpdate, disabled }) {
           onChange={(e) => onUpdate(index, { ...config, prompt: e.target.value })}
           placeholder={
             index === 0
-              ? "Describe the selfie... e.g. 'smiling, natural lighting, casual look'"
+              ? copy.photoPromptPh0
               : index === 1
-                ? "Describe the portrait... e.g. 'soft lighting, elegant, slight smile'"
-                : "Describe the full body shot... e.g. 'standing pose, beach, summer outfit'"
+                ? copy.photoPromptPh1
+                : copy.photoPromptPh2
           }
           rows={2}
           className="w-full px-3 py-2 pr-24 bg-white/5 border border-white/10 rounded-lg focus:border-purple-500 transition resize-none text-xs"
@@ -319,7 +328,7 @@ function PhotoConfigUploader({ index, config, onUpdate, disabled }) {
             ) : (
               <Wand2 className="w-3 h-3" />
             )}
-            {describing ? "Analyzing..." : "Auto-fill"}
+            {describing ? copy.analyzing : copy.autoFill}
           </button>
         )}
       </div>
@@ -344,6 +353,9 @@ function buildInitialFormData() {
 }
 
 export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedCredits }) {
+  const locale = resolveLocale();
+  const copy = AI_MODEL_FORM_COPY[locale] || AI_MODEL_FORM_COPY.en;
+
   const [mode, setMode] = useState("scratch");
 
   const [formData, setFormData] = useState(buildInitialFormData);
@@ -411,13 +423,13 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
           : { ...c, prompt: source.prompt, referencePhotos: [...source.referencePhotos] }
       )
     );
-    toast.success("Copied to all photos");
+    toast.success(copy.toastCopiedAll);
   };
 
   const handleAutoDetectLooks = async () => {
     const firstRefs = photoConfigs[0]?.referencePhotos;
     if (!firstRefs?.length) {
-      toast.error("Upload at least one reference photo in Selfie, then try Auto-detect looks.");
+      toast.error(copy.toastUploadSelfieFirst);
       return;
     }
     setFromPhotosDetecting(true);
@@ -427,12 +439,12 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
         setFromPhotosLooks(data.looks);
         if (data.looks.age != null) setFromPhotosAge(String(data.looks.age));
         if (data.looks.gender) setFromPhotosGender(data.looks.gender);
-        toast.success("Looks detected. Adjust age/gender or chips if needed.");
+        toast.success(copy.toastLooksDetected);
       } else {
-        toast.error("Could not detect looks. Set age and gender manually.");
+        toast.error(copy.toastDetectFail);
       }
     } catch (err) {
-      toast.error(err.response?.data?.message || "Auto-detect failed. Set age and gender manually.");
+      toast.error(err.response?.data?.message || copy.toastDetectError);
     } finally {
       setFromPhotosDetecting(false);
     }
@@ -440,26 +452,26 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
 
   const handleGenerateReference = async () => {
     if (!formData.gender) {
-      toast.error("Please select a gender");
+      toast.error(copy.toastSelectGender);
       return;
     }
     setGenerating(true);
     setGeneratingPhase(1);
-    setProgress({ step: 0, message: "Generating reference image..." });
+    setProgress({ step: 0, message: copy.progressGenRef });
     try {
       const result = await modelAPI.generateReference(formData);
       if (result.success) {
         setReferenceUrl(result.referenceUrl);
         setPhase("preview");
-        toast.success("Reference image generated!");
+        toast.success(copy.toastRefOk);
         await refreshUserCredits();
       } else {
-        const msg = result.message || "Failed to generate reference image";
+        const msg = result.message || copy.toastRefFail;
         toast.error(msg, result.solution ? { description: result.solution, duration: 8000 } : undefined);
       }
     } catch (error) {
       console.error("Generate reference error:", error);
-      const msg = error.response?.data?.message || "Failed to generate reference image";
+      const msg = error.response?.data?.message || copy.toastRefFail;
       toast.error(msg, error.response?.data?.solution ? { description: error.response.data.solution, duration: 8000 } : undefined);
     } finally {
       setGenerating(false);
@@ -470,20 +482,20 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
   const handleRegenerateReference = async () => {
     setGenerating(true);
     setGeneratingPhase(1);
-    setProgress({ step: 0, message: "Regenerating reference image..." });
+    setProgress({ step: 0, message: copy.progressRegenRef });
     try {
       const result = await modelAPI.generateReference({ ...formData, regenerate: true });
       if (result.success) {
         setReferenceUrl(result.referenceUrl);
-        toast.success("New reference image generated!");
+        toast.success(copy.toastRefRegenOk);
         await refreshUserCredits();
       } else {
-        const msg = result.message || "Failed to regenerate reference image";
+        const msg = result.message || copy.toastRefRegenFail;
         toast.error(msg, result.solution ? { description: result.solution, duration: 8000 } : undefined);
       }
     } catch (error) {
       console.error("Regenerate reference error:", error);
-      const msg = error.response?.data?.message || "Failed to regenerate reference image";
+      const msg = error.response?.data?.message || copy.toastRefRegenFail;
       toast.error(msg, error.response?.data?.solution ? { description: error.response.data.solution, duration: 8000 } : undefined);
     } finally {
       setGenerating(false);
@@ -493,12 +505,12 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
 
   const handleConfirmAndGenerate = async () => {
     if (!referenceUrl) {
-      toast.error("No reference image available");
+      toast.error(copy.toastNoRef);
       return;
     }
     setGenerating(true);
     setGeneratingPhase(2);
-    setProgress({ step: 1, message: "Generating close-up selfie..." });
+    setProgress({ step: 1, message: copy.progressCloseSelfie });
     try {
       const result = await modelAPI.generatePoses({
         name,
@@ -515,7 +527,7 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
         const MAX_WAIT_MS  = 10 * 60 * 1000; // give up after 10 min
         const started = Date.now();
 
-        setProgress({ step: 1, message: "Generating your AI model… hold tight" });
+        setProgress({ step: 1, message: copy.progressHoldTight });
 
         await new Promise((resolve) => {
           const tick = async () => {
@@ -533,22 +545,26 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
               const p3 = updatedModel?.photo3Url?.startsWith("http");
               const doneCount = [p1, p2, p3].filter(Boolean).length;
               const stepMessages = [
-                `Generating close-up selfie… (${elapsed})`,
-                `Selfie done — generating portrait & full body… (${elapsed})`,
-                `Almost done — finishing last photo… (${elapsed})`,
+                formatCopy(copy.progressPoll0, { t: elapsed }),
+                formatCopy(copy.progressPoll1, { t: elapsed }),
+                formatCopy(copy.progressPoll2, { t: elapsed }),
               ];
-              setProgress({ step: doneCount + 1, message: stepMessages[doneCount] ?? `Finalizing… (${elapsed})` });
+              setProgress({
+                step: doneCount + 1,
+                message:
+                  stepMessages[doneCount] ?? formatCopy(copy.progressFinal, { t: elapsed }),
+              });
 
               if (status === "ready") {
                 await refreshUserCredits();
-                toast.success(`AI Model "${name}" created successfully!`);
+                toast.success(formatCopy(copy.toastModelCreated, { name }));
                 onSuccess(updatedModel || result.model);
                 resolve();
                 return;
               }
 
               if (status === "failed") {
-                toast.error("Model generation failed — please try again.");
+                toast.error(copy.toastGenFailed);
                 resolve();
                 return;
               }
@@ -557,7 +573,7 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
             }
 
             if (Date.now() - started > MAX_WAIT_MS) {
-              toast("Model is still generating — check your Models page in a few minutes.", { icon: "⏳" });
+              toast(copy.toastStillGen, { icon: "⏳" });
               resolve();
               return;
             }
@@ -569,16 +585,16 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
 
       } else if (result.success) {
         // Legacy path: backend returned a ready model synchronously
-        toast.success(`AI Model "${name}" created successfully!`);
+        toast.success(formatCopy(copy.toastModelCreated, { name }));
         await refreshUserCredits();
         onSuccess(result.model);
       } else {
-        const msg = result.message || "Failed to generate model poses";
+        const msg = result.message || copy.toastPosesFail;
         toast.error(msg, result.solution ? { description: result.solution, duration: 8000 } : undefined);
       }
     } catch (error) {
       console.error("Generate poses error:", error);
-      const msg = error.response?.data?.message || "Failed to generate model poses";
+      const msg = error.response?.data?.message || copy.toastPosesFail;
       toast.error(msg, error.response?.data?.solution ? { description: error.response.data.solution, duration: 8000 } : undefined);
     } finally {
       setGenerating(false);
@@ -592,23 +608,23 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
     const hasAllPrompts = photoConfigs.every((c) => c.prompt.trim().length > 0);
 
     if (!hasAllPhotos) {
-      toast.error("Each photo needs at least one reference image");
+      toast.error(copy.toastEachPhoto);
       return;
     }
     if (!hasAllPrompts) {
-      toast.error("Each photo needs a prompt");
+      toast.error(copy.toastEachPrompt);
       return;
     }
 
     const ageNum = fromPhotosAge.trim() ? parseInt(fromPhotosAge, 10) : null;
     if (fromPhotosAge.trim() && (isNaN(ageNum) || ageNum < 1 || ageNum > 120)) {
-      toast.error("Age must be between 1 and 120");
+      toast.error(copy.toastAgeRange);
       return;
     }
 
     setGenerating(true);
     setGeneratingPhase(2);
-    setProgress({ step: 1, message: "Generating close-up selfie..." });
+    setProgress({ step: 1, message: copy.progressCloseSelfie });
 
     try {
       const result = await modelAPI.generateAdvanced({
@@ -629,7 +645,7 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
         const MAX_WAIT_MS = 10 * 60 * 1000;
         const started = Date.now();
 
-        setProgress({ step: 1, message: "Generating your AI model… hold tight" });
+        setProgress({ step: 1, message: copy.progressHoldTight });
 
         await new Promise((resolve) => {
           const tick = async () => {
@@ -647,21 +663,24 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
               const p3 = updatedModel?.photo3Url?.startsWith("http");
               const doneCount = [p1, p2, p3].filter(Boolean).length;
               const stepMessages = [
-                `Generating photo 1… (${elapsed})`,
-                `Photo 1 done — generating photos 2 & 3… (${elapsed})`,
-                `Almost done — finishing last photo… (${elapsed})`,
+                formatCopy(copy.progressPhoto1, { t: elapsed }),
+                formatCopy(copy.progressPhoto23, { t: elapsed }),
+                formatCopy(copy.progressAlmost, { t: elapsed }),
               ];
-              setProgress({ step: doneCount + 1, message: stepMessages[doneCount] ?? `Finalizing… (${elapsed})` });
+              setProgress({
+                step: doneCount + 1,
+                message: stepMessages[doneCount] ?? formatCopy(copy.progressFinal, { t: elapsed }),
+              });
 
               if (status === "ready") {
                 await refreshUserCredits();
-                toast.success(`AI Model "${name}" created successfully!`);
+                toast.success(formatCopy(copy.toastModelCreated, { name }));
                 onSuccess(updatedModel || result.model);
                 resolve();
                 return;
               }
               if (status === "failed") {
-                toast.error("Model generation failed — please try again.");
+                toast.error(copy.toastGenFailed);
                 resolve();
                 return;
               }
@@ -670,7 +689,7 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
             }
 
             if (Date.now() - started > MAX_WAIT_MS) {
-              toast("Model is still generating — check your Models page in a few minutes.", { icon: "⏳" });
+              toast(copy.toastStillGen, { icon: "⏳" });
               resolve();
               return;
             }
@@ -682,16 +701,16 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
 
       } else if (result.success) {
         // Legacy: backend returned a ready model synchronously
-        toast.success(`AI Model "${name}" created successfully!`);
+        toast.success(formatCopy(copy.toastModelCreated, { name }));
         await refreshUserCredits();
         onSuccess(result.model);
       } else {
-        const msg = result.message || "Failed to generate model";
+        const msg = result.message || copy.failedGenModel;
         toast.error(msg, result.solution ? { description: result.solution, duration: 8000 } : undefined);
       }
     } catch (error) {
       console.error("From photos generation error:", error);
-      const msg = error.response?.data?.message || "Failed to generate model";
+      const msg = error.response?.data?.message || copy.failedGenModel;
       const solution = error.response?.data?.solution;
       toast.error(msg, solution ? { description: solution, duration: 8000 } : undefined);
     } finally {
@@ -710,12 +729,17 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
     (c) => c.referencePhotos.length > 0 && c.prompt.trim().length > 0
   );
   const fromPhotosCredits = 900;
+  const photoStepTitles = [
+    copy.photoSelfieLabel,
+    copy.photoPortraitLabel,
+    copy.photoFullBodyLabel,
+  ];
 
   return (
     <div className="space-y-6">
       <AnimatePresence>
         {generating && (
-          <GeneratingOverlay phase={generatingPhase} progress={progress} />
+          <GeneratingOverlay phase={generatingPhase} progress={progress} copy={copy} />
         )}
       </AnimatePresence>
 
@@ -731,7 +755,7 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
             data-testid="mode-from-scratch"
           >
             <Sparkles className="w-4 h-4" />
-            From Scratch
+            {copy.modeFromScratch}
           </button>
           <button
             onClick={() => handleModeSwitch("photos")}
@@ -743,7 +767,7 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
             data-testid="mode-from-photos"
           >
             <Camera className="w-4 h-4" />
-            From Photos
+            {copy.modeFromPhotos}
           </button>
         </div>
       )}
@@ -759,27 +783,30 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
           >
             <div className="p-3 rounded-xl bg-purple-500/10 border border-purple-500/20">
               <p className="text-xs text-purple-300">
-                Upload reference photos and write prompts for each shot. Set age and gender (or use Auto-detect looks). The generator uses these to keep the 3 outputs consistent. Cost: <span className="inline-flex items-center gap-0.5">{fromPhotosCredits} <Coins className="w-3 h-3 text-yellow-400" /></span>
+                {copy.fromPhotosBlurb}{" "}
+                <span className="inline-flex items-center gap-0.5">
+                  {fromPhotosCredits} <Coins className="w-3 h-3 text-yellow-400" />
+                </span>
               </p>
             </div>
 
             <div className="p-3 rounded-xl bg-white/[0.04] border border-white/[0.08] space-y-3">
-              <p className="text-xs font-medium text-white">Age &amp; gender (used for all 3 photos)</p>
+              <p className="text-xs font-medium text-white">{copy.ageGenderCaption}</p>
               <div className="flex flex-wrap items-center gap-3">
                 <div className="flex items-center gap-2">
-                  <label className="text-[10px] text-slate-500 uppercase">Age</label>
+                  <label className="text-[10px] text-slate-500 uppercase">{copy.ageLabel}</label>
                   <input
                     type="number"
                     min={1}
                     max={120}
                     value={fromPhotosAge}
                     onChange={(e) => setFromPhotosAge(e.target.value)}
-                    placeholder="e.g. 25"
+                    placeholder={copy.agePlaceholder}
                     className="w-16 px-2 py-1 rounded-lg bg-white/5 border border-white/10 text-white text-sm"
                   />
                 </div>
                 <div className="flex items-center gap-2">
-                  <label className="text-[10px] text-slate-500 uppercase">Gender</label>
+                  <label className="text-[10px] text-slate-500 uppercase">{copy.genderLabel}</label>
                   <div className="flex gap-1">
                     {["female", "male"].map((g) => (
                       <button
@@ -790,7 +817,7 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
                           fromPhotosGender === g ? "bg-purple-500/30 border border-purple-500/50 text-white" : "bg-white/5 border border-white/10 text-slate-400 hover:bg-white/10"
                         }`}
                       >
-                        {g}
+                        {displayModelLooksOption(g, locale)}
                       </button>
                     ))}
                   </div>
@@ -802,7 +829,7 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
                   className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 text-xs font-medium hover:bg-cyan-500/30 disabled:opacity-50"
                 >
                   {fromPhotosDetecting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Wand2 className="w-3 h-3" />}
-                  Auto-detect looks
+                  {copy.autoDetectLooks}
                 </button>
               </div>
               {fromPhotosLooks && Object.keys(fromPhotosLooks).filter((k) => k !== "age" && fromPhotosLooks[k]).length > 0 && (
@@ -840,10 +867,10 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
                         index + 1
                       )}
                     </div>
-                    <span className="text-sm font-medium">{config.label}</span>
+                    <span className="text-sm font-medium">{photoStepTitles[index] ?? config.label}</span>
                     {config.referencePhotos.length > 0 && (
                       <span className="text-xs text-gray-500">
-                        {config.referencePhotos.length} photo{config.referencePhotos.length > 1 ? "s" : ""}
+                        {formatCopy(copy.photoCount, { count: config.referencePhotos.length })}
                       </span>
                     )}
                   </div>
@@ -858,7 +885,7 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
                         data-testid="button-copy-to-all"
                       >
                         <Copy className="w-3 h-3" />
-                        Copy to all
+                        {copy.copyToAll}
                       </button>
                     )}
                     {config.expanded ? (
@@ -884,6 +911,7 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
                           config={config}
                           onUpdate={updatePhotoConfig}
                           disabled={generating}
+                          copy={copy}
                         />
                       </div>
                     </motion.div>
@@ -899,7 +927,7 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
                 className="flex-1 py-3 rounded-xl glass hover:bg-white/10 transition disabled:opacity-50"
                 data-testid="button-cancel-from-photos"
               >
-                Back
+                {copy.back}
               </button>
               {user?.credits < fromPhotosCredits ? (
                 <button
@@ -908,7 +936,10 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
                   data-testid="button-get-credits-from-photos"
                 >
                   <CreditCard className="w-5 h-5" />
-                  Get Credits <span className="inline-flex items-center gap-0.5 text-yellow-400">({fromPhotosCredits} <Coins className="w-3.5 h-3.5" />)</span>
+                  {copy.getCredits}{" "}
+                  <span className="inline-flex items-center gap-0.5 text-yellow-400">
+                    ({fromPhotosCredits} <Coins className="w-3.5 h-3.5" />)
+                  </span>
                 </button>
               ) : (
                 <button
@@ -920,12 +951,15 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
                   {generating ? (
                     <>
                       <Loader2 className="w-5 h-5 animate-spin" />
-                      Generating...
+                      {copy.generating}
                     </>
                   ) : (
                     <>
                       <Zap className="w-5 h-5" />
-                      Generate <span className="inline-flex items-center gap-0.5 text-yellow-400">{fromPhotosCredits} <Coins className="w-3.5 h-3.5" /></span>
+                      {copy.generateFromPhotos}{" "}
+                      <span className="inline-flex items-center gap-0.5 text-yellow-400">
+                        {fromPhotosCredits} <Coins className="w-3.5 h-3.5" />
+                      </span>
                     </>
                   )}
                 </button>
@@ -944,7 +978,7 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
             <div className="p-3 rounded-xl bg-white/[0.04] border border-white/[0.08]">
               <p className="text-xs font-medium text-white flex items-center gap-1.5 mb-2">
                 <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-                Model Looks <span className="text-red-400">*</span> (Gender required)
+                {copy.modelLooksTitle}
               </p>
               <div className="space-y-2.5 max-h-[40vh] overflow-y-auto pr-1">
                 {modelLooksGroups.map((g) => {
@@ -952,7 +986,9 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
                   const isCustom = value && !g.options.includes(value);
                   return (
                     <div key={g.key}>
-                      <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">{g.label}</p>
+                      <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">
+                        {displayModelLooksGroupLabel(g.label, locale)}
+                      </p>
                       <div className="flex flex-wrap gap-1">
                         {g.options.map((opt) => {
                           const isActive = value === opt;
@@ -967,7 +1003,7 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
                                   : "bg-white/[0.04] border border-white/[0.08] text-slate-400 hover:bg-white/[0.08] hover:text-white"
                               }`}
                             >
-                              {opt}
+                              {displayModelLooksOption(opt, locale)}
                             </button>
                           );
                         })}
@@ -978,7 +1014,7 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
                             isCustom ? "bg-white/15 border border-white/30 text-white" : "bg-white/[0.04] border border-white/[0.08] text-slate-400 hover:bg-white/[0.08] hover:text-white"
                           }`}
                         >
-                          Custom
+                          {copy.customChip}
                         </button>
                       </div>
                       {(isCustom || value === " ") && (
@@ -986,7 +1022,7 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
                           type="text"
                           value={value === " " ? "" : value}
                           onChange={(e) => handleChange(g.key, e.target.value)}
-                          placeholder="Type custom…"
+                          placeholder={copy.typeCustomPlaceholder}
                           className="mt-1 w-full px-2 py-1 rounded-lg bg-white/5 border border-white/10 text-white text-[10px] placeholder-slate-500 focus:outline-none focus:border-purple-500/50"
                         />
                       )}
@@ -999,7 +1035,7 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
             <div>
               <label className="flex items-center gap-1.5 text-xs font-medium text-slate-300 mb-1.5">
                 <User className="w-3.5 h-3.5 text-purple-400" />
-                Age
+                {copy.ageLabel}
               </label>
               <input
                 type="number"
@@ -1007,7 +1043,7 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
                 max="90"
                 value={formData.age || ""}
                 onChange={(e) => handleChange("age", e.target.value)}
-                placeholder="e.g. 25"
+                placeholder={copy.agePlaceholder}
                 className="w-24 px-3 py-1.5 rounded-lg border border-white/10 bg-white/5 text-white text-xs placeholder-slate-600 focus:outline-none focus:border-white/30"
               />
             </div>
@@ -1015,16 +1051,17 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
             <div>
               <label className="flex items-center gap-1.5 text-xs font-medium text-slate-300 mb-1.5">
                 <MessageSquare className="w-3.5 h-3.5 text-purple-400" />
-                Reference Prompt <span className="text-slate-500">(Optional)</span>
+                {copy.referencePromptLabel}{" "}
+                <span className="text-slate-500">{copy.optional}</span>
               </label>
               <div className="flex items-center gap-1.5 text-xs text-amber-400 mb-1.5">
                 <AlertTriangle className="w-3 h-3" />
-                <span>Must be non-explicit (for reference image)</span>
+                <span>{copy.referencePromptHint}</span>
               </div>
               <textarea
                 value={formData.referencePrompt || ""}
                 onChange={(e) => handleChange("referencePrompt", e.target.value)}
-                placeholder="e.g. freckles, dimples, long wavy hair"
+                placeholder={copy.referencePromptPlaceholder}
                 className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-xl focus:border-white/20 transition resize-none h-14 text-xs"
               />
             </div>
@@ -1032,19 +1069,19 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
             <div className="rounded-xl p-3 border border-white/[0.08] bg-white/[0.03]">
               <div className="flex items-center gap-2 mb-2">
                 <Sparkles className="w-4 h-4 text-purple-400" />
-                <span className="text-xs font-medium text-white">Pricing</span>
+                <span className="text-xs font-medium text-white">{copy.pricingTitle}</span>
               </div>
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-gray-400">Step 1: Face Reference</span>
+                  <span className="text-xs text-gray-400">{copy.pricingStep1}</span>
                   <span className="text-xs font-semibold text-slate-300 inline-flex items-center gap-0.5">150 <Coins className="w-3 h-3 text-yellow-400" /></span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-gray-400">Step 2: Full Model (poses)</span>
+                  <span className="text-xs text-gray-400">{copy.pricingStep2}</span>
                   <span className="text-xs font-semibold text-slate-300 inline-flex items-center gap-0.5">+750 <Coins className="w-3 h-3 text-yellow-400" /></span>
                 </div>
                 <div className="border-t border-white/10 pt-1.5 mt-1 flex items-center justify-between">
-                  <span className="text-xs font-medium text-gray-300">Total (paid upfront)</span>
+                  <span className="text-xs font-medium text-gray-300">{copy.pricingTotal}</span>
                   <span className="text-sm font-bold text-white inline-flex items-center gap-0.5">900 <Coins className="w-3.5 h-3.5 text-yellow-400" /></span>
                 </div>
               </div>
@@ -1056,7 +1093,7 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
                 disabled={generating}
                 className="flex-1 py-2.5 rounded-xl glass hover:bg-white/10 transition disabled:opacity-50 text-sm"
               >
-                Back
+                {copy.back}
               </button>
               {user?.credits < 150 ? (
                 <button
@@ -1065,7 +1102,10 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
                   data-testid="button-get-credits-reference"
                 >
                   <CreditCard className="w-4 h-4" />
-                  Get Credits <span className="inline-flex items-center gap-0.5 text-yellow-400">(150 <Coins className="w-3.5 h-3.5" />)</span>
+                  {copy.getCredits}{" "}
+                  <span className="inline-flex items-center gap-0.5 text-yellow-400">
+                    (150 <Coins className="w-3.5 h-3.5" />)
+                  </span>
                 </button>
               ) : (
                 <button
@@ -1076,12 +1116,12 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
                   {generating ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      Generating...
+                      {copy.generating}
                     </>
                   ) : (
                     <>
                       <Sparkles className="w-4 h-4" />
-                      Generate Reference
+                      {copy.generateReference}
                     </>
                   )}
                 </button>
@@ -1099,14 +1139,14 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
             className="space-y-5"
           >
             <div className="flex flex-col items-center text-center">
-              <h3 className="text-lg font-semibold mb-1">Reference Image</h3>
+              <h3 className="text-lg font-semibold mb-1">{copy.previewTitle}</h3>
               <p className="text-xs text-slate-400 mb-4">
-                This is your AI model's base appearance
+                {copy.previewSubtitle}
               </p>
 
               <img
                 src={referenceUrl}
-                alt="Reference"
+                alt={copy.refAltLarge}
                 className="w-48 h-48 object-cover rounded-2xl border border-white/[0.12] mx-auto"
               />
 
@@ -1120,7 +1160,7 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
                 {/* subtle purple glow chip in top-left corner */}
                 <span className="pointer-events-none absolute top-0 left-0 w-12 h-12 rounded-full bg-purple-400/40 blur-xl -translate-x-4 -translate-y-4" />
                 <RefreshCw className={`w-4 h-4 relative z-10 text-black ${generating ? "animate-spin" : ""}`} />
-                <span className="relative z-10">Regenerate Face</span>
+                <span className="relative z-10">{copy.regenerateFace}</span>
                 <span className="relative z-10 inline-flex items-center gap-1 bg-black/10 px-1.5 py-0.5 rounded-full text-xs text-black">
                   <Coins className="w-3 h-3 text-yellow-400" />6
                 </span>
@@ -1129,7 +1169,7 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
 
             <div className="border-t border-white/10 pt-4">
               <h4 className="text-sm font-semibold text-white mb-4">
-                Customize Model Poses
+                {copy.customizePoses}
               </h4>
             </div>
 
@@ -1228,13 +1268,13 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
               {/* purple top-left corner glow */}
               <span className="pointer-events-none absolute top-0 left-0 w-24 h-24 rounded-full bg-purple-500/30 blur-2xl -translate-x-6 -translate-y-6" />
               <div className="relative flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-white">Finish Your AI Model</span>
+                <span className="text-sm font-medium text-white">{copy.finishCardTitle}</span>
                 <span className="text-xs font-semibold text-emerald-400/90 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
-                  Included
+                  {copy.finishCardBadge}
                 </span>
               </div>
               <p className="relative text-xs text-slate-500">
-                Creates 3 poses: Close-up, Portrait &amp; Full Body (already paid in step 1)
+                {copy.finishCardBody}
               </p>
             </div>
 
@@ -1245,7 +1285,7 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
                 className="py-3 px-4 rounded-xl glass hover:bg-white/10 transition disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 <ArrowLeft className="w-4 h-4" />
-                Edit
+                {copy.edit}
               </button>
               <button
                 onClick={handleConfirmAndGenerate}
@@ -1257,12 +1297,12 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
                 {generating ? (
                   <>
                     <Loader2 className="w-5 h-5 animate-spin relative z-10" />
-                    <span className="relative z-10">Generating...</span>
+                    <span className="relative z-10">{copy.generating}</span>
                   </>
                 ) : (
                   <>
                     <ArrowRight className="w-5 h-5 relative z-10" />
-                    <span className="relative z-10">Generate Model</span>
+                    <span className="relative z-10">{copy.generateModel}</span>
                   </>
                 )}
               </button>
