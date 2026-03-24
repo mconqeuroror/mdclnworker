@@ -3436,6 +3436,7 @@ function VideoGeneration() {
 }
 
 function PromptImageContent({ onGenerationUpdate, models, selectedModel, setSelectedModel, clearDraft }) {
+  const copy = getGenerateCopy();
   const { user, refreshUserCredits } = useAuthStore();
   const credits = user?.credits ?? 0;
 
