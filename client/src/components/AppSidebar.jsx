@@ -29,7 +29,7 @@ import {
   Mic,
 } from "lucide-react";
 import { SiTelegram, SiDiscord, SiInstagram } from "react-icons/si";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { useBranding } from "../hooks/useBranding";
 import { hasPremiumAccess } from "../utils/premiumAccess";
 
@@ -119,7 +119,6 @@ export default function AppSidebar({
   setCollapsed: setCollapsedProp,
 }) {
   const location = useLocation();
-  const navigate = useNavigate();
   const branding = useBranding();
   const canAccessPremium = hasPremiumAccess(user);
   const [localCollapsed, setLocalCollapsed] = useState(false);
@@ -143,9 +142,8 @@ export default function AppSidebar({
     const params = new URLSearchParams(location.search);
     params.set("lang", nextLocale);
     const nextSearch = params.toString();
-    navigate(`${location.pathname}${nextSearch ? `?${nextSearch}` : ""}${location.hash || ""}`, {
-      replace: true,
-    });
+    const nextUrl = `${location.pathname}${nextSearch ? `?${nextSearch}` : ""}${location.hash || ""}`;
+    window.location.assign(nextUrl);
   };
 
   const mainNavItems = [
