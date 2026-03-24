@@ -1147,7 +1147,7 @@ ${poseList}
 
 RULES FOR POSE SELECTION:
 - CRITICAL: If the prompt contains "missionary sex" OR ("missionary" AND ("penis" OR "penetrating" OR "pussy" OR "labia" OR "shaft" OR "intercourse")) you MUST set pose to "missionary" (vaginal missionary), NOT "none".
-- If the prompt describes anal sex in doggy / rear entry (anal + doggy / from behind), use pose "anal_doggystyle" (NOT "titjob" — that id was removed).
+- If the prompt describes anal sex in doggy / rear entry (anal + doggy / from behind), use pose "anal_doggystyle".
 - ONLY select a pose if the scene EXPLICITLY shows that EXACT sex position being performed
 - "bent over" alone is NOT doggystyle - it must explicitly describe doggy style sex
 - "from behind" alone is NOT anal - there must be explicit anal penetration
