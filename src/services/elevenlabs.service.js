@@ -12,6 +12,9 @@ function getElevenLabsApiKey() {
 const ELEVENLABS_API_KEY = getElevenLabsApiKey();
 const ELEVENLABS_API_URL = "https://api.elevenlabs.io/v1";
 
+/** Text-to-voice /design accepts only TTV models (not TTS ids like eleven_v3). */
+const ELEVEN_TTV_DESIGN_MODEL_ID = "eleven_ttv_v3";
+
 if (!ELEVENLABS_API_KEY) {
   console.warn("⚠️ ELEVENLABS_API_KEY not set - talking head feature will be disabled");
 }
@@ -290,7 +293,7 @@ export async function designVoicePreviews(voiceDescription, options = {}) {
   const body = {
     voice_description: voiceDescription,
     auto_generate_text: options.autoGenerateText !== false,
-    model_id: options.modelId || "eleven_v3",
+    model_id: options.modelId || options.model_id || ELEVEN_TTV_DESIGN_MODEL_ID,
   };
 
   const response = await fetch(`${ELEVENLABS_API_URL}/text-to-voice/design`, {
