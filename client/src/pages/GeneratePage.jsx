@@ -37,6 +37,15 @@ import {
 /** Video recreate per-second defaults (align with server `generation-pricing.service`) */
 const VIDEO_RECREATE_CLASSIC_PER_SEC = 10; // kling-2.6 motion-control 1080p
 const VIDEO_RECREATE_ULTRA_PER_SEC = 20; // kling-3.0 motion-control 1080p
+const MOTION_ADDITIVE_PROMPT_MAX_CHARS = 100;
+const MOTION_ADDITIVE_PROMPT_ALLOWED_INPUT_RE = /[A-Za-z0-9 ,.!?'\-()]/g;
+
+function sanitizeMotionAdditivePromptInput(value) {
+  const raw = String(value || "");
+  // Disallow quotes, underscores and other unsupported symbols at input level.
+  const allowed = raw.match(MOTION_ADDITIVE_PROMPT_ALLOWED_INPUT_RE)?.join("") || "";
+  return allowed.slice(0, MOTION_ADDITIVE_PROMPT_MAX_CHARS);
+}
 
 const LOCALE_STORAGE_KEY = "app_locale";
 const GENERATE_COPY = {
@@ -2924,13 +2933,17 @@ function VideoGeneration() {
             </div>
             <textarea
               value={videoPrompt}
-              onChange={(e) => setVideoPrompt(e.target.value)}
+              onChange={(e) => setVideoPrompt(sanitizeMotionAdditivePromptInput(e.target.value))}
               placeholder={copy.videoRecreatePromptPlaceholder}
               className="w-full px-4 py-3 rounded-xl text-sm resize-none focus:outline-none transition-colors"
               style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}
               rows={2}
+              maxLength={MOTION_ADDITIVE_PROMPT_MAX_CHARS}
               data-testid="input-video-prompt"
             />
+            <div className="flex justify-end mt-1.5">
+              <span className="text-[10px] text-slate-600">{videoPrompt.length}/{MOTION_ADDITIVE_PROMPT_MAX_CHARS}</span>
+            </div>
           </div>
 
           {/* Audio Toggle */}

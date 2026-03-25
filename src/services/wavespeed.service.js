@@ -32,6 +32,11 @@ function portraitSubjectAgeGender(age, genderText) {
 const WAVESPEED_API_KEY = process.env.WAVESPEED_API_KEY;
 const WAVESPEED_API_URL = "https://api.wavespeed.ai/api/v3";
 
+// Avoid aborting WaveSpeed calls too early.
+// NSFW + other callback flows still require the initial submit response (requestId) to map webhooks to DB rows.
+const WAVESPEED_SUBMIT_TIMEOUT_MS = Number(process.env.WAVESPEED_SUBMIT_TIMEOUT_MS) || 120_000;
+const WAVESPEED_POLL_TIMEOUT_MS = Number(process.env.WAVESPEED_POLL_TIMEOUT_MS) || 60_000;
+
 if (!WAVESPEED_API_KEY) {
   console.warn("âš ï¸  WAVESPEED_API_KEY not set â€” WaveSpeed generation endpoints will not work");
 }
@@ -182,7 +187,7 @@ async function waitForResult(requestId, maxAttempts = 60) {
         headers: {
           Authorization: `Bearer ${WAVESPEED_API_KEY}`,
         },
-        signal: AbortSignal.timeout(20_000),
+        signal: AbortSignal.timeout(WAVESPEED_POLL_TIMEOUT_MS),
       });
       consecutiveNetworkErrors = 0;
     } catch (error) {
@@ -401,7 +406,7 @@ async function generateImageWithSeedream(images, prompt, options = {}) {
           Authorization: `Bearer ${WAVESPEED_API_KEY}`,
         },
         body: JSON.stringify(requestBody),
-        signal: AbortSignal.timeout(30_000),
+        signal: AbortSignal.timeout(WAVESPEED_SUBMIT_TIMEOUT_MS),
       });
       responseText = await submitResponse.text();
       if (submitResponse.ok) {
@@ -519,7 +524,7 @@ async function faceSwapVideo(videoUrl, faceImageUrl, options = {}) {
           Authorization: `Bearer ${WAVESPEED_API_KEY}`,
         },
         body: JSON.stringify(requestBody),
-        signal: AbortSignal.timeout(30_000),
+        signal: AbortSignal.timeout(WAVESPEED_SUBMIT_TIMEOUT_MS),
       },
     );
 
@@ -1135,7 +1140,7 @@ async function generateTalkingHead(imageUrl, audioUrl, prompt = null) {
             "Content-Type": "application/json",
           },
           body: JSON.stringify(requestBody),
-          signal: AbortSignal.timeout(30_000),
+          signal: AbortSignal.timeout(WAVESPEED_SUBMIT_TIMEOUT_MS),
         });
       } catch (error) {
         lastSubmitError = error;
@@ -1342,7 +1347,7 @@ async function submitToWaveSpeed(endpoint, requestBody) {
     },
     body: JSON.stringify(requestBody),
     // Prevent long-hanging submissions that can exceed Vercel request time.
-    signal: AbortSignal.timeout(30_000),
+    signal: AbortSignal.timeout(WAVESPEED_SUBMIT_TIMEOUT_MS),
   });
 
   const responseText = await submitResponse.text();
@@ -1431,7 +1436,7 @@ async function submitNsfwVideo(imageUrl, prompt, options = {}) {
           Authorization: `Bearer ${WAVESPEED_API_KEY}`,
         },
         body: JSON.stringify(attempt.body),
-        signal: AbortSignal.timeout(30_000),
+        signal: AbortSignal.timeout(WAVESPEED_SUBMIT_TIMEOUT_MS),
       });
       responseText = await submitResponse.text();
       if (submitResponse.ok) {
@@ -1540,7 +1545,7 @@ async function submitNsfwVideoExtend(videoUrl, prompt, options = {}) {
           Authorization: `Bearer ${WAVESPEED_API_KEY}`,
         },
         body: JSON.stringify(attempt.body),
-        signal: AbortSignal.timeout(30_000),
+        signal: AbortSignal.timeout(WAVESPEED_SUBMIT_TIMEOUT_MS),
       });
       responseText = await submitResponse.text();
       if (submitResponse.ok) {

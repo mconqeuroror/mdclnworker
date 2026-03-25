@@ -4,7 +4,9 @@
  */
 import prisma from "../lib/prisma.js";
 
-const DEFAULT_DELAYS_MS = [0, 100, 250, 500, 1000, 2000];
+// Correlation can be delayed by transient Prisma pool pressure.
+// Keep a longer retry window so KIE webhooks can reliably map to generations.
+const DEFAULT_DELAYS_MS = [0, 100, 250, 500, 1000, 2000, 4000];
 
 /**
  * @param {object} opts

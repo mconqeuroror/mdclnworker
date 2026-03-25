@@ -22,6 +22,8 @@ import { verifyUrlReachable } from "../utils/kieUpload.js";
 
 const KIE_API_KEY = process.env.KIE_API_KEY;
 const KIE_API_URL = "https://api.kie.ai/api/v1";
+const MOTION_ADDITIVE_PROMPT_MAX_CHARS = 100;
+const MOTION_ADDITIVE_PROMPT_ALLOWED_RE = /^[A-Za-z0-9 ,.!?'\-()]+$/;
 
 // ─── Queue config: 100 concurrent jobs app-wide, 20 new submissions per 10s ──
 const KIE_MAX_CONCURRENT = Math.max(1, parseInt(process.env.KIE_MAX_CONCURRENT || "100", 10));
@@ -43,6 +45,26 @@ const kieSubmitTimestamps = [];
 
 if (!KIE_API_KEY) {
   console.warn("⚠️ KIE_API_KEY not set — kie.ai features will be unavailable");
+}
+
+function sanitizeMotionControlAdditivePrompt(rawPrompt) {
+  const text = String(rawPrompt || "").trim();
+  if (!text) return "";
+
+  if (text.length > MOTION_ADDITIVE_PROMPT_MAX_CHARS) {
+    throw new Error(
+      `Motion prompt must be at most ${MOTION_ADDITIVE_PROMPT_MAX_CHARS} characters (including spaces).`,
+    );
+  }
+  if (text.includes('"') || text.includes("_")) {
+    throw new Error('Motion prompt cannot include double quotes (") or underscores (_).');
+  }
+  if (!MOTION_ADDITIVE_PROMPT_ALLOWED_RE.test(text)) {
+    throw new Error(
+      "Motion prompt contains unsupported characters. Use letters, numbers, spaces, and basic punctuation only.",
+    );
+  }
+  return text;
 }
 
 /**
@@ -660,7 +682,21 @@ async function generateVideoWithMotionKieInternal(imageUrl, videoUrl, options = 
     );
   }
 
-  const prompt = options.videoPrompt || options.prompt || "The character's appearance, clothing, and face match the reference image exactly. Full body movements, gestures, and actions are precisely synchronized with the reference video. All held objects such as phones, props, or accessories move naturally with the hands and body - no props are static or frozen. Fingers, wrists, and arms animate fluidly. Background matches the reference image. No distortion, no blur, no warping of the character's features.";
+  // Motion-control "basic/classic" prompt template.
+  // IMPORTANT: For Kling motion-control Ultra (kling-3.0/motion-control), we intentionally ignore any
+  // caller-provided `videoPrompt/prompt` to avoid sending "bullshit"/auto-generated prompts that
+  // break consistency. Ultra uses the same reliable template as basic/classic.
+  const BASIC_MOTION_CONTROL_PROMPT =
+    "The character's appearance, clothing, and face match the reference image exactly. Full body movements, gestures, and actions are precisely synchronized with the reference video. All held objects such as phones, props, or accessories move naturally with the hands and body - no props are static or frozen. Fingers, wrists, and arms animate fluidly. Background matches the reference image. No distortion, no blur, no warping of the character's features.";
+
+  const additivePrompt = sanitizeMotionControlAdditivePrompt(
+    options.videoPrompt || options.prompt || "",
+  );
+  const prompt = useUltraMotionControl
+    ? BASIC_MOTION_CONTROL_PROMPT
+    : additivePrompt
+      ? `${BASIC_MOTION_CONTROL_PROMPT} Additional motion direction: ${additivePrompt}`
+      : BASIC_MOTION_CONTROL_PROMPT;
 
   const model = useUltraMotionControl ? "kling-3.0/motion-control" : "kling-2.6/motion-control";
   const want1080 =

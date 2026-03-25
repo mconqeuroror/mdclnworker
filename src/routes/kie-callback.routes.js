@@ -529,11 +529,14 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
     // Retry: KIE may callback before Prisma commits task correlation (kie-task: / kieTask row).
     let gen = null;
     let mappedForGen = mappedTask;
-    for (let attempt = 0; attempt < 8 && !gen; attempt++) {
-      if (attempt > 0) {
-        await new Promise((r) => setTimeout(r, 100 * attempt));
-        mappedForGen = await prisma.kieTask.findUnique({ where: { taskId } });
-      }
+    // KIE callbacks can arrive before Prisma commits correlation.
+    // For fail states we still prefer to wait a bit so we can mark Generation failed
+    // (otherwise Generation may stay "processing" forever).
+    const correlationDelaysMs = isSuccess ? [0, 100, 250, 500, 1000, 2000] : [0, 200, 600, 1200, 2400, 4800];
+    for (let attempt = 0; attempt < correlationDelaysMs.length && !gen; attempt++) {
+      const delayMs = correlationDelaysMs[attempt];
+      if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
+      if (attempt > 0) mappedForGen = await prisma.kieTask.findUnique({ where: { taskId } });
 
       if (mappedForGen?.entityType === "generation") {
         gen = await prisma.generation.findUnique({
@@ -556,7 +559,17 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
     }
 
     if (!gen) {
-      console.warn("[KIE Callback] No generation found for taskId %s — job may run forever; check CALLBACK_BASE_URL and replicateModel/pipelinePayload", taskId?.slice(0, 12));
+      const errorText =
+        [failCode, failMsg].filter(Boolean).join(" — ") || msg || "KIE task failed but no generation correlation was found";
+
+      // Fail the KIE task row so it doesn't stay "processing" forever.
+      await markKieTaskFailed(taskId, errorText);
+
+      console.warn(
+        "[KIE Callback] No generation found for taskId %s — marked KieTask failed; check CALLBACK_BASE_URL and replicateModel/pipelinePayload. error=%s",
+        taskId?.slice(0, 12),
+        errorText?.slice(0, 200),
+      );
       return ack();
     }
 
