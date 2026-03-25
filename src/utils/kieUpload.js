@@ -98,28 +98,33 @@ const MIRROR_RETRIES = 3;
 const MIRROR_RETRY_DELAY_MS = 2000;
 const MIRROR_FETCH_TIMEOUT_MS = 90_000;
 const MIRROR_CACHE_TTL_MS = 10 * 60 * 1000;
+const MIRROR_CACHE_TTL_MEDIA_MS = 60 * 60 * 1000;
 const mirrorInFlight = new Map();
 const mirrorCache = new Map();
 
-function getCachedMirror(sourceUrl) {
-  const entry = mirrorCache.get(sourceUrl);
+function getMirrorCacheKey(sourceUrl, purpose = "default") {
+  return `${purpose}:${sourceUrl}`;
+}
+
+function getCachedMirror(sourceUrl, purpose = "default") {
+  const entry = mirrorCache.get(getMirrorCacheKey(sourceUrl, purpose));
   if (!entry) return null;
   if (entry.expiresAt <= Date.now()) {
-    mirrorCache.delete(sourceUrl);
+    mirrorCache.delete(getMirrorCacheKey(sourceUrl, purpose));
     return null;
   }
   return entry.blobUrl;
 }
 
 /** Drop cache entry so the next mirror re-fetches and re-uploads. */
-function forgetMirror(sourceUrl) {
-  mirrorCache.delete(sourceUrl);
+function forgetMirror(sourceUrl, purpose = "default") {
+  mirrorCache.delete(getMirrorCacheKey(sourceUrl, purpose));
 }
 
-function rememberMirror(sourceUrl, blobUrl) {
-  mirrorCache.set(sourceUrl, {
+function rememberMirror(sourceUrl, blobUrl, ttlMs = MIRROR_CACHE_TTL_MS, purpose = "default") {
+  mirrorCache.set(getMirrorCacheKey(sourceUrl, purpose), {
     blobUrl,
-    expiresAt: Date.now() + MIRROR_CACHE_TTL_MS,
+    expiresAt: Date.now() + ttlMs,
   });
 }
 
@@ -161,18 +166,20 @@ export async function verifyUrlReachable(url, label = "url") {
  * @param {string} sourceUrl - R2 URL or any public URL
  * @returns {Promise<string>} temporary public Vercel Blob URL for KIE
  */
-export async function mirrorToBlob(sourceUrl) {
+export async function mirrorToBlob(sourceUrl, purpose = "default") {
   if (!sourceUrl?.startsWith("http")) return sourceUrl;
   if (!BLOB_TOKEN) {
     console.warn("[Blob] BLOB_READ_WRITE_TOKEN not set — using source URL (KIE may fail)");
     return sourceUrl;
   }
-  const cached = getCachedMirror(sourceUrl);
+  const cacheKey = getMirrorCacheKey(sourceUrl, purpose);
+  const cacheTtlMs = purpose === "kie-media" ? MIRROR_CACHE_TTL_MEDIA_MS : MIRROR_CACHE_TTL_MS;
+  const cached = getCachedMirror(sourceUrl, purpose);
   if (cached) {
     console.log(`[Blob/KIE relay] Reusing cached mirror: ${cached.slice(0, 80)}`);
     return cached;
   }
-  const existing = mirrorInFlight.get(sourceUrl);
+  const existing = mirrorInFlight.get(cacheKey);
   if (existing) {
     console.log(`[Blob/KIE relay] Awaiting in-flight mirror for: ${sourceUrl.slice(0, 80)}`);
     return existing;
@@ -181,7 +188,7 @@ export async function mirrorToBlob(sourceUrl) {
   if (sourceUrl.includes("vercel-storage.com") || sourceUrl.includes("blob.vercel.app")) {
     try {
       await verifyUrlReachable(sourceUrl, "Blob URL");
-      rememberMirror(sourceUrl, sourceUrl);
+      rememberMirror(sourceUrl, sourceUrl, cacheTtlMs, purpose);
       return sourceUrl;
     } catch (e) {
       console.warn(`[Blob] Existing Blob URL not reachable: ${e?.message}`);
@@ -244,7 +251,9 @@ export async function mirrorToBlob(sourceUrl) {
         // Video mirrors must stay on durable Blob paths: kie-relay/ is short-lived and must not be
         // reused if a stale cache points at a deleted object (KIE then sees "URL has no content").
         const isVideo = ext === "mp4" || ext === "webm" || ext === "mov";
-        const blobFolder = isVideo ? "user-uploads" : "kie-relay";
+        // Generation source media ("kie-media") must remain available for at least ~1h.
+        // Keep these in user-uploads (never auto-cleaned by deleteBlobAfterKie).
+        const blobFolder = purpose === "kie-media" || isVideo ? "user-uploads" : "kie-relay";
 
         const blobUrl = await uploadBufferToBlob(
           outBuffer,
@@ -253,7 +262,7 @@ export async function mirrorToBlob(sourceUrl) {
           blobFolder,
         );
         await verifyUrlReachable(blobUrl, "Blob upload");
-        rememberMirror(sourceUrl, blobUrl);
+        rememberMirror(sourceUrl, blobUrl, cacheTtlMs, purpose);
         console.log(`[Blob/KIE relay] ✅ Ready: ${blobUrl.slice(0, 100)} (${buffer.length} bytes)`);
         return blobUrl;
       } catch (err) {
@@ -270,10 +279,10 @@ export async function mirrorToBlob(sourceUrl) {
     }
     throw lastErr || new Error("Blob mirror failed");
   })().finally(() => {
-    mirrorInFlight.delete(sourceUrl);
+    mirrorInFlight.delete(cacheKey);
   });
 
-  mirrorInFlight.set(sourceUrl, mirrorPromise);
+  mirrorInFlight.set(cacheKey, mirrorPromise);
   return mirrorPromise;
 }
 
