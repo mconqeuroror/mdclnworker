@@ -37,15 +37,6 @@ import {
 /** Video recreate per-second defaults (align with server `generation-pricing.service`) */
 const VIDEO_RECREATE_CLASSIC_PER_SEC = 10; // kling-2.6 motion-control 1080p
 const VIDEO_RECREATE_ULTRA_PER_SEC = 20; // kling-3.0 motion-control 1080p
-const MOTION_ADDITIVE_PROMPT_MAX_CHARS = 100;
-const MOTION_ADDITIVE_PROMPT_ALLOWED_INPUT_RE = /[A-Za-z0-9 ,.!?'\-()]/g;
-
-function sanitizeMotionAdditivePromptInput(value) {
-  const raw = String(value || "");
-  // Disallow quotes, underscores and other unsupported symbols at input level.
-  const allowed = raw.match(MOTION_ADDITIVE_PROMPT_ALLOWED_INPUT_RE)?.join("") || "";
-  return allowed.slice(0, MOTION_ADDITIVE_PROMPT_MAX_CHARS);
-}
 
 const LOCALE_STORAGE_KEY = "app_locale";
 const GENERATE_COPY = {
@@ -2107,9 +2098,6 @@ function VideoGeneration() {
   const [voices, setVoices] = useState([]);
   const [loadingVoices, setLoadingVoices] = useState(false);
 
-  // Video prompt (optional)
-  const [videoPrompt, setVideoPrompt] = useState("");
-
   // Recreate Video local generating state (separate from other methods)
   const [recreateVideoGenerating, setRecreateVideoGenerating] = useState(false);
 
@@ -2636,7 +2624,6 @@ function VideoGeneration() {
         generatedImageUrl: videoStartingImage.url,
         referenceVideoUrl: referenceVideo.url,
         videoDuration: referenceVideoDuration,
-        prompt: videoPrompt.trim() || "",
         keepAudio: keepAudioFromVideo,
         ultraMode: recreateUltraMode,
       });
@@ -2651,7 +2638,6 @@ function VideoGeneration() {
         toast.success("Video started! Check Live Preview (2-3 min).");
         setReferenceVideo(null);
         setReferenceVideoDuration(0);
-        setVideoPrompt("");
         setVideoStartingImage(null);
         setKeepAudioFromVideo(true);
         setRecreateUltraMode(false);
@@ -2922,27 +2908,6 @@ function VideoGeneration() {
               <p className="text-[10px] text-slate-500 leading-snug">
                 {copy.videoRecreateUltraToggleDesc} · ~{VIDEO_RECREATE_ULTRA_PER_SEC} <Coins className="w-2.5 h-2.5 inline" />/sec
               </p>
-            </div>
-          </div>
-
-          {/* Optional Prompt */}
-          <div className="mb-5">
-            <div className="flex items-center gap-2 mb-3">
-              <div className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold" style={{ background: 'rgba(203, 213, 225, 0.9)', color: '#0f172a', border: '1px solid rgba(255,255,255,0.2)' }}>4</div>
-              <label className="text-[11px] uppercase tracking-[0.15em] text-slate-400 font-medium">{copy.videoRecreatePromptLabel} <span className="text-slate-600">{copy.optional}</span></label>
-            </div>
-            <textarea
-              value={videoPrompt}
-              onChange={(e) => setVideoPrompt(sanitizeMotionAdditivePromptInput(e.target.value))}
-              placeholder={copy.videoRecreatePromptPlaceholder}
-              className="w-full px-4 py-3 rounded-xl text-sm resize-none focus:outline-none transition-colors"
-              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}
-              rows={2}
-              maxLength={MOTION_ADDITIVE_PROMPT_MAX_CHARS}
-              data-testid="input-video-prompt"
-            />
-            <div className="flex justify-end mt-1.5">
-              <span className="text-[10px] text-slate-600">{videoPrompt.length}/{MOTION_ADDITIVE_PROMPT_MAX_CHARS}</span>
             </div>
           </div>
 

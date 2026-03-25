@@ -22,8 +22,6 @@ import { verifyUrlReachable } from "../utils/kieUpload.js";
 
 const KIE_API_KEY = process.env.KIE_API_KEY;
 const KIE_API_URL = "https://api.kie.ai/api/v1";
-const MOTION_ADDITIVE_PROMPT_MAX_CHARS = 100;
-const MOTION_ADDITIVE_PROMPT_ALLOWED_RE = /^[A-Za-z0-9 ,.!?'\-()]+$/;
 
 // ─── Queue config: 100 concurrent jobs app-wide, 20 new submissions per 10s ──
 const KIE_MAX_CONCURRENT = Math.max(1, parseInt(process.env.KIE_MAX_CONCURRENT || "100", 10));
@@ -47,25 +45,6 @@ if (!KIE_API_KEY) {
   console.warn("⚠️ KIE_API_KEY not set — kie.ai features will be unavailable");
 }
 
-function sanitizeMotionControlAdditivePrompt(rawPrompt) {
-  const text = String(rawPrompt || "").trim();
-  if (!text) return "";
-
-  if (text.length > MOTION_ADDITIVE_PROMPT_MAX_CHARS) {
-    throw new Error(
-      `Motion prompt must be at most ${MOTION_ADDITIVE_PROMPT_MAX_CHARS} characters (including spaces).`,
-    );
-  }
-  if (text.includes('"') || text.includes("_")) {
-    throw new Error('Motion prompt cannot include double quotes (") or underscores (_).');
-  }
-  if (!MOTION_ADDITIVE_PROMPT_ALLOWED_RE.test(text)) {
-    throw new Error(
-      "Motion prompt contains unsupported characters. Use letters, numbers, spaces, and basic punctuation only.",
-    );
-  }
-  return text;
-}
 
 /**
  * Public URL for KIE to POST task completion callbacks.
@@ -143,9 +122,8 @@ async function waitForRateSlot(label) {
 // ─── API calls ────────────────────────────────────────────────────────────────
 
 /**
- * Motion-control: keep wire format aligned with content-studio (stringified `input`).
- * KIE's motion-control endpoint has been most reliable in production with:
- *   { model, callBackUrl, input: JSON.stringify({ ... }) }
+ * Motion-control: use documented wire format:
+ *   { model, callBackUrl, input: { ... } }
  */
 function normalizeKieCreateRequestBody(rawBody, label) {
   if (!rawBody || typeof rawBody !== "object" || Array.isArray(rawBody)) {
@@ -233,7 +211,7 @@ function normalizeKieCreateRequestBody(rawBody, label) {
       delete next.background_source;
     }
 
-    body.input = JSON.stringify(next);
+    body.input = next;
   } else {
     body.input = input;
   }
@@ -251,11 +229,7 @@ async function kieCreateTask(requestBody, label = "task") {
 
   const modelName = String(body.model || "");
   const motionControl = modelName.includes("motion-control");
-  if (motionControl) {
-    if (typeof body.input !== "string") {
-      throw new Error(`[KIE] motion-control createTask expects input as JSON string (got ${typeof body.input})`);
-    }
-  } else if (typeof body.input !== "object" || body.input === null || Array.isArray(body.input)) {
+  if (typeof body.input !== "object" || body.input === null || Array.isArray(body.input)) {
     throw new Error(`[KIE] createTask requires input as object (got ${typeof body.input})`);
   }
 
@@ -682,21 +656,8 @@ async function generateVideoWithMotionKieInternal(imageUrl, videoUrl, options = 
     );
   }
 
-  // Motion-control "basic/classic" prompt template.
-  // IMPORTANT: For Kling motion-control Ultra (kling-3.0/motion-control), we intentionally ignore any
-  // caller-provided `videoPrompt/prompt` to avoid sending "bullshit"/auto-generated prompts that
-  // break consistency. Ultra uses the same reliable template as basic/classic.
-  const BASIC_MOTION_CONTROL_PROMPT =
-    "The character's appearance, clothing, and face match the reference image exactly. Full body movements, gestures, and actions are precisely synchronized with the reference video. All held objects such as phones, props, or accessories move naturally with the hands and body - no props are static or frozen. Fingers, wrists, and arms animate fluidly. Background matches the reference image. No distortion, no blur, no warping of the character's features.";
-
-  const additivePrompt = sanitizeMotionControlAdditivePrompt(
-    options.videoPrompt || options.prompt || "",
-  );
-  const prompt = useUltraMotionControl
-    ? BASIC_MOTION_CONTROL_PROMPT
-    : additivePrompt
-      ? `${BASIC_MOTION_CONTROL_PROMPT} Additional motion direction: ${additivePrompt}`
-      : BASIC_MOTION_CONTROL_PROMPT;
+  // Requested behavior: do not send prompt for motion-control recreate (2.6 or 3.0).
+  // We intentionally omit `input.prompt` entirely.
 
   const model = useUltraMotionControl ? "kling-3.0/motion-control" : "kling-2.6/motion-control";
   const want1080 =
@@ -707,7 +668,6 @@ async function generateVideoWithMotionKieInternal(imageUrl, videoUrl, options = 
   const mode = want1080 ? "1080p" : "720p";
 
   const inputObj = {
-    prompt,
     input_urls: [img],
     video_urls: [vid],
     mode,
@@ -722,7 +682,7 @@ async function generateVideoWithMotionKieInternal(imageUrl, videoUrl, options = 
 
   const requestBody = {
     model,
-    input: JSON.stringify(inputObj),
+    input: inputObj,
   };
 
   const callbackUrl = getKieCallbackUrl();
