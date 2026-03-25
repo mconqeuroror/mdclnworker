@@ -256,11 +256,16 @@ export async function mirrorToR2(externalUrl, folder = "models") {
     console.log(`✓ Already on R2: ${externalUrl.substring(0, 50)}...`);
     return externalUrl;
   }  
-  const MIRROR_DOWNLOAD_TIMEOUT_MS = 60_000;
-  try {
-    console.log(`📥 Mirroring to R2: ${externalUrl.substring(0, 60)}...`);
+  // External sources (WaveSpeed / provider/CDN) can be slow.
+  // Increase timeout + retry to reduce "operation was aborted due to timeout".
+  const MIRROR_DOWNLOAD_TIMEOUT_MS = 120_000;
+  const MAX_ATTEMPTS = 3;
 
-    const response = await fetch(externalUrl, { signal: AbortSignal.timeout(MIRROR_DOWNLOAD_TIMEOUT_MS) });
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      console.log(`📥 Mirroring to R2 (attempt ${attempt}/${MAX_ATTEMPTS}): ${externalUrl.substring(0, 60)}...`);
+
+      const response = await fetch(externalUrl, { signal: AbortSignal.timeout(MIRROR_DOWNLOAD_TIMEOUT_MS) });
     if (!response.ok) {
       throw new Error(`Failed to download: HTTP ${response.status}`);
     }
@@ -304,17 +309,22 @@ export async function mirrorToR2(externalUrl, folder = "models") {
       ? (extension === "mp4" ? "video/mp4" : "video/webm")
       : contentType;
 
-    const r2Url = await uploadBufferToR2(buffer, folder, extension, finalContentType);
-    console.log(`✅ Mirrored to R2: ${r2Url}`);
-    
-    return r2Url;
-  } catch (error) {
-    const isExpectedFailure = /HTTP (403|404|410)/i.test(error.message);
-    if (isExpectedFailure) {
-      console.warn(`⚠️ R2 mirror skipped (${error.message}): ${externalUrl.substring(0, 80)}...`);
-    } else {
-      console.error(`❌ Failed to mirror to R2: ${error.message}`);
+      const r2Url = await uploadBufferToR2(buffer, folder, extension, finalContentType);
+      console.log(`✅ Mirrored to R2: ${r2Url}`);
+
+      return r2Url;
+    } catch (error) {
+      const isExpectedFailure = /HTTP (403|404|410)/i.test(error.message);
+      if (isExpectedFailure) {
+        console.warn(`⚠️ R2 mirror skipped (${error.message}): ${externalUrl.substring(0, 80)}...`);
+        return externalUrl;
+      }
+      console.error(`❌ Failed to mirror to R2 (attempt ${attempt}/${MAX_ATTEMPTS}): ${error.message}`);
+      if (attempt < MAX_ATTEMPTS) {
+        await new Promise((r) => setTimeout(r, 2000 * attempt));
+        continue;
+      }
+      return externalUrl;
     }
-    return externalUrl;
   }
 }

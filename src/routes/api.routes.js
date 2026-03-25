@@ -1666,12 +1666,14 @@ Rules:
  */
 router.post("/generate/enhance-prompt", authMiddleware, async (req, res) => {
   let creditDeducted = false;
+  // Must be in outer scope so the catch block can refund reliably.
+  let ENHANCE_CREDIT_COST = 0;
 
   try {
     // mode: "casual" | "nsfw" | "ultra-realism"
     const { prompt, mode = "casual", modelLooks } = req.body;
     const pricing = await getGenerationPricing();
-    const ENHANCE_CREDIT_COST =
+    ENHANCE_CREDIT_COST =
       mode === "nsfw" ? pricing.enhancePromptNsfw : pricing.enhancePromptDefault;
 
     if (!prompt || !prompt.trim()) {

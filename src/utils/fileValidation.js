@@ -76,25 +76,39 @@ function formatMb(bytes) {
 }
 
 async function inspectRemoteFile(url) {
-  let res = await fetch(url, { method: "HEAD", signal: AbortSignal.timeout(15_000) });
-  if (!res.ok && (res.status === 405 || res.status === 403)) {
-    res = await fetch(url, {
-      method: "GET",
-      headers: { Range: "bytes=0-0" },
-      signal: AbortSignal.timeout(20_000),
-    });
+  // Some storage backends are slow to respond to HEAD.
+  // Retry + increase timeouts to avoid aborting validation during KIE submissions.
+  let lastErr;
+  const attempts = 2;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      let res = await fetch(url, { method: "HEAD", signal: AbortSignal.timeout(30_000) });
+      if (!res.ok && (res.status === 405 || res.status === 403)) {
+        res = await fetch(url, {
+          method: "GET",
+          headers: { Range: "bytes=0-0" },
+          signal: AbortSignal.timeout(30_000),
+        });
+      }
+      if (!res.ok) {
+        throw new Error(`File URL returned HTTP ${res.status}. Re-upload the file and try again.`);
+      }
+      const contentType = (res.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+      const sizeHeader = res.headers.get("content-length");
+      const sizeBytes = sizeHeader ? parseInt(sizeHeader, 10) : null;
+      return {
+        extension: getExtensionFromUrl(url),
+        contentType,
+        sizeBytes: Number.isFinite(sizeBytes) ? sizeBytes : null,
+      };
+    } catch (err) {
+      lastErr = err;
+      if (attempt < attempts) {
+        await new Promise((r) => setTimeout(r, 1000 * attempt));
+      }
+    }
   }
-  if (!res.ok) {
-    throw new Error(`File URL returned HTTP ${res.status}. Re-upload the file and try again.`);
-  }
-  const contentType = (res.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
-  const sizeHeader = res.headers.get("content-length");
-  const sizeBytes = sizeHeader ? parseInt(sizeHeader, 10) : null;
-  return {
-    extension: getExtensionFromUrl(url),
-    contentType,
-    sizeBytes: Number.isFinite(sizeBytes) ? sizeBytes : null,
-  };
+  throw lastErr || new Error("Failed to inspect remote file");
 }
 
 async function probeRemoteVideoDuration(url, extensionHint = "mp4") {
@@ -169,19 +183,25 @@ async function validateRemoteMedia(url, rules) {
   if (kind === "video" && (minDurationSec || maxDurationSec)) {
     try {
       const durationSec = await probeRemoteVideoDuration(url, meta.extension || "mp4");
-      if (Number.isFinite(durationSec)) {
-        if (minDurationSec && durationSec < minDurationSec) {
-          return {
-            valid: false,
-            message: `${label}: video is too short (${durationSec.toFixed(1)}s). Minimum allowed is ${minDurationSec}s.`,
-          };
-        }
-        if (maxDurationSec && durationSec > maxDurationSec) {
-          return {
-            valid: false,
-            message: `${label}: video is too long (${durationSec.toFixed(1)}s). Maximum allowed is ${maxDurationSec}s.`,
-          };
-        }
+      if (!Number.isFinite(durationSec)) {
+        // If we can't verify duration, don't submit to KIE (it will 422).
+        return {
+          valid: false,
+          message: `${label}: could not verify video duration. Re-upload the file and try again.`,
+        };
+      }
+
+      if (minDurationSec && durationSec < minDurationSec) {
+        return {
+          valid: false,
+          message: `${label}: video is too short (${durationSec.toFixed(1)}s). Minimum allowed is ${minDurationSec}s.`,
+        };
+      }
+      if (maxDurationSec && durationSec > maxDurationSec) {
+        return {
+          valid: false,
+          message: `${label}: video is too long (${durationSec.toFixed(1)}s). Maximum allowed is ${maxDurationSec}s.`,
+        };
       }
     } catch (error) {
       return {
