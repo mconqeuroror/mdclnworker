@@ -1341,6 +1341,8 @@ async function submitToWaveSpeed(endpoint, requestBody) {
       Authorization: `Bearer ${WAVESPEED_API_KEY}`,
     },
     body: JSON.stringify(requestBody),
+    // Prevent long-hanging submissions that can exceed Vercel request time.
+    signal: AbortSignal.timeout(30_000),
   });
 
   const responseText = await submitResponse.text();
@@ -1429,6 +1431,7 @@ async function submitNsfwVideo(imageUrl, prompt, options = {}) {
           Authorization: `Bearer ${WAVESPEED_API_KEY}`,
         },
         body: JSON.stringify(attempt.body),
+        signal: AbortSignal.timeout(30_000),
       });
       responseText = await submitResponse.text();
       if (submitResponse.ok) {
@@ -1537,6 +1540,7 @@ async function submitNsfwVideoExtend(videoUrl, prompt, options = {}) {
           Authorization: `Bearer ${WAVESPEED_API_KEY}`,
         },
         body: JSON.stringify(attempt.body),
+        signal: AbortSignal.timeout(30_000),
       });
       responseText = await submitResponse.text();
       if (submitResponse.ok) {
