@@ -1329,6 +1329,26 @@ function isOralBlowjobScenePrompt(promptText) {
   return false;
 }
 
+/** Oral framed as receiver POV — model otherwise often draws a disembodied shaft + hand. */
+function isPovReceivingOralPrompt(promptText) {
+  if (!isOralBlowjobScenePrompt(promptText)) return false;
+  const t = String(promptText || "").toLowerCase();
+  return (
+    /\b(pov|p\.o\.v\.|first[- ]person|first person|point of view)\b/.test(t) ||
+    /\b(from above|from his perspective|from the man'?s perspective|viewer'?s|his (thigh|thighs|lap|lower body|torso|abdomen))\b/.test(t) ||
+    /\b(man receiving|receiving oral|getting (a )?blowjob|getting (his )?dick sucked)\b/.test(t) ||
+    (/\b(looking up|gaze|eyes).*\b(camera|viewer|lens)\b/.test(t) && /\b(penis|cock|shaft|oral|sucking|mouth)\b/.test(t))
+  );
+}
+
+/** Short positive tail: anchors genitals to a body for first-person BJ shots (Z-Image drifts to "floating cock" easily). */
+const NSFW_POS_POV_ORAL_BODY_ANCHOR =
+  "first person POV from the man receiving oral, his penis attached to his body, lower abdomen and upper thighs visible at the edges of the frame, continuous anatomy";
+
+/** All oral-with-penis scenes: push CLIP away from disconnected phallus props. */
+const NSFW_NEG_ORAL_DISCONNECTED_PHALLUS =
+  "disembodied penis, floating penis, detached cock, penis with no male body, disconnected genitals, male torso completely missing, penis prop";
+
 /**
  * Server-side guard after Grok: never stack pose LoRAs on oral; ensure deepthroat enhancement is on; strip incompatible enhancers.
  */
@@ -1725,6 +1745,20 @@ function buildComfyWorkflow(params) {
       }
     }
 
+    // Oral + penis: models often output a hand gripping a floating shaft; extra negatives help without touching solo scenes.
+    const node41ForOral = findNode(41);
+    if (
+      node41ForOral &&
+      node41ForOral.widgets_values &&
+      node41ForOral.widgets_values.length > 0 &&
+      isOralBlowjobScenePrompt(prompt)
+    ) {
+      const curNeg = String(node41ForOral.widgets_values[0] || "");
+      if (!/\bdisembodied penis\b/i.test(curNeg)) {
+        node41ForOral.widgets_values[0] = `${curNeg}, ${NSFW_NEG_ORAL_DISCONNECTED_PHALLUS}`;
+      }
+    }
+
     const node56 = findNode(56); // Positive Prompt
     if (node56 && node56.widgets_values && node56.widgets_values.length > 0) {
       node56.widgets_values[0] = prompt || "";
@@ -2053,6 +2087,11 @@ export async function submitNsfwGeneration(params) {
       prompt = prompt.replace(/^([^,]+,\s*)/, `$1${tw}, `);
       console.log(`🔑 Injected enhancement trigger word "${tw}" for ${key} LoRA`);
     }
+  }
+
+  if (isPovReceivingOralPrompt(prompt) && !/first person pov from the man receiving oral/i.test(prompt)) {
+    prompt = `${prompt}, ${NSFW_POS_POV_ORAL_BODY_ANCHOR}`;
+    console.log("🎯 POV receiving oral: appended body-anchor tail (reduces floating / disconnected penis).");
   }
 
   const detectedPose = aiSelection.pose;
