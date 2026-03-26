@@ -55,6 +55,25 @@ const api = axios.create({
   withCredentials: true,
 });
 
+/** Safe string for toasts / UI — avoids passing API error objects into react-hot-toast (React #31). */
+export function formatApiError(err, fallback = "Something went wrong") {
+  if (err == null) return fallback;
+  const d = err?.response?.data;
+  if (d === undefined || d === null) {
+    const m = err?.message;
+    return typeof m === "string" && m.trim() ? m : fallback;
+  }
+  if (typeof d === "string") return d;
+  if (typeof d.error === "string") return d.error;
+  if (typeof d.message === "string") return d.message;
+  if (d.error && typeof d.error === "object" && typeof d.error.message === "string") return d.error.message;
+  try {
+    return JSON.stringify(d);
+  } catch {
+    return fallback;
+  }
+}
+
 // On these paths never run 401 refresh/forceLogout — just reject (stops redirect loop)
 function isPublicPath() {
   if (typeof window === "undefined") return false;
@@ -685,7 +704,34 @@ export const tutorialsAPI = {
     const response = await api.get("/admin/tutorial-video-slots");
     return response.data;
   },
+  /** Browser → Vercel Blob (admin handleUpload) then POST URL to DB; falls back to multipart → server (R2) when Blob is off. */
   uploadSlotVideo: async ({ slot, file }) => {
+    const config = await getUploadConfig();
+    if (config.directToBlob && typeof window !== "undefined") {
+      const { upload } = await import("@vercel/blob/client");
+      const base = API_URL.startsWith("http")
+        ? API_URL.replace(/\/$/, "")
+        : `${window.location.origin}${API_URL.startsWith("/") ? API_URL : `/${API_URL}`}`;
+      const handleUploadUrl = `${base}/admin/upload/blob`;
+      const safeName = (file.name || "video.mp4").replace(/[^a-zA-Z0-9._-]/g, "_") || "video.mp4";
+      const slug = String(slot || "")
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9._-]+/g, "-")
+        .replace(/-+/g, "-");
+      const pathname = `tutorials/${Date.now()}_${slug}_${safeName}`;
+      const blob = await upload(pathname, file, {
+        access: "public",
+        handleUploadUrl,
+        clientPayload: String(slot || "").trim(),
+        multipart: (file.size || 0) > 10 * 1024 * 1024,
+      });
+      const response = await api.post("/admin/tutorial-video-slot-commit", {
+        slot: String(slot || "").trim(),
+        url: blob.url,
+      });
+      return response.data;
+    }
     const formData = new FormData();
     formData.append("slot", slot);
     formData.append("video", file);

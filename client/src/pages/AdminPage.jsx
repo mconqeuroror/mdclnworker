@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import api, { adminAPI, adminTelemetryAPI, brandingAPI, referralAPI, tutorialsAPI, uploadToCloudinary as uploadFile } from '../services/api';
+import api, { adminAPI, adminTelemetryAPI, brandingAPI, formatApiError, referralAPI, tutorialsAPI, uploadToCloudinary as uploadFile } from '../services/api';
 import AddCreditsAdminModal from '../components/AddCreditsAdminModal';
 import EditUserSettingsModal from '../components/EditUserSettingsModal';
 import NsfwOverrideModal from '../components/NsfwOverrideModal';
@@ -1216,10 +1216,10 @@ export default function AdminPage() {
         await loadTutorialSlots();
         queryClient.invalidateQueries({ queryKey: ['tutorial-catalog'] });
       } else {
-        toast.error(result?.error || 'Upload failed');
+        toast.error(formatApiError({ response: { data: result } }, 'Upload failed'));
       }
     } catch (e) {
-      toast.error(e?.response?.data?.error || 'Upload failed');
+      toast.error(formatApiError(e, 'Upload failed'));
     } finally {
       setUploadingTutorialSlot("");
     }

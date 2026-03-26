@@ -19,7 +19,9 @@ export default function TutorialButton({ tutorial, showWhenMissing = false, miss
 
   const handleOpen = (e) => {
     e.stopPropagation();
-    if (!tutorial?.videoUrl && !tutorial?.youtubeId) {
+    const hasVideo =
+      (typeof tutorial?.videoUrl === "string" && tutorial.videoUrl) || tutorial?.youtubeId;
+    if (!hasVideo) {
       toast(missingMessage);
       return;
     }
@@ -86,13 +88,13 @@ export default function TutorialButton({ tutorial, showWhenMissing = false, miss
                   <div className="flex items-center justify-between p-6 border-b border-white/10">
                     <div>
                       <h3 className="text-xl font-bold text-white">
-                        {tutorial.title}
+                        {typeof tutorial.title === "string" ? tutorial.title : "Tutorial"}
                       </h3>
-                      {tutorial.description && (
+                      {typeof tutorial.description === "string" && tutorial.description ? (
                         <p className="text-sm text-slate-400 mt-1">
                           {tutorial.description}
                         </p>
-                      )}
+                      ) : null}
                     </div>
                     <button
                       onClick={handleClose}
@@ -108,7 +110,7 @@ export default function TutorialButton({ tutorial, showWhenMissing = false, miss
                     className="relative w-full bg-black"
                     style={{ paddingBottom: "56.25%" }}
                   >
-                    {tutorial.videoUrl ? (
+                    {typeof tutorial.videoUrl === "string" && tutorial.videoUrl ? (
                       <video
                         key={tutorial.videoUrl}
                         className="absolute inset-0 w-full h-full object-contain"
@@ -121,7 +123,7 @@ export default function TutorialButton({ tutorial, showWhenMissing = false, miss
                       <iframe
                         className="absolute inset-0 w-full h-full"
                         src={`https://www.youtube.com/embed/${tutorial.youtubeId}?autoplay=0&rel=0`}
-                        title={tutorial.title}
+                        title={typeof tutorial.title === "string" ? tutorial.title : "Tutorial"}
                         frameBorder="0"
                         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                         allowFullScreen

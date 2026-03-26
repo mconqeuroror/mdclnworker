@@ -9,6 +9,8 @@ import { sendPromoEmail } from "../services/email.service.js";
 import { getAppBranding, updateAppBranding, clearTutorialVideo } from "../services/branding.service.js";
 import multer from "multer";
 import { del } from "@vercel/blob";
+import { handleUpload } from "@vercel/blob/client";
+import { isVercelBlobConfigured } from "../utils/kieUpload.js";
 import { isR2Configured, uploadBufferToR2, uploadFileToR2, mirrorToR2 } from "../utils/r2.js";
 import {
   getTutorialCatalog,
@@ -187,6 +189,91 @@ router.get("/tutorial-video-slots", async (_req, res) => {
   } catch (error) {
     console.error("Tutorial slots fetch error:", error);
     res.status(500).json({ success: false, error: error.message || "Failed to load tutorial slots" });
+  }
+});
+
+// Client → Vercel Blob (admin only): browser uploads directly; server mints tokens via handleUpload (no server-side put()).
+router.post("/upload/blob", async (req, res) => {
+  if (!isVercelBlobConfigured()) {
+    return res.status(503).json({ success: false, error: "Blob storage not configured" });
+  }
+  try {
+    const body = req.body;
+    if (!body || typeof body.type !== "string") {
+      return res.status(400).json({ success: false, error: "Invalid handleUpload body" });
+    }
+    const requestWithUrl = { ...req, url: req.originalUrl || req.url || "/api/admin/upload/blob" };
+    const jsonResponse = await handleUpload({
+      body,
+      request: requestWithUrl,
+      onBeforeGenerateToken: async (pathname, clientPayload, _multipart) => {
+        if (typeof pathname !== "string" || !pathname.startsWith("tutorials/")) {
+          throw new Error("Tutorial uploads must use pathname under tutorials/");
+        }
+        const slot = String(clientPayload || "").trim();
+        if (!isValidTutorialSlot(slot)) {
+          throw new Error("Invalid tutorial slot");
+        }
+        return {
+          allowedContentTypes: [
+            "video/mp4",
+            "video/quicktime",
+            "video/webm",
+            "video/x-msvideo",
+            "application/octet-stream",
+          ],
+          maximumSizeInBytes: 500 * 1024 * 1024,
+          addRandomSuffix: true,
+          tokenPayload: slot,
+        };
+      },
+      onUploadCompleted: async ({ blob }) => {
+        console.log("[admin/blob] Tutorial client upload completed:", blob?.url?.slice(0, 80));
+      },
+    });
+    return res.json(jsonResponse);
+  } catch (err) {
+    console.error("[admin/upload/blob] handleUpload error:", err?.message || err);
+    return res.status(400).json({ success: false, error: err?.message || "Upload token failed" });
+  }
+});
+
+// After client upload(), persist the public blob URL for this slot.
+router.post("/tutorial-video-slot-commit", async (req, res) => {
+  try {
+    const slotKey = String(req.body?.slot || "").trim();
+    const url = String(req.body?.url || "").trim();
+    if (!isValidTutorialSlot(slotKey)) {
+      return res.status(400).json({ success: false, error: "Invalid tutorial slot" });
+    }
+    let parsed;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return res.status(400).json({ success: false, error: "Invalid video URL" });
+    }
+    if (parsed.protocol !== "https:") {
+      return res.status(400).json({ success: false, error: "Video URL must be https" });
+    }
+    await upsertTutorialSlotVideoUrl(slotKey, url);
+    const slot = getTutorialSlot(slotKey);
+    res.json({
+      success: true,
+      slot: slotKey,
+      label: slot?.label || slotKey,
+      url,
+      storage: "vercel-blob-client",
+    });
+  } catch (error) {
+    console.error("Tutorial slot commit error:", error);
+    if (isTutorialSlotTableError(error)) {
+      return res.status(503).json({
+        success: false,
+        error:
+          "Database could not store the tutorial URL (TutorialSlotVideo table). Grant CREATE on the DB or run prisma migrate deploy.",
+      });
+    }
+    res.status(500).json({ success: false, error: error.message || "Save failed" });
   }
 });
 
