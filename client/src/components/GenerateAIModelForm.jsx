@@ -761,7 +761,6 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
   const isFromPhotosValid = photoConfigs.every(
     (c) => c.referencePhotos.length > 0 && c.prompt.trim().length > 0
   );
-  const fromPhotosCredits = 900;
   const photoStepTitles = [
     copy.photoSelfieLabel,
     copy.photoPortraitLabel,
