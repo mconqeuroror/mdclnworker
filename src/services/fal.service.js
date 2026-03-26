@@ -993,6 +993,28 @@ const UNSUPPORTED_NODE_IDS = [
 ];
 
 /**
+ * Replace every API input wired as [stringLiteralNodeId, slot] with the resolved string.
+ * Comfy UI exports String Literal nodes (e.g. 41, 56) as separate nodes; RunPod must not execute them.
+ * Inlining only `inputs.text` misses other rare links to the same literals.
+ */
+function inlineStringLiteralRefsInApiWorkflow(apiWorkflow, resolvedByNodeId) {
+  const replaceRef = (v) => {
+    if (!Array.isArray(v) || v.length < 2) return v;
+    const srcId = String(v[0]);
+    if (Object.prototype.hasOwnProperty.call(resolvedByNodeId, srcId)) {
+      return resolvedByNodeId[srcId];
+    }
+    return v;
+  };
+  for (const node of Object.values(apiWorkflow)) {
+    if (!node?.inputs) continue;
+    for (const key of Object.keys(node.inputs)) {
+      node.inputs[key] = replaceRef(node.inputs[key]);
+    }
+  }
+}
+
+/**
  * Remove unsupported nodes (String Literal, Primitive string, GetNode, Fast Groups Bypasser, Crystools, PrimitiveFloat) and
  * inject their values directly into any node that referenced them.
  */
@@ -1023,24 +1045,26 @@ function stripUnsupportedNodesAndInjectValues(workflow, { prompt, negativePrompt
 }
 
 function loadNsfwCoreWorkflowApi() {
-  if (nsfwCoreWorkflowCache) return nsfwCoreWorkflowCache;
   const candidates = [
     path.join(process.cwd(), "attached_assets", "nsfw_core_workflow.json"),
     path.join(__dirname, "..", "..", "attached_assets", "nsfw_core_workflow.json"),
   ];
-  for (const p of candidates) {
-    try {
-      if (fs.existsSync(p)) {
-        const raw = fs.readFileSync(p, "utf8");
-        const data = JSON.parse(raw);
-        nsfwCoreWorkflowCache = comfyUiGraphToApiPrompt(data.nodes, data.links, data.extra);
-        return nsfwCoreWorkflowCache;
+  if (!nsfwCoreWorkflowCache) {
+    for (const p of candidates) {
+      try {
+        if (fs.existsSync(p)) {
+          const raw = fs.readFileSync(p, "utf8");
+          const data = JSON.parse(raw);
+          nsfwCoreWorkflowCache = comfyUiGraphToApiPrompt(data.nodes, data.links, data.extra);
+          break;
+        }
+      } catch (e) {
+        console.warn("NSFW core workflow load failed:", p, e?.message);
       }
-    } catch (e) {
-      console.warn("NSFW core workflow load failed:", p, e?.message);
     }
   }
-  return null;
+  if (!nsfwCoreWorkflowCache) return null;
+  return JSON.parse(JSON.stringify(nsfwCoreWorkflowCache));
 }
 
 /**
@@ -1630,8 +1654,7 @@ export function buildNsfwPrompt(triggerWord, userPrompt, attributes = "") {
  * Negative (41): only replaced when `negativePrompt` is explicitly non-empty.
  * Grain/blur (284/286): only when `useWorkflowPostProcessing` / `NSFW_COMFY_USE_WORKFLOW_POST` / `overrideGrainBlur`.
  * Base KSampler (276) steps/cfg: only when `steps`/`cfg` are passed (e.g. admin sampler override).
- * Refiner negative rewiring (45: 1→8): **on by default** (RunPod needs SDXL pooled neg). Set `NSFW_COMFY_REFINER_FIX_SDXL=0` for strict desktop parity (may crash encode_adm).
- * String Literal nodes 41/56 are stripped for API; text is inlined into 1,8 / 2,42.
+ * String Literal nodes 41/56 are stripped for API; all `[41|56, slot]` input refs are inlined with template text (not only CLIPTextEncode `text`).
  * Falls back to legacy inline workflow if the JSON is missing.
  */
 function buildComfyWorkflow(params) {
@@ -1801,24 +1824,23 @@ function buildComfyWorkflow(params) {
       }
     }
 
-    const negativeTextForInline = findNode(41)?.widgets_values?.[0] ?? "";
+    // Final string values after graph patches (single source of truth for API inlining)
+    const negativeTextForInline = String(findNode(41)?.widgets_values?.[0] ?? "");
+    const positiveTextForInline = String(findNode(56)?.widgets_values?.[0] ?? "");
 
-    // Convert graph to API format
-    const apiWorkflow = comfyUiGraphToApiPrompt(workflowGraph.nodes, workflowGraph.links, workflowGraph.extra);
+    // Convert graph to API format, then deep-clone so we never mutate a shared/cached object.
+    const apiWorkflow = JSON.parse(
+      JSON.stringify(
+        comfyUiGraphToApiPrompt(workflowGraph.nodes, workflowGraph.links, workflowGraph.extra),
+      ),
+    );
 
-    // ALWAYS strip String Literal nodes (41, 56) — comfy-image-saver is not on RunPod.
-    // Inline text directly into the CLIPTextEncode nodes that reference them.
+    // Strip String Literal nodes 41/56 (comfy-image-saver — not on RunPod): inline every wire to them.
     if (apiWorkflow["41"] || apiWorkflow["56"]) {
-      // Node 41 (negative) → node 1; node 56 (positive) → node 2.
-      // Check by reference so this stays correct if the workflow is rewired later.
-      for (const id of Object.keys(apiWorkflow)) {
-        const n = apiWorkflow[id];
-        if (!n?.inputs) continue;
-        if (Array.isArray(n.inputs.text)) {
-          if (String(n.inputs.text[0]) === "41") n.inputs.text = negativeTextForInline;
-          if (String(n.inputs.text[0]) === "56") n.inputs.text = prompt || "";
-        }
-      }
+      inlineStringLiteralRefsInApiWorkflow(apiWorkflow, {
+        41: negativeTextForInline,
+        56: positiveTextForInline,
+      });
       delete apiWorkflow["41"];
       delete apiWorkflow["56"];
     }
@@ -1828,7 +1850,7 @@ function buildComfyWorkflow(params) {
     // Default: off — pass the workflow through so ComfyUI on the worker matches your desktop export.
     if (process.env.NSFW_COMFY_STRIP_UNSUPPORTED === "1") {
       stripUnsupportedNodesAndInjectValues(apiWorkflow, {
-        prompt: prompt || "",
+        prompt: positiveTextForInline,
         negativePrompt: negativeTextForInline,
         loraUrl: params.loraUrl,
         activeLorasCount,
@@ -2063,7 +2085,11 @@ export async function submitNsfwGeneration(params) {
     console.log(`✅ Activated pose LoRA: ${detectedPose.id} (node ${detectedPose.node}) at strength=${poseStr}`);
   }
 
-  const seed = Math.floor(Math.random() * 2147483647);
+  const seedFromOpts = options?.seed;
+  const seed =
+    seedFromOpts != null && Number.isFinite(Number(seedFromOpts))
+      ? Math.trunc(Number(seedFromOpts))
+      : Math.floor(Math.random() * 2147483647);
   const makeupStrength = hasRunningMakeup ? MAX_ADDITIVE_LORA_STRENGTH : 0;
   const cumStrength = hasCumEffect ? MAX_ADDITIVE_LORA_STRENGTH : 0;
 
