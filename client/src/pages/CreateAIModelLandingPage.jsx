@@ -68,16 +68,16 @@ const COPY = {
     navStartFree: 'Start Free',
     badgeJoinedWeek: 'joined this week',
     heroTitle: 'Create Your AI Model',
-    heroSubtitle: 'Earn $10K+ Monthly',
+    heroSubtitle: 'Creators earn from $10K+ monthly',
     heroDescription: 'Design your perfect AI influencer in 60 seconds.',
     heroDescriptionHighlight: '100% free to start.',
     trustNoCard: 'No credit card',
     trustReady60s: 'Ready in 60s',
     realResultsLabel: 'Real Results',
-    realResultsTitle: 'Average Client Earnings Over 6 Months',
+    realResultsTitle: 'Average AI content creator earnings over 6 months',
     statsModelsCreated: 'Models Created',
     statsImagesMade: 'Images Made',
-    statsSatisfaction: 'Satisfaction',
+    statsSatisfaction: 'Creator satisfaction',
     galleryLabel: 'AI-Generated',
     galleryMeetAshley: 'Meet Ashley',
     galleryAshleyCaption: 'Every photo generated with ModelClone',
@@ -167,16 +167,16 @@ const COPY = {
     navStartFree: 'Начать бесплатно',
     badgeJoinedWeek: 'присоединились на этой неделе',
     heroTitle: 'Создайте свою ИИ-модель',
-    heroSubtitle: 'Зарабатывайте $10 000+ в месяц',
+    heroSubtitle: 'Креаторы зарабатывают от $10 000+ в месяц',
     heroDescription: 'Создайте идеального ИИ-инфлюенсера за 60 секунд.',
     heroDescriptionHighlight: 'Старт полностью бесплатный.',
     trustNoCard: 'Без кредитной карты',
     trustReady60s: 'Готово за 60 сек',
     realResultsLabel: 'Реальные результаты',
-    realResultsTitle: 'Средний доход клиентов за 6 месяцев',
+    realResultsTitle: 'Средний доход AI-креаторов за 6 месяцев',
     statsModelsCreated: 'Создано моделей',
     statsImagesMade: 'Создано изображений',
-    statsSatisfaction: 'Удовлетворённость',
+    statsSatisfaction: 'Удовлетворённость креаторов',
     galleryLabel: 'Сгенерировано ИИ',
     galleryMeetAshley: 'Познакомьтесь с Эшли',
     galleryAshleyCaption: 'Каждое фото создано с помощью ModelClone',
@@ -242,9 +242,13 @@ const avatarTints = [
   'rgba(255,255,255,0.08)',
 ];
 
-function DemoVideo() {
+const DEFAULT_LANDER_DEMO_VIDEO_URL =
+  'https://pub-deb24e74d34c49a3a2e474e11dbf5a64.r2.dev/gallery/AI_model_main_video.mp4';
+
+function DemoVideo({ videoUrl }) {
   const videoRef = useRef(null);
   const [isMuted, setIsMuted] = useState(true);
+  const src = videoUrl?.trim() || DEFAULT_LANDER_DEMO_VIDEO_URL;
 
   const toggleMute = () => {
     if (videoRef.current) {
@@ -262,6 +266,7 @@ function DemoVideo() {
     >
       <div className="relative aspect-video rounded-2xl overflow-hidden bg-gradient-to-br from-purple-900/30 to-pink-900/30 border border-white/10">
         <video 
+          key={src}
           ref={videoRef}
           autoPlay 
           loop 
@@ -270,7 +275,7 @@ function DemoVideo() {
           className="w-full h-full object-cover"
           data-testid="video-demo"
         >
-          <source src="https://pub-deb24e74d34c49a3a2e474e11dbf5a64.r2.dev/gallery/AI_model_main_video.mp4" type="video/mp4" />
+          <source src={src} type="video/mp4" />
         </video>
         <button
           onClick={toggleMute}
@@ -748,7 +753,17 @@ export default function CreateAIModelLandingPage() {
   const [locale] = useState(resolveLocale);
   const copy = COPY[locale] || COPY.en;
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [landerDemoVideoUrl, setLanderDemoVideoUrl] = useState('');
   const location = useLocation();
+
+  useEffect(() => {
+    fetch('/api/brand', { credentials: 'include' })
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.branding?.landerDemoVideoUrl) setLanderDemoVideoUrl(d.branding.landerDemoVideoUrl);
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -925,18 +940,18 @@ export default function CreateAIModelLandingPage() {
             {/* Trust Row */}
             <div className="flex items-center justify-center gap-5 mt-4 text-xs text-slate-600">
               <span className="flex items-center gap-1.5">
-                <Check className="w-3 h-3 text-slate-400" />
+                <Check className="w-3 h-3 text-white/30" strokeWidth={1.25} aria-hidden />
                 {copy.trustNoCard}
               </span>
               <span className="flex items-center gap-1.5">
-                <Zap className="w-3 h-3 text-slate-400" />
+                <Zap className="w-3 h-3 text-white/30" strokeWidth={1.25} aria-hidden />
                 {copy.trustReady60s}
               </span>
             </div>
           </motion.div>
 
-          {/* Demo Video */}
-          <DemoVideo />
+          {/* Demo Video (URL from Admin → Brand Settings → Create AI Model lander demo) */}
+          <DemoVideo videoUrl={landerDemoVideoUrl} />
         </div>
       </section>
 
@@ -977,7 +992,7 @@ export default function CreateAIModelLandingPage() {
             </div>
             <div>
               <div className="text-xl font-bold text-white">
-                <AnimatedCounter end={98} suffix="%" />
+                <AnimatedCounter end={99} suffix="%" />
               </div>
               <p className="text-slate-600 text-[10px] mt-0.5">{copy.statsSatisfaction}</p>
             </div>
@@ -1223,9 +1238,11 @@ export default function CreateAIModelLandingPage() {
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
                 transition={{ delay: i * 0.05 }}
-                className="p-4 rounded-2xl bg-white/[0.03] border border-white/5 text-center"
+                className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.06] text-center"
               >
-                <benefit.icon className="w-6 h-6 text-purple-400 mx-auto mb-2" />
+                <span className="mx-auto mb-2 flex h-9 w-9 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.03]">
+                  <benefit.icon className="w-[18px] h-[18px] text-white/40" strokeWidth={1.25} aria-hidden />
+                </span>
                 <h3 className="font-semibold text-sm mb-1">{benefit.title}</h3>
                 <p className="text-gray-500 text-xs">{benefit.desc}</p>
               </motion.div>

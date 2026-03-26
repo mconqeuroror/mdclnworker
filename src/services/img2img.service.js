@@ -6,11 +6,12 @@
  *   Step 2 — OpenAI injects the model's LoRA trigger word + look description into the prompt
  *   Step 3 — img2img: generates a swapped version using the model's LoRA on RunPod ComfyUI
  *
- * Both steps run on the same RunPod pod (same endpoint ID).
+ * JoyCaption (image analysis) runs on a dedicated RunPod endpoint so its queue does not block img2img gen.
  *
  * Environment variables:
- *   RUNPOD_API_KEY           — RunPod API key
- *   RUNPOD_IMG2IMG_ENDPOINT  — RunPod serverless endpoint ID for the custom Docker
+ *   RUNPOD_API_KEY                     — RunPod API key
+ *   RUNPOD_ENDPOINT_ID                 — Serverless endpoint for img2img / main ComfyUI jobs
+ *   RUNPOD_IMAGE_ANALYSIS_ENDPOINT_ID    — Optional; defaults to dedicated JoyCaption worker id
  */
 
 import { isR2Configured, uploadBufferToR2 } from "../utils/r2.js";
@@ -22,6 +23,14 @@ import { buildNsfwLoraStackEntries, applyCompactLoraStackToNode250 } from "./fal
 const RUNPOD_API_KEY = process.env.RUNPOD_API_KEY;
 const RUNPOD_ENDPOINT = process.env.RUNPOD_ENDPOINT_ID || "0uskdglppin5ey";
 const RUNPOD_BASE = `https://api.runpod.ai/v2/${RUNPOD_ENDPOINT}`;
+
+/** Dedicated worker for img2img “analyze image” (JoyCaption). */
+const RUNPOD_IMAGE_ANALYSIS_ENDPOINT =
+  process.env.RUNPOD_IMAGE_ANALYSIS_ENDPOINT_ID?.trim() || "805rm2h8t050rp";
+const RUNPOD_ANALYSIS_BASE = `https://api.runpod.ai/v2/${RUNPOD_IMAGE_ANALYSIS_ENDPOINT}`;
+
+/** Server-side sync JoyCaption path — allow up to 5m when the analysis queue is full. */
+const IMG2IMG_ANALYSIS_POLL_TIMEOUT_MS = 5 * 60 * 1000;
 
 if (!RUNPOD_API_KEY) {
   console.warn("⚠️  RUNPOD_API_KEY not set — img2img pipeline will not work");
@@ -223,15 +232,20 @@ function ensureFiniteNumber(value, fieldName) {
 
 // ── RunPod API helpers ────────────────────────────────────────────────────────
 
-async function runpodSubmit(payload, webhookUrl = null) {
-  if (!RUNPOD_API_KEY || !RUNPOD_ENDPOINT) {
+function runpodBaseForEndpoint(endpointId) {
+  return `https://api.runpod.ai/v2/${endpointId}`;
+}
+
+async function runpodSubmitWithEndpoint(endpointId, payload, webhookUrl = null) {
+  if (!RUNPOD_API_KEY || !endpointId) {
     throw new Error("Generation service not configured");
   }
 
+  const base = runpodBaseForEndpoint(endpointId);
   const body = { input: payload };
   if (webhookUrl) body.webhook = webhookUrl;
 
-  const resp = await fetch(`${RUNPOD_BASE}/run`, {
+  const resp = await fetch(`${base}/run`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${RUNPOD_API_KEY}`,
@@ -250,6 +264,10 @@ async function runpodSubmit(payload, webhookUrl = null) {
   const jobId = data.id;
   if (!jobId) throw new Error(`Generation service returned no job id: ${JSON.stringify(data)}`);
   return jobId;
+}
+
+async function runpodSubmit(payload, webhookUrl = null) {
+  return runpodSubmitWithEndpoint(RUNPOD_ENDPOINT, payload, webhookUrl);
 }
 
 /**
@@ -273,7 +291,7 @@ export async function submitDescribeJob(imageBase64OrNull, imageUrl, webhookUrl 
     output_node_id: "53",
   };
 
-  return runpodSubmit(payload, webhookUrl);
+  return runpodSubmitWithEndpoint(RUNPOD_IMAGE_ANALYSIS_ENDPOINT, payload, webhookUrl);
 }
 
 /**
@@ -290,12 +308,17 @@ export function extractCaptionFromRunpodOutput(output) {
   return text ? String(text).trim() : null;
 }
 
-export async function getRunpodJobStatus(jobId) {
-  if (!RUNPOD_API_KEY || !RUNPOD_ENDPOINT) {
+/**
+ * @param {string} jobId
+ * @param {{ useImageAnalysisEndpoint?: boolean }} [options] — use dedicated JoyCaption endpoint for status (required for jobs submitted there)
+ */
+export async function getRunpodJobStatus(jobId, options = {}) {
+  if (!RUNPOD_API_KEY) {
     throw new Error("Generation service not configured");
   }
 
-  const resp = await fetch(`${RUNPOD_BASE}/status/${jobId}`, {
+  const base = options.useImageAnalysisEndpoint ? RUNPOD_ANALYSIS_BASE : RUNPOD_BASE;
+  const resp = await fetch(`${base}/status/${jobId}`, {
     headers: { Authorization: `Bearer ${RUNPOD_API_KEY}` },
   });
 
@@ -350,7 +373,7 @@ export async function submitImg2ImgJob({
   return { runpodJobId, resolvedSeed };
 }
 
-async function runpodPoll(jobId, timeoutMs = 300_000, intervalMs = 5_000) {
+async function runpodPoll(jobId, timeoutMs = 300_000, intervalMs = 5_000, statusBaseUrl = RUNPOD_BASE) {
   const deadline = Date.now() + timeoutMs;
   let attempt = 0;
 
@@ -360,7 +383,7 @@ async function runpodPoll(jobId, timeoutMs = 300_000, intervalMs = 5_000) {
 
     let data;
     try {
-      const resp = await fetch(`${RUNPOD_BASE}/status/${jobId}`, {
+      const resp = await fetch(`${statusBaseUrl}/status/${jobId}`, {
         headers: { Authorization: `Bearer ${RUNPOD_API_KEY}` },
         signal: AbortSignal.timeout(15000),
       });
@@ -444,10 +467,10 @@ export async function extractPromptFromImage(imageUrl, imageBase64Provided) {
     output_node_id: "53",  // "easy saveText" node — appears in ComfyUI history with {"text": ["..."]}
   };
 
-  const jobId = await runpodSubmit(payload);
-  console.log(`   RunPod job submitted: ${jobId}`);
+  const jobId = await runpodSubmitWithEndpoint(RUNPOD_IMAGE_ANALYSIS_ENDPOINT, payload);
+  console.log(`   RunPod job submitted (analysis endpoint ${RUNPOD_IMAGE_ANALYSIS_ENDPOINT}): ${jobId}`);
 
-  const output = await runpodPoll(jobId, 300_000);
+  const output = await runpodPoll(jobId, IMG2IMG_ANALYSIS_POLL_TIMEOUT_MS, 5_000, RUNPOD_ANALYSIS_BASE);
 
   if (!output) {
     throw new Error("Image captioning job returned no output");

@@ -246,7 +246,7 @@ router.get("/describe-status/:id", authMiddleware, async (req, res) => {
 
     let rpStatus;
     try {
-      rpStatus = await getRunpodJobStatus(runpodJobId);
+      rpStatus = await getRunpodJobStatus(runpodJobId, { useImageAnalysisEndpoint: true });
     } catch (pollErr) {
       console.warn(`[describe-status] RunPod poll error for ${runpodJobId}:`, pollErr.message);
       return res.json({ status: "processing" });

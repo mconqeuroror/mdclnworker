@@ -5,7 +5,7 @@ import {
   ArrowRight, Check, Star, Clock,
   DollarSign, Crown, Camera,
   BarChart, UserCheck, RefreshCw, Menu, X, ChevronDown,
-  Briefcase, TrendingUp, GraduationCap, Repeat
+  Briefcase, TrendingUp, GraduationCap, Repeat, BookOpen
 } from 'lucide-react';
 import { SiTrustpilot } from 'react-icons/si';
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -268,7 +268,7 @@ function HeroCTA() {
             transition={{ duration: 0.15 }}
             className="relative z-10 whitespace-nowrap"
           >
-            {hovered ? 'Claim My 25 Free Credits' : 'Get Started — It\'s Free'}
+            {hovered ? 'Claim My 250 Free Credits' : 'Get Started — It\'s Free'}
           </motion.span>
         </AnimatePresence>
         <ArrowRight className="w-4 h-4 relative z-10 flex-shrink-0" />
@@ -1006,8 +1006,8 @@ export default function LandingPage() {
               className="px-7 py-3.5 rounded-2xl font-semibold inline-flex items-center gap-2.5 border border-white/[0.12] bg-white/[0.04] hover:bg-white/[0.08] transition-all"
               data-testid="button-free-course"
             >
-              <DollarSign className="w-4 h-4 text-emerald-400" />
-              Free Course: Make Money With AI
+              <BookOpen className="w-4 h-4 text-white/40 shrink-0" strokeWidth={1.25} aria-hidden />
+              Free course: how to scale with AI
             </Link>
           </motion.div>
 
@@ -1359,15 +1359,18 @@ export default function LandingPage() {
 
           <div className="flex items-center justify-center gap-6 sm:gap-10 mt-8 flex-wrap">
             {[
-              { icon: GraduationCap, label: 'Free Course', color: 'text-emerald-400' },
-              { icon: Repeat, label: 'Free Photo/Video Repurposer', color: 'text-blue-400' },
-              { icon: TrendingUp, label: 'Free Viral Reel Finder', color: 'text-pink-400' },
-            ].map((perk) => (
-              <span key={perk.label} className="flex items-center gap-1.5 text-xs sm:text-sm text-slate-300 font-medium">
-                <perk.icon className={`w-4 h-4 ${perk.color}`} />
-                {perk.label}
-              </span>
-            ))}
+              { icon: GraduationCap, label: 'Free Course' },
+              { icon: Repeat, label: 'Free Photo/Video Repurposer' },
+              { icon: TrendingUp, label: 'Free Viral Reel Finder' },
+            ].map((perk) => {
+              const PerkIcon = perk.icon;
+              return (
+                <span key={perk.label} className="flex items-center gap-1.5 text-xs sm:text-sm text-slate-400 font-medium">
+                  <PerkIcon className="w-3.5 h-3.5 text-white/35 shrink-0" strokeWidth={1.25} aria-hidden />
+                  {perk.label}
+                </span>
+              );
+            })}
           </div>
           <p className="text-center text-[11px] text-slate-500 mt-2">Included free with every subscription plan</p>
 
@@ -1375,7 +1378,7 @@ export default function LandingPage() {
             <p className="text-xs text-slate-600 uppercase tracking-wider">
               Credits reset monthly · Bonus credits never expire · Full commercial rights included
             </p>
-            <p className="text-sm text-slate-400">New {isCreator ? 'creators' : 'agencies'} get 25 free credits — no credit card required</p>
+            <p className="text-sm text-slate-400">New {isCreator ? 'creators' : 'agencies'} get 250 free credits — no credit card required</p>
           </div>
         </div>
       </section>
@@ -1447,16 +1450,6 @@ export default function LandingPage() {
                   : 'Join 150+ agencies managing multiple creators profitably.'}
               </p>
 
-              {/* credits-waiting prompt */}
-              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full mb-4"
-                style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                <span className="relative flex h-1.5 w-1.5">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-70" />
-                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
-                </span>
-                <span className="text-[11px] text-white/45">Your 25 free credits are waiting — no card required</span>
-              </div>
-
               <Link
                 to="/signup"
                 className="relative inline-flex items-center justify-center gap-2.5 px-8 py-4 rounded-2xl font-semibold text-black bg-white hover:bg-slate-100 transition-all overflow-hidden"
@@ -1469,7 +1462,7 @@ export default function LandingPage() {
               </Link>
 
               <div className="flex flex-wrap items-center justify-center gap-5 mt-6 text-xs text-slate-500">
-                {['25 free credits included', 'Setup in 24 hours', 'Cancel anytime'].map((item) => (
+                {['Unlimited scaling potential', 'Setup in 24 hours', 'Cancel anytime'].map((item) => (
                   <span key={item} className="flex items-center gap-1.5">
                     <Check className="w-3.5 h-3.5 text-emerald-500" />{item}
                   </span>

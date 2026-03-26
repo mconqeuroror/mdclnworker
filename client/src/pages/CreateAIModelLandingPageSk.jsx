@@ -38,9 +38,13 @@ const avatarGradients = [
   'from-indigo-400 to-purple-400',
 ];
 
-function DemoVideo() {
+const DEFAULT_LANDER_DEMO_VIDEO_URL =
+  'https://pub-deb24e74d34c49a3a2e474e11dbf5a64.r2.dev/gallery/AI_model_main_video.mp4';
+
+function DemoVideo({ videoUrl }) {
   const videoRef = useRef(null);
   const [isMuted, setIsMuted] = useState(true);
+  const src = videoUrl?.trim() || DEFAULT_LANDER_DEMO_VIDEO_URL;
 
   const toggleMute = () => {
     if (videoRef.current) {
@@ -57,16 +61,17 @@ function DemoVideo() {
       className="mt-6"
     >
       <div className="relative aspect-video rounded-2xl overflow-hidden bg-gradient-to-br from-purple-900/30 to-pink-900/30 border border-white/10">
-        <video 
+        <video
+          key={src}
           ref={videoRef}
-          autoPlay 
-          loop 
+          autoPlay
+          loop
           playsInline
           muted
           className="w-full h-full object-cover"
           data-testid="video-demo"
         >
-          <source src="https://pub-deb24e74d34c49a3a2e474e11dbf5a64.r2.dev/gallery/AI_model_main_video.mp4" type="video/mp4" />
+          <source src={src} type="video/mp4" />
         </video>
         <button
           onClick={toggleMute}
@@ -395,6 +400,16 @@ const natashaMirror = 'https://pub-deb24e74d34c49a3a2e474e11dbf5a64.r2.dev/galle
 
 export default function CreateAIModelLandingPageSk() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [landerDemoVideoUrl, setLanderDemoVideoUrl] = useState('');
+
+  useEffect(() => {
+    fetch('/api/brand', { credentials: 'include' })
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.branding?.landerDemoVideoUrl) setLanderDemoVideoUrl(d.branding.landerDemoVideoUrl);
+      })
+      .catch(() => {});
+  }, []);
 
   const testimonials = [
     { name: 'Jakub', earnings: '€2,500/mes', text: 'Vytvoril som AI influencerku za 5 minút. Teraz zarábam pasívne počas spánku.' },
@@ -616,9 +631,9 @@ export default function CreateAIModelLandingPageSk() {
             </div>
             <div>
               <div className="text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400">
-                <AnimatedCounter end={98} suffix="%" />
+                <AnimatedCounter end={99} suffix="%" />
               </div>
-              <p className="text-gray-500 text-[10px]">Spokojnosť</p>
+              <p className="text-gray-500 text-[10px]">Spokojnosť tvorcov</p>
             </div>
           </div>
         </div>

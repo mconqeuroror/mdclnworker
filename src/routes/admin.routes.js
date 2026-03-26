@@ -6,7 +6,7 @@ import { authMiddleware, setAuthCookie, setRefreshCookie } from "../middleware/a
 import { adminMiddleware } from "../middleware/admin.middleware.js";
 import { BackupService } from "../services/backup.service.js";
 import { sendPromoEmail } from "../services/email.service.js";
-import { getAppBranding, updateAppBranding, clearTutorialVideo } from "../services/branding.service.js";
+import { getAppBranding, updateAppBranding, clearTutorialVideo, clearLanderDemoVideo } from "../services/branding.service.js";
 import multer from "multer";
 import { del } from "@vercel/blob";
 import { handleUpload } from "@vercel/blob/client";
@@ -137,8 +137,15 @@ router.get("/branding", async (_req, res) => {
 
 router.put("/branding", async (req, res) => {
   try {
-    const { appName, logoUrl, faviconUrl, baseUrl, tutorialVideoUrl } = req.body || {};
-    const branding = await updateAppBranding({ appName, logoUrl, faviconUrl, baseUrl, tutorialVideoUrl });
+    const { appName, logoUrl, faviconUrl, baseUrl, tutorialVideoUrl, landerDemoVideoUrl } = req.body || {};
+    const branding = await updateAppBranding({
+      appName,
+      logoUrl,
+      faviconUrl,
+      baseUrl,
+      tutorialVideoUrl,
+      landerDemoVideoUrl,
+    });
     res.json({ success: true, branding });
   } catch (error) {
     console.error("Error updating brand settings:", error);
@@ -178,6 +185,40 @@ router.delete("/tutorial-video", async (_req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error("Tutorial video delete error:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// POST /api/admin/lander-demo-video — upload MP4 for /create-ai-model hero demo (R2)
+router.post(
+  "/lander-demo-video",
+  handleVideoUpload("video"),
+  async (req, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ success: false, error: "No video file provided" });
+      if (!isR2Configured()) return res.status(503).json({ success: false, error: "R2 storage not configured" });
+
+      const ext = req.file.originalname?.match(/\.[^.]+$/)?.[0]?.toLowerCase() || ".mp4";
+      const key = `static/create_ai_model_lander_demo${ext}`;
+      const url = await uploadBufferToR2(req.file.buffer, key, req.file.mimetype || "video/mp4");
+
+      const branding = await getAppBranding();
+      await updateAppBranding({ ...branding, landerDemoVideoUrl: url });
+
+      res.json({ success: true, url });
+    } catch (error) {
+      console.error("Lander demo video upload error:", error);
+      res.status(500).json({ success: false, error: error.message || "Upload failed" });
+    }
+  },
+);
+
+router.delete("/lander-demo-video", async (_req, res) => {
+  try {
+    await clearLanderDemoVideo();
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Lander demo video delete error:", error);
     res.status(500).json({ success: false, error: error.message });
   }
 });

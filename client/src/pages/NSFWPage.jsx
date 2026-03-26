@@ -1235,7 +1235,7 @@ function NsfwImg2ImgTab({ modelId, activeLoraObj, chipSelections = {} }) {
       // Async path — server submitted RunPod job and returned a describeJobId
       if (data.describeJobId) {
         const describeJobId = data.describeJobId;
-        const maxPolls = 90; // 90 × 3s = 4.5 min
+        const maxPolls = 100; // 100 × 3s = 5 min (analysis queue can be slow)
         let attempts = 0;
         // isAnalyzing stays true; poll loop clears it when done
         const pollDescribe = async () => {
