@@ -680,6 +680,14 @@ export const adminTelemetryAPI = {
   },
 };
 
+/** Logged-in users — values match `getGenerationPricing()` / admin Generation Pricing. */
+export const pricingAPI = {
+  getGeneration: async () => {
+    const response = await api.get("/pricing/generation");
+    return response.data;
+  },
+};
+
 export const brandingAPI = {
   getPublicBranding: async () => {
     const response = await api.get("/brand");

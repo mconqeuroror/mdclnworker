@@ -30,7 +30,7 @@ import {
   Wand2,
 } from "lucide-react";
 import toast from "react-hot-toast";
-import { modelAPI, generationAPI, uploadToCloudinary as uploadFile } from "../services/api";
+import { modelAPI, generationAPI, pricingAPI, uploadToCloudinary as uploadFile } from "../services/api";
 import api from "../services/api";
 import { useAuthStore } from "../store";
 import { useDropzone } from "react-dropzone";
@@ -344,6 +344,14 @@ const modelLooksGroups = [
 ];
 const allLookKeys = modelLooksGroups.map((g) => g.key);
 
+/** Fallback if pricing fetch fails — keep aligned with `DEFAULT_GENERATION_PRICING` server-side. */
+const GEN_PRICING_FALLBACK = {
+  modelStep1Reference: 150,
+  modelStep2Poses: 750,
+  modelCreateAi: 900,
+  modelFromPhotosAdvanced: 900,
+};
+
 function buildInitialFormData() {
   return {
     age: "",
@@ -382,6 +390,31 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
 
   const user = useAuthStore((state) => state.user);
   const refreshUserCredits = useAuthStore((state) => state.refreshUserCredits);
+
+  const [genPricing, setGenPricing] = useState(GEN_PRICING_FALLBACK);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await pricingAPI.getGeneration();
+        if (cancelled || !r?.success || !r.pricing || typeof r.pricing !== "object") return;
+        setGenPricing((prev) => ({ ...prev, ...r.pricing }));
+      } catch {
+        /* keep fallback */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const step1Credits = genPricing.modelStep1Reference ?? GEN_PRICING_FALLBACK.modelStep1Reference;
+  const step2Credits = genPricing.modelStep2Poses ?? GEN_PRICING_FALLBACK.modelStep2Poses;
+  const scratchTotalCredits =
+    (Number.isFinite(step1Credits) ? step1Credits : 0) + (Number.isFinite(step2Credits) ? step2Credits : 0);
+  const fromPhotosCredits =
+    genPricing.modelFromPhotosAdvanced ?? GEN_PRICING_FALLBACK.modelFromPhotosAdvanced;
 
   const resetPhotoConfigs = () => {
     setPhotoConfigs(
@@ -1074,15 +1107,21 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-gray-400">{copy.pricingStep1}</span>
-                  <span className="text-xs font-semibold text-slate-300 inline-flex items-center gap-0.5">150 <Coins className="w-3 h-3 text-yellow-400" /></span>
+                  <span className="text-xs font-semibold text-slate-300 inline-flex items-center gap-0.5">
+                    {step1Credits} <Coins className="w-3 h-3 text-yellow-400" />
+                  </span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-gray-400">{copy.pricingStep2}</span>
-                  <span className="text-xs font-semibold text-slate-300 inline-flex items-center gap-0.5">+750 <Coins className="w-3 h-3 text-yellow-400" /></span>
+                  <span className="text-xs font-semibold text-slate-300 inline-flex items-center gap-0.5">
+                    +{step2Credits} <Coins className="w-3 h-3 text-yellow-400" />
+                  </span>
                 </div>
                 <div className="border-t border-white/10 pt-1.5 mt-1 flex items-center justify-between">
                   <span className="text-xs font-medium text-gray-300">{copy.pricingTotal}</span>
-                  <span className="text-sm font-bold text-white inline-flex items-center gap-0.5">900 <Coins className="w-3.5 h-3.5 text-yellow-400" /></span>
+                  <span className="text-sm font-bold text-white inline-flex items-center gap-0.5">
+                    {scratchTotalCredits} <Coins className="w-3.5 h-3.5 text-yellow-400" />
+                  </span>
                 </div>
               </div>
             </div>
@@ -1095,7 +1134,7 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
               >
                 {copy.back}
               </button>
-              {user?.credits < 150 ? (
+              {user?.credits < step1Credits ? (
                 <button
                   onClick={() => onNeedCredits?.()}
                   className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:scale-105 transition flex items-center justify-center gap-2 text-sm"
@@ -1104,7 +1143,7 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
                   <CreditCard className="w-4 h-4" />
                   {copy.getCredits}{" "}
                   <span className="inline-flex items-center gap-0.5 text-yellow-400">
-                    (150 <Coins className="w-3.5 h-3.5" />)
+                    ({step1Credits} <Coins className="w-3.5 h-3.5" />)
                   </span>
                 </button>
               ) : (
@@ -1162,7 +1201,8 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
                 <RefreshCw className={`w-4 h-4 relative z-10 text-black ${generating ? "animate-spin" : ""}`} />
                 <span className="relative z-10">{copy.regenerateFace}</span>
                 <span className="relative z-10 inline-flex items-center gap-1 bg-black/10 px-1.5 py-0.5 rounded-full text-xs text-black">
-                  <Coins className="w-3 h-3 text-yellow-400" />6
+                  <Coins className="w-3 h-3 text-yellow-400" />
+                  {step1Credits}
                 </span>
               </button>
             </div>
@@ -1287,25 +1327,40 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
                 <ArrowLeft className="w-4 h-4" />
                 {copy.edit}
               </button>
-              <button
-                onClick={handleConfirmAndGenerate}
-                disabled={generating}
-                className="relative flex-1 py-3 rounded-xl border border-white/20 bg-white/[0.04] hover:bg-white/[0.08] hover:border-white/35 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-semibold overflow-hidden"
-                style={{ boxShadow: "0 0 20px 4px rgba(139,92,246,0.25), inset 0 1px 0 rgba(255,255,255,0.07)" }}
-              >
-                <span className="pointer-events-none absolute top-0 left-0 w-28 h-28 rounded-full bg-purple-500/25 blur-2xl -translate-x-8 -translate-y-8" />
-                {generating ? (
-                  <>
-                    <Loader2 className="w-5 h-5 animate-spin relative z-10" />
-                    <span className="relative z-10">{copy.generating}</span>
-                  </>
-                ) : (
-                  <>
-                    <ArrowRight className="w-5 h-5 relative z-10" />
-                    <span className="relative z-10">{copy.generateModel}</span>
-                  </>
-                )}
-              </button>
+              {user?.credits < step2Credits ? (
+                <button
+                  type="button"
+                  onClick={() => onNeedCredits?.()}
+                  disabled={generating}
+                  className="relative flex-1 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:scale-[1.02] transition disabled:opacity-50 flex items-center justify-center gap-2 font-semibold"
+                >
+                  <CreditCard className="w-5 h-5 relative z-10" />
+                  <span className="relative z-10 inline-flex items-center gap-1">
+                    {copy.getCredits} ({step2Credits}
+                    <Coins className="w-4 h-4 text-yellow-200" />)
+                  </span>
+                </button>
+              ) : (
+                <button
+                  onClick={handleConfirmAndGenerate}
+                  disabled={generating}
+                  className="relative flex-1 py-3 rounded-xl border border-white/20 bg-white/[0.04] hover:bg-white/[0.08] hover:border-white/35 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-semibold overflow-hidden"
+                  style={{ boxShadow: "0 0 20px 4px rgba(139,92,246,0.25), inset 0 1px 0 rgba(255,255,255,0.07)" }}
+                >
+                  <span className="pointer-events-none absolute top-0 left-0 w-28 h-28 rounded-full bg-purple-500/25 blur-2xl -translate-x-8 -translate-y-8" />
+                  {generating ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin relative z-10" />
+                      <span className="relative z-10">{copy.generating}</span>
+                    </>
+                  ) : (
+                    <>
+                      <ArrowRight className="w-5 h-5 relative z-10" />
+                      <span className="relative z-10">{copy.generateModel}</span>
+                    </>
+                  )}
+                </button>
+              )}
             </div>
           </motion.div>
         )}

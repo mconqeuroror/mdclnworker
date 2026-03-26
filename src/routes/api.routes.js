@@ -669,6 +669,17 @@ router.get("/upload/config", authMiddleware, (req, res) => {
   });
 });
 
+// Merged generation pricing (admin-overridable) — for UI that must match server charges (e.g. Create AI Model).
+router.get("/pricing/generation", authMiddleware, async (_req, res) => {
+  try {
+    const pricing = await getGenerationPricing();
+    res.json({ success: true, pricing });
+  } catch (error) {
+    console.error("GET /pricing/generation error:", error);
+    res.status(500).json({ success: false, message: "Failed to load pricing" });
+  }
+});
+
 // Client direct-to-blob: server only returns a token (JSON). File is uploaded browser → Vercel Blob (no 413).
 router.post("/upload/blob", authMiddleware, async (req, res) => {
   if (!isVercelBlobConfigured()) {
