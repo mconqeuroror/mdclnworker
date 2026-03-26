@@ -1,5 +1,6 @@
 import prisma from "../lib/prisma.js";
-import { getR2PublicUrl, hasR2Object } from "../utils/r2.js";
+import { isVercelBlobConfigured, uploadBufferToBlob } from "../utils/kieUpload.js";
+import { getR2PublicUrl, hasR2Object, isR2Configured, uploadToR2 } from "../utils/r2.js";
 
 const CREATE_TUTORIAL_SLOT_TABLE_SQL = `
 CREATE TABLE IF NOT EXISTS "TutorialSlotVideo" (
@@ -28,6 +29,43 @@ export function isTutorialSlotTableError(err) {
   const code = err?.code;
   const msg = String(err?.message || "");
   return code === "P2021" || /TutorialSlotVideo.*does not exist/i.test(msg) || /relation.*TutorialSlotVideo.*does not exist/i.test(msg);
+}
+
+function isBlobUnauthorizedError(err) {
+  const msg = String(err?.message || err?.cause?.message || "");
+  const status = err?.status ?? err?.response?.status ?? err?.statusCode;
+  return status === 401 || /(^|\s)401(\s|$)|unauthorized|invalid token|BlobAccessError/i.test(msg);
+}
+
+/**
+ * Tutorial slot uploads: prefer R2 (same stack as the rest of the app; avoids Vercel Blob 401 when token/store mismatch).
+ * Uses Vercel Blob only when R2 is not configured.
+ */
+export async function uploadTutorialSlotMedia(buffer, slotKey, originalFilename, contentType) {
+  const mime = contentType || "video/mp4";
+  if (isR2Configured()) {
+    const r2Key = getTutorialR2Key(slotKey);
+    const url = await uploadToR2(buffer, r2Key, mime);
+    return { url, storage: "r2" };
+  }
+  if (!isVercelBlobConfigured()) {
+    throw new Error(
+      "No storage for tutorials: set R2 env vars (R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME, R2_PUBLIC_URL) or BLOB_READ_WRITE_TOKEN for Vercel Blob.",
+    );
+  }
+  const ext = originalFilename?.match(/\.[^.]+$/)?.[0]?.toLowerCase() || ".mp4";
+  const filename = `${getTutorialSlotSlug(slotKey)}${ext}`;
+  try {
+    const url = await uploadBufferToBlob(buffer, filename, mime, "tutorials");
+    return { url, storage: "vercel-blob" };
+  } catch (e) {
+    if (isBlobUnauthorizedError(e)) {
+      throw new Error(
+        "Vercel Blob returned 401 (invalid or expired BLOB_READ_WRITE_TOKEN, or token from another project). Regenerate a Read/Write token in Vercel → Storage → your Blob store, or configure R2 and tutorial uploads will use R2 instead.",
+      );
+    }
+    throw e;
+  }
 }
 
 export function getTutorialSlotSlug(slotKey) {

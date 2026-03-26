@@ -10,13 +10,12 @@ import { getAppBranding, updateAppBranding, clearTutorialVideo } from "../servic
 import multer from "multer";
 import { del } from "@vercel/blob";
 import { isR2Configured, uploadBufferToR2, uploadFileToR2, mirrorToR2 } from "../utils/r2.js";
-import { isVercelBlobConfigured, uploadBufferToBlob } from "../utils/kieUpload.js";
 import {
   getTutorialCatalog,
   getTutorialSlot,
-  getTutorialSlotSlug,
   isTutorialSlotTableError,
   isValidTutorialSlot,
+  uploadTutorialSlotMedia,
   upsertTutorialSlotVideoUrl,
 } from "../services/tutorial-videos.service.js";
 import {
@@ -195,44 +194,38 @@ router.post(
   "/tutorial-video-slot",
   handleVideoUpload("video"),
   async (req, res) => {
-    let blobUrl = null;
+    let uploadedUrl = null;
+    let storageKind = null;
     try {
       if (!req.file) return res.status(400).json({ success: false, error: "No video file provided" });
-      if (!isVercelBlobConfigured()) {
-        return res.status(503).json({
-          success: false,
-          error: "Vercel Blob not configured (set BLOB_READ_WRITE_TOKEN for tutorial uploads)",
-        });
-      }
 
       const slotKey = String(req.body?.slot || "").trim();
       if (!isValidTutorialSlot(slotKey)) {
         return res.status(400).json({ success: false, error: "Invalid tutorial slot" });
       }
 
-      const ext = req.file.originalname?.match(/\.[^.]+$/)?.[0]?.toLowerCase() || ".mp4";
-      const safeBase = getTutorialSlotSlug(slotKey);
-      const filename = `${safeBase}${ext}`;
-      blobUrl = await uploadBufferToBlob(
+      const { url, storage } = await uploadTutorialSlotMedia(
         req.file.buffer,
-        filename,
+        slotKey,
+        req.file.originalname,
         req.file.mimetype || "video/mp4",
-        "tutorials",
       );
-      await upsertTutorialSlotVideoUrl(slotKey, blobUrl);
+      uploadedUrl = url;
+      storageKind = storage;
+      await upsertTutorialSlotVideoUrl(slotKey, url);
 
       const slot = getTutorialSlot(slotKey);
       res.json({
         success: true,
         slot: slotKey,
         label: slot?.label || slotKey,
-        url: blobUrl,
-        storage: "vercel-blob",
+        url,
+        storage,
       });
     } catch (error) {
-      if (blobUrl && process.env.BLOB_READ_WRITE_TOKEN) {
+      if (uploadedUrl && storageKind === "vercel-blob" && process.env.BLOB_READ_WRITE_TOKEN) {
         try {
-          await del(blobUrl, { token: process.env.BLOB_READ_WRITE_TOKEN });
+          await del(uploadedUrl, { token: process.env.BLOB_READ_WRITE_TOKEN });
         } catch (_) {
           /* non-fatal */
         }
