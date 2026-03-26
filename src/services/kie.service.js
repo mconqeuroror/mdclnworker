@@ -632,7 +632,8 @@ async function generateTextToImageNanoBananaKieInternal(prompt, options = {}) {
  * Kling 3.0 image-to-video with motion (recreate video).
  * @param {string} imageUrl - starting frame image
  * @param {string} videoUrl - reference video for motion (passed as end frame or element)
- * @param {object} options - { prompt, videoPrompt, ultra, ultraMode, motion1080p, motionMode, characterOrientation, onTaskSubmitted }
+ * @param {object} options - { prompt, videoPrompt, ultra, ultraMode, motion1080p, motion720p, motionMode, characterOrientation, onTaskSubmitted }
+ * Default output resolution is 1080p for both 2.6 (classic) and 3.0 (ultra). Pass motion720p: true or motionMode "720p"|"std"|"standard" to force 720p.
  * Payload shape matches content-studio for both 2.6 and 3.0 motion-control.
  */
 async function generateVideoWithMotionKieInternal(imageUrl, videoUrl, options = {}) {
@@ -660,12 +661,12 @@ async function generateVideoWithMotionKieInternal(imageUrl, videoUrl, options = 
   // We intentionally omit `input.prompt` entirely.
 
   const model = useUltraMotionControl ? "kling-3.0/motion-control" : "kling-2.6/motion-control";
-  const want1080 =
-    useUltraMotionControl ||
-    options.motion1080p === true ||
-    options.motionMode === "1080p" ||
-    options.motionMode === "pro";
-  const mode = want1080 ? "1080p" : "720p";
+  const force720 =
+    options.motion720p === true ||
+    options.motionMode === "720p" ||
+    options.motionMode === "std" ||
+    options.motionMode === "standard";
+  const mode = force720 ? "720p" : "1080p";
 
   const inputObj = {
     input_urls: [img],
