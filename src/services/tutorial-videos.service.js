@@ -1,6 +1,35 @@
 import prisma from "../lib/prisma.js";
 import { getR2PublicUrl, hasR2Object } from "../utils/r2.js";
 
+const CREATE_TUTORIAL_SLOT_TABLE_SQL = `
+CREATE TABLE IF NOT EXISTS "TutorialSlotVideo" (
+    "slotKey" TEXT NOT NULL,
+    "videoUrl" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "TutorialSlotVideo_pkey" PRIMARY KEY ("slotKey")
+);
+`;
+
+let ensureTutorialSlotTablePromise = null;
+
+/** Idempotent: creates TutorialSlotVideo if missing (avoids 500 when migrate was not run on prod). */
+async function ensureTutorialSlotVideoTable() {
+  if (!ensureTutorialSlotTablePromise) {
+    ensureTutorialSlotTablePromise = prisma.$executeRawUnsafe(CREATE_TUTORIAL_SLOT_TABLE_SQL).catch((e) => {
+      ensureTutorialSlotTablePromise = null;
+      throw e;
+    });
+  }
+  return ensureTutorialSlotTablePromise;
+}
+
+export function isTutorialSlotTableError(err) {
+  const code = err?.code;
+  const msg = String(err?.message || "");
+  return code === "P2021" || /TutorialSlotVideo.*does not exist/i.test(msg) || /relation.*TutorialSlotVideo.*does not exist/i.test(msg);
+}
+
 export function getTutorialSlotSlug(slotKey) {
   return String(slotKey || "")
     .trim()
@@ -48,6 +77,7 @@ export function getTutorialPublicUrl(slotKey) {
 export async function upsertTutorialSlotVideoUrl(slotKey, videoUrl) {
   const key = String(slotKey || "").trim();
   if (!key || !videoUrl?.trim()) return null;
+  await ensureTutorialSlotVideoTable();
   return prisma.tutorialSlotVideo.upsert({
     where: { slotKey: key },
     create: { slotKey: key, videoUrl: videoUrl.trim() },
@@ -59,6 +89,7 @@ export async function getTutorialCatalog() {
   const slotKeys = TUTORIAL_SLOTS.map((s) => s.key);
   let dbByKey = new Map();
   try {
+    await ensureTutorialSlotVideoTable();
     const rows = await prisma.tutorialSlotVideo.findMany({
       where: { slotKey: { in: slotKeys } },
       select: { slotKey: true, videoUrl: true },

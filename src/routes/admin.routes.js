@@ -8,12 +8,14 @@ import { BackupService } from "../services/backup.service.js";
 import { sendPromoEmail } from "../services/email.service.js";
 import { getAppBranding, updateAppBranding, clearTutorialVideo } from "../services/branding.service.js";
 import multer from "multer";
+import { del } from "@vercel/blob";
 import { isR2Configured, uploadBufferToR2, uploadFileToR2, mirrorToR2 } from "../utils/r2.js";
 import { isVercelBlobConfigured, uploadBufferToBlob } from "../utils/kieUpload.js";
 import {
   getTutorialCatalog,
   getTutorialSlot,
   getTutorialSlotSlug,
+  isTutorialSlotTableError,
   isValidTutorialSlot,
   upsertTutorialSlotVideoUrl,
 } from "../services/tutorial-videos.service.js";
@@ -193,6 +195,7 @@ router.post(
   "/tutorial-video-slot",
   handleVideoUpload("video"),
   async (req, res) => {
+    let blobUrl = null;
     try {
       if (!req.file) return res.status(400).json({ success: false, error: "No video file provided" });
       if (!isVercelBlobConfigured()) {
@@ -210,24 +213,38 @@ router.post(
       const ext = req.file.originalname?.match(/\.[^.]+$/)?.[0]?.toLowerCase() || ".mp4";
       const safeBase = getTutorialSlotSlug(slotKey);
       const filename = `${safeBase}${ext}`;
-      const url = await uploadBufferToBlob(
+      blobUrl = await uploadBufferToBlob(
         req.file.buffer,
         filename,
         req.file.mimetype || "video/mp4",
         "tutorials",
       );
-      await upsertTutorialSlotVideoUrl(slotKey, url);
+      await upsertTutorialSlotVideoUrl(slotKey, blobUrl);
 
       const slot = getTutorialSlot(slotKey);
       res.json({
         success: true,
         slot: slotKey,
         label: slot?.label || slotKey,
-        url,
+        url: blobUrl,
         storage: "vercel-blob",
       });
     } catch (error) {
+      if (blobUrl && process.env.BLOB_READ_WRITE_TOKEN) {
+        try {
+          await del(blobUrl, { token: process.env.BLOB_READ_WRITE_TOKEN });
+        } catch (_) {
+          /* non-fatal */
+        }
+      }
       console.error("Tutorial slot upload error:", error);
+      if (isTutorialSlotTableError(error)) {
+        return res.status(503).json({
+          success: false,
+          error:
+            "Database could not store the tutorial URL (TutorialSlotVideo table). Grant CREATE on the DB or run prisma migrate deploy.",
+        });
+      }
       res.status(500).json({ success: false, error: error.message || "Upload failed" });
     }
   },
