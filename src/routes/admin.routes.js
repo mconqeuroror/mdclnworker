@@ -98,6 +98,26 @@ const uploadEmailVideo = multer({
   },
 });
 
+function handleVideoUpload(fieldName = "video") {
+  return (req, res, next) => {
+    uploadEmailVideo.single(fieldName)(req, res, (err) => {
+      if (err) {
+        if (err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE") {
+          return res.status(413).json({
+            success: false,
+            error: "Video file too large. Max 200MB.",
+          });
+        }
+        return res.status(400).json({
+          success: false,
+          error: err?.message || "Invalid video file",
+        });
+      }
+      next();
+    });
+  };
+}
+
 // All admin routes require authentication and admin role
 router.use(authMiddleware, adminMiddleware);
 
@@ -125,7 +145,7 @@ router.put("/branding", async (req, res) => {
 // POST /api/admin/tutorial-video — upload a new tutorial video to R2
 router.post(
   "/tutorial-video",
-  uploadEmailVideo.single("video"),
+  handleVideoUpload("video"),
   async (req, res) => {
     try {
       if (!req.file) return res.status(400).json({ success: false, error: "No video file provided" });
@@ -170,7 +190,7 @@ router.get("/tutorial-video-slots", async (_req, res) => {
 
 router.post(
   "/tutorial-video-slot",
-  uploadEmailVideo.single("video"),
+  handleVideoUpload("video"),
   async (req, res) => {
     try {
       if (!req.file) return res.status(400).json({ success: false, error: "No video file provided" });
