@@ -8,13 +8,14 @@ import { BackupService } from "../services/backup.service.js";
 import { sendPromoEmail } from "../services/email.service.js";
 import { getAppBranding, updateAppBranding, clearTutorialVideo } from "../services/branding.service.js";
 import multer from "multer";
-import { isR2Configured, uploadBufferToR2, uploadFileToR2, mirrorToR2, uploadToR2 } from "../utils/r2.js";
+import { isR2Configured, uploadBufferToR2, uploadFileToR2, mirrorToR2 } from "../utils/r2.js";
+import { isVercelBlobConfigured, uploadBufferToBlob } from "../utils/kieUpload.js";
 import {
   getTutorialCatalog,
-  getTutorialPublicUrl,
-  getTutorialR2Key,
   getTutorialSlot,
+  getTutorialSlotSlug,
   isValidTutorialSlot,
+  upsertTutorialSlotVideoUrl,
 } from "../services/tutorial-videos.service.js";
 import {
   getLatestEndpointHealthSnapshots,
@@ -194,22 +195,36 @@ router.post(
   async (req, res) => {
     try {
       if (!req.file) return res.status(400).json({ success: false, error: "No video file provided" });
-      if (!isR2Configured()) return res.status(503).json({ success: false, error: "R2 storage not configured" });
+      if (!isVercelBlobConfigured()) {
+        return res.status(503).json({
+          success: false,
+          error: "Vercel Blob not configured (set BLOB_READ_WRITE_TOKEN for tutorial uploads)",
+        });
+      }
 
       const slotKey = String(req.body?.slot || "").trim();
       if (!isValidTutorialSlot(slotKey)) {
         return res.status(400).json({ success: false, error: "Invalid tutorial slot" });
       }
 
-      const r2Key = getTutorialR2Key(slotKey);
-      const url = await uploadToR2(req.file.buffer, r2Key, req.file.mimetype || "video/mp4");
+      const ext = req.file.originalname?.match(/\.[^.]+$/)?.[0]?.toLowerCase() || ".mp4";
+      const safeBase = getTutorialSlotSlug(slotKey);
+      const filename = `${safeBase}${ext}`;
+      const url = await uploadBufferToBlob(
+        req.file.buffer,
+        filename,
+        req.file.mimetype || "video/mp4",
+        "tutorials",
+      );
+      await upsertTutorialSlotVideoUrl(slotKey, url);
+
       const slot = getTutorialSlot(slotKey);
       res.json({
         success: true,
         slot: slotKey,
         label: slot?.label || slotKey,
-        key: r2Key,
-        url: url || getTutorialPublicUrl(slotKey),
+        url,
+        storage: "vercel-blob",
       });
     } catch (error) {
       console.error("Tutorial slot upload error:", error);

@@ -23,7 +23,7 @@ export function isVercelBlobConfigured() {
  * @param {Buffer} buffer
  * @param {string} filename - e.g. "image.jpg", "video.mp4"
  * @param {string} contentType
- * @param {string} folder - "kie-relay" (temp, may be deleted after KIE) or "user-uploads" (persisted for generation inputs)
+ * @param {string} folder - "kie-relay" (temp), "user-uploads" (generation inputs), "tutorials" (admin slot videos, persistent)
  * @returns {Promise<string>} public blob URL
  */
 export async function uploadBufferToBlob(buffer, filename, contentType, folder = "kie-relay") {

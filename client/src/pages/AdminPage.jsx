@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { 
   Users, Search, Plus, Trash2, DollarSign, Activity, Settings, Shield,
   ChevronDown, ChevronUp, RefreshCw, BarChart3, Palette, Mail, ArrowLeft,
@@ -394,6 +395,7 @@ function ManageUserPurchasesModal({ open, user, purchases, loading, refundingId,
 
 export default function AdminPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   // ── Data state ──────────────────────────────────────────────────────────────
   const [stats, setStats] = useState(null);
@@ -1212,6 +1214,7 @@ export default function AdminPage() {
       if (result?.success) {
         toast.success('Tutorial slot updated');
         await loadTutorialSlots();
+        queryClient.invalidateQueries({ queryKey: ['tutorial-catalog'] });
       } else {
         toast.error(result?.error || 'Upload failed');
       }

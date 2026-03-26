@@ -1,4 +1,13 @@
+import prisma from "../lib/prisma.js";
 import { getR2PublicUrl, hasR2Object } from "../utils/r2.js";
+
+export function getTutorialSlotSlug(slotKey) {
+  return String(slotKey || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/-+/g, "-");
+}
 
 export const TUTORIAL_SLOTS = [
   { key: "models.my-models", label: "My Models" },
@@ -26,21 +35,45 @@ export function getTutorialSlot(slotKey) {
 }
 
 export function getTutorialR2Key(slotKey) {
-  const safeSlot = String(slotKey || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, "-")
-    .replace(/-+/g, "-");
-  return `static/tutorials/${safeSlot}.mp4`;
+  return `static/tutorials/${getTutorialSlotSlug(slotKey)}.mp4`;
 }
 
 export function getTutorialPublicUrl(slotKey) {
   return getR2PublicUrl(getTutorialR2Key(slotKey));
 }
 
+/**
+ * Persist Vercel Blob (or any stable HTTPS) URL for a tutorial slot after admin upload.
+ */
+export async function upsertTutorialSlotVideoUrl(slotKey, videoUrl) {
+  const key = String(slotKey || "").trim();
+  if (!key || !videoUrl?.trim()) return null;
+  return prisma.tutorialSlotVideo.upsert({
+    where: { slotKey: key },
+    create: { slotKey: key, videoUrl: videoUrl.trim() },
+    update: { videoUrl: videoUrl.trim() },
+  });
+}
+
 export async function getTutorialCatalog() {
+  const slotKeys = TUTORIAL_SLOTS.map((s) => s.key);
+  let dbByKey = new Map();
+  try {
+    const rows = await prisma.tutorialSlotVideo.findMany({
+      where: { slotKey: { in: slotKeys } },
+      select: { slotKey: true, videoUrl: true },
+    });
+    dbByKey = new Map(rows.map((r) => [r.slotKey, r.videoUrl]));
+  } catch (e) {
+    console.warn("[tutorials] TutorialSlotVideo read failed (run migrations?):", e?.message || e);
+  }
+
   const entries = await Promise.all(
     TUTORIAL_SLOTS.map(async (slot) => {
+      const dbUrl = dbByKey.get(slot.key)?.trim();
+      if (dbUrl) {
+        return { key: slot.key, label: slot.label, exists: true, url: dbUrl, source: "db" };
+      }
       const r2Key = getTutorialR2Key(slot.key);
       const exists = await hasR2Object(r2Key);
       return {
@@ -48,6 +81,7 @@ export async function getTutorialCatalog() {
         label: slot.label,
         exists,
         url: exists ? getR2PublicUrl(r2Key) : null,
+        source: exists ? "r2" : null,
       };
     }),
   );

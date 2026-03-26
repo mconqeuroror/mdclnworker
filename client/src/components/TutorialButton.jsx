@@ -110,10 +110,11 @@ export default function TutorialButton({ tutorial, showWhenMissing = false, miss
                   >
                     {tutorial.videoUrl ? (
                       <video
+                        key={tutorial.videoUrl}
                         className="absolute inset-0 w-full h-full object-contain"
                         src={tutorial.videoUrl}
                         controls
-                        autoPlay={false}
+                        preload="metadata"
                         playsInline
                       />
                     ) : (
