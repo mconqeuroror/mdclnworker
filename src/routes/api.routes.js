@@ -1477,6 +1477,83 @@ const ANALYZE_LOOKS_OPTIONS = {
   tattoos: ["no tattoos", "small tattoos", "arm sleeve tattoo", "multiple tattoos", "full body tattoos", "navel piercing", "nipple piercings", "nose piercing"],
 };
 
+/** Strip markdown fences and extract a single top-level JSON object or array string. */
+function extractTopLevelJsonSlice(s) {
+  const t = s.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+  if (!t) return null;
+  const startObj = t.indexOf("{");
+  const startArr = t.indexOf("[");
+  const useArray = startArr !== -1 && (startObj === -1 || startArr < startObj);
+  const open = useArray ? "[" : "{";
+  const close = useArray ? "]" : "}";
+  const start = useArray ? startArr : startObj;
+  if (start === -1) return null;
+  let depth = 0;
+  for (let i = start; i < t.length; i++) {
+    const c = t[i];
+    if (c === open) depth++;
+    else if (c === close) {
+      depth--;
+      if (depth === 0) return t.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
+/**
+ * Models sometimes return a JSON array (one object per image). We need one looks object.
+ * - age: median of numeric ages present
+ * - other keys: first non-empty wins (image order: face refs before body)
+ */
+function mergeAnalyzeLooksArray(objects) {
+  const merged = {};
+  const ages = [];
+  for (const obj of objects) {
+    if (!obj || typeof obj !== "object") continue;
+    if (obj.age !== undefined && obj.age !== null) {
+      const a = parseInt(String(obj.age).trim(), 10);
+      if (!Number.isNaN(a)) ages.push(Math.max(1, Math.min(120, a)));
+    }
+    for (const [k, v] of Object.entries(obj)) {
+      if (k === "age") continue;
+      const str = typeof v === "string" ? v.trim() : v != null && v !== "" ? String(v).trim() : "";
+      if (str && merged[k] == null) merged[k] = str;
+    }
+  }
+  if (ages.length) {
+    ages.sort((a, b) => a - b);
+    const mid = Math.floor(ages.length / 2);
+    merged.age =
+      ages.length % 2 !== 0 ? ages[mid] : Math.round((ages[mid - 1] + ages[mid]) / 2);
+  }
+  return merged;
+}
+
+function parseAnalyzeLooksResponse(rawContent) {
+  const trimmed = rawContent?.trim();
+  if (!trimmed) throw new Error("AI service returned empty response");
+
+  const slice = extractTopLevelJsonSlice(trimmed) ?? trimmed;
+  let parsed;
+  try {
+    parsed = JSON.parse(slice);
+  } catch {
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      throw new Error(`Failed to parse AI response as JSON: ${trimmed.slice(0, 500)}`);
+    }
+  }
+
+  if (Array.isArray(parsed)) {
+    const objects = parsed.filter((x) => x && typeof x === "object" && !Array.isArray(x));
+    if (objects.length === 0) throw new Error("AI returned an empty JSON array");
+    return objects.length === 1 ? objects[0] : mergeAnalyzeLooksArray(objects);
+  }
+  if (parsed && typeof parsed === "object") return parsed;
+  throw new Error("AI response JSON must be an object or array of objects");
+}
+
 /**
  * Analyze Looks - Detect model appearance from uploaded photos using Grok vision
  * POST /api/generate/analyze-looks
@@ -1557,17 +1634,19 @@ router.post("/generate/analyze-looks", authMiddleware, async (req, res) => {
 
     const systemPrompt = `You are an expert at analyzing photos of people to determine their physical appearance for AI model configuration.
 
-Analyze the provided photo(s) and return a JSON object. Each value MUST be exactly one of the allowed options below (copy the string exactly).
+The images are always the SAME person (different angles or face/body shots). Return ONE JSON object describing that single person. Do NOT return a JSON array of multiple people.
+
+Each value MUST be exactly one of the allowed options below (copy the string exactly), except age is an integer 1–120.
 - age: integer (estimated age 1–120). All other keys: use the exact option strings from the lists.
 
 ${optionsBlock}
 
 Rules:
-- Return ONLY valid JSON, no markdown or explanation.
+- Return ONLY one JSON object (not an array), no markdown or explanation.
 - For each key, pick the single closest match from its allowed list. Copy the option string exactly (e.g. "blonde hair" not "blonde").
 - If no option fits the person, use a short custom description (e.g. "auburn wavy hair"); it will be stored as a custom value.
-- Omit a key only if the trait is impossible to determine from the photos.
-- Age can be from 1 to 120 (use your best estimate from the photos).`;
+- Omit a key only if the trait is impossible to determine from any of the photos.
+- Combine evidence from all photos into that one object (e.g. body type from a full-body shot, face traits from close-ups).`;
 
     const requestBody = {
       model: "x-ai/grok-4.1-fast",
@@ -1577,7 +1656,7 @@ Rules:
           role: "user",
           content: [
             ...imageBlocks,
-            { type: "text", text: "Analyze the person in these photos. Return JSON with age (integer) and the appearance keys above, using only the allowed option strings." },
+            { type: "text", text: "These photos show one same person. Return a single JSON object (not an array) with age (integer) and the appearance keys above, using only the allowed option strings where possible." },
           ],
         },
       ],
@@ -1601,17 +1680,7 @@ Rules:
 
     const aiData = await aiResponse.json();
     const rawContent = aiData.choices?.[0]?.message?.content?.trim();
-    if (!rawContent) throw new Error("AI service returned empty response");
-
-    const jsonStr = rawContent.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
-    const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
-    const toParse = jsonMatch ? jsonMatch[0] : jsonStr;
-    let looks;
-    try {
-      looks = JSON.parse(toParse);
-    } catch {
-      throw new Error(`Failed to parse AI response as JSON: ${rawContent}`);
-    }
+    const looks = parseAnalyzeLooksResponse(rawContent);
 
     const sanitized = {};
     if (looks.age !== undefined) {
