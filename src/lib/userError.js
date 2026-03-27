@@ -67,7 +67,18 @@ export function toUserError(rawMessage) {
     };
   }
 
-  // Server/API 5xx
+  // Upstream gateways (HTML 502 bodies, Cloudflare, etc.)
+  if (
+    /<!doctype|<html[\s>]|\bbad gateway\b|\bcloudflare\b|\bupstream temporarily\b/i.test(lower) ||
+    /\b502\b|\b503\b|\b504\b/.test(lower)
+  ) {
+    return {
+      message: "The AI service is temporarily unavailable.",
+      solution: "Please wait a minute and try again. If it keeps failing, contact support.",
+    };
+  }
+
+  // Server/API 5xx (short messages)
   if (/500|502|503|server error|internal error/i.test(lower)) {
     return {
       message: "The AI service had a temporary problem.",
@@ -82,6 +93,16 @@ export function toUserError(rawMessage) {
     message: short || "Something went wrong.",
     solution: "Please try again. If it keeps happening, contact support.",
   };
+}
+
+/** For API status codes: true when retrying later may succeed (gateways, rate limits, network). */
+export function isTransientAiUpstreamError(rawMessage) {
+  const s = String(rawMessage || "").toLowerCase();
+  return (
+    /upstream temporarily|temporarily unavailable|bad gateway|cloudflare|<!doctype|<html[\s>]/.test(s) ||
+    /\b(502|503|504|429)\b/.test(s) ||
+    /rate limit|too many requests|overload|busy|capacity|unavailable|econnreset|etimedout|fetch failed|socket hang|timed out|timeout/.test(s)
+  );
 }
 
 /**

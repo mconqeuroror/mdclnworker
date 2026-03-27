@@ -256,9 +256,6 @@ export async function mirrorToBlob(sourceUrl, purpose = "default") {
           const dims = getImageDimensions(buffer, ext);
           if (dims) {
             console.log(`[Blob/KIE relay] Image dimensions: ${dims.width}x${dims.height}`);
-            if (dims.width <= 300 || dims.height <= 300) {
-              throw new Error(`Image too small (${dims.width}x${dims.height}) — use at least 301px in each dimension.`);
-            }
             const ratio = dims.width / dims.height;
             if (ratio < 0.4 || ratio > 2.5) {
               throw new Error(`Image aspect ratio ${ratio.toFixed(2)} is not supported; use between 0.4 and 2.5.`);
@@ -267,12 +264,18 @@ export async function mirrorToBlob(sourceUrl, purpose = "default") {
             if (minSide < 1024) {
               try {
                 const sharp = (await import("sharp")).default;
-                const w = dims.width < dims.height ? 1024 : null;
-                const h = dims.width < dims.height ? null : 1024;
-                outBuffer = await sharp(buffer).resize(w, h).toBuffer();
-                console.log(`[Blob/KIE relay] Upscaled to 1024px min for KIE`);
+                const scale = 1024 / minSide;
+                const tw = Math.round(dims.width * scale);
+                const th = Math.round(dims.height * scale);
+                outBuffer = await sharp(buffer).resize(tw, th).toBuffer();
+                console.log(`[Blob/KIE relay] Upscaled ${dims.width}x${dims.height} → ${tw}x${th} for KIE (min side 1024)`);
               } catch (e) {
-                console.warn("[Blob/KIE relay] Upscale skipped:", e?.message);
+                console.warn("[Blob/KIE relay] Upscale failed:", e?.message);
+                if (minSide <= 300) {
+                  throw new Error(
+                    `Image too small (${dims.width}x${dims.height}) — use a larger or higher-resolution photo.`,
+                  );
+                }
               }
             }
           }

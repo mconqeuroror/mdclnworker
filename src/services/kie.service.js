@@ -219,6 +219,16 @@ function normalizeKieCreateRequestBody(rawBody, label) {
   return body;
 }
 
+/** Avoid logging multi-KB HTML error pages (Cloudflare 502, etc.). */
+function kieHttpErrorMessage(status, text) {
+  const body = String(text || "");
+  const looksLikeHtml = /<!DOCTYPE/i.test(body) || /<html[\s>]/i.test(body);
+  if (looksLikeHtml || (status >= 500 && body.length > 400)) {
+    return `AI service HTTP ${status} (upstream temporarily unavailable — try again shortly)`;
+  }
+  return `AI service HTTP ${status}: ${body.slice(0, 300)}`;
+}
+
 /**
  * Submit a task to KIE API. Returns taskId string.
  */
@@ -250,7 +260,7 @@ async function kieCreateTask(requestBody, label = "task") {
 
   const text = await res.text();
   if (!res.ok) {
-    throw new Error(`AI service HTTP ${res.status}: ${text.slice(0, 300)}`);
+    throw new Error(kieHttpErrorMessage(res.status, text));
   }
 
   let data;

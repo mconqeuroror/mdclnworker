@@ -1,5 +1,5 @@
 import prisma from "../lib/prisma.js";
-import { toUserError } from "../lib/userError.js";
+import { toUserError, isTransientAiUpstreamError } from "../lib/userError.js";
 import {
   generateAIModelPhotos,
   generateReferenceImage,
@@ -1298,7 +1298,9 @@ export async function generateTrialReference(req, res) {
     });
   } catch (error) {
     console.error("Generate trial reference error:", error);
-    res.status(500).json({ success: false, message: "Server error" });
+    const { message, solution } = toUserError(error?.message);
+    const status = isTransientAiUpstreamError(error?.message) ? 503 : 500;
+    res.status(status).json({ success: false, message, solution });
   }
 }
 
