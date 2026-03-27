@@ -28,7 +28,7 @@ Stripe sends a signed payload. We verify it with `STRIPE_WEBHOOK_SECRET` and the
 | checkout.session.completed | First-time checkout (one-time or subscription). |
 | payment_intent.succeeded | One-time payments, special offers, embedded-checkout safety nets. |
 | customer.subscription.deleted | Cancel subscription → clear subscription state and credits. |
-| customer.subscription.updated | If status is canceled/unpaid → clear subscription state. |
+| customer.subscription.updated | If status is canceled/unpaid / incomplete_expired → clear subscription state. **`paused` is ignored** (no credit wipe; collection may resume). |
 | charge.refunded | Refund → deduct credits and handle referral clawback. |
 
 For **subscription renewals**, the critical event is **`invoice.payment_succeeded`**.
@@ -39,6 +39,10 @@ For **subscription renewals**, the critical event is **`invoice.payment_succeede
 - **Annual plan** (`Stripe` recurring interval `year`): Stripe invoices **once per year**. Each paid renewal grants the **same `metadata.credits` value** as the monthly tier (e.g. 2900 for Starter) **once per invoice** — i.e. **one grant per year**, not twelve. Product copy that describes “per month” refers to the **credit bundle size** matching the monthly tier, not to twelve separate Stripe invoices per year.
 
 **Credit scaling:** `src/utils/creditUnits.js` — `normalizeCreditUnits()` maps legacy metadata (≤1000) to the current scale. All Stripe paths (checkout, webhook, `/confirm-subscription`, admin recovery) use this helper.
+
+**Plan changes (new checkout / confirm / verify-session):** When we **replace** `subscriptionCredits` with a new plan’s grant, any **unused** balance in the subscription pool is first moved into **`purchasedCredits`** (non-expiring). Total credits stay the same; users no longer “lose” leftover sub credits when switching tiers. Implemented via `rolloverSubPoolToPurchasedUpdate()` in `src/services/credit.service.js`.
+
+**Known gap:** Portal **in-place** plan changes can emit `invoice.payment_succeeded` with `billing_reason: subscription_update` (proration). We do not infer credits from small proration amounts; renewal grants still use `subscription_cycle` + metadata / amount mapping. Ensure Stripe **subscription metadata** (`credits`, `tierId`) stays accurate if you change prices in the Dashboard, or extend code to handle `subscription_update` explicitly.
 
 **Subscription metadata (hosted + embedded):** `userId`, `tierId`, `credits`, and **`billingCycle`** (`monthly` \| `annual`) on the subscription object. Older subs may omit `billingCycle`; code falls back to `subscription.items[0].plan.interval` (`month` → monthly, `year` → annual).
 

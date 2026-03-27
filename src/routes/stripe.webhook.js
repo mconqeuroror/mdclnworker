@@ -10,7 +10,10 @@ import {
 import { sendCreditPurchaseEmail, sendSpecialOfferConfirmationEmail } from "../services/email.service.js";
 import { recordReferralCommissionFromPayment, linkReferrerOnFirstPurchase } from "../services/referral.service.js";
 import { generateTwoPosesFromReference } from "../services/wavespeed.service.js";
-import { awardFirstPaidModelCompletionBonus } from "../services/credit.service.js";
+import {
+  awardFirstPaidModelCompletionBonus,
+  rolloverSubPoolToPurchasedUpdate,
+} from "../services/credit.service.js";
 
 const router = express.Router();
 
@@ -357,10 +360,22 @@ router.post(
                   creditsExpireAt.setMonth(creditsExpireAt.getMonth() + 1);
                 }
 
+                const priorSub = await tx.user.findUnique({
+                  where: { id: userId },
+                  select: { subscriptionCredits: true },
+                });
+                const rollover = rolloverSubPoolToPurchasedUpdate(priorSub?.subscriptionCredits);
+                if (Object.keys(rollover).length) {
+                  console.log(
+                    `💾 Plan change / new sub (checkout webhook): rolling ${priorSub?.subscriptionCredits || 0} subscription credits → purchased before new grant`,
+                  );
+                }
+
                 // Only update user if transaction insert succeeded
                 await tx.user.update({
                   where: { id: userId },
                   data: {
+                    ...rollover,
                     stripeSubscriptionId: subscriptionId,
                     subscriptionTier: tierId,
                     subscriptionStatus: "active",
@@ -699,7 +714,19 @@ router.post(
                       creditsExpireAt.setMonth(creditsExpireAt.getMonth() + 1);
                     }
 
+                    const priorSubPi = await tx.user.findUnique({
+                      where: { id: checkoutUserId },
+                      select: { subscriptionCredits: true },
+                    });
+                    const rolloverPi = rolloverSubPoolToPurchasedUpdate(priorSubPi?.subscriptionCredits);
+                    if (Object.keys(rolloverPi).length) {
+                      console.log(
+                        `💾 PI→checkout fallback sub: rolling ${priorSubPi?.subscriptionCredits || 0} subscription credits → purchased`,
+                      );
+                    }
+
                     const updateData = {
+                      ...rolloverPi,
                       subscriptionTier: checkoutTierId || null,
                       subscriptionStatus: "active",
                       subscriptionBillingCycle: checkoutBillingCycle || "monthly",
@@ -853,18 +880,6 @@ router.post(
                 creditsExpireAt.setMonth(creditsExpireAt.getMonth() + 1);
               }
 
-              const updateData = {
-                subscriptionTier: tierId,
-                subscriptionStatus: "active",
-                subscriptionBillingCycle: billingCycle || "monthly",
-                subscriptionCredits: normalizeCreditUnits(credits),
-                creditsExpireAt,
-                maxModels: 999,
-              };
-              if (resolvedSubId) {
-                updateData.stripeSubscriptionId = resolvedSubId;
-              }
-
               // Use subscriptionId as paymentSessionId when available (matches /confirm-subscription)
               // to ensure cross-path idempotency via the UNIQUE constraint
               const idempotencyKey = resolvedSubId || paymentIntent.id;
@@ -879,6 +894,30 @@ router.post(
                     paymentSessionId: idempotencyKey,
                   },
                 });
+
+                const priorEmb = await tx.user.findUnique({
+                  where: { id: userId },
+                  select: { subscriptionCredits: true },
+                });
+                const rolloverEmb = rolloverSubPoolToPurchasedUpdate(priorEmb?.subscriptionCredits);
+                if (Object.keys(rolloverEmb).length) {
+                  console.log(
+                    `💾 Embedded sub PI webhook: rolling ${priorEmb?.subscriptionCredits || 0} subscription credits → purchased`,
+                  );
+                }
+
+                const updateData = {
+                  ...rolloverEmb,
+                  subscriptionTier: tierId,
+                  subscriptionStatus: "active",
+                  subscriptionBillingCycle: billingCycle || "monthly",
+                  subscriptionCredits: normalizeCreditUnits(credits),
+                  creditsExpireAt,
+                  maxModels: 999,
+                };
+                if (resolvedSubId) {
+                  updateData.stripeSubscriptionId = resolvedSubId;
+                }
 
                 await tx.user.update({
                   where: { id: userId },
@@ -989,9 +1028,21 @@ router.post(
                           },
                         });
 
+                        const priorInv = await tx.user.findUnique({
+                          where: { id: user.id },
+                          select: { subscriptionCredits: true },
+                        });
+                        const rolloverInv = rolloverSubPoolToPurchasedUpdate(priorInv?.subscriptionCredits);
+                        if (Object.keys(rolloverInv).length) {
+                          console.log(
+                            `💾 Invoice safety net: rolling ${priorInv?.subscriptionCredits || 0} subscription credits → purchased`,
+                          );
+                        }
+
                         await tx.user.update({
                           where: { id: user.id },
                           data: {
+                            ...rolloverInv,
                             stripeSubscriptionId: subscriptionId,
                             subscriptionTier: metaTierId,
                             subscriptionStatus: "active",
@@ -1239,7 +1290,8 @@ router.post(
               ? subscription.customer
               : subscription.customer?.id || null;
           const activeStatuses = new Set(["active", "trialing", "past_due"]);
-          const inactiveStatuses = new Set(["canceled", "unpaid", "incomplete_expired", "paused"]);
+          // Do not treat `paused` (e.g. pause collection) like cancellation — wiping credits there was incorrect.
+          const inactiveStatuses = new Set(["canceled", "unpaid", "incomplete_expired"]);
 
           if (activeStatuses.has(subscription.status)) {
             let user = await prisma.user.findFirst({

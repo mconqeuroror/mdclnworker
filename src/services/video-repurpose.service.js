@@ -599,7 +599,10 @@ function buildFfmpegCommand(inputVideo, outputVideo, watermarkPath, filtersCfg, 
     addVideo(`scale=ceil(iw*1.12/2)*2:ceil(ih*1.12/2)*2,rotate=${a.toFixed(4)}*PI/180:ow=iw:oh=ih:c=black,crop=iw/1.12:ih/1.12:(iw-ow)/2:(ih-oh)/2,scale=trunc(iw/2)*2:trunc(ih/2)*2`);
   }
 
-  if (values.flip) addVideo("hflip");
+  // Baseline stack may already hflip (shouldBaselineFlip). One more hflip toggles parity.
+  // Net mirror must match UI: ON = mirrored, OFF = not mirrored (vs input).
+  const wantHflip = !!values.flip;
+  if (wantHflip !== shouldBaselineFlip) addVideo("hflip");
   if (values.vflip) addVideo("vflip");
 
   if (isEnabled(filtersCfg, "lens_correction")) {

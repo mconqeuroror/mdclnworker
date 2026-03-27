@@ -75,6 +75,20 @@ export function getTotalCredits(user) {
 }
 
 /**
+ * Before replacing `subscriptionCredits` with a new plan grant, move any unused subscription
+ * balance into `purchasedCredits` (non-expiring). Total credits stay the same; deduction order
+ * still uses purchased first, then legacy, then subscription.
+ *
+ * @param {number|null|undefined} previousSubscriptionCredits
+ * @returns {import("@prisma/client").Prisma.UserUpdateInput}
+ */
+export function rolloverSubPoolToPurchasedUpdate(previousSubscriptionCredits) {
+  const n = Math.max(0, Math.floor(Number(previousSubscriptionCredits) || 0));
+  if (n <= 0) return {};
+  return { purchasedCredits: { increment: n } };
+}
+
+/**
  * Deduct credits from user account (ATOMIC, prevents race conditions)
  * Uses one-time purchased credits first, then legacy/admin credits, then subscription credits last
  */

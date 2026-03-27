@@ -499,6 +499,48 @@ export async function extractPromptFromImage(imageUrl, imageBase64Provided) {
 // ── Step 2: Inject model trigger word + look via OpenAI ──────────────────────
 
 /**
+ * App sends TARGET_CHARACTER_LOOKS as "label: value, label: value" — strip labels for fallback prompts.
+ */
+function looksLabelsToProseFragment(lookDescription) {
+  const s = String(lookDescription || "").trim();
+  if (!s) return "";
+  return s
+    .split(",")
+    .map((chunk) => {
+      const t = chunk.trim();
+      const m = t.match(/^[^:]+:\s*(.+)$/s);
+      return m ? m[1].trim() : t;
+    })
+    .filter(Boolean)
+    .join(", ");
+}
+
+function sanitizeGrokPromptOutput(text) {
+  let s = String(text || "").trim();
+  s = s.replace(/^```[\w]*\s*/i, "").replace(/\s*```$/i, "").trim();
+  s = s.replace(/^["'\s]+|["'\s]+$/g, "").trim();
+  return s;
+}
+
+/** If Grok still pasted app-style labels, strip known keys (TARGET_CHARACTER_LOOKS must never appear verbatim). */
+function stripKnownLookLabelsFromPrompt(s) {
+  const t = String(s || "");
+  if (!/\b(ethnicity|hair color|hair style|skin tone|eye color)\s*:/i.test(t)) return t;
+  return t
+    .replace(
+      /(?:^|,\s*)(?:ethnicity|hair color|hair style|skin tone|eye color|eye shape|face shape|nose|lips|body type|height|breast size|butt|waist|hips|tattoos\/piercings)\s*:\s*/gi,
+      ", ",
+    )
+    .replace(/,(\s*,)+/g, ", ")
+    .replace(/^\s*,+\s*/, "")
+    .trim();
+}
+
+function escapeRegExp(str) {
+  return String(str).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
  * Takes the raw JoyCaption description and rewrites it to include:
  * - The model's LoRA trigger word (so the LoRA fires correctly)
  * - Key look descriptors from the model profile (hair, skin, eyes, body)
@@ -510,6 +552,8 @@ export async function injectModelIntoPrompt(rawDescription, triggerWord, lookDes
   console.log(`   Trigger: ${triggerWord}`);
   console.log(`   Look: ${lookDescription || "(empty — will use generic)"}`);
 
+  const trigger = String(triggerWord || "").trim() || "woman";
+
   try {
     const { default: OpenAI } = await import("openai");
     const grok = new OpenAI({
@@ -517,38 +561,35 @@ export async function injectModelIntoPrompt(rawDescription, triggerWord, lookDes
       baseURL: "https://openrouter.ai/api/v1",
     });
 
-    const systemPrompt = `You are an expert ComfyUI prompt engineer for AI image generation with LoRA models.
-Your task: take a scene description and COMPLETELY REPLACE the original woman's entire physical identity with a specific LoRA model's detailed appearance profile.
+    const systemPrompt = `You are an expert prompt engineer specialized in ComfyUI ZIT (Z Image Turbo) img2img workflows.
 
-CRITICAL RULES:
-1. Start ALWAYS with the LoRA trigger word followed by a comma
-2. Immediately after the trigger word, inject the FULL physical profile of the LoRA model — this is the most important part for consistency:
-   - Ethnicity, skin tone and skin color (MUST match the model exactly)
-   - Hair color, hair style and hair length
-   - Eye color and eye shape
-   - Face shape, nose shape, lip type
-   - Body type, body proportions, height
-   - Breast size and shape
-   - Butt size, waist, hips
-   - Any tattoos or piercings
-3. REMOVE every single physical descriptor from the original scene that describes the original woman's appearance — hair, skin, eyes, body, face, breasts, butt, everything
-4. KEEP ONLY: the scene, pose, sexual activity/position, camera angle, setting, lighting, background, clothing/props, and composition
-5. The LoRA model's appearance MUST be described as a coherent person, not a list — weave it naturally into the prompt
-6. Keep it under 250 words, single line, no newlines
-7. Use explicit anatomical terms as needed
-8. Output ONLY the final prompt text, nothing else
+You will receive labeled sections in every user message:
+- TRIGGER_WORD — the LoRA trigger token. Your output MUST start with exactly: TRIGGER_WORD followed by a comma and a space (example: "${trigger}, ").
+- TARGET_CHARACTER_LOOKS — every physical attribute of the replacement character. It may arrive as comma-separated "label: value" pairs from the app (e.g. "hair color: blonde hair"). You MUST use every non-empty fact but rewrite them into fluent natural English. NEVER paste "ethnicity:", "hair color:", "skin tone:", or any other field labels into the output.
+- ORIGINAL_IMAGE_PROMPT — raw image-to-prompt text (JoyCaption). It describes the scene, pose, action, camera angle, lighting, background, composition, and the source person's looks.
 
-EXAMPLE STRUCTURE: "{trigger}, a {ethnicity} woman with {hair}, {skin}, {eyes}, {face}, {body with breasts/butt/waist/hips}, {tattoos if any}, {scene/pose/activity from original}"`;
+YOUR JOB: Output ONLY a single clean, highly ZIT-optimized img2img prompt (nothing else — no explanations, no quotes, no markdown, no extra text).
 
-    const userMessage = `LoRA trigger word: ${triggerWord}
+Rules for the output prompt (ZIT-specific):
+- First: TRIGGER_WORD, then immediately integrate the full target character as flowing prose (all TARGET_CHARACTER_LOOKS facts, no key:value syntax).
+- Never paste or concatenate the TARGET_CHARACTER_LOOKS block verbatim — it is input data only; your output must be rewritten prose.
+- Perfectly swap ONLY the character's identity and physical appearance. Keep the scene, pose, action, facial expression, body position, camera angle, lighting, background, composition, and any explicit/sexual elements from ORIGINAL_IMAGE_PROMPT — but remove redundant or conflicting descriptions of the source person's hair, skin, eyes, face, and body (replace them mentally with the target; do not repeat wrong hair color etc.).
+- Do not invent details not present in the inputs.
+- Never write narrative/caption style ("The photograph shows...", "The image depicts...", "This is a photo of..."). Output only direct prompt text for the positive conditioning node.
+- Structure for adherence: subject (trigger + target looks) → pose/action/expression → camera angle + framing → lighting + atmosphere → background + environment → optional short quality tail at the very end: masterpiece, best quality, highly detailed, sharp focus, ultra realistic
+- Be concise yet precise. You may lightly weight critical target features with (feature:1.1) or (feature:1.2) for ZIT where it helps.
+- Prefer one line; stay under ~350 words.
 
-LoRA MODEL'S COMPLETE APPEARANCE PROFILE (use ALL of these, they define this specific person):
-${lookDescription || "a naturally realistic woman"}
+Output format: exactly one block of clean prompt text. Nothing more.`;
 
-ORIGINAL SCENE (keep ONLY the scene/pose/activity/setting, DISCARD all physical descriptions of the woman):
-${rawDescription}
+    const userMessage = `TRIGGER_WORD (start your output with this exact token, then comma and space):
+${trigger}
 
-Write the final ComfyUI prompt. Start with the trigger word, then the LoRA model's full physical description woven naturally, then the scene details:`;
+TARGET_CHARACTER_LOOKS (use every fact; convert to natural English — no "label:" prefixes in output):
+${lookDescription || "naturally realistic adult woman, use sensible defaults consistent with the scene"}
+
+ORIGINAL_IMAGE_PROMPT (keep scene/pose/camera/lighting/background; drop source identity):
+${rawDescription}`;
 
     const completion = await grok.chat.completions.create({
       model: "x-ai/grok-4.1-fast",
@@ -556,12 +597,18 @@ Write the final ComfyUI prompt. Start with the trigger word, then the LoRA model
         { role: "system", content: systemPrompt },
         { role: "user", content: userMessage },
       ],
-      max_tokens: 400,
-      temperature: 0.35,
+      max_tokens: 700,
+      temperature: 0.25,
     });
 
-    const injected = completion.choices[0]?.message?.content?.trim();
+    let injected = stripKnownLookLabelsFromPrompt(
+      sanitizeGrokPromptOutput(completion.choices[0]?.message?.content),
+    );
     if (injected) {
+      const triggerRe = new RegExp(`^\\s*${escapeRegExp(trigger)}\\s*,`, "i");
+      if (!triggerRe.test(injected)) {
+        injected = `${trigger}, ${injected}`;
+      }
       console.log(`   ✅ Grok injected prompt: ${injected.slice(0, 120)}...`);
       return injected;
     }
@@ -569,9 +616,11 @@ Write the final ComfyUI prompt. Start with the trigger word, then the LoRA model
     console.warn(`   ⚠️  Grok injection failed (${err.message}), using manual injection`);
   }
 
-  // Fallback: manual prefix injection
-  const lookPrefix = lookDescription ? `${lookDescription}, ` : "";
-  const injected = `${triggerWord}, ${lookPrefix}${rawDescription}`;
+  // Fallback: trigger + de-labeled looks + raw caption (still messy; Grok path preferred)
+  const lookProse = looksLabelsToProseFragment(lookDescription);
+  const injected = lookProse
+    ? `${trigger}, ${lookProse}, ${rawDescription}`
+    : `${trigger}, ${rawDescription}`;
   console.log(`   ✅ Manual injection: ${injected.slice(0, 120)}...`);
   return injected;
 }

@@ -14,7 +14,10 @@ import {
   normalizeCreditUnits,
   resolveSubscriptionBillingCycle,
 } from "../utils/creditUnits.js";
-import { awardFirstPaidModelCompletionBonus } from "../services/credit.service.js";
+import {
+  awardFirstPaidModelCompletionBonus,
+  rolloverSubPoolToPurchasedUpdate,
+} from "../services/credit.service.js";
 
 // DEPRECATED - keeping for reference but not used
 async function generatePosesAsyncDEPRECATED(modelId, referenceUrl, aiConfig) {
@@ -1233,9 +1236,21 @@ router.post('/confirm-subscription', authMiddleware, async (req, res) => {
           }
         });
 
+        const priorConfirm = await tx.user.findUnique({
+          where: { id: userId },
+          select: { subscriptionCredits: true },
+        });
+        const rolloverConfirm = rolloverSubPoolToPurchasedUpdate(priorConfirm?.subscriptionCredits);
+        if (Object.keys(rolloverConfirm).length) {
+          console.log(
+            `💾 confirm-subscription: rolling ${priorConfirm?.subscriptionCredits || 0} subscription credits → purchased`,
+          );
+        }
+
         return await tx.user.update({
           where: { id: userId },
           data: {
+            ...rolloverConfirm,
             stripeSubscriptionId: subscriptionId,
             subscriptionTier: tierId,
             subscriptionBillingCycle: billingCycle,
@@ -2202,10 +2217,22 @@ router.post('/verify-session', authMiddleware, async (req, res) => {
             expiryDate.setMonth(expiryDate.getMonth() + 1);
           }
 
+          const priorVerify = await tx.user.findUnique({
+            where: { id: userId },
+            select: { subscriptionCredits: true },
+          });
+          const rolloverVerify = rolloverSubPoolToPurchasedUpdate(priorVerify?.subscriptionCredits);
+          if (Object.keys(rolloverVerify).length) {
+            console.log(
+              `💾 verify-session subscription: rolling ${priorVerify?.subscriptionCredits || 0} subscription credits → purchased`,
+            );
+          }
+
           // Only update user if transaction insert succeeded
           return await tx.user.update({
             where: { id: userId },
             data: {
+              ...rolloverVerify,
               stripeSubscriptionId: session.subscription,
               subscriptionTier: tierId,
               subscriptionStatus: 'active',
