@@ -623,7 +623,7 @@ async function generateTextToImageNanoBananaKieInternal(prompt, options = {}) {
     },
     modelName,
     KIE_POLL_TIMEOUT_IMAGE_MS,
-    { forcePolling: options.forcePolling },
+    { forcePolling: options.forcePolling, onTaskCreated: options.onTaskCreated },
   );
   return result;
 }

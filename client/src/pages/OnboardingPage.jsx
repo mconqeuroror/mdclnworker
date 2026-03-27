@@ -714,13 +714,39 @@ export default function OnboardingPage() {
         savedAppearance,
       });
 
-      if (response.data.success) {
-        setGeneratedPortrait(response.data.referenceUrl);
+      if (!response.data.success) {
+        throw new Error(response.data.message);
+      }
+
+      let referenceUrl = response.data.referenceUrl;
+      if (response.data.deferred && response.data.generationId) {
+        const genId = response.data.generationId;
+        const maxWaitMs = 12 * 60 * 1000;
+        const intervalMs = 2500;
+        const start = Date.now();
+        while (Date.now() - start < maxWaitMs) {
+          const statusRes = await api.get(`/generations/${genId}`);
+          const g = statusRes.data?.generation;
+          if (!g) throw new Error(copy.toastGenerationFailed);
+          if (g.status === "completed" && g.outputUrl) {
+            referenceUrl = g.outputUrl;
+            break;
+          }
+          if (g.status === "failed") {
+            throw new Error(g.errorMessage || copy.toastGenerationFailed);
+          }
+          await new Promise((r) => setTimeout(r, intervalMs));
+        }
+        if (!referenceUrl) throw new Error(copy.toastGenerationFailed);
+      }
+
+      if (referenceUrl) {
+        setGeneratedPortrait(referenceUrl);
         await refreshUserCredits();
         setStep(STEP.AI_OFFER); // Show special offer instead of prompt
         toast.success(copy.toastPortraitGenerated);
       } else {
-        throw new Error(response.data.message);
+        throw new Error(response.data.message || copy.toastGenerationFailed);
       }
     } catch (error) {
       console.error("Trial generation failed:", error);

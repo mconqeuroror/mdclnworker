@@ -10,7 +10,7 @@
  * Nothing stored in R2 is ever deleted or modified by this module.
  */
 import { put, del } from "@vercel/blob";
-import { reMirrorToR2 } from "../utils/r2.js";
+import { reMirrorToR2, isR2Configured, uploadBufferToR2 } from "./r2.js";
 
 const BLOB_TOKEN = process.env.BLOB_READ_WRITE_TOKEN;
 
@@ -294,4 +294,50 @@ export async function ensureKieAccessibleUrl(url, _label = "media") {
   if (!url || !url.startsWith("http")) return url;
   if (isVercelBlobConfigured()) return mirrorToBlob(url);
   return reMirrorToR2(url, "generations");
+}
+
+const PROVIDER_MIRROR_FETCH_MS = 90_000;
+
+/**
+ * Fetch a provider result URL and persist bytes to durable storage.
+ * Prefers Vercel Blob (`user-uploads`) when configured, else R2; returns original URL if all attempts fail.
+ */
+export async function mirrorProviderOutputUrl(outputUrl, contentTypeHint = "image/png") {
+  if (!outputUrl?.startsWith("http")) return outputUrl;
+  const maxAttempts = 3;
+  const delayMs = 2500;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const dl = await fetch(outputUrl, { signal: AbortSignal.timeout(PROVIDER_MIRROR_FETCH_MS) });
+      if (!dl.ok) throw new Error(`HTTP ${dl.status}`);
+      const buf = Buffer.from(await dl.arrayBuffer());
+      if (!buf.length) throw new Error("empty body");
+      const ct = dl.headers.get("content-type") || contentTypeHint;
+      const ext =
+        outputUrl.match(/\.(mp4|webm|mov|jpg|jpeg|webp|png)(\?|$)/i)?.[1]?.toLowerCase()
+        || (ct.includes("mp4") ? "mp4"
+          : ct.includes("webm") ? "webm"
+            : ct.includes("png") ? "png"
+              : ct.includes("webp") ? "webp" : "jpg");
+      const finalCt =
+        ext === "mp4" ? "video/mp4"
+          : ext === "webm" ? "video/webm"
+            : ext === "mov" ? "video/quicktime"
+              : ext === "png" ? "image/png"
+                : ext === "webp" ? "image/webp" : "image/jpeg";
+      const filename = `kie-out_${Date.now()}_${Math.random().toString(36).slice(2, 10)}.${ext}`;
+
+      if (BLOB_TOKEN) {
+        return await uploadBufferToBlob(buf, filename, finalCt, "user-uploads");
+      }
+      if (isR2Configured()) {
+        return await uploadBufferToR2(buf, "generations", ext, finalCt);
+      }
+      return outputUrl;
+    } catch (e) {
+      console.warn(`[mirrorProviderOutputUrl] attempt ${attempt}/${maxAttempts} failed: ${e?.message}`);
+      if (attempt < maxAttempts) await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+  return outputUrl;
 }

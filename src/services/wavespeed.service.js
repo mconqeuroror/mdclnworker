@@ -712,9 +712,10 @@ async function generateTextToImage(prompt, options = {}) {
  * @param {string} params.hairTexture - e.g., 'straight', 'wavy', 'curly'
  * @param {string} params.lipSize - e.g., 'small', 'medium', 'big'
  * @param {string} params.faceType - e.g., 'cute', 'model', 'natural'
- * @returns {Promise<{success: boolean, referenceUrl?: string, error?: string}>}
+ * @returns {Promise<{success: boolean, referenceUrl?: string, error?: string, deferred?: boolean, taskId?: string}>}
  */
-async function generateReferenceImage(params) {
+async function generateReferenceImage(params, opts = {}) {
+  const deferred = opts.deferred === true;
   try {
     console.log("\nðŸ¤– ============================================");
     console.log("ðŸ¤– AI MODEL - PHASE 1: REFERENCE IMAGE");
@@ -814,7 +815,40 @@ async function generateReferenceImage(params) {
     console.log("\nðŸ“ Generating reference image...");
     const finalPrompt = `${basePrompt}, face portrait, looking at camera, neutral background`;
 
-    // Use polling so we return referenceUrl in this request (no callback/DB needed for create-model flow)
+    // Paid create-model flow: poll KIE in-process. Onboarding trial: defer — result via KIE webhook (Vercel timeout safe).
+    if (deferred) {
+      const cb = getKieCallbackUrl();
+      if (!cb) {
+        return {
+          success: false,
+          error:
+            "AI callback URL is not configured. Set CALLBACK_BASE_URL or KIE_CALLBACK_URL so onboarding can complete via webhook.",
+        };
+      }
+      const referenceResult = await generateTextToImageNanoBananaKie(finalPrompt, {
+        aspectRatio: "1:1",
+        resolution: "2K",
+        outputFormat: "png",
+        forcePolling: false,
+        onTaskCreated: typeof opts.onTaskCreated === "function" ? opts.onTaskCreated : undefined,
+      });
+
+      if (!referenceResult.success) {
+        throw new Error(
+          referenceResult.error || "Failed to submit reference image job",
+        );
+      }
+      if (!referenceResult.deferred || !referenceResult.taskId) {
+        throw new Error(referenceResult.error || "KIE did not return a task id for deferred reference");
+      }
+      console.log(`✅ Reference image job submitted (deferred): task ${referenceResult.taskId}`);
+      return {
+        success: true,
+        deferred: true,
+        taskId: referenceResult.taskId,
+      };
+    }
+
     const referenceResult = await generateTextToImage(finalPrompt, {
       aspectRatio: "1:1",
       forcePolling: true,

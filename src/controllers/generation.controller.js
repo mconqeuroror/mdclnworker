@@ -1138,6 +1138,7 @@ export async function getGenerationById(req, res) {
         createdAt: true,
         completedAt: true,
         errorMessage: true,
+        isTrial: true,
       },
     });
 

@@ -14,6 +14,10 @@ import {
   awardFirstPaidModelCompletionBonus,
   rolloverSubPoolToPurchasedUpdate,
 } from "../services/credit.service.js";
+import {
+  getChunkedString,
+  parseSpecialOfferAiConfigFromMetadata,
+} from "../lib/stripeMetadataChunk.js";
 
 const router = express.Router();
 
@@ -535,9 +539,8 @@ router.post(
             }
 
             console.log(`🎁 Webhook safety net: Fulfilling special offer for user ${userId}, PI: ${paymentIntent.id}`);
-            const referenceUrl = paymentIntent.metadata.referenceUrl;
-            let aiConfig = {};
-            try { aiConfig = JSON.parse(paymentIntent.metadata.aiConfig || '{}'); } catch (e) { console.error('⚠️ Failed to parse aiConfig metadata:', e.message); }
+            const referenceUrl = getChunkedString(paymentIntent.metadata, 'referenceUrl');
+            const aiConfig = parseSpecialOfferAiConfigFromMetadata(paymentIntent.metadata);
             const bonusCredits = parseInt(paymentIntent.metadata.bonusCredits || '250');
             const modelName = aiConfig.modelName || 'My AI Model';
             const photo1Url = referenceUrl;

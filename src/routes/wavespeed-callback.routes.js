@@ -8,10 +8,9 @@
 import express from "express";
 import crypto from "crypto";
 import prisma from "../lib/prisma.js";
-import { isR2Configured, uploadBufferToR2 } from "../utils/r2.js";
 import { refundGeneration } from "../services/credit.service.js";
 import { cleanupOldGenerations } from "../controllers/generation.controller.js";
-import { deleteBlobAfterKie } from "../utils/kieUpload.js";
+import { deleteBlobAfterKie, mirrorProviderOutputUrl } from "../utils/kieUpload.js";
 import { runPipelineContinuation } from "../services/kie-pipeline-continuation.service.js";
 import { getErrorMessageForDb } from "../lib/userError.js";
 
@@ -40,28 +39,6 @@ function verifyWebhookSignature(rawBody, webhookId, timestamp, receivedSignature
   } catch {
     return false;
   }
-}
-
-/** Mirror WaveSpeed result to R2 with retries. Returns final R2 URL or original on failure. */
-async function mirrorResultToR2(outputUrl, contentTypeHint = "image/png") {
-  if (!isR2Configured()) return outputUrl;
-  const maxAttempts = 3;
-  const delayMs = 1500;
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      const dl = await fetch(outputUrl, { signal: AbortSignal.timeout(60_000) });
-      if (!dl.ok) throw new Error(`HTTP ${dl.status}`);
-      const buf = Buffer.from(await dl.arrayBuffer());
-      const ct = dl.headers.get("content-type") || contentTypeHint;
-      const ext = outputUrl.match(/\.(mp4|webm|jpg|jpeg|webp|png)(\?|$)/i)?.[1]?.toLowerCase() || "png";
-      return await uploadBufferToR2(buf, "generations", ext, ct);
-    } catch (e) {
-      console.warn("[WaveSpeed Callback] R2 mirror attempt %s/%s failed: %s", attempt, maxAttempts, e?.message);
-      if (attempt < maxAttempts) await new Promise(r => setTimeout(r, delayMs));
-      else return outputUrl;
-    }
-  }
-  return outputUrl;
 }
 
 router.options("/", (req, res) => {
@@ -124,7 +101,7 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
       ? (typeof outputs[0] === "string" ? outputs[0] : outputs[0]?.url)
       : null;
     const finalUrl = (outputUrl && outputUrl.startsWith("http"))
-      ? await mirrorResultToR2(outputUrl, "image/png")
+      ? await mirrorProviderOutputUrl(outputUrl, "image/png")
       : outputUrl;
 
     // Pipeline: image -> video (taskId stored in pipelinePayload.imageTaskId on the video gen)

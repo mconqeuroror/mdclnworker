@@ -7,10 +7,9 @@
 import express from "express";
 import crypto from "crypto";
 import prisma from "../lib/prisma.js";
-import { isR2Configured, uploadBufferToR2 } from "../utils/r2.js";
 import { refundGeneration, refundCredits } from "../services/credit.service.js";
 import { cleanupOldGenerations } from "../controllers/generation.controller.js";
-import { deleteBlobAfterKie } from "../utils/kieUpload.js";
+import { deleteBlobAfterKie, mirrorProviderOutputUrl } from "../utils/kieUpload.js";
 import { runPipelineContinuation } from "../services/kie-pipeline-continuation.service.js";
 import { getErrorMessageForDb } from "../lib/userError.js";
 import { generateImageWithNanoBananaKie } from "../services/kie.service.js";
@@ -146,29 +145,6 @@ function parseResultJsonAndGetUrl(resultJson) {
     return findFirstHttpUrl(parsed);
   } catch {}
   return null;
-}
-
-/** Mirror KIE result to R2 with retries for reliability. Returns final R2 URL or original on failure. */
-async function mirrorResultToR2(outputUrl, contentTypeHint = "video/mp4") {
-  if (!isR2Configured()) return outputUrl;
-  const maxAttempts = 3;
-  const delayMs = 2500;
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      const dl = await fetch(outputUrl, { signal: AbortSignal.timeout(90_000) });
-      if (!dl.ok) throw new Error(`HTTP ${dl.status}`);
-      const buf = Buffer.from(await dl.arrayBuffer());
-      const ct = dl.headers.get("content-type") || contentTypeHint;
-      const ext = outputUrl.match(/\.(mp4|webm|jpg|jpeg|webp|png)(\?|$)/i)?.[1]?.toLowerCase() || "mp4";
-      const finalUrl = await uploadBufferToR2(buf, "generations", ext, ct);
-      return finalUrl;
-    } catch (e) {
-      console.warn("[KIE Callback] R2 mirror attempt %s/%s failed: %s", attempt, maxAttempts, e?.message);
-      if (attempt < maxAttempts) await new Promise(r => setTimeout(r, delayMs));
-      else return outputUrl;
-    }
-  }
-  return outputUrl;
 }
 
 // OPTIONS preflight — CORS for KIE
@@ -363,7 +339,7 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
         return ack();
       }
 
-      const finalUrl = await mirrorResultToR2(outputUrl, "image/png");
+      const finalUrl = await mirrorProviderOutputUrl(outputUrl, "image/png");
       await markKieTaskCompleted(taskId, finalUrl);
 
       if (step === "photo1") {
@@ -502,7 +478,7 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
     });
     if (pipelineGen) {
       if (isSuccess && outputUrl) {
-        const finalUrl = await mirrorResultToR2(outputUrl);
+        const finalUrl = await mirrorProviderOutputUrl(outputUrl, "image/png");
         await runPipelineContinuation(taskId, finalUrl);
         console.log("[KIE Callback] Paired pipeline gen %s to taskId %s", pipelineGen.id.slice(0, 8), taskId.slice(0, 12));
       } else {
@@ -524,6 +500,7 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
       creditsCost: true,
       status: true,
       type: true,
+      isTrial: true,
     };
 
     // Retry: KIE may callback before Prisma commits task correlation (kie-task: / kieTask row).
@@ -585,13 +562,23 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
 
     if (isSuccess) {
       if (outputUrl) {
-        const finalUrl = await mirrorResultToR2(outputUrl);
+        const finalUrl = await mirrorProviderOutputUrl(outputUrl, gen.type === "video" ? "video/mp4" : "image/png");
         await prisma.generation.update({
           where: { id: gen.id },
           data: { status: "completed", outputUrl: finalUrl, completedAt: new Date(), pipelinePayload: null },
         });
         await markKieTaskCompleted(taskId, finalUrl);
         console.log("[KIE Callback] Paired gen %s to taskId %s", gen.id.slice(0, 8), taskId.slice(0, 12));
+        if (gen.type === "onboarding_trial_reference" && gen.isTrial && gen.userId) {
+          try {
+            await prisma.user.update({
+              where: { id: gen.userId },
+              data: { hasUsedFreeTrial: true },
+            });
+          } catch (e) {
+            console.warn("[KIE Callback] trial hasUsedFreeTrial update failed:", e?.message);
+          }
+        }
         if (gen.userId && gen.modelId) {
           cleanupOldGenerations(gen.userId, gen.modelId).catch(() => {});
         }

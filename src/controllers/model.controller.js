@@ -18,6 +18,9 @@ import { isR2Configured, uploadFileToR2, mirrorToR2 } from "../utils/r2.js";
 import { buildAppearancePrefix } from "../utils/appearancePrompt.js";
 import { getGenerationPricing } from "../services/generation-pricing.service.js";
 import { deleteElevenLabsVoice } from "../services/elevenlabs.service.js";
+import { persistKieGenerationCorrelation } from "../utils/kieTaskCorrelation.js";
+
+const ONBOARDING_TRIAL_REFERENCE_TYPE = "onboarding_trial_reference";
 
 /**
  * Get model limit based on subscription tier
@@ -1146,6 +1149,7 @@ export async function generateTrialReference(req, res) {
       style,
       bodyType,
       heritage,
+      savedAppearance,
     } = req.body;
     const userId = req.user.userId;
 
@@ -1183,7 +1187,7 @@ export async function generateTrialReference(req, res) {
       });
     }
 
-    console.log("\n🎁 Starting FREE TRIAL reference image generation...");
+    console.log("\n🎁 Starting FREE TRIAL reference image generation (KIE callback + client polls generation)...");
     console.log("User:", userId);
     console.log("Parameters:", {
       referencePrompt,
@@ -1200,23 +1204,80 @@ export async function generateTrialReference(req, res) {
       heritage,
     });
 
-    // Generate reference image (FREE - no credit deduction)
-    const generationResult = await generateReferenceImage({
-      referencePrompt: referencePrompt || "",
-      gender,
-      age,
-      hairColor,
-      hairLength,
-      hairTexture,
-      lipSize,
-      faceType,
-      eyeColor,
-      style: style || "natural",
-      bodyType,
-      heritage,
+    const inflight = await prisma.generation.findFirst({
+      where: {
+        userId,
+        type: ONBOARDING_TRIAL_REFERENCE_TYPE,
+        status: { in: ["pending", "processing"] },
+      },
+      orderBy: { createdAt: "desc" },
+      select: { id: true },
+    });
+    if (inflight) {
+      return res.status(202).json({
+        success: true,
+        deferred: true,
+        generationId: inflight.id,
+        message:
+          "Trial portrait is still generating. Poll GET /api/generations/:id until status is completed or failed.",
+        isTrial: true,
+        creditsUsed: 0,
+      });
+    }
+
+    const promptSummary =
+      [referencePrompt, gender, style || "natural"].filter(Boolean).join(" · ").slice(0, 2000)
+      || "Onboarding trial reference";
+
+    const generation = await prisma.generation.create({
+      data: {
+        userId,
+        type: ONBOARDING_TRIAL_REFERENCE_TYPE,
+        prompt: promptSummary,
+        creditsCost: 0,
+        status: "processing",
+        isTrial: true,
+        resolution: "2K",
+      },
     });
 
+    const generationResult = await generateReferenceImage(
+      {
+        referencePrompt: referencePrompt || "",
+        gender,
+        age,
+        hairColor,
+        hairLength,
+        hairTexture,
+        lipSize,
+        faceType,
+        eyeColor,
+        style: style || "natural",
+        bodyType,
+        heritage,
+        savedAppearance,
+      },
+      {
+        deferred: true,
+        onTaskCreated: (taskId) =>
+          persistKieGenerationCorrelation({
+            taskId,
+            generationId: generation.id,
+            userId,
+            kind: ONBOARDING_TRIAL_REFERENCE_TYPE,
+          }),
+      },
+    );
+
     if (!generationResult.success) {
+      await prisma.generation.update({
+        where: { id: generation.id },
+        data: {
+          status: "failed",
+          errorMessage: (generationResult.error || "Trial generation failed").slice(0, 2000),
+          completedAt: new Date(),
+        },
+      });
       const { message, solution } = toUserError(generationResult.error);
       return res.status(500).json({
         success: false,
@@ -1225,18 +1286,13 @@ export async function generateTrialReference(req, res) {
       });
     }
 
-    // Mark user as having used their free trial
-    await prisma.user.update({
-      where: { id: userId },
-      data: { hasUsedFreeTrial: true },
-    });
-
-    console.log("✅ Free trial used - user marked as hasUsedFreeTrial=true");
-
-    res.json({
+    return res.status(202).json({
       success: true,
-      message: "Free trial portrait generated! Purchase credits to continue creating your AI model.",
-      referenceUrl: generationResult.referenceUrl,
+      deferred: true,
+      generationId: generation.id,
+      taskId: generationResult.taskId,
+      message:
+        "Trial portrait submitted. Poll GET /api/generations/:id until completed; outputUrl will contain the image.",
       isTrial: true,
       creditsUsed: 0,
     });

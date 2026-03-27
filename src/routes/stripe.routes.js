@@ -1,6 +1,11 @@
 import express from 'express';
 import Stripe from 'stripe';
 import prisma from "../lib/prisma.js";
+import {
+  setChunkedString,
+  getChunkedString,
+  parseSpecialOfferAiConfigFromMetadata,
+} from "../lib/stripeMetadataChunk.js";
 import { authMiddleware } from '../middleware/auth.middleware.js';
 import { generateModelPosesFromReference } from '../services/wavespeed.service.js';
 import { recordReferralCommissionFromPayment, validateReferralCodeForCheckout, linkReferrerOnFirstPurchase } from "../services/referral.service.js";
@@ -1402,19 +1407,21 @@ router.post('/create-special-offer-intent', authMiddleware, async (req, res) => 
       });
     }
     
+    const soMetadata = {
+      userId: user.id,
+      type: 'special-offer-ai-model',
+      bonusCredits: bonusCredits.toString(),
+      referralId: safeReferralId || '',
+    };
+    setChunkedString(soMetadata, 'referenceUrl', referenceUrl);
+    setChunkedString(soMetadata, 'aiConfig', JSON.stringify(aiConfig || {}));
+
     // Create payment intent for special offer
     const paymentIntent = await stripe.paymentIntents.create({
       amount: specialOfferPrice,
       currency: 'usd',
       customer: customerId,
-      metadata: {
-        userId: user.id,
-        type: 'special-offer-ai-model',
-        referenceUrl,
-        aiConfig: JSON.stringify(aiConfig || {}),
-        bonusCredits: bonusCredits.toString(),
-        referralId: safeReferralId || '',
-      },
+      metadata: soMetadata,
       automatic_payment_methods: {
         enabled: true,
       },
@@ -1725,13 +1732,16 @@ router.post('/create-special-offer-checkout', authMiddleware, async (req, res) =
       mode: 'payment',
       success_url: `${frontendUrl}/onboarding?session_id={CHECKOUT_SESSION_ID}&offer=success`,
       cancel_url: `${frontendUrl}/onboarding?offer=cancelled`,
-      metadata: {
-        userId: user.id,
-        type: 'special-offer-ai-model',
-        referenceUrl,
-        aiConfig: JSON.stringify(aiConfig || {}),
-        bonusCredits: bonusCredits.toString()
-      },
+      metadata: (() => {
+        const m = {
+          userId: user.id,
+          type: 'special-offer-ai-model',
+          bonusCredits: bonusCredits.toString(),
+        };
+        setChunkedString(m, 'referenceUrl', referenceUrl);
+        setChunkedString(m, 'aiConfig', JSON.stringify(aiConfig || {}));
+        return m;
+      })(),
     });
 
     console.log('✅ Special offer checkout session created:', session.id);
@@ -1769,9 +1779,8 @@ router.post('/verify-special-offer', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: 'Invalid session type' });
     }
 
-    const referenceUrl = session.metadata.referenceUrl;
-    let aiConfig = {};
-    try { aiConfig = JSON.parse(session.metadata.aiConfig || '{}'); } catch (e) { console.error('⚠️ Failed to parse aiConfig:', e.message); }
+    const referenceUrl = getChunkedString(session.metadata, 'referenceUrl');
+    const aiConfig = parseSpecialOfferAiConfigFromMetadata(session.metadata);
     const bonusCredits = parseInt(session.metadata.bonusCredits || '250');
     const modelName = aiConfig.modelName || 'My AI Model';
     const parsedAge = Number.parseInt(aiConfig?.age, 10);
@@ -2404,9 +2413,8 @@ router.post('/recover-special-offer', authMiddleware, async (req, res) => {
       });
     }
 
-    const referenceUrl = paymentIntent.metadata.referenceUrl;
-    let aiConfig = {};
-    try { aiConfig = JSON.parse(paymentIntent.metadata.aiConfig || '{}'); } catch (e) { console.error('⚠️ Failed to parse aiConfig:', e.message); }
+    const referenceUrl = getChunkedString(paymentIntent.metadata, 'referenceUrl');
+    const aiConfig = parseSpecialOfferAiConfigFromMetadata(paymentIntent.metadata);
     const bonusCredits = parseInt(paymentIntent.metadata.bonusCredits || '250');
     const modelName = aiConfig.modelName || 'My AI Model';
     const parsedAge = Number.parseInt(aiConfig?.age, 10);
