@@ -341,6 +341,17 @@ export default function DashboardPage() {
     return () => { cancelled = true; };
   }, []);
 
+  /** Mobile bottom tab bar height + safe area — support FAB and scroll padding read this */
+  useEffect(() => {
+    document.documentElement.style.setProperty(
+      "--dashboard-mobile-tab-stack",
+      "calc(3.5rem + env(safe-area-inset-bottom))",
+    );
+    return () => {
+      document.documentElement.style.removeProperty("--dashboard-mobile-tab-stack");
+    };
+  }, []);
+
   useEffect(() => {
     if (premiumTabs.includes(activeTab) && !canAccessPremiumTabs) {
       setActiveTab("home");
@@ -686,8 +697,63 @@ export default function DashboardPage() {
       )}
       </AnimatePresence>
 
-      {/* Content - with left margin for sidebar on desktop */}
-      <main className={`relative z-10 pt-16 md:pt-14 pb-12 min-h-screen transition-[margin] duration-300 ease-out overflow-x-hidden ${sidebarNarrow ? "md:ml-[80px]" : "md:ml-[260px]"}`}>
+      {/* Mobile bottom nav (Instagram-style): NSFW · Home · Generate — desktop uses sidebar */}
+      <nav
+        className="md:hidden fixed bottom-0 left-0 right-0 z-[45] flex items-center justify-around gap-1 border-t border-white/10 px-2 min-h-[3.5rem] py-1 pb-[max(0.25rem,env(safe-area-inset-bottom))] backdrop-blur-xl"
+        style={{
+          background: "linear-gradient(180deg, rgba(10,10,16,0.88) 0%, rgba(5,5,12,0.96) 100%)",
+        }}
+        aria-label="Primary navigation"
+      >
+        <button
+          type="button"
+          onClick={() => handleTabChange("nsfw")}
+          className={`flex flex-1 flex-col items-center justify-center gap-0.5 rounded-xl py-1.5 max-w-[5.5rem] transition-colors active:scale-[0.97] ${
+            activeTab === "nsfw" ? "text-rose-400" : "text-slate-500 hover:text-slate-300"
+          }`}
+          aria-label={copy.mobileNavNsfw}
+          aria-current={activeTab === "nsfw" ? "page" : undefined}
+          data-testid="mobile-tab-nsfw"
+        >
+          <Flame className={`w-6 h-6 ${activeTab === "nsfw" ? "drop-shadow-[0_0_10px_rgba(251,113,133,0.45)]" : ""}`} />
+          <span className="text-[10px] font-semibold tracking-wide">{copy.mobileNavNsfw}</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => handleTabChange("home")}
+          className={`flex flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl py-2 max-w-[6rem] border transition-all active:scale-[0.97] scale-[1.05] ${
+            activeTab === "home"
+              ? "text-white bg-white/[0.14] border-white/25 shadow-[0_0_20px_rgba(139,92,246,0.18)]"
+              : "text-slate-300 border-white/12 bg-white/[0.06] hover:text-white hover:bg-white/[0.09]"
+          }`}
+          aria-label={copy.mobileNavDashboard}
+          aria-current={activeTab === "home" ? "page" : undefined}
+          data-testid="mobile-tab-home"
+        >
+          <Home className="w-7 h-7" />
+          <span className="text-[10px] font-semibold tracking-wide">{copy.mobileNavDashboard}</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => handleTabChange("generate")}
+          className={`flex flex-1 flex-col items-center justify-center gap-0.5 rounded-xl py-1.5 max-w-[5.5rem] transition-colors active:scale-[0.97] ${
+            activeTab === "generate" ? "text-amber-300" : "text-slate-500 hover:text-slate-300"
+          }`}
+          aria-label={copy.mobileNavGenerate}
+          aria-current={activeTab === "generate" ? "page" : undefined}
+          data-testid="mobile-tab-generate"
+        >
+          <Zap className={`w-6 h-6 ${activeTab === "generate" ? "drop-shadow-[0_0_10px_rgba(252,211,77,0.45)]" : ""}`} />
+          <span className="text-[10px] font-semibold tracking-wide">{copy.mobileNavGenerate}</span>
+        </button>
+      </nav>
+
+      {/* Content - with left margin for sidebar on desktop; bottom padding clears mobile tab bar */}
+      <main
+        className={`relative z-10 pt-16 md:pt-14 max-md:pb-[calc(3.5rem+env(safe-area-inset-bottom)+1.5rem)] md:pb-12 min-h-screen transition-[margin] duration-300 ease-out overflow-x-hidden ${sidebarNarrow ? "md:ml-[80px]" : "md:ml-[260px]"}`}
+      >
         <div className={`relative z-10 p-3 sm:p-4 md:p-6 ${sidebarNarrow ? "mx-auto w-full max-w-[1600px]" : ""}`}>
           {activeTab === "home" && <HomePage copy={copy} setActiveTab={setActiveTab} setShowEarnModal={setShowEarnModal} setShowReferralModal={setShowReferralModal} onOpenCreateModel={() => { setUploadRealMode(false); setShowCreateModelModal(true); }} onOpenUploadReal={() => { setUploadRealMode(true); setShowCreateModelModal(true); }} onOpenCredits={() => setShowAddCredits(true)} />}
           {activeTab === "models" && <ModelsPage sidebarCollapsed={sidebarNarrow} openVoiceStudioForModel={openVoiceStudioForModel} />}

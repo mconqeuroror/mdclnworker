@@ -211,7 +211,9 @@ export default function SupportChatButton() {
       className="fixed z-[120] flex flex-col items-end gap-3"
       style={{
         right: "max(1rem, env(safe-area-inset-right))",
-        bottom: "max(1rem, env(safe-area-inset-bottom))",
+        /* Above dashboard mobile tab bar when --dashboard-mobile-tab-stack is set */
+        bottom:
+          "max(max(1rem, env(safe-area-inset-bottom)), calc(var(--dashboard-mobile-tab-stack, 0px) + 0.75rem))",
       }}
       data-testid="support-chat-wrapper"
     >
