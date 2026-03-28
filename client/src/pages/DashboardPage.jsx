@@ -478,9 +478,18 @@ export default function DashboardPage() {
       {/* Desktop Top Header - hidden on mobile (empty; profile moved to sidebar) */}
 
 
-      {/* Mobile Header - visible only on mobile */}
-      <header className="md:hidden fixed top-0 w-full z-50 border-b border-white/10" style={{ background: 'rgba(5,5,12,0.95)', backdropFilter: 'blur(12px)' }}>
-        <div className="px-4 py-3">
+      {/* Mobile Header — floating glass pill (10% fill + blur); logged-in app shell only */}
+      <header
+        className="md:hidden fixed z-50 top-3 left-3 right-3 pointer-events-none"
+        aria-label="App bar"
+      >
+        <div
+          className="pointer-events-auto rounded-2xl border border-white/25 bg-white/[0.1] shadow-[0_12px_40px_rgba(0,0,0,0.5),inset_0_1px_0_0_rgba(255,255,255,0.14)] backdrop-blur-2xl backdrop-saturate-150"
+          style={{
+            WebkitBackdropFilter: "blur(28px) saturate(1.2)",
+          }}
+        >
+        <div className="px-3.5 py-2.5 sm:px-4 sm:py-3">
           <div className="flex items-center justify-between">
             {/* Logo */}
             <div className="flex items-center gap-2">
@@ -515,6 +524,7 @@ export default function DashboardPage() {
               </button>
             </div>
           </div>
+        </div>
         </div>
       </header>
 
@@ -752,7 +762,7 @@ export default function DashboardPage() {
 
       {/* Content - with left margin for sidebar on desktop; bottom padding clears mobile tab bar */}
       <main
-        className={`relative z-10 pt-16 md:pt-14 max-md:pb-[calc(3.5rem+env(safe-area-inset-bottom)+1.5rem)] md:pb-12 min-h-screen transition-[margin] duration-300 ease-out overflow-x-hidden ${sidebarNarrow ? "md:ml-[80px]" : "md:ml-[260px]"}`}
+        className={`relative z-10 pt-[5.5rem] md:pt-14 max-md:pb-[calc(3.5rem+env(safe-area-inset-bottom)+1.5rem)] md:pb-12 min-h-screen transition-[margin] duration-300 ease-out overflow-x-hidden ${sidebarNarrow ? "md:ml-[80px]" : "md:ml-[260px]"}`}
       >
         <div className={`relative z-10 p-3 sm:p-4 md:p-6 ${sidebarNarrow ? "mx-auto w-full max-w-[1600px]" : ""}`}>
           {activeTab === "home" && <HomePage copy={copy} setActiveTab={setActiveTab} setShowEarnModal={setShowEarnModal} setShowReferralModal={setShowReferralModal} onOpenCreateModel={() => { setUploadRealMode(false); setShowCreateModelModal(true); }} onOpenUploadReal={() => { setUploadRealMode(true); setShowCreateModelModal(true); }} onOpenCredits={() => setShowAddCredits(true)} />}
