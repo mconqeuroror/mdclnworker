@@ -1336,17 +1336,15 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
             </div>{/* /spinning-border outer */}
           </div>{/* /fixed positioner */}
 
-          {/* Mobile bar — inset glass card above dashboard tab bar; right inset clears support FAB */}
+          {/* Mobile bar — centered above tab bar; solid-tint glass for contrast */}
           <div
-            className="md:hidden fixed left-3 z-[35] max-h-[min(52vh,420px)] overflow-y-auto overflow-x-hidden rounded-2xl border border-white/[0.12] bg-white/[0.08] backdrop-blur-xl shadow-[0_16px_48px_-16px_rgba(0,0,0,0.9)] p-3 [scrollbar-width:thin]"
+            className="md:hidden fixed left-1/2 z-[35] w-[min(calc(100vw-1.25rem),26rem)] max-h-[min(52vh,420px)] -translate-x-1/2 overflow-y-auto overflow-x-hidden rounded-2xl border border-white/[0.18] bg-[#0e0e12]/95 shadow-[0_16px_48px_-16px_rgba(0,0,0,0.9)] backdrop-blur-xl p-3 [scrollbar-width:thin]"
             style={{
-              /* Leave room for fixed support chat FAB (z-120) on the right */
-              right: "max(1rem, calc(4.5rem + env(safe-area-inset-right)))",
               bottom:
-                "max(0.5rem, calc(var(--dashboard-mobile-tab-stack, calc(3.5rem + env(safe-area-inset-bottom))) + 0.375rem))",
+                "max(0.75rem, calc(var(--dashboard-mobile-tab-stack, calc(3.5rem + env(safe-area-inset-bottom))) + 0.625rem))",
             }}
           >
-            <div className="rounded-xl border border-white/[0.14] bg-black/35 px-3 py-2 mb-3">
+            <div className="rounded-xl border border-white/20 bg-black/65 px-3 py-2 mb-3">
               <textarea
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
