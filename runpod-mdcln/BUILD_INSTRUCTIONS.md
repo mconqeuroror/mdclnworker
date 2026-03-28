@@ -20,6 +20,8 @@ The [modelclone](https://github.com/typekpaco2002/mdlcln) backend builds prompts
 | `Seed (rgthree)` | `rgthree/rgthree-comfy` |
 | `String Literal` (optional in raw graph; backend strips/injects text) | `alexopus/ComfyUI-Image-Saver` |
 | `Image Film Grain` | `WASasquatch/was-node-suite-comfyui` |
+| `ETN_ApplyMaskToImage` (NSFW img2img v2 graph) | `Acly/comfyui-tooling-nodes` |
+| `LayerMask: PersonMaskUltra V2`, `LayerUtility: SmolVLM` | `chflame163/ComfyUI_LayerStyle_Advance` |
 | Core samplers / loaders | ComfyUI built-in |
 
 **Not required on the worker** for the backend-built prompt: Crystools (graph primitives are stripped server-side).

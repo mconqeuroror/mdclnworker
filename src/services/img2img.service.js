@@ -5,7 +5,7 @@
  *   Step 1 — imgtoprompt: JoyCaption Beta1 describes the input image (scene, pose, activity)
  *   Step 2 — OpenAI injects the model's LoRA trigger word + look description into the prompt
  *   Step 3 — img2img: RunPod ComfyUI graph from `attached_assets/nsfw_img2img_v2promax_workflow.json`
- *           (ZIT encode + refiner ckpt); saved image is VAEDecode 28 without film grain or blur.
+ *           (ZIT encode + refiner ckpt); SaveImage reads node 28 so the returned file skips grain/blur, but the full workflow graph (incl. rgthree, film grain, previews) stays in the API prompt for worker compatibility.
  *
  * JoyCaption (image analysis) runs on a dedicated RunPod endpoint so its queue does not block img2img gen.
  *
@@ -50,7 +50,7 @@ if (!RUNPOD_API_KEY) {
 
 // ── Embedded workflow templates ───────────────────────────────────────────────
 // Inlined at build time so the service works in any deployment environment
-// regardless of whether runpod-docker/workflows/ is present on disk.
+// regardless of whether runpod worker workflow JSON is present on disk.
 
 const IMGTOPROMPT_WORKFLOW = {
   "38": {
@@ -310,7 +310,7 @@ function inlineStringOutputNodeAsValue(api, sourceNodeId, value) {
 
 /**
  * RunPod API prompt from `attached_assets/nsfw_img2img_v2promax_workflow.json` (ZIT img encode → refiner ckpt).
- * Output is VAEDecode 28 only — film grain / blur nodes are removed from the graph.
+ * SaveImage is pointed at VAEDecode 28 so the handler output skips grain/blur; all other nodes from the JSON remain in the prompt (same worker serves multiple workflows).
  */
 function buildNsfwImg2ImgV2ApiPrompt({ positivePrompt, loraUrl, loraStrength, seed, stage1Denoise }) {
   const graph = loadNsfwImg2ImgV2GraphPrepared();
@@ -353,9 +353,6 @@ function buildNsfwImg2ImgV2ApiPrompt({ positivePrompt, loraUrl, loraStrength, se
     api["289"].inputs.images = ["28", 0];
     api["289"].inputs.filename_prefix = "modelclone_img2img";
   }
-  delete api["284"];
-  delete api["286"];
-  delete api["36"];
 
   return api;
 }

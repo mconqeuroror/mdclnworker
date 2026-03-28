@@ -6,6 +6,7 @@ mkdir -p "${CUSTOM_NODES_DIR}"
 
 # Required node packs for our workflows. If these fail, image build must fail.
 REQUIRED_REPOS=(
+  "Acly/comfyui-tooling-nodes"
   "bollerdominik/ComfyUI-load-lora-from-url"
   "Suzie1/ComfyUI_Comfyroll_CustomNodes"
   "chflame163/ComfyUI_LayerStyle_Advance"
