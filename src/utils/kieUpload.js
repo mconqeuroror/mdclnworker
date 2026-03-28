@@ -1,9 +1,9 @@
 /**
  * Vercel Blob + optional R2.
  *
- * - Blob: client uploads, KIE/WaveSpeed relays (kie-relay/), durable mirrors when token is set.
- * - R2: legacy/alternate durable storage when Blob is off or as fallback.
- * Temporary KIE copies under kie-relay/ may be deleted after use; generations/ and user-uploads/ are durable.
+ * - Vercel Blob does not TTL-expire objects; they persist until explicitly deleted via the API.
+ * - kie-relay/: temporary provider relay only — safe to delete after KIE/WaveSpeed consumes the URL.
+ * - generations/, user-uploads/: durable user media — only delete when the user removes content (or explicit admin ops).
  */
 import { put, del } from "@vercel/blob";
 import { reMirrorToR2, isR2Configured, uploadBufferToR2 } from "./r2.js";
@@ -42,27 +42,54 @@ export async function uploadBufferToBlob(buffer, filename, contentType, folder =
     contentType,
     token: BLOB_TOKEN,
     addRandomSuffix: false,
+    // Long CDN/browser cache; does not delete the blob (Vercel has no storage TTL).
+    cacheControlMaxAge:
+      folder === "kie-relay" ? 3600 : 31536000,
   });
 
   console.log(`[Blob/KIE relay] Uploaded: ${blob.url.slice(0, 80)}`);
   return blob.url;
 }
 
+function isBlobHostUrl(url) {
+  return (
+    typeof url === "string"
+    && (url.includes("vercel-storage.com") || url.includes("blob.vercel.app"))
+  );
+}
+
 /**
  * Delete a Vercel Blob URL after KIE has finished with it.
- * Safe to call — won't throw if delete fails.
- * @param {string} blobUrl
+ * Only paths under kie-relay/ — never generations/, user-uploads/, tutorials/, etc.
  */
 export async function deleteBlobAfterKie(blobUrl) {
   if (!blobUrl || !BLOB_TOKEN) return;
-  if (!blobUrl.includes("vercel-storage.com") && !blobUrl.includes("blob.vercel.app")) return;
-  // Only delete temporary relay copies (kie-relay/), never user-uploads (user uploads for generation)
-  if (!blobUrl.includes("/kie-relay/")) return;
+  if (!isBlobHostUrl(blobUrl)) return;
+  let pathname = "";
+  try {
+    pathname = new URL(blobUrl).pathname;
+  } catch {
+    return;
+  }
+  if (!pathname.includes("/kie-relay/")) return;
   try {
     await del(blobUrl, { token: BLOB_TOKEN });
     console.log(`[Blob/KIE relay] Cleaned up: ${blobUrl.slice(0, 80)}`);
   } catch (_) {
-    // Non-critical — Vercel Blob auto-expires old files anyway
+    // Non-critical
+  }
+}
+
+/** User-owned durable prefixes — only these may be removed by user-initiated delete flows. */
+const USER_DURABLE_BLOB_PATH_MARKERS = ["/generations/", "/user-uploads/"];
+
+function isUserDurableBlobPath(url) {
+  if (!isBlobHostUrl(url)) return false;
+  try {
+    const pathname = new URL(url).pathname;
+    return USER_DURABLE_BLOB_PATH_MARKERS.some((m) => pathname.includes(m));
+  } catch {
+    return USER_DURABLE_BLOB_PATH_MARKERS.some((m) => url.includes(m));
   }
 }
 
@@ -463,10 +490,13 @@ export async function mirrorExternalUrlToPersistentBlob(sourceUrl, folder = "gen
   return uploadBufferToBlob(buffer, filename, finalCt, folder);
 }
 
-/** Best-effort delete of a persisted Blob object (e.g. when pruning old generations). */
+/**
+ * Best-effort delete of a user generation / upload Blob (generations/ or user-uploads/ only).
+ * Does not delete kie-relay, tutorials, or arbitrary paths.
+ */
 export async function deletePersistedBlobIfPossible(blobUrl) {
   if (!blobUrl || !BLOB_TOKEN) return;
-  if (!blobUrl.includes("vercel-storage.com") && !blobUrl.includes("blob.vercel.app")) return;
+  if (!isUserDurableBlobPath(blobUrl)) return;
   try {
     await del(blobUrl, { token: BLOB_TOKEN });
   } catch (_) {

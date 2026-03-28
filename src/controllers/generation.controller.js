@@ -1323,7 +1323,8 @@ export async function getMonthlyStats(req, res) {
  * Oldest completed rows are deleted when over the cap. Runs after each successful completion
  * (KIE callback, WaveSpeed callback, generation poller).
  *
- * IMPORTANT: cleanup is opt-in to prevent surprise content loss.
+ * IMPORTANT: cleanup is opt-in. When it runs, we remove oldest DB rows only for R2 file cleanup.
+ * Vercel Blob user assets (generations/, user-uploads/) are never deleted by this job — no TTL, no cap-based Blob deletes.
  *
  * Env:
  *   - ENABLE_GENERATION_AUTO_CLEANUP=true|1|yes|on → enable cleanup logic
@@ -1349,32 +1350,50 @@ export function getMaxCompletedGenerationsPerModel() {
   return Math.min(Math.max(n, 1), MAX_GENERATIONS_PER_MODEL_CAP);
 }
 
-async function deleteStoredOutputAssetMaybe(u) {
+async function deleteR2GenerationAssetMaybe(u) {
   if (!u || typeof u !== "string") return;
   const r2pub = process.env.R2_PUBLIC_URL || "";
-  if (u.includes("r2.dev") || (r2pub && u.includes(r2pub))) {
-    try {
-      const { deleteFromR2 } = await import("../utils/r2.js");
-      await deleteFromR2(u);
-    } catch (_) { /* best-effort */ }
-    return;
-  }
-  await deletePersistedBlobIfPossible(u);
+  if (!u.includes("r2.dev") && !(r2pub && u.includes(r2pub))) return;
+  try {
+    const { deleteFromR2 } = await import("../utils/r2.js");
+    await deleteFromR2(u);
+  } catch (_) { /* best-effort */ }
 }
 
-async function deleteGenerationOutputAssets(outputUrl) {
+/** Auto-cleanup: free R2 only. Blob URLs stay reachable (orphan rows removed from DB only for cap). */
+async function deleteGenerationOutputAssetsAutoCleanup(outputUrl) {
   if (!outputUrl) return;
   const t = String(outputUrl).trim();
   try {
     if (t.startsWith("[")) {
       const arr = JSON.parse(t);
       if (Array.isArray(arr)) {
-        for (const u of arr) await deleteStoredOutputAssetMaybe(u);
+        for (const u of arr) await deleteR2GenerationAssetMaybe(u);
         return;
       }
     }
   } catch (_) { /* single URL */ }
-  await deleteStoredOutputAssetMaybe(t);
+  await deleteR2GenerationAssetMaybe(t);
+}
+
+/** User deleted history: remove R2 and allowed Blob paths (generations/, user-uploads/). */
+async function deleteGenerationOutputAssetsUserDelete(outputUrl) {
+  if (!outputUrl) return;
+  const t = String(outputUrl).trim();
+  const run = async (u) => {
+    await deleteR2GenerationAssetMaybe(u);
+    await deletePersistedBlobIfPossible(u);
+  };
+  try {
+    if (t.startsWith("[")) {
+      const arr = JSON.parse(t);
+      if (Array.isArray(arr)) {
+        for (const u of arr) await run(u);
+        return;
+      }
+    }
+  } catch (_) { /* single URL */ }
+  await run(t);
 }
 
 export async function cleanupOldGenerations(userId, modelId) {
@@ -1466,7 +1485,14 @@ export async function batchDeleteGenerations(req, res) {
       });
     }
 
-    // Verify ownership and delete
+    const owned = await prisma.generation.findMany({
+      where: { id: { in: generationIds }, userId },
+      select: { id: true, outputUrl: true },
+    });
+    for (const g of owned) {
+      await deleteGenerationOutputAssetsUserDelete(g.outputUrl);
+    }
+
     const result = await prisma.generation.deleteMany({
       where: {
         id: { in: generationIds },
