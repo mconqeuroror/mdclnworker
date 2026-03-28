@@ -14,6 +14,77 @@ MODELS_DIR="${COMFYUI_DIR}/models"
 VOLUME_DIR="/runpod-volume"
 VOLUME_MODELS="${VOLUME_DIR}/models"
 
+# 4xFaceUpDAT.pth (~148MB) — primary: Google Drive (HF often blocked on some hosts).
+UPSCALE_GDRIVE_FILE_ID="1d3wPbtjFcgCkWAMVFQalOuQHdiNmfc5i"
+UPSCALE_HF_URL="https://huggingface.co/Acly/Upscaler/resolve/main/4xFaceUpDAT.pth"
+MIN_UPSCALE_FILE_BYTES=5242880
+
+# Download 4xFaceUpDAT.pth: Drive large-file virus interstitial needs confirm + cookies.
+download_4x_face_up_dat() {
+    local dest="$1"
+    local id="${UPSCALE_GDRIVE_FILE_ID}"
+    local tmp="${dest}.tmp"
+    local cook="/tmp/gdrive_ck_$$.txt"
+    local sz
+
+    if [ -f "$dest" ]; then
+        sz=$(stat -c%s "$dest" 2>/dev/null || echo 0)
+        if [ "$sz" -ge "$MIN_UPSCALE_FILE_BYTES" ]; then
+            echo "  [OK] Already exists: $(basename "$dest")"
+            return 0
+        fi
+        echo "  [FIX] Replacing undersized $(basename "$dest") (${sz} bytes)..."
+        rm -f "$dest"
+    fi
+
+    mkdir -p "$(dirname "$dest")"
+    rm -f "$tmp" "$cook"
+
+    echo "  [DL] Downloading: $(basename "$dest") (Google Drive) ..."
+    local page confirm
+    page=$(wget -q --save-cookies "$cook" --keep-session-cookies \
+        "https://drive.google.com/uc?export=download&id=${id}" -O -) || true
+    confirm=$(echo "$page" | sed -n 's/.*confirm=\([0-9A-Za-z_][0-9A-Za-z_]*\).*/\1/p' | head -1)
+    if [ -z "$confirm" ]; then
+        confirm="t"
+    fi
+
+    if wget -q --show-progress --load-cookies "$cook" -O "$tmp" \
+        "https://drive.google.com/uc?export=download&confirm=${confirm}&id=${id}" 2>&1; then
+        :
+    fi
+    sz=$(stat -c%s "$tmp" 2>/dev/null || echo 0)
+    rm -f "$cook"
+
+    if [ "$sz" -lt "$MIN_UPSCALE_FILE_BYTES" ]; then
+        rm -f "$tmp"
+        echo "  [DL] Retry: direct confirm=1 ..."
+        wget -q --show-progress -O "$tmp" \
+            "https://drive.google.com/uc?export=download&confirm=1&id=${id}" 2>&1 || true
+        sz=$(stat -c%s "$tmp" 2>/dev/null || echo 0)
+    fi
+
+    if [ "$sz" -ge "$MIN_UPSCALE_FILE_BYTES" ]; then
+        mv "$tmp" "$dest"
+        echo "  [OK] Downloaded: $(basename "$dest") ($(du -h "$dest" | cut -f1))"
+        return 0
+    fi
+
+    rm -f "$tmp"
+    echo "  [DL] Fallback: HuggingFace mirror ..."
+    if wget -q --show-progress -O "$tmp" "$UPSCALE_HF_URL" 2>&1; then
+        sz=$(stat -c%s "$tmp" 2>/dev/null || echo 0)
+        if [ "$sz" -ge "$MIN_UPSCALE_FILE_BYTES" ]; then
+            mv "$tmp" "$dest"
+            echo "  [OK] Downloaded: $(basename "$dest") ($(du -h "$dest" | cut -f1))"
+            return 0
+        fi
+    fi
+    rm -f "$tmp"
+    echo "  [!!] FAILED to download: $(basename "$dest") (will retry on next boot)"
+    return 1
+}
+
 download_if_missing() {
     local url="$1"
     local dest="$2"
@@ -82,9 +153,7 @@ setup_models() {
     echo ""
     echo "--- [4/4] Upscaler: 4xFaceUpDAT.pth ---"
     mkdir -p "${target_dir}/upscale_models"
-    download_if_missing \
-        "https://huggingface.co/Acly/Upscaler/resolve/main/4xFaceUpDAT.pth" \
-        "${target_dir}/upscale_models/4xFaceUpDAT.pth"
+    download_4x_face_up_dat "${target_dir}/upscale_models/4xFaceUpDAT.pth"
 }
 
 # -----------------------------------------------
@@ -108,11 +177,38 @@ if [ -d "$VOLUME_DIR" ]; then
             echo "  [OK] Linked: $subdir"
         fi
     done
+    # Volume may have an empty upscale_models dir (failed prior download). Re-attempt into linked path.
+    if [ ! -f "${MODELS_DIR}/upscale_models/4xFaceUpDAT.pth" ]; then
+        echo ">>> [RETRY] Upscale model missing after volume link — downloading 4xFaceUpDAT.pth..."
+        mkdir -p "${MODELS_DIR}/upscale_models"
+        download_4x_face_up_dat "${MODELS_DIR}/upscale_models/4xFaceUpDAT.pth"
+    fi
 else
     export HF_HOME="/root/.cache/huggingface"
     mkdir -p "${HF_HOME}"
     echo ">>> No network volume — downloading models directly into ComfyUI..."
     setup_models "${MODELS_DIR}"
+fi
+
+if [ ! -f "${MODELS_DIR}/upscale_models/4xFaceUpDAT.pth" ]; then
+    echo ">>> [WARN] 4xFaceUpDAT.pth still missing — UltimateSDUpscale will fail until it downloads."
+    echo ">>>         API server can set NSFW_COMFY_BYPASS_UPSCALE=1 to skip upscale in the workflow."
+fi
+
+# Corrupt / HTML error pages from failed wget are often tiny; real 4xFaceUpDAT.pth is tens of MB.
+UPSCALE_PTH="${MODELS_DIR}/upscale_models/4xFaceUpDAT.pth"
+if [ -f "$UPSCALE_PTH" ]; then
+    USZ=$(stat -c%s "$UPSCALE_PTH" 2>/dev/null || echo 0)
+    if [ "$USZ" -lt "$MIN_UPSCALE_FILE_BYTES" ]; then
+        echo ">>> [FIX] Upscale file too small (${USZ} bytes, min ${MIN_UPSCALE_FILE_BYTES}) — re-downloading..."
+        rm -f "$UPSCALE_PTH"
+        download_4x_face_up_dat "$UPSCALE_PTH"
+    fi
+fi
+
+if [ "${REQUIRE_UPSCALE_MODEL:-0}" = "1" ] && [ ! -f "$UPSCALE_PTH" ]; then
+    echo ">>> ERROR: REQUIRE_UPSCALE_MODEL=1 but 4xFaceUpDAT.pth is missing after downloads."
+    exit 1
 fi
 
 # -----------------------------------------------
@@ -378,6 +474,7 @@ fi
 echo ">>> Validating required node types for all workflows..."
 python3 - <<'PYEOF'
 import json
+import os
 import urllib.request
 
 required = {
@@ -410,6 +507,40 @@ if missing:
         print(f"    - {n}")
 else:
     print(">>> All required node types validated OK")
+
+# UpscaleModelLoader only lists files ComfyUI sees under models/upscale_models/
+REQUIRED_UPSCALE = "4xFaceUpDAT.pth"
+
+def upscale_model_choices(info):
+    ul = info.get("UpscaleModelLoader") or {}
+    inp = ul.get("input") or {}
+    req = inp.get("required") or {}
+    mn = req.get("model_name")
+    if mn is None:
+        return []
+    if isinstance(mn, list) and len(mn) > 0:
+        first = mn[0]
+        if isinstance(first, list):
+            return first
+        if isinstance(first, str):
+            return [x for x in mn if isinstance(x, str)]
+    return []
+
+try:
+    choices = upscale_model_choices(data)
+    if REQUIRED_UPSCALE in choices:
+        print(f">>> Upscale model OK: {REQUIRED_UPSCALE} is registered in ComfyUI ({len(choices)} file(s) in upscale_models)")
+    else:
+        print(f">>> WARN: {REQUIRED_UPSCALE} not in UpscaleModelLoader list (got {len(choices)} entries). Check models path / symlinks.")
+        if choices[:5]:
+            print(f">>>      Sample: {choices[:5]}")
+        if os.environ.get("REQUIRE_UPSCALE_MODEL") == "1":
+            print(">>> ERROR: REQUIRE_UPSCALE_MODEL=1 — refusing to start without upscaler registered.")
+            raise SystemExit(1)
+except SystemExit:
+    raise
+except Exception as e:
+    print(f">>> WARN: could not verify UpscaleModelLoader choices: {e}")
 PYEOF
 
 echo ">>> Starting RunPod serverless handler..."
