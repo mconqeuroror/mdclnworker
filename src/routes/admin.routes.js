@@ -138,7 +138,17 @@ router.get("/branding", async (_req, res) => {
 
 router.put("/branding", async (req, res) => {
   try {
-    const { appName, logoUrl, faviconUrl, baseUrl, tutorialVideoUrl, landerDemoVideoUrl } = req.body || {};
+    const {
+      appName,
+      logoUrl,
+      faviconUrl,
+      baseUrl,
+      tutorialVideoUrl,
+      landerDemoVideoUrl,
+      termsMarkdown,
+      privacyMarkdown,
+      cookiesMarkdown,
+    } = req.body || {};
     const branding = await updateAppBranding({
       appName,
       logoUrl,
@@ -146,6 +156,9 @@ router.put("/branding", async (req, res) => {
       baseUrl,
       tutorialVideoUrl,
       landerDemoVideoUrl,
+      termsMarkdown,
+      privacyMarkdown,
+      cookiesMarkdown,
     });
     res.json({ success: true, branding });
   } catch (error) {

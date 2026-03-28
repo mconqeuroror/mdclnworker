@@ -1242,7 +1242,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
               Inner card has solid opaque background + 2px margin to expose exactly the border strip.
             */}
             <div
-              className="pointer-events-auto w-full max-w-2xl relative"
+              className="pointer-events-auto w-full max-w-4xl relative"
               style={{ borderRadius: "1rem", overflow: "hidden", padding: 0 }}
             >
               {/* Rotating gradient — behind inner content via z-index 0 */}
@@ -1271,57 +1271,61 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                 rows={2}
                 className="w-full bg-transparent text-sm text-white placeholder-slate-500 resize-none outline-none px-1 py-1 leading-relaxed"
               />
-              <div className="flex items-center gap-3 mt-2 flex-wrap">
-                <div className="flex items-center gap-1.5 flex-shrink-0">
-                  <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest mr-0.5">{copy.refs}</span>
-                  {refs.map((url, i) => (
-                    <RefSlot key={i} url={url} uploading={uploadingIdx === i}
-                      onRemove={() => removeRef(i)} onAdd={(file) => handleAddRef(file, i)} />
-                  ))}
+              <div className="flex flex-col gap-3 mt-2 min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">{copy.refs}</span>
+                  <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+                    {refs.map((url, i) => (
+                      <RefSlot key={i} url={url} uploading={uploadingIdx === i}
+                        onRemove={() => removeRef(i)} onAdd={(file) => handleAddRef(file, i)} />
+                    ))}
+                  </div>
                 </div>
-                <div className="w-px h-6 bg-white/[0.08] flex-shrink-0" />
-                <div className="flex items-center gap-1 flex-shrink-0 flex-wrap">
-                  <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest mr-0.5">{copy.aspect}</span>
-                  {ASPECT_RATIOS.map((ar) => (
-                    <Chip key={ar.value} active={aspectRatio === ar.value} onClick={() => setAspectRatio(ar.value)}>
-                      {ar.hint ?? ar.label}
-                    </Chip>
-                  ))}
-                </div>
-                <div className="w-px h-6 bg-white/[0.08] flex-shrink-0" />
-                <div className="flex items-center gap-1 flex-shrink-0">
-                  <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest mr-0.5">{copy.res}</span>
-                  {RESOLUTIONS.map((r) => (
-                    <Chip key={r} active={resolution === r} onClick={() => setResolution(r)}>{r}</Chip>
-                  ))}
-                </div>
-                <div className="flex-1 flex justify-end">
-                  <button
-                    onClick={handleGenerate}
-                    disabled={isGenerating || !prompt.trim()}
-                    className="relative flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold tracking-wide overflow-hidden transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-                    style={{
-                      background: "rgba(109,40,217,0.35)",
-                      backdropFilter: "blur(12px)",
-                      WebkitBackdropFilter: "blur(12px)",
-                      border: "1px solid rgba(139,92,246,0.5)",
-                      boxShadow: "0 0 18px rgba(109,40,217,0.35), inset 0 1px 0 rgba(255,255,255,0.08)",
-                      color: "#ffffff",
-                    }}
-                  >
-                    {/* frosted sheen */}
-                    <span className="absolute inset-0 pointer-events-none rounded-xl" style={{
-                      background: "linear-gradient(160deg, rgba(255,255,255,0.07) 0%, transparent 60%)",
-                    }} />
-                    {isGenerating
-                      ? <Loader2 className="w-4 h-4 animate-spin relative z-10" />
-                      : <Zap className="w-4 h-4 relative z-10" />}
-                    <span className="relative z-10 flex items-center gap-1.5">
-                      {isGenerating ? copy.buttonGenerating : (
-                        <>{formatCopy(copy.buttonGenerateCost, { cost: COST })} <Coins className="w-3.5 h-3.5 text-yellow-400" /></>
-                      )}
-                    </span>
-                  </button>
+                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 min-w-0">
+                  <div className="flex items-center gap-2 min-w-0 overflow-x-auto pb-1 -mx-1 px-1 [scrollbar-width:thin]">
+                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">{copy.aspect}</span>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {ASPECT_RATIOS.map((ar) => (
+                        <Chip key={ar.value} active={aspectRatio === ar.value} onClick={() => setAspectRatio(ar.value)}>
+                          {ar.hint ?? ar.label}
+                        </Chip>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 sm:gap-3 shrink-0">
+                    <div className="flex items-center gap-1">
+                      <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest mr-0.5">{copy.res}</span>
+                      {RESOLUTIONS.map((r) => (
+                        <Chip key={r} active={resolution === r} onClick={() => setResolution(r)}>{r}</Chip>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleGenerate}
+                      disabled={isGenerating || !prompt.trim()}
+                      className="relative flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold tracking-wide overflow-hidden transition-all disabled:opacity-40 disabled:cursor-not-allowed shrink-0 min-w-[10.5rem] whitespace-nowrap"
+                      style={{
+                        background: "rgba(109,40,217,0.35)",
+                        backdropFilter: "blur(12px)",
+                        WebkitBackdropFilter: "blur(12px)",
+                        border: "1px solid rgba(139,92,246,0.5)",
+                        boxShadow: "0 0 18px rgba(109,40,217,0.35), inset 0 1px 0 rgba(255,255,255,0.08)",
+                        color: "#ffffff",
+                      }}
+                    >
+                      <span className="absolute inset-0 pointer-events-none rounded-xl" style={{
+                        background: "linear-gradient(160deg, rgba(255,255,255,0.07) 0%, transparent 60%)",
+                      }} />
+                      {isGenerating
+                        ? <Loader2 className="w-4 h-4 animate-spin relative z-10" />
+                        : <Zap className="w-4 h-4 relative z-10 shrink-0" />}
+                      <span className="relative z-10 flex items-center gap-1.5">
+                        {isGenerating ? copy.buttonGenerating : (
+                          <>{formatCopy(copy.buttonGenerateCost, { cost: COST })} <Coins className="w-3.5 h-3.5 text-yellow-400 shrink-0" /></>
+                        )}
+                      </span>
+                    </button>
+                  </div>
                 </div>
               </div>
               <p className="text-[10px] text-slate-600 mt-1.5 text-right pr-1">{formatCopy(copy.creditsAvailable, { credits: creditsLeft })}</p>
@@ -1330,32 +1334,46 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
           </div>{/* /fixed positioner */}
 
           {/* Mobile bar */}
-          <div className="md:hidden fixed bottom-0 left-0 right-0 z-20 p-3" style={{ background: BAR_BG }}>
+          <div className="md:hidden fixed bottom-0 left-0 right-0 z-20 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t border-white/[0.06]" style={{ background: BAR_BG }}>
             <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)}
               placeholder={copy.promptPlaceholder} rows={2}
               className="w-full bg-transparent text-sm text-white placeholder-slate-500 resize-none outline-none px-1 mb-2"
             />
-            <div className="flex gap-2 flex-wrap mb-2">
-              <span className="text-[10px] text-slate-500 uppercase tracking-widest self-center">{copy.aspect}</span>
-              {ASPECT_RATIOS.map((ar) => (
-                <Chip key={ar.value} active={aspectRatio === ar.value} onClick={() => setAspectRatio(ar.value)}>{ar.hint ?? ar.label}</Chip>
-              ))}
+            <div className="mb-2">
+              <span className="text-[10px] text-slate-500 uppercase tracking-widest block mb-1.5">{copy.refs}</span>
+              <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-0.5 px-0.5 [scrollbar-width:thin]">
+                {refs.map((url, i) => (
+                  <RefSlot key={i} url={url} uploading={uploadingIdx === i}
+                    onRemove={() => removeRef(i)} onAdd={(file) => handleAddRef(file, i)} />
+                ))}
+              </div>
             </div>
-            <div className="flex gap-2 items-center mb-3">
-              <span className="text-[10px] text-slate-500 uppercase tracking-widest">{copy.res}</span>
-              {RESOLUTIONS.map((r) => (
-                <Chip key={r} active={resolution === r} onClick={() => setResolution(r)}>{r}</Chip>
-              ))}
-              <div className="flex-1" />
-              <button onClick={handleGenerate} disabled={isGenerating || !prompt.trim()}
-                className="px-4 py-2 rounded-xl text-sm font-semibold disabled:opacity-40"
+            <div className="flex gap-2 overflow-x-auto pb-2 mb-2 [scrollbar-width:thin]">
+              <span className="text-[10px] text-slate-500 uppercase tracking-widest shrink-0 self-center">{copy.aspect}</span>
+              <div className="flex items-center gap-1 shrink-0">
+                {ASPECT_RATIOS.map((ar) => (
+                  <Chip key={ar.value} active={aspectRatio === ar.value} onClick={() => setAspectRatio(ar.value)}>{ar.hint ?? ar.label}</Chip>
+                ))}
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 gap-y-2">
+              <span className="text-[10px] text-slate-500 uppercase tracking-widest shrink-0">{copy.res}</span>
+              <div className="flex items-center gap-1 flex-wrap">
+                {RESOLUTIONS.map((r) => (
+                  <Chip key={r} active={resolution === r} onClick={() => setResolution(r)}>{r}</Chip>
+                ))}
+              </div>
+              <div className="flex-1 min-w-[4rem]" />
+              <button type="button" onClick={handleGenerate} disabled={isGenerating || !prompt.trim()}
+                className="w-full sm:w-auto shrink-0 px-4 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-40 flex items-center justify-center gap-1.5"
                 style={{ background: "linear-gradient(135deg,#7c3aed,#4f46e5)", color: "white" }}>
                 {isGenerating
                   ? <Loader2 className="w-4 h-4 animate-spin" />
-                  : <span className="flex items-center gap-1">{formatCopy(copy.buttonGenerateCost, { cost: COST })} <Coins className="w-3.5 h-3.5 text-yellow-400" /></span>
+                  : <span className="flex items-center gap-1 whitespace-nowrap">{formatCopy(copy.buttonGenerateCost, { cost: COST })} <Coins className="w-3.5 h-3.5 text-yellow-400" /></span>
                 }
               </button>
             </div>
+            <p className="text-[10px] text-slate-600 mt-2 text-center">{formatCopy(copy.creditsAvailable, { credits: creditsLeft })}</p>
           </div>
 
           <AnimatePresence>

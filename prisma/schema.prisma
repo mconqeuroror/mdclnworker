@@ -597,6 +597,10 @@ model AppBranding {
   baseUrl            String?
   tutorialVideoUrl   String?
   landerDemoVideoUrl String?
+  /// Admin-editable Markdown; when null, public legal pages use built-in copy
+  termsMarkdown      String?  @db.Text
+  privacyMarkdown    String?  @db.Text
+  cookiesMarkdown    String?  @db.Text
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 }

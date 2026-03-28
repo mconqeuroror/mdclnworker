@@ -53,9 +53,9 @@ const COPY = {
     earningsMonth4: 'Month 4',
     earningsMonth5: 'Month 5',
     earningsMonth6: 'Month 6',
-    earningsHeader: 'Projected Monthly Earnings',
+    earningsHeader: 'Projected Monthly Growth',
     earningsPerMonthSuffix: '/mo',
-    earningsChartHint: 'Tap any month to explore projected earnings growth',
+    earningsChartHint: 'Tap any month to explore projected growth trajectory',
     testimonial1: 'Created my AI model in 5 minutes. Now I earn passively while I sleep.',
     testimonial2: 'The Discord community taught me everything for free. Game changer!',
     testimonial3: 'Best investment of my time. The AI looks super realistic.',
@@ -102,7 +102,7 @@ const COPY = {
     benefit4Title: 'Unlimited',
     benefit4Desc: 'Generate as much as you want',
     successStoriesLabel: 'Success Stories',
-    successStoriesTitle: 'Real Earnings',
+    successStoriesTitle: 'Real Results',
     discordTitle: 'Free Training Community',
     discordSubtitle: 'Join 2,000+ creators learning how to earn with AI',
     discordButton: 'Join Discord Free',
@@ -152,9 +152,9 @@ const COPY = {
     earningsMonth4: 'Месяц 4',
     earningsMonth5: 'Месяц 5',
     earningsMonth6: 'Месяц 6',
-    earningsHeader: 'Прогнозируемый ежемесячный доход',
+    earningsHeader: 'Прогнозируемый ежемесячный рост',
     earningsPerMonthSuffix: '/мес',
-    earningsChartHint: 'Нажмите на любой месяц, чтобы увидеть прогноз роста доходов',
+    earningsChartHint: 'Нажмите на месяц, чтобы увидеть траекторию роста',
     testimonial1: 'Создала ИИ-модель за 5 минут. Теперь зарабатываю пассивно, пока сплю.',
     testimonial2: 'Сообщество в Discord научило меня всему бесплатно. Это меняет всё!',
     testimonial3: 'Лучшее вложение времени. ИИ выглядит очень реалистично.',
@@ -201,7 +201,7 @@ const COPY = {
     benefit4Title: 'Без ограничений',
     benefit4Desc: 'Генерируйте столько, сколько хотите',
     successStoriesLabel: 'Истории успеха',
-    successStoriesTitle: 'Реальные доходы',
+    successStoriesTitle: 'Реальные результаты',
     discordTitle: 'Бесплатное обучающее сообщество',
     discordSubtitle: 'Присоединяйтесь к 2 000+ авторам, которые учатся зарабатывать с ИИ',
     discordButton: 'Вступить в Discord бесплатно',
@@ -703,7 +703,7 @@ function EarningsGrowthSlider({ currency = '$', copy }) {
         </div>
       </div>
 
-      <p className="text-center text-[10px] mt-2" style={{ color: 'rgba(255,255,255,0.2)' }}>
+      <p className="text-center text-[10px] mt-3 px-2" style={{ color: 'rgba(255,255,255,0.32)' }}>
         {copy.earningsChartHint}
       </p>
     </div>
@@ -850,69 +850,118 @@ export default function CreateAIModelLandingPage() {
   return (
     <div className="min-h-screen bg-black text-white" data-testid="page-create-ai-model">
       <CursorGlow />
-      {/* Navigation - Minimal */}
-      <nav className="fixed top-0 left-0 right-0 z-50 border-b border-white/[0.08] mc-glass-nav">
-        <div className="max-w-7xl mx-auto px-4">
-          <div className="flex items-center justify-between h-14">
-            <Link to="/" className="flex items-center gap-2" data-testid="link-home">
-              <img src="/logo-512.png" alt="ModelClone" className="w-7 h-7 rounded-lg object-cover" />
-              <span className="text-lg font-display font-bold">ModelClone</span>
-            </Link>
-            
-            <div className="hidden md:flex items-center gap-3">
-              <Link 
-                to="/login" 
-                className="text-slate-400 hover:text-white transition-colors px-4 py-2 text-sm"
-                data-testid="link-login-nav"
-              >
-                {copy.navLogin}
-              </Link>
-              <Link 
-                to="/signup" 
-                className="relative px-5 py-2 rounded-full font-semibold text-sm text-black bg-white hover:bg-slate-100 transition-all overflow-hidden shadow-[0_0_16px_3px_rgba(139,92,246,0.3),inset_0_1px_0_rgba(255,255,255,0.8)]"
-                data-testid="link-signup-nav"
-              >
-                <span className="pointer-events-none absolute top-0 left-0 w-10 h-10 rounded-full bg-purple-400/30 blur-xl -translate-x-3 -translate-y-3" />
-                <span className="relative z-10">{copy.navStartFree}</span>
-              </Link>
-            </div>
+      {/* Navigation — same floating glass bar as agency lander */}
+      <motion.nav
+        initial={{ y: -80, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ duration: 0.4 }}
+        className="fixed top-0 w-full z-50 px-3 pt-3"
+      >
+        <div className="max-w-7xl mx-auto px-5 sm:px-6 py-3 flex items-center justify-between rounded-[20px] border border-white/[0.1] mc-glass-nav">
+          <Link to="/" className="flex items-center gap-2.5 hover:opacity-80 transition" data-testid="link-home">
+            <img src="/logo-512.png" alt="ModelClone" className="w-9 h-9 rounded-xl object-cover" />
+            <span className="text-lg font-display tracking-tight font-semibold">ModelClone</span>
+          </Link>
 
-            <button 
-              className="md:hidden p-2"
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              data-testid="button-mobile-menu"
-            >
-              {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-            </button>
+          <div className="hidden md:flex items-center gap-1">
+            {[
+              { label: locale === 'ru' ? 'Как это работает' : 'How It Works', href: '#how-it-works' },
+              { label: locale === 'ru' ? 'Рост' : 'Growth', href: '#projected-growth' },
+              { label: locale === 'ru' ? 'Истории' : 'Stories', href: '#success-stories' },
+            ].map((item) => (
+              <a
+                key={item.href}
+                href={item.href}
+                className="px-3 py-2 rounded-lg text-sm text-slate-300 hover:text-white hover:bg-white/[0.06] transition"
+              >
+                {item.label}
+              </a>
+            ))}
           </div>
-        </div>
 
-        {mobileMenuOpen && (
-          <motion.div 
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="md:hidden bg-black/95 border-b border-white/10 px-4 py-4"
+          <div className="hidden md:flex items-center gap-3">
+            <Link to="/login" className="px-4 py-2 rounded-xl text-sm text-slate-300 hover:text-white transition" data-testid="link-login-nav">
+              {copy.navLogin}
+            </Link>
+            <Link
+              to="/signup"
+              className="px-4 py-2 rounded-xl text-sm font-semibold text-black bg-white hover:bg-slate-100 transition-all mc-cta-glow-sm"
+              data-testid="link-signup-nav"
+            >
+              {copy.navStartFree}
+            </Link>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setMobileMenuOpen(true)}
+            className="md:hidden p-2 hover:bg-white/10 rounded-lg transition"
+            data-testid="button-mobile-menu"
+            aria-label="Open menu"
           >
-            <div className="flex flex-col gap-3">
-              <Link 
-                to="/login" 
-                className="text-gray-400 hover:text-white transition-colors py-2 text-center"
-                data-testid="link-login-mobile"
-              >
-                {copy.navLogin}
-              </Link>
-              <Link 
-                to="/signup" 
-                className="relative px-6 py-3 rounded-full font-semibold text-center text-black bg-white overflow-hidden mc-cta-glow-sm"
-                data-testid="link-signup-mobile"
-              >
-                <span className="pointer-events-none absolute top-0 left-0 w-10 h-10 rounded-full bg-purple-400/30 blur-xl -translate-x-3 -translate-y-3" />
-                <span className="relative z-10">{copy.navStartFree}</span>
-              </Link>
-            </div>
-          </motion.div>
+            <Menu className="w-5 h-5" />
+          </button>
+        </div>
+      </motion.nav>
+
+      <AnimatePresence>
+        {mobileMenuOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setMobileMenuOpen(false)}
+              className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] md:hidden"
+            />
+            <motion.div
+              initial={{ x: '100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="fixed top-0 right-0 bottom-0 w-full max-w-xs z-[70] md:hidden overflow-y-auto glass-panel-strong"
+            >
+              <div className="flex items-center justify-between p-5 border-b border-white/[0.07]">
+                <Link to="/" className="flex items-center gap-2" onClick={() => setMobileMenuOpen(false)}>
+                  <img src="/logo-512.png" alt="" className="w-8 h-8 rounded-lg object-cover" />
+                  <span className="font-bold">ModelClone</span>
+                </Link>
+                <button type="button" onClick={() => setMobileMenuOpen(false)} className="p-1.5 hover:bg-white/10 rounded-lg transition">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="flex flex-col p-5 space-y-1">
+                {[
+                  { label: locale === 'ru' ? 'Как это работает' : 'How It Works', href: '#how-it-works' },
+                  { label: locale === 'ru' ? 'Рост' : 'Growth', href: '#projected-growth' },
+                  { label: locale === 'ru' ? 'Истории' : 'Stories', href: '#success-stories' },
+                ].map((item) => (
+                  <a
+                    key={item.href}
+                    href={item.href}
+                    onClick={() => setMobileMenuOpen(false)}
+                    className="px-3 py-2.5 hover:bg-white/[0.06] rounded-lg text-sm font-medium text-slate-300 hover:text-white"
+                  >
+                    {item.label}
+                  </a>
+                ))}
+                <div className="border-t border-white/[0.07] my-3" />
+                <Link to="/login" onClick={() => setMobileMenuOpen(false)} className="px-3 py-2.5 text-sm text-slate-300" data-testid="link-login-mobile">
+                  {copy.navLogin}
+                </Link>
+                <Link
+                  to="/signup"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="px-3 py-3 rounded-xl text-sm font-semibold text-black bg-white text-center mt-2 mc-cta-glow-sm"
+                  data-testid="link-signup-mobile"
+                >
+                  {copy.navStartFree}
+                </Link>
+              </div>
+            </motion.div>
+          </>
         )}
-      </nav>
+      </AnimatePresence>
 
       {/* Hero Section */}
       <section className="pt-20 pb-6 px-4 relative">
@@ -962,13 +1011,13 @@ export default function CreateAIModelLandingPage() {
             </Link>
 
             {/* Trust Row */}
-            <div className="flex items-center justify-center gap-5 mt-4 text-xs text-slate-600">
+            <div className="flex items-center justify-center gap-5 mt-4 text-xs text-slate-400">
               <span className="flex items-center gap-1.5">
-                <Check className="w-3 h-3 text-white/30" strokeWidth={1.25} aria-hidden />
+                <Check className="w-3.5 h-3.5 text-emerald-400/70 shrink-0" strokeWidth={2} aria-hidden />
                 {copy.trustNoCard}
               </span>
               <span className="flex items-center gap-1.5">
-                <Zap className="w-3 h-3 text-white/30" strokeWidth={1.25} aria-hidden />
+                <Zap className="w-3.5 h-3.5 text-amber-400/70 shrink-0" strokeWidth={2} aria-hidden />
                 {copy.trustReady60s}
               </span>
             </div>
@@ -979,19 +1028,20 @@ export default function CreateAIModelLandingPage() {
         </div>
       </section>
 
-      {/* Earnings Growth Slider */}
-      <section className="py-10 px-5">
-        <div className="max-w-xl mx-auto">
+      {/* Growth chart — inset premium card (not edge-to-edge) */}
+      <section className="py-10 px-4 sm:px-5" id="projected-growth">
+        <div className="max-w-md mx-auto">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
+            className="rounded-3xl border border-white/[0.1] bg-white/[0.03] backdrop-blur-xl p-5 sm:p-6 shadow-[0_24px_80px_-32px_rgba(0,0,0,0.85),inset_0_1px_0_0_rgba(255,255,255,0.06)]"
           >
             <div className="text-center mb-5">
-              <p className="text-[9px] font-semibold uppercase tracking-[0.2em] mb-1" style={{ color: 'rgba(255,255,255,0.3)' }}>
+              <p className="text-[9px] font-semibold uppercase tracking-[0.2em] mb-1" style={{ color: 'rgba(255,255,255,0.35)' }}>
                 {copy.realResultsLabel}
               </p>
-              <h2 className="text-xl font-display font-bold text-white">{copy.realResultsTitle}</h2>
+              <h2 className="text-lg sm:text-xl font-display font-bold text-white tracking-tight px-1">{copy.realResultsTitle}</h2>
             </div>
             <EarningsGrowthSlider currency="$" copy={copy} />
           </motion.div>
@@ -1136,10 +1186,10 @@ export default function CreateAIModelLandingPage() {
                 whileInView={{ opacity: 1, x: 0 }}
                 viewport={{ once: true }}
                 transition={{ delay: i * 0.1 }}
-                className="flex items-center gap-4 p-4 rounded-2xl mc-glass-card"
+                className="flex items-center gap-4 p-4 rounded-2xl mc-glass-card border border-white/[0.08] shadow-[0_12px_40px_-20px_rgba(0,0,0,0.6)]"
               >
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-violet-600/25 to-purple-600/20 flex items-center justify-center flex-shrink-0 border border-white/[0.06]">
-                  <span className="text-lg font-bold text-[#a78bfa]">{step.num}</span>
+                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-violet-500/30 via-purple-600/20 to-fuchsia-600/15 flex items-center justify-center flex-shrink-0 border border-white/[0.12] shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_8px_24px_-8px_rgba(109,40,217,0.35)] ring-1 ring-white/[0.06]">
+                  <span className="text-xl font-display font-bold text-white tabular-nums drop-shadow-[0_0_14px_rgba(167,139,250,0.45)]">{step.num}</span>
                 </div>
                 <div>
                   <h3 className="font-display font-semibold text-white">{step.title}</h3>
@@ -1186,7 +1236,7 @@ export default function CreateAIModelLandingPage() {
       </section>
 
       {/* Testimonials */}
-      <section className="py-10 px-4 overflow-hidden">
+      <section className="py-10 px-4 overflow-hidden" id="success-stories">
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-6">
             <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.2em] mb-1">{copy.successStoriesLabel}</p>

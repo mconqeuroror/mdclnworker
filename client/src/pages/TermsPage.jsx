@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
+import LegalMarkdownProse from '../components/LegalMarkdownProse';
+import { brandingAPI } from '../services/api';
 
 const LOCALE_STORAGE_KEY = 'app_locale';
 
@@ -108,6 +110,26 @@ function resolveLocale() {
 export default function TermsPage() {
   const [locale] = useState(resolveLocale);
   const copy = COPY[locale] || COPY.en;
+  const [customMd, setCustomMd] = useState(null);
+  const [mdLoading, setMdLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await brandingAPI.getPublicBranding();
+        const md = r?.branding?.termsMarkdown?.trim();
+        if (!cancelled) setCustomMd(md || null);
+      } catch {
+        if (!cancelled) setCustomMd(null);
+      } finally {
+        if (!cancelled) setMdLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -119,7 +141,13 @@ export default function TermsPage() {
 
         <h1 className="text-4xl font-bold mb-8">{copy.title}</h1>
         
-        <div className="glass rounded-3xl p-8 prose prose-invert max-w-none">
+        <div className="glass rounded-3xl p-8 max-w-none">
+          {mdLoading ? (
+            <p className="text-gray-500 text-sm">Loading…</p>
+          ) : customMd ? (
+            <LegalMarkdownProse>{customMd}</LegalMarkdownProse>
+          ) : (
+            <div className="prose prose-invert max-w-none">
           <p className="text-gray-400 mb-6">{copy.lastUpdated}</p>
 
           <h2>{copy.section1Title}</h2>
@@ -180,6 +208,8 @@ export default function TermsPage() {
           <p>
             {copy.section11Body}
           </p>
+            </div>
+          )}
         </div>
       </div>
     </div>

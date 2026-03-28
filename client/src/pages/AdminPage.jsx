@@ -546,6 +546,7 @@ export default function AdminPage() {
   // ── Brand / email ───────────────────────────────────────────────────────────
   const [brandSettings, setBrandSettings] = useState({
     appName: 'ModelClone', logoUrl: '', faviconUrl: '', baseUrl: 'https://modelclone.app', tutorialVideoUrl: '', landerDemoVideoUrl: '',
+    termsMarkdown: '', privacyMarkdown: '', cookiesMarkdown: '',
   });
   const [tutorialVideoUploading, setTutorialVideoUploading] = useState(false);
   const [landerDemoVideoUploading, setLanderDemoVideoUploading] = useState(false);
@@ -757,6 +758,9 @@ export default function AdminPage() {
         baseUrl: r.branding.baseUrl || 'https://modelclone.app',
         tutorialVideoUrl: r.branding.tutorialVideoUrl || '',
         landerDemoVideoUrl: r.branding.landerDemoVideoUrl || '',
+        termsMarkdown: r.branding.termsMarkdown || '',
+        privacyMarkdown: r.branding.privacyMarkdown || '',
+        cookiesMarkdown: r.branding.cookiesMarkdown || '',
       });
     } catch { toast.error('Failed to load brand settings'); }
     finally { setLoadingBranding(false); }
@@ -1191,6 +1195,9 @@ export default function AdminPage() {
         baseUrl: brandSettings.baseUrl?.trim() || null,
         tutorialVideoUrl: brandSettings.tutorialVideoUrl?.trim() || null,
         landerDemoVideoUrl: brandSettings.landerDemoVideoUrl?.trim() || null,
+        termsMarkdown: brandSettings.termsMarkdown?.trim() ? brandSettings.termsMarkdown : null,
+        privacyMarkdown: brandSettings.privacyMarkdown?.trim() ? brandSettings.privacyMarkdown : null,
+        cookiesMarkdown: brandSettings.cookiesMarkdown?.trim() ? brandSettings.cookiesMarkdown : null,
       });
       if (r?.success) { toast.success('Brand settings updated'); loadBranding(); }
       else toast.error('Failed');
@@ -3240,6 +3247,62 @@ export default function AdminPage() {
                     )}
                   </div>
                   <p className="text-[10px] text-gray-600 mt-2">Save brand settings to persist URL edits; upload applies immediately.</p>
+                </div>
+
+                <div className="pt-4 mt-4 border-t border-white/[0.06]">
+                  <p className="text-xs font-semibold text-gray-300 mb-1">Legal pages (Markdown)</p>
+                  <p className="text-[11px] text-gray-500 mb-3">
+                    Optional. When saved, public <code className="text-gray-400">/terms</code>, <code className="text-gray-400">/privacy</code>, <code className="text-gray-400">/cookies</code> use this content instead of built-in text. Upload <code className="text-gray-400">.md</code> or paste below, then Save with the rest of brand settings.
+                  </p>
+                  {[
+                    { key: 'termsMarkdown', label: 'Terms of Service (.md)' },
+                    { key: 'privacyMarkdown', label: 'Privacy Policy (.md)' },
+                    { key: 'cookiesMarkdown', label: 'Cookie Policy (.md)' },
+                  ].map(({ key, label }) => (
+                    <div key={key} className="mb-4">
+                      <div className="flex items-center justify-between gap-2 mb-1.5">
+                        <span className="text-[11px] text-gray-400">{label}</span>
+                        <div className="flex items-center gap-2">
+                          <label className="text-[10px] px-2 py-1 rounded border border-white/[0.1] bg-white/[0.04] hover:bg-white/[0.08] cursor-pointer text-gray-400">
+                            Upload .md
+                            <input
+                              type="file"
+                              accept=".md,.markdown,text/markdown,text/plain"
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                e.target.value = '';
+                                if (!file) return;
+                                const reader = new FileReader();
+                                reader.onload = () => {
+                                  setBrandSettings((p) => ({ ...p, [key]: String(reader.result || '') }));
+                                  toast.success(`${label.split('(')[0].trim()} loaded from file`);
+                                };
+                                reader.readAsText(file);
+                              }}
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            className="text-[10px] px-2 py-1 rounded border border-red-500/20 text-red-400/90 hover:bg-red-500/10"
+                            onClick={() => setBrandSettings((p) => ({ ...p, [key]: '' }))}
+                          >
+                            Clear
+                          </button>
+                        </div>
+                      </div>
+                      <textarea
+                        value={brandSettings[key] || ''}
+                        onChange={(e) => setBrandSettings((p) => ({ ...p, [key]: e.target.value }))}
+                        rows={7}
+                        placeholder="# Heading&#10;&#10;Your Markdown…"
+                        className="w-full px-3 py-2 rounded-lg border border-white/[0.07] bg-black/40 text-[11px] text-gray-200 font-mono outline-none focus:border-violet-500/35 resize-y min-h-[120px]"
+                      />
+                    </div>
+                  ))}
+                  <PrimaryBtn type="button" onClick={handleSaveBranding} disabled={savingBranding} className="mt-1">
+                    {savingBranding ? 'Saving…' : 'Save legal pages (with brand settings)'}
+                  </PrimaryBtn>
                 </div>
 
                 <div className="pt-4 mt-4 border-t border-white/[0.06]">

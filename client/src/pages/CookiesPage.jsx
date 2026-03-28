@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
+import LegalMarkdownProse from '../components/LegalMarkdownProse';
+import { brandingAPI } from '../services/api';
 
 const LOCALE_STORAGE_KEY = 'app_locale';
 
@@ -118,6 +120,26 @@ function resolveLocale() {
 export default function CookiesPage() {
   const [locale] = useState(resolveLocale);
   const copy = COPY[locale] || COPY.en;
+  const [customMd, setCustomMd] = useState(null);
+  const [mdLoading, setMdLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await brandingAPI.getPublicBranding();
+        const md = r?.branding?.cookiesMarkdown?.trim();
+        if (!cancelled) setCustomMd(md || null);
+      } catch {
+        if (!cancelled) setCustomMd(null);
+      } finally {
+        if (!cancelled) setMdLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -128,84 +150,84 @@ export default function CookiesPage() {
         </Link>
 
         <h1 className="text-4xl font-bold mb-8">{copy.title}</h1>
-        
-        <div className="glass rounded-3xl p-8 prose prose-invert max-w-none">
-          <p className="text-gray-400 mb-6">{copy.lastUpdated}</p>
 
-          <h2>{copy.section1Title}</h2>
-          <p>
-            {copy.section1Body}
-          </p>
+        <div className="glass rounded-3xl p-8 max-w-none">
+          {mdLoading ? (
+            <p className="text-gray-500 text-sm">Loading…</p>
+          ) : customMd ? (
+            <LegalMarkdownProse>{customMd}</LegalMarkdownProse>
+          ) : (
+            <div className="prose prose-invert max-w-none">
+              <p className="text-gray-400 mb-6">{copy.lastUpdated}</p>
 
-          <h2>{copy.section2Title}</h2>
-          
-          <h3>{copy.section2Sub1Title}</h3>
-          <p>{copy.section2Sub1Intro}</p>
-          <ul>
-            <li>
-              <strong>{copy.section2Sub1Item1}</strong> {copy.section2Sub1Item1Tail}
-            </li>
-            <li>
-              <strong>{copy.section2Sub1Item2}</strong> {copy.section2Sub1Item2Tail}
-            </li>
-          </ul>
+              <h2>{copy.section1Title}</h2>
+              <p>{copy.section1Body}</p>
 
-          <h3>{copy.section2Sub2Title}</h3>
-          <p>{copy.section2Sub2Intro}</p>
-          <ul>
-            <li>{copy.section2Sub2Item1}</li>
-            <li>{copy.section2Sub2Item2}</li>
-            <li>{copy.section2Sub2Item3}</li>
-          </ul>
+              <h2>{copy.section2Title}</h2>
 
-          <h2>{copy.section3Title}</h2>
-          <p>{copy.section3Intro}</p>
-          <ul>
-            <li>
-              <strong>{copy.section3Item1}</strong> {copy.section3Item1Tail}
-            </li>
-            <li>
-              <strong>{copy.section3Item2}</strong> {copy.section3Item2Tail}
-            </li>
-          </ul>
+              <h3>{copy.section2Sub1Title}</h3>
+              <p>{copy.section2Sub1Intro}</p>
+              <ul>
+                <li>
+                  <strong>{copy.section2Sub1Item1}</strong> {copy.section2Sub1Item1Tail}
+                </li>
+                <li>
+                  <strong>{copy.section2Sub1Item2}</strong> {copy.section2Sub1Item2Tail}
+                </li>
+              </ul>
 
-          <h2>{copy.section4Title}</h2>
-          <p>
-            {copy.section4Body}
-          </p>
+              <h3>{copy.section2Sub2Title}</h3>
+              <p>{copy.section2Sub2Intro}</p>
+              <ul>
+                <li>{copy.section2Sub2Item1}</li>
+                <li>{copy.section2Sub2Item2}</li>
+                <li>{copy.section2Sub2Item3}</li>
+              </ul>
 
-          <h3>{copy.section4SubTitle}</h3>
-          <ul>
-            <li>
-              <strong>{copy.section4SubItem1}</strong> {copy.section4SubItem1Tail}
-            </li>
-            <li>
-              <strong>{copy.section4SubItem2}</strong> {copy.section4SubItem2Tail}
-            </li>
-            <li>
-              <strong>{copy.section4SubItem3}</strong> {copy.section4SubItem3Tail}
-            </li>
-          </ul>
+              <h2>{copy.section3Title}</h2>
+              <p>{copy.section3Intro}</p>
+              <ul>
+                <li>
+                  <strong>{copy.section3Item1}</strong> {copy.section3Item1Tail}
+                </li>
+                <li>
+                  <strong>{copy.section3Item2}</strong> {copy.section3Item2Tail}
+                </li>
+              </ul>
 
-          <h2>{copy.section5Title}</h2>
-          <ul>
-            <li>
-              <strong>{copy.section5Item1}</strong> {copy.section5Item1Tail}
-            </li>
-            <li>
-              <strong>{copy.section5Item2}</strong> {copy.section5Item2Tail}
-            </li>
-          </ul>
+              <h2>{copy.section4Title}</h2>
+              <p>{copy.section4Body}</p>
 
-          <h2>{copy.section6Title}</h2>
-          <p>
-            {copy.section6Body}
-          </p>
+              <h3>{copy.section4SubTitle}</h3>
+              <ul>
+                <li>
+                  <strong>{copy.section4SubItem1}</strong> {copy.section4SubItem1Tail}
+                </li>
+                <li>
+                  <strong>{copy.section4SubItem2}</strong> {copy.section4SubItem2Tail}
+                </li>
+                <li>
+                  <strong>{copy.section4SubItem3}</strong> {copy.section4SubItem3Tail}
+                </li>
+              </ul>
 
-          <h2>{copy.section7Title}</h2>
-          <p>
-            {copy.section7Body}
-          </p>
+              <h2>{copy.section5Title}</h2>
+              <ul>
+                <li>
+                  <strong>{copy.section5Item1}</strong> {copy.section5Item1Tail}
+                </li>
+                <li>
+                  <strong>{copy.section5Item2}</strong> {copy.section5Item2Tail}
+                </li>
+              </ul>
+
+              <h2>{copy.section6Title}</h2>
+              <p>{copy.section6Body}</p>
+
+              <h2>{copy.section7Title}</h2>
+              <p>{copy.section7Body}</p>
+            </div>
+          )}
         </div>
       </div>
     </div>
