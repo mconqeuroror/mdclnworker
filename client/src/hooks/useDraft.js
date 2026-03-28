@@ -1,6 +1,6 @@
 import { useRef, useCallback, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import api from "../services/api";
+import api, { uploadFile } from "../services/api";
 
 export function useDraft(feature, { debounceMs = 2000 } = {}) {
   const queryClient = useQueryClient();
@@ -67,12 +67,7 @@ export function useDraft(feature, { debounceMs = 2000 } = {}) {
   }, [feature, queryClient]);
 
   const uploadDraftImage = useCallback(async (file) => {
-    const formData = new FormData();
-    formData.append("file", file);
-    const res = await api.post("/drafts/upload", formData, {
-      headers: { "Content-Type": "multipart/form-data" },
-    });
-    return res.data.url;
+    return uploadFile(file);
   }, []);
 
   useEffect(() => {

@@ -35,7 +35,10 @@ import {
   validateImageUrls,
   validateNanoBananaInputImages,
   validateSeedreamEditImages,
+  validateFaceSwapSourceVideoUrl,
+  validateTalkingHeadAvatarImageUrl,
 } from "../utils/fileValidation.js";
+import { waveSpeedConstraints } from "../config/providerMediaConstraints.js";
 import { getUserFriendlyGenerationError } from "../utils/generationErrorMessages.js";
 import { buildAppearancePrefix } from "../utils/appearancePrompt.js";
 import { getErrorMessageForDb } from "../lib/userError.js";
@@ -214,7 +217,7 @@ export async function generateImageWithIdentity(req, res) {
     if (!targetCheck.valid) {
       return res.status(400).json({ success: false, message: targetCheck.message });
     }
-    const seedreamInputsCheck = await validateSeedreamEditImages([...identityImages, targetImage]);
+    const seedreamInputsCheck = await validateSeedreamEditImages([...identityImages, targetImage], "wavespeed");
     if (!seedreamInputsCheck.valid) {
       return res.status(400).json({ success: false, message: seedreamInputsCheck.message });
     }
@@ -2409,6 +2412,18 @@ export async function generateFaceSwap(req, res) {
       });
     }
 
+    const sourceVideoCheck = await validateFaceSwapSourceVideoUrl(sourceVideoUrl);
+    if (!sourceVideoCheck.valid) {
+      return res.status(400).json({
+        success: false,
+        code: "SOURCE_VIDEO_INVALID",
+        message: sourceVideoCheck.message,
+        error: sourceVideoCheck.message,
+        solution:
+          "Use MP4 (H.264) when possible, up to 10 minutes and within the configured byte cap (default 500MB — PROVIDER_LIMIT_WS_VIDEO_FACE_SWAP_MAX_BYTES). Re-upload if the link cannot be verified.",
+      });
+    }
+
     // Get model to extract face image (using first photo - front-facing)
     const model = await prisma.savedModel.findFirst({
       where: {
@@ -2880,7 +2895,7 @@ export async function generatePromptBasedImage(req, res) {
       : buildGenerationPrompt(prompt, style, contentRating, requiredReferenceCount);
     const finalPrompt = (appearancePrefix || "") + basePrompt;
     const providerInputCheck = useSeedream
-      ? await validateSeedreamEditImages(identityImages)
+      ? await validateSeedreamEditImages(identityImages, "wavespeed")
       : await validateNanoBananaInputImages(identityImages);
     if (!providerInputCheck.valid) {
       return res.status(400).json({ success: false, message: providerInputCheck.message });
@@ -3488,10 +3503,11 @@ export async function generateTalkingHeadVideo(req, res) {
       });
     }
 
-    if (text.length > 2000) {
+    const textMaxChars = waveSpeedConstraints.klingV2AiAvatarStandard.textMaxChars;
+    if (text.length > textMaxChars) {
       return res.status(400).json({
         success: false,
-        message: "Text must be 2000 characters or less",
+        message: `Text must be ${textMaxChars} characters or less`,
       });
     }
 

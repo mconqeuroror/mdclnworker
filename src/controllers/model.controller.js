@@ -19,6 +19,10 @@ import { buildAppearancePrefix } from "../utils/appearancePrompt.js";
 import { getGenerationPricing } from "../services/generation-pricing.service.js";
 import { deleteElevenLabsVoice } from "../services/elevenlabs.service.js";
 import { persistKieGenerationCorrelation } from "../utils/kieTaskCorrelation.js";
+import {
+  validateGenerationUploadSync,
+  sendUploadGuardResponse,
+} from "../lib/generationUploadGuards.js";
 
 const ONBOARDING_TRIAL_REFERENCE_TYPE = "onboarding_trial_reference";
 
@@ -1334,6 +1338,12 @@ export async function trialUploadReal(req, res) {
         success: false,
         message: "Please upload 2 face photos and 1 body photo",
       });
+    }
+
+    for (const key of ["face1", "face2", "body"]) {
+      const f = req.files[key][0];
+      const check = validateGenerationUploadSync(f, "modelPhoto");
+      if (!check.ok) return sendUploadGuardResponse(res, check);
     }
 
     let photo1Url, photo2Url, photo3Url;

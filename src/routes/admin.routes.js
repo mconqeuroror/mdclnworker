@@ -8,6 +8,7 @@ import { BackupService } from "../services/backup.service.js";
 import { sendPromoEmail } from "../services/email.service.js";
 import { getAppBranding, updateAppBranding, clearTutorialVideo, clearLanderDemoVideo } from "../services/branding.service.js";
 import multer from "multer";
+import { getBlobClientUploadMaxBytes } from "../config/blobUpload.js";
 import { del } from "@vercel/blob";
 import { handleUpload } from "@vercel/blob/client";
 import { isVercelBlobConfigured } from "../utils/kieUpload.js";
@@ -263,7 +264,7 @@ router.post("/upload/blob", async (req, res) => {
             "video/x-msvideo",
             "application/octet-stream",
           ],
-          maximumSizeInBytes: 500 * 1024 * 1024,
+          maximumSizeInBytes: getBlobClientUploadMaxBytes(),
           addRandomSuffix: true,
           tokenPayload: slot,
         };

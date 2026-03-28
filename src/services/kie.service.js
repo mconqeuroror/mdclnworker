@@ -18,6 +18,7 @@ import {
   validateKlingImageToVideoInput,
   validateKlingMotionInputs,
 } from "../utils/fileValidation.js";
+import { kieConstraints } from "../config/providerMediaConstraints.js";
 import { verifyUrlReachable } from "../utils/kieUpload.js";
 
 const KIE_API_KEY = process.env.KIE_API_KEY;
@@ -545,7 +546,7 @@ async function archiveToR2(sourceUrl) {
  */
 async function generateImageWithSeedreamKieInternal(images, prompt, options = {}) {
   console.log(`[KIE/seedream] images=${images.length}, prompt="${prompt.slice(0, 80)}"`);
-  const validation = await validateSeedreamEditImages(images);
+  const validation = await validateSeedreamEditImages(images, "kie");
   if (!validation.valid) {
     throw new Error(validation.message);
   }
@@ -758,12 +759,20 @@ async function generateVideoWithMotionKieInternal(imageUrl, videoUrl, options = 
  * @param {object} options - { duration, useKling3, sound, onTaskCreated, forcePolling }
  */
 async function generateVideoWithKling26KieInternal(imageUrl, prompt, options = {}) {
-  const duration = String(options.duration || 5);
   const useKling3 = options.useKling3 === true;
+  const duration = String(options.duration ?? "5").trim();
+  const allowed = useKling3
+    ? kieConstraints.kling30Video.allowedDurationSeconds
+    : kieConstraints.kling26ImageToVideo.allowedDurationSeconds;
+  if (!allowed.includes(duration)) {
+    throw new Error(
+      `Invalid Kling image-to-video duration "${duration}". Use one of: ${allowed.join(", ")} (seconds per KIE docs).`,
+    );
+  }
   const model = useKling3 ? "kling-3.0/video" : "kling-2.6/image-to-video";
   const aspectRatio = options.aspectRatio || "16:9";
   console.log(`[KIE/kling-i2v] model=${model}, image="${imageUrl.slice(0, 80)}", duration=${duration}s`);
-  const validation = await validateKlingImageToVideoInput(imageUrl);
+  const validation = await validateKlingImageToVideoInput(imageUrl, { useKling3: options.useKling3 === true });
   if (!validation.valid) {
     throw new Error(validation.message);
   }

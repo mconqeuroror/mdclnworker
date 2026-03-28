@@ -360,7 +360,7 @@ async function generateImageWithSeedream(images, prompt, options = {}) {
       throw new Error("Seedream edit requires a prompt");
     }
 
-    const validation = await validateSeedreamEditImages(images);
+    const validation = await validateSeedreamEditImages(images, "wavespeed");
     if (!validation.valid) {
       throw new Error(validation.message);
     }

@@ -742,7 +742,7 @@ function ModelSelector({ models, selectedModel, onSelect, accentColor = "purple"
 }
 
 import toast from "react-hot-toast";
-import api, { generationAPI } from "../services/api";
+import api, { generationAPI, uploadFile } from "../services/api";
 import FileUpload from "../components/FileUpload";
 import { useAuthStore } from "../store";
 import { sound } from "../utils/sounds";
@@ -1880,33 +1880,8 @@ function ImageGeneration() {
                     const photoUrls = [];
                     for (const photo of advancedReferencePhotos) {
                       if (photo?.file) {
-                        // Try presigned R2 upload first (bypasses Vercel 4.5MB body limit)
-                        let uploaded = false;
-                        try {
-                          const presignRes = await api.post("/upload/presign", {
-                            contentType: photo.file.type || "image/jpeg",
-                            folder: "uploads",
-                          });
-                          if (presignRes.data?.uploadUrl) {
-                            await fetch(presignRes.data.uploadUrl, {
-                              method: "PUT",
-                              body: photo.file,
-                              headers: { "Content-Type": photo.file.type || "image/jpeg" },
-                            });
-                            photoUrls.push(presignRes.data.publicUrl);
-                            uploaded = true;
-                          }
-                        } catch (_) {}
-                        if (!uploaded) {
-                          const formData = new FormData();
-                          formData.append("file", photo.file);
-                          const uploadRes = await api.post("/upload", formData, {
-                            headers: { "Content-Type": "multipart/form-data" }
-                          });
-                          if (uploadRes.data.success && uploadRes.data.url) {
-                            photoUrls.push(uploadRes.data.url);
-                          }
-                        }
+                        const url = await uploadFile(photo.file);
+                        photoUrls.push(url);
                       } else if (photo?.preview && !photo.preview.startsWith("blob:")) {
                         photoUrls.push(photo.preview);
                       }

@@ -2,6 +2,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import crypto from "crypto";
+import { kieConstraints, waveSpeedConstraints } from "../config/providerMediaConstraints.js";
 
 const SUPPORTED_IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp"]);
 const SUPPORTED_VIDEO_EXTENSIONS = new Set(["mp4", "webm", "mov"]);
@@ -226,51 +227,93 @@ const MIME_VIDEO_MP4_MOV_MKV = new Set([
 
 async function validateNanoBananaInputImages(urls) {
   if (!Array.isArray(urls) || urls.length === 0) return { valid: true };
+  const { imageMaxBytes, maxReferenceImages } = kieConstraints.nanoBananaPro;
+  if (urls.length > maxReferenceImages) {
+    return {
+      valid: false,
+      message: `Too many reference images (${urls.length}). KIE Nano Banana Pro allows at most ${maxReferenceImages}.`,
+    };
+  }
   for (let i = 0; i < urls.length; i++) {
     const result = await validateRemoteMedia(urls[i], {
       label: `Reference image ${i + 1}`,
       kind: "image",
       allowedExtensions: new Set(["jpg", "jpeg", "png", "webp"]),
       allowedMimeTypes: MIME_IMAGE_JPEG_PNG_WEBP,
-      maxBytes: 30 * 1024 * 1024,
+      maxBytes: imageMaxBytes,
     });
     if (!result.valid) return result;
   }
   return { valid: true };
 }
 
-async function validateSeedreamEditImages(urls) {
+/**
+ * @param {"kie" | "wavespeed"} [provider="wavespeed"]
+ */
+async function validateSeedreamEditImages(urls, provider = "wavespeed") {
   if (!Array.isArray(urls) || urls.length === 0) return { valid: true };
+  if (provider === "kie") {
+    const maxUrls = kieConstraints.seedream45Edit.maxImageUrls;
+    if (urls.length > maxUrls) {
+      return {
+        valid: false,
+        message: `Too many images (${urls.length}) for KIE seedream/4.5-edit. Maximum is ${maxUrls}. Set PROVIDER_LIMIT_KIE_SEEDREAM_45_EDIT_MAX_IMAGE_URLS if your account allows more (e.g. 14).`,
+      };
+    }
+  }
+  const maxBytes =
+    provider === "kie"
+      ? kieConstraints.seedream45Edit.imageMaxBytes
+      : waveSpeedConstraints.seedreamV45Edit.imageMaxBytes;
   for (let i = 0; i < urls.length; i++) {
     const result = await validateRemoteMedia(urls[i], {
       label: `Reference image ${i + 1}`,
       kind: "image",
       allowedExtensions: new Set(["jpg", "jpeg", "png", "webp"]),
       allowedMimeTypes: MIME_IMAGE_JPEG_PNG_WEBP,
-      maxBytes: 10 * 1024 * 1024,
+      maxBytes,
     });
     if (!result.valid) return result;
   }
   return { valid: true };
 }
 
-async function validateKlingImageToVideoInput(imageUrl) {
+async function validateKlingImageToVideoInput(imageUrl, options = {}) {
+  const useKling3 = options.useKling3 === true;
+  const maxBytes = useKling3
+    ? kieConstraints.kling30Video.imageMaxBytes
+    : kieConstraints.kling26ImageToVideo.imageMaxBytes;
   return validateRemoteMedia(imageUrl, {
     label: "Input image",
     kind: "image",
     allowedExtensions: new Set(["jpg", "jpeg", "png", "webp"]),
     allowedMimeTypes: MIME_IMAGE_JPEG_PNG_WEBP,
-    maxBytes: 10 * 1024 * 1024,
+    maxBytes,
+  });
+}
+
+/** Face-swap source video (URL) — WaveSpeed video-face-swap (see providerMediaConstraints). */
+async function validateFaceSwapSourceVideoUrl(url) {
+  const c = waveSpeedConstraints.videoFaceSwap;
+  return validateRemoteMedia(url, {
+    label: "Source video",
+    kind: "video",
+    allowedExtensions: SUPPORTED_VIDEO_EXTENSIONS,
+    allowedMimeTypes: SUPPORTED_VIDEO_MIMES,
+    maxBytes: c.videoMaxBytes,
+    minDurationSec: c.videoMinDurationSec,
+    maxDurationSec: c.videoMaxDurationSec,
   });
 }
 
 async function validateKlingMotionInputs(imageUrl, videoUrl, ultra = false) {
+  const motion = ultra ? kieConstraints.kling30MotionControl : kieConstraints.kling26MotionControl;
   const imageResult = await validateRemoteMedia(imageUrl, {
     label: "Reference image",
     kind: "image",
     allowedExtensions: new Set(["jpg", "jpeg", "png"]),
     allowedMimeTypes: MIME_IMAGE_JPEG_PNG,
-    maxBytes: 10 * 1024 * 1024,
+    maxBytes: motion.imageMaxBytes,
   });
   if (!imageResult.valid) return imageResult;
 
@@ -279,9 +322,21 @@ async function validateKlingMotionInputs(imageUrl, videoUrl, ultra = false) {
     kind: "video",
     allowedExtensions: ultra ? new Set(["mp4", "mov"]) : new Set(["mp4", "mov", "mkv"]),
     allowedMimeTypes: ultra ? MIME_VIDEO_MP4_MOV : MIME_VIDEO_MP4_MOV_MKV,
-    maxBytes: 100 * 1024 * 1024,
-    minDurationSec: 3,
-    maxDurationSec: 30,
+    maxBytes: motion.videoMaxBytes,
+    minDurationSec: motion.videoMinDurationSec,
+    maxDurationSec: motion.videoMaxDurationSec,
+  });
+}
+
+/** Talking head — WaveSpeed kwaivgi/kling-v2-ai-avatar-standard (input portrait). */
+async function validateTalkingHeadAvatarImageUrl(url) {
+  const maxBytes = waveSpeedConstraints.klingV2AiAvatarStandard.imageMaxBytes;
+  return validateRemoteMedia(url, {
+    label: "Avatar image",
+    kind: "image",
+    allowedExtensions: new Set(["jpg", "jpeg", "png", "webp"]),
+    allowedMimeTypes: MIME_IMAGE_JPEG_PNG_WEBP,
+    maxBytes,
   });
 }
 
@@ -311,6 +366,8 @@ export {
   validateSeedreamEditImages,
   validateKlingImageToVideoInput,
   validateKlingMotionInputs,
+  validateFaceSwapSourceVideoUrl,
+  validateTalkingHeadAvatarImageUrl,
   SUPPORTED_IMAGE_EXTENSIONS,
   SUPPORTED_VIDEO_EXTENSIONS,
 };

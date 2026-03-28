@@ -3,6 +3,14 @@ import multer from "multer";
 import prisma from "../lib/prisma.js";
 import { authMiddleware } from "../middleware/auth.middleware.js";
 import { uploadFileToR2, deleteFromR2, isR2Configured } from "../utils/r2.js";
+import {
+  validateGenerationUploadFull,
+  sendUploadGuardResponse,
+} from "../lib/generationUploadGuards.js";
+import {
+  getBlobClientUploadMaxBytes,
+  formatBlobUploadMaxForMessage,
+} from "../config/blobUpload.js";
 
 const router = express.Router();
 
@@ -13,7 +21,7 @@ const ALLOWED_DRAFT_TYPES = [
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 200 * 1024 * 1024 },
+  limits: { fileSize: getBlobClientUploadMaxBytes() },
   fileFilter: (req, file, cb) => {
     if (ALLOWED_DRAFT_TYPES.includes(file.mimetype)) {
       cb(null, true);
@@ -140,6 +148,9 @@ router.post("/upload", authMiddleware, upload.single("file"), async (req, res) =
       return res.status(400).json({ success: false, message: "No file provided" });
     }
 
+    const guard = await validateGenerationUploadFull(req.file, "default");
+    if (!guard.ok) return sendUploadGuardResponse(res, guard);
+
     if (!isR2Configured()) {
       return res.status(500).json({ success: false, message: "Storage not configured" });
     }
@@ -154,10 +165,29 @@ router.post("/upload", authMiddleware, upload.single("file"), async (req, res) =
 
 router.use((err, _req, res, next) => {
   if (err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE") {
+    const msg = `This file exceeds the maximum upload size (${formatBlobUploadMaxForMessage()}). Set BLOB_CLIENT_UPLOAD_MAX_BYTES to match your provider.`;
     return res.status(413).json({
       success: false,
-      message: "File too big. Max upload size is 200MB.",
-      code: "FILE_TOO_BIG",
+      code: "FILE_TOO_LARGE",
+      message: msg,
+      error: msg,
+      solution:
+        "Compress, shorten, or lower resolution in an editor, then upload again.",
+    });
+  }
+  if (
+    err &&
+    err.message &&
+    typeof err.message === "string" &&
+    /not allowed/i.test(err.message)
+  ) {
+    return res.status(400).json({
+      success: false,
+      code: "INVALID_FILE_TYPE",
+      message: err.message,
+      error: err.message,
+      solution:
+        "Use JPG, PNG, WebP, or GIF for images, or MP4, WebM, or MOV for video.",
     });
   }
   return next(err);

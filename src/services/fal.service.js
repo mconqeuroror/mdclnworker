@@ -13,6 +13,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { isR2Configured, uploadBufferToR2, uploadToR2 } from "../utils/r2.js";
+import { falConstraints } from "../config/providerMediaConstraints.js";
 import { sanitizeLoraDownloadUrl } from "../utils/loraUrl.js";
 import { resolveNsfwResolution } from "../utils/nsfwResolution.js";
 // dynamicPoll removed — inline polling used directly
@@ -704,6 +705,18 @@ export async function startLoraTraining(imageUrls, triggerWord, options = {}) {
 
     // Step 2: Create ZIP from images + captions
     const zipBuffer = await createTrainingZip(imageUrls, captions);
+    const zipMax = falConstraints.zImageTurboTrainerV2.zipMaxBytes;
+    if (zipBuffer.length > zipMax) {
+      throw new Error(
+        `Training ZIP is ${(zipBuffer.length / (1024 * 1024)).toFixed(1)} MB; maximum is ${(zipMax / (1024 * 1024)).toFixed(0)} MB (set PROVIDER_LIMIT_FAL_Z_IMAGE_TRAINER_ZIP_MAX_BYTES to adjust).`,
+      );
+    }
+    const minRec = falConstraints.zImageTurboTrainerV2.minRecommendedImages;
+    if (imageUrls.length < minRec) {
+      console.warn(
+        `⚠️ fal recommends at least ${minRec} training images; got ${imageUrls.length}.`,
+      );
+    }
 
     // Step 3: Upload ZIP to R2
     const zipUrl = await uploadZipForTraining(zipBuffer);

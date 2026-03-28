@@ -1022,7 +1022,11 @@ export const getUploadConfig = async () => {
     uploadConfigCache = data;
     return uploadConfigCache;
   } catch {
-    uploadConfigCache = { directToBlob: false };
+    uploadConfigCache = {
+      directToBlob: false,
+      maxUploadBytes: null,
+      maxUploadLabel: null,
+    };
     return uploadConfigCache;
   }
 };
@@ -1065,27 +1069,22 @@ async function uploadFileMultipart(file, onProgress) {
   return response.data.url;
 }
 
-// File upload: use direct-to-blob when configured (avoids 413); otherwise multipart
+// File upload: Vercel Blob client upload when configured (provider-enforced size via token).
+// Multipart /upload is dev-only fallback when Blob is not configured (local testing).
 export const uploadFile = async (file, onProgress) => {
   const config = await getUploadConfig();
   if (config.directToBlob) {
-    try {
-      return await uploadFileDirectToBlob(file, onProgress);
-    } catch (err) {
-      const msg = String(err?.message || "").toLowerCase();
-      const status = err?.response?.status;
-      const isBlobEndpointIssue =
-        status === 404 ||
-        msg.includes("errors/not-found") ||
-        msg.includes("route post:/api/errors/not-found") ||
-        msg.includes("failed to fetch") ||
-        msg.includes("endpoint not found");
-      if (!isBlobEndpointIssue) throw err;
-      console.warn("[upload] direct-to-blob failed; falling back to multipart /upload:", err?.message || err);
-      return uploadFileMultipart(file, onProgress);
-    }
+    return uploadFileDirectToBlob(file, onProgress);
   }
-  return uploadFileMultipart(file, onProgress);
+  if (import.meta.env.DEV) {
+    console.warn(
+      "[upload] Blob not configured — using multipart /upload (dev only). Set BLOB_READ_WRITE_TOKEN for production.",
+    );
+    return uploadFileMultipart(file, onProgress);
+  }
+  throw new Error(
+    "Uploads require Vercel Blob. Configure BLOB_READ_WRITE_TOKEN on the server (and optional BLOB_CLIENT_UPLOAD_MAX_BYTES to match your plan).",
+  );
 };
 
 // Alias for backward compatibility

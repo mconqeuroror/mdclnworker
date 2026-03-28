@@ -62,7 +62,7 @@ import { ScrollArea } from "../components/ui/scroll-area";
 import { cn } from "../lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import toast from "react-hot-toast";
-import api from "../services/api";
+import api, { uploadFile } from "../services/api";
 import { useAuthStore } from "../store";
 import { sound } from "../utils/sounds";
 import { useCachedModels } from "../hooks/useCachedModels";
@@ -2961,53 +2961,18 @@ function TrainingImagePool({ modelId, loraId, selectedImages, onToggle, onPrevie
     const toUpload = files.slice(0, remaining);
     setIsUploading(true);
     try {
-      // Try presigned URL flow first (works on Vercel which has 4.5MB body limit)
-      let uploaded = [];
-      let trimmed = 0;
-      let usedPresigned = false;
-
-      if (toUpload.length > 0) {
-        try {
-          const presignResults = await Promise.all(
-            toUpload.map(async (file) => {
-              const res = await api.post("/upload/presign", { contentType: file.type || "image/jpeg", folder: "training" });
-              return { file, uploadUrl: res.data.uploadUrl, publicUrl: res.data.publicUrl };
-            })
-          );
-          await Promise.all(
-            presignResults.map(({ file, uploadUrl }) =>
-              fetch(uploadUrl, { method: "PUT", body: file, headers: { "Content-Type": file.type || "image/jpeg" } })
-            )
-          );
-          const urls = presignResults.map((r) => r.publicUrl);
-          const { data } = await api.post("/nsfw/register-training-images", { modelId, loraId: targetLoraId, imageUrls: urls });
-          if (data.success) {
-            uploaded = data.images.map((img) => ({ id: img.id, outputUrl: img.imageUrl, _custom: true }));
-            trimmed = data.trimmed || 0;
-            usedPresigned = true;
-          }
-        } catch (_presignErr) {
-          // Fall through to direct multipart upload
-        }
+      const urls = await Promise.all(toUpload.map((file) => uploadFile(file)));
+      const { data } = await api.post(
+        "/nsfw/register-training-images",
+        { modelId, loraId: targetLoraId, imageUrls: urls },
+        { timeout: 120000 },
+      );
+      if (!data.success || !data.images) {
+        toast.error(data.message || "Upload failed");
+        return;
       }
-
-      if (!usedPresigned) {
-        const formData = new FormData();
-        formData.append("modelId", modelId);
-        formData.append("loraId", targetLoraId);
-        toUpload.forEach((f) => formData.append("photos", f));
-        const { data } = await api.post("/nsfw/upload-training-images", formData, {
-          headers: { "Content-Type": "multipart/form-data" },
-          timeout: 120000,
-        });
-        if (data.success && data.images) {
-          uploaded = data.images.map((img) => ({ id: img.id, outputUrl: img.imageUrl, _custom: true }));
-          trimmed = data.trimmed || 0;
-        } else {
-          toast.error(data.message || "Upload failed");
-          return;
-        }
-      }
+      const uploaded = data.images.map((img) => ({ id: img.id, outputUrl: img.imageUrl, _custom: true }));
+      const trimmed = data.trimmed || 0;
 
       if (uploaded.length > 0) {
         setCustomImages((prev) => [...prev, ...uploaded]);
@@ -3019,7 +2984,7 @@ function TrainingImagePool({ modelId, loraId, selectedImages, onToggle, onPrevie
         }
       }
     } catch (err) {
-      toast.error(err.response?.data?.message || "Upload failed");
+      toast.error(err.response?.data?.message || err.message || "Upload failed");
     } finally {
       setIsUploading(false);
       e.target.value = "";

@@ -107,6 +107,15 @@ import {
   validateNanoBananaInputImages,
   validateSeedreamEditImages,
 } from "../utils/fileValidation.js";
+import {
+  validateGenerationUploadFull,
+  validateGenerationUploadSync,
+  sendUploadGuardResponse,
+} from "../lib/generationUploadGuards.js";
+import {
+  getBlobClientUploadMaxBytes,
+  formatBlobUploadMaxForMessage,
+} from "../config/blobUpload.js";
 
 const ALLOWED_UPLOAD_TYPES = [
   "image/jpeg", "image/png", "image/webp", "image/gif",
@@ -155,7 +164,7 @@ const voiceCloneUpload = multer({
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 200 * 1024 * 1024 },
+  limits: { fileSize: getBlobClientUploadMaxBytes() },
   fileFilter: (req, file, cb) => {
     if (ALLOWED_UPLOAD_TYPES.includes(file.mimetype)) {
       cb(null, true);
@@ -490,6 +499,11 @@ router.post("/nsfw/upload-training-images", authMiddleware, upload.array("photos
       });
     }
 
+    for (const file of filesToProcess) {
+      const check = validateGenerationUploadSync(file, "modelPhoto");
+      if (!check.ok) return sendUploadGuardResponse(res, check);
+    }
+
     const uploadedUrls = [];
     for (const file of filesToProcess) {
       const url = await uploadFileToR2(file, "training");
@@ -666,6 +680,8 @@ router.post("/auth/2fa/disable", authMiddleware, disable2FA);
 router.get("/upload/config", authMiddleware, (req, res) => {
   res.json({
     directToBlob: isVercelBlobConfigured(),
+    maxUploadBytes: getBlobClientUploadMaxBytes(),
+    maxUploadLabel: formatBlobUploadMaxForMessage(),
   });
 });
 
@@ -707,7 +723,7 @@ router.post("/upload/blob", authMiddleware, async (req, res) => {
         ];
         return {
           allowedContentTypes,
-          maximumSizeInBytes: 500 * 1024 * 1024,
+          maximumSizeInBytes: getBlobClientUploadMaxBytes(),
           addRandomSuffix: true,
         };
       },
@@ -754,6 +770,9 @@ router.post(
           .status(400)
           .json({ success: false, error: "No file uploaded" });
       }
+
+      const guard = await validateGenerationUploadFull(req.file, "default");
+      if (!guard.ok) return sendUploadGuardResponse(res, guard);
 
       // Prefer Vercel Blob for generation inputs so KIE can access URLs (R2 presigned/public URLs often unreachable by KIE).
       if (isVercelBlobConfigured()) {
@@ -1327,7 +1346,7 @@ router.post(
         ? referencePhotos
         : [model.photo1Url, model.photo2Url, model.photo3Url].filter(Boolean);
       const providerInputCheck = engine === "seedream"
-        ? await validateSeedreamEditImages(identityImages)
+        ? await validateSeedreamEditImages(identityImages, "wavespeed")
         : await validateNanoBananaInputImages(identityImages);
       if (!providerInputCheck.valid) {
         return res.status(400).json({ success: false, error: providerInputCheck.message });
@@ -2165,13 +2184,35 @@ router.post(
   },
 );
 
-// Handle Multer upload limits with explicit user-facing message.
+// Handle Multer upload limits and file filter errors with explicit message + solution.
 router.use((err, _req, res, next) => {
   if (err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE") {
+    const msg = `This file exceeds the maximum upload size (${formatBlobUploadMaxForMessage()}). Set BLOB_CLIENT_UPLOAD_MAX_BYTES to match your Vercel Blob limit.`;
     return res.status(413).json({
       success: false,
-      message: "File too big. Max upload size is 200MB.",
-      code: "FILE_TOO_BIG",
+      code: "FILE_TOO_LARGE",
+      message: msg,
+      error: msg,
+      solution:
+        "Compress, shorten, or lower resolution in an editor, then upload again.",
+    });
+  }
+  if (
+    err &&
+    err.message &&
+    typeof err.message === "string" &&
+    /not allowed|Accepted: images and videos/i.test(err.message)
+  ) {
+    const msg = err.message.includes("Accepted:")
+      ? err.message
+      : "That file type is not allowed for uploads.";
+    return res.status(400).json({
+      success: false,
+      code: "INVALID_FILE_TYPE",
+      message: msg,
+      error: msg,
+      solution:
+        "Use JPG, PNG, WebP, or GIF for images, or MP4, WebM, or MOV for video.",
     });
   }
   if (err && err.message && /only mp3/i.test(err.message)) {

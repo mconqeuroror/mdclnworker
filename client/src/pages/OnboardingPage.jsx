@@ -24,7 +24,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { useAuthStore } from "../store";
-import api from "../services/api";
+import api, { uploadFile } from "../services/api";
 import toast from "react-hot-toast";
 import CheckoutModal from "../components/CheckoutModal";
 import { pollModelUntilReady } from "../utils/modelStatusPolling";
@@ -657,10 +657,8 @@ export default function OnboardingPage() {
       // Upload available photos to get temporary URLs for Grok vision
       const uploadPhoto = async (file) => {
         if (!file) return null;
-        const fd = new FormData();
-        fd.append("file", file);
-        const res = await api.post("/drafts/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
-        return res.data.url || null;
+        const url = await uploadFile(file);
+        return url || null;
       };
       const [url1, url2, url3] = await Promise.all([
         uploadPhoto(realPhotos.face1),
