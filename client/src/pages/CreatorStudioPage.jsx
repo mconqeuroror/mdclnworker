@@ -167,6 +167,8 @@ const PAGE_COPY = {
     tabAvatars: "Реальные аватары",
     uploadFailedPrefix: "Ошибка загрузки: ",
     unknownError: "Неизвестная ошибка",
+    expandGenControls: "Референсы, формат и разрешение",
+    collapseGenControls: "Свернуть",
   },
 };
 
@@ -1072,6 +1074,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
   const { activeGeneration, isGenerating, startGeneration, pollForCompletion, reset } = useActiveGeneration();
   const [history, setHistory]           = useState([]);
   const [lightboxGen, setLightboxGen]   = useState(null);
+  const [mobileGenBarExpanded, setMobileGenBarExpanded] = useState(false);
 
   const { isLoading: histLoading } = useQuery({
     queryKey: ["creator-studio-history"],
@@ -1092,6 +1095,10 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
   useEffect(() => {
     setActiveTab(initialTab);
   }, [initialTab]);
+
+  useEffect(() => {
+    if (activeTab !== "generate") setMobileGenBarExpanded(false);
+  }, [activeTab]);
 
   const handleAddRef = useCallback(async (file, slotIdx) => {
     setUploadingIdx(slotIdx);
@@ -1142,7 +1149,11 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
   return (
     <div
       className={`relative flex flex-col min-h-full bg-[#0a0a0c]${
-        activeTab === "generate" ? " max-md:pb-[calc(22rem+env(safe-area-inset-bottom))]" : ""
+        activeTab === "generate"
+          ? mobileGenBarExpanded
+            ? " max-md:pb-[calc(22rem+env(safe-area-inset-bottom))]"
+            : " max-md:pb-[calc(10.5rem+env(safe-area-inset-bottom))]"
+          : ""
       }`}
     >
 
@@ -1336,63 +1347,134 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
             </div>{/* /spinning-border outer */}
           </div>{/* /fixed positioner */}
 
-          {/* Mobile bar — centered above tab bar; solid-tint glass for contrast */}
+          {/* Mobile bar — collapsible: compact prompt + generate; expand for refs / aspect / res */}
           <div
-            className="md:hidden fixed left-1/2 z-[35] w-[min(calc(100vw-1.25rem),26rem)] max-h-[min(52vh,420px)] -translate-x-1/2 overflow-y-auto overflow-x-hidden rounded-2xl border border-white/[0.18] bg-[#0e0e12]/95 shadow-[0_16px_48px_-16px_rgba(0,0,0,0.9)] backdrop-blur-xl p-3 [scrollbar-width:thin]"
+            className={`md:hidden fixed left-1/2 z-[35] w-[min(calc(100vw-1.25rem),26rem)] -translate-x-1/2 overflow-x-hidden rounded-2xl border border-white/[0.18] bg-[#0e0e12]/95 shadow-[0_16px_48px_-16px_rgba(0,0,0,0.9)] backdrop-blur-xl p-3 [scrollbar-width:thin] ${
+              mobileGenBarExpanded ? "max-h-[min(52vh,420px)] overflow-y-auto" : ""
+            }`}
             style={{
               bottom:
                 "max(0.75rem, calc(var(--dashboard-mobile-tab-stack, calc(3.5rem + env(safe-area-inset-bottom))) + 0.625rem))",
             }}
           >
-            <div className="rounded-xl border border-white/20 bg-black/65 px-3 py-2 mb-3">
-              <textarea
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                placeholder={copy.promptPlaceholder}
-                rows={2}
-                className="w-full bg-transparent text-sm text-white placeholder:text-slate-500 resize-none outline-none min-h-[2.75rem]"
-              />
-            </div>
-            <div className="mb-3">
-              <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-2 font-medium">{copy.refs}</span>
-              <div className="flex gap-2 overflow-x-auto pb-1 -mx-0.5 px-0.5 snap-x snap-mandatory [scrollbar-width:thin]">
-                {refs.map((url, i) => (
-                  <RefSlot key={i} url={url} uploading={uploadingIdx === i}
-                    onRemove={() => removeRef(i)} onAdd={(file) => handleAddRef(file, i)} />
-                ))}
-              </div>
-            </div>
-            <div className="mb-3">
-              <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-2 font-medium">{copy.aspect}</span>
-              <div className="flex gap-2 overflow-x-auto pb-1 -mx-0.5 px-0.5 snap-x [scrollbar-width:thin]">
-                <div className="flex items-center gap-2 shrink-0 pr-2">
-                  {ASPECT_RATIOS.map((ar) => (
-                    <Chip key={ar.value} active={aspectRatio === ar.value} onClick={() => setAspectRatio(ar.value)}>{ar.hint ?? ar.label}</Chip>
-                  ))}
+            <div className="flex items-stretch gap-2">
+              <button
+                type="button"
+                onClick={() => setMobileGenBarExpanded((e) => !e)}
+                aria-expanded={mobileGenBarExpanded}
+                aria-label={mobileGenBarExpanded ? copy.collapseGenControls : copy.expandGenControls}
+                className="flex-shrink-0 w-11 min-h-[44px] rounded-xl border border-white/20 bg-black/50 flex items-center justify-center text-slate-300 hover:bg-black/70 transition-colors"
+              >
+                {mobileGenBarExpanded ? (
+                  <ChevronDown className="w-5 h-5 rotate-180" aria-hidden />
+                ) : (
+                  <ChevronDown className="w-5 h-5" aria-hidden />
+                )}
+              </button>
+              {!mobileGenBarExpanded && (
+                <>
+                  <div className="flex-1 min-w-0 rounded-xl border border-white/20 bg-black/65 px-2.5 py-2 flex items-center">
+                    <textarea
+                      value={prompt}
+                      onChange={(e) => setPrompt(e.target.value)}
+                      placeholder={copy.promptPlaceholder}
+                      rows={1}
+                      className="w-full bg-transparent text-sm text-white placeholder:text-slate-500 resize-none outline-none leading-snug min-h-[2.5rem] max-h-[2.5rem] overflow-y-auto [scrollbar-width:thin]"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleGenerate}
+                    disabled={isGenerating || !prompt.trim()}
+                    className="flex-shrink-0 min-w-[7rem] min-h-[44px] px-3 rounded-xl text-xs font-semibold disabled:opacity-40 flex flex-col items-center justify-center gap-0.5 leading-tight"
+                    style={{ background: "linear-gradient(135deg,#7c3aed,#4f46e5)", color: "white" }}
+                  >
+                    {isGenerating ? (
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                    ) : (
+                      <>
+                        <span className="flex items-center gap-1">
+                          <Zap className="w-3.5 h-3.5 shrink-0" />
+                          <span className="whitespace-nowrap">{COST}</span>
+                          <Coins className="w-3.5 h-3.5 text-yellow-400 shrink-0" />
+                        </span>
+                        <span className="text-[10px] font-medium opacity-90">{copy.tabGenerate}</span>
+                      </>
+                    )}
+                  </button>
+                </>
+              )}
+              {mobileGenBarExpanded && (
+                <div className="flex-1 min-w-0 flex items-center min-h-[44px] px-1">
+                  <p className="text-[11px] text-slate-400 truncate w-full">
+                    <span className="text-slate-500">{aspectSummary}</span>
+                    <span className="mx-1 text-slate-600">·</span>
+                    <span>{resolution}</span>
+                    <span className="mx-1 text-slate-600">·</span>
+                    <span>{COST} cr</span>
+                  </p>
                 </div>
-              </div>
+              )}
             </div>
-            <div className="flex flex-col gap-3">
-              <div>
-                <span className="text-[11px] text-slate-400 uppercase tracking-widest font-medium">{copy.res}</span>
-                <div className="flex gap-2 overflow-x-auto mt-2 pb-0.5 -mx-0.5 px-0.5 [scrollbar-width:thin]">
-                  <div className="flex items-center gap-2 shrink-0">
-                    {RESOLUTIONS.map((r) => (
-                      <Chip key={r} active={resolution === r} onClick={() => setResolution(r)}>{r}</Chip>
+            {!mobileGenBarExpanded && (
+              <p className="text-[10px] text-slate-500 mt-2 text-center leading-snug px-0.5">
+                {formatCopy(copy.creditsAvailable, { credits: creditsLeft })}
+              </p>
+            )}
+
+            {mobileGenBarExpanded && (
+              <div className="mt-3 space-y-3 border-t border-white/10 pt-3">
+                <div className="rounded-xl border border-white/20 bg-black/65 px-3 py-2">
+                  <textarea
+                    value={prompt}
+                    onChange={(e) => setPrompt(e.target.value)}
+                    placeholder={copy.promptPlaceholder}
+                    rows={2}
+                    className="w-full bg-transparent text-sm text-white placeholder:text-slate-500 resize-none outline-none min-h-[2.75rem]"
+                  />
+                </div>
+                <div>
+                  <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-2 font-medium">{copy.refs}</span>
+                  <div className="flex gap-2 overflow-x-auto pb-1 -mx-0.5 px-0.5 snap-x snap-mandatory [scrollbar-width:thin]">
+                    {refs.map((url, i) => (
+                      <RefSlot key={i} url={url} uploading={uploadingIdx === i}
+                        onRemove={() => removeRef(i)} onAdd={(file) => handleAddRef(file, i)} />
                     ))}
                   </div>
                 </div>
+                <div>
+                  <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-2 font-medium">{copy.aspect}</span>
+                  <div className="flex gap-2 overflow-x-auto pb-1 -mx-0.5 px-0.5 snap-x [scrollbar-width:thin]">
+                    <div className="flex items-center gap-2 shrink-0 pr-2">
+                      {ASPECT_RATIOS.map((ar) => (
+                        <Chip key={ar.value} active={aspectRatio === ar.value} onClick={() => setAspectRatio(ar.value)}>{ar.hint ?? ar.label}</Chip>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex flex-col gap-3">
+                  <div>
+                    <span className="text-[11px] text-slate-400 uppercase tracking-widest font-medium">{copy.res}</span>
+                    <div className="flex gap-2 overflow-x-auto mt-2 pb-0.5 -mx-0.5 px-0.5 [scrollbar-width:thin]">
+                      <div className="flex items-center gap-2 shrink-0">
+                        {RESOLUTIONS.map((r) => (
+                          <Chip key={r} active={resolution === r} onClick={() => setResolution(r)}>{r}</Chip>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  <button type="button" onClick={handleGenerate} disabled={isGenerating || !prompt.trim()}
+                    className="w-full min-h-[48px] shrink-0 px-4 py-3 rounded-xl text-sm font-semibold disabled:opacity-40 flex items-center justify-center gap-1.5"
+                    style={{ background: "linear-gradient(135deg,#7c3aed,#4f46e5)", color: "white" }}>
+                    {isGenerating
+                      ? <Loader2 className="w-5 h-5 animate-spin" />
+                      : <span className="flex items-center gap-1.5 whitespace-nowrap">{formatCopy(copy.buttonGenerateCost, { cost: COST })} <Coins className="w-4 h-4 text-yellow-400" /></span>
+                    }
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-500 text-center leading-snug">{formatCopy(copy.creditsAvailable, { credits: creditsLeft })}</p>
               </div>
-              <button type="button" onClick={handleGenerate} disabled={isGenerating || !prompt.trim()}
-                className="w-full min-h-[48px] shrink-0 px-4 py-3 rounded-xl text-sm font-semibold disabled:opacity-40 flex items-center justify-center gap-1.5"
-                style={{ background: "linear-gradient(135deg,#7c3aed,#4f46e5)", color: "white" }}>
-                {isGenerating
-                  ? <Loader2 className="w-5 h-5 animate-spin" />
-                  : <span className="flex items-center gap-1.5 whitespace-nowrap">{formatCopy(copy.buttonGenerateCost, { cost: COST })} <Coins className="w-4 h-4 text-yellow-400" /></span>
-                }
-              </button>
-            </div>
-            <p className="text-[11px] text-slate-500 mt-3 text-center leading-snug">{formatCopy(copy.creditsAvailable, { credits: creditsLeft })}</p>
+            )}
           </div>
 
           <AnimatePresence>
