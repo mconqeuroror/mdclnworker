@@ -19,7 +19,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && apt-get update && apt-get install -y --no-install-recommends \
     python3.12 python3.12-venv python3.12-dev \
     python3-pip git wget curl build-essential \
-    libgl1 libglib2.0-0 ffmpeg \
+    libgl1 libglib2.0-0 libegl1-mesa libgles2-mesa ffmpeg \
  && rm -rf /var/lib/apt/lists/*
 
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 \
