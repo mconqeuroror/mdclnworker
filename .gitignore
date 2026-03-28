@@ -15,6 +15,7 @@ bin/
 # Default: ignore local uploads; commit the canonical NSFW Comfy graph for RunPod.
 attached_assets/*
 !attached_assets/nsfw_core_workflow.json
+!attached_assets/nsfw_img2img_v2promax_workflow.json
 
 # Nested repo checkout — keep files, not embedded .git
 runpod-mdcln/.git/

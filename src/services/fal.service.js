@@ -891,7 +891,7 @@ const PRIMITIVE_CLASS_TYPES = new Set([
   "DF_Integer",
 ]);
 
-function comfyUiGraphToApiPrompt(nodes, links, extra) {
+export function comfyUiGraphToApiPrompt(nodes, links, extra) {
   const linkMap = {};
   if (Array.isArray(links)) {
     for (const link of links) {
@@ -1011,7 +1011,7 @@ const UNSUPPORTED_NODE_IDS = [
  * Comfy UI exports String Literal nodes (e.g. 41, 56) as separate nodes; RunPod must not execute them.
  * Inlining only `inputs.text` misses other rare links to the same literals.
  */
-function inlineStringLiteralRefsInApiWorkflow(apiWorkflow, resolvedByNodeId) {
+export function inlineStringLiteralRefsInApiWorkflow(apiWorkflow, resolvedByNodeId) {
   const replaceRef = (v) => {
     if (!Array.isArray(v) || v.length < 2) return v;
     const srcId = String(v[0]);

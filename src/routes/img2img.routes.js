@@ -2,7 +2,7 @@
  * img2img Pipeline Routes
  *
  * POST /api/img2img/generate
- *   Body: { inputImageUrl, loraUrl, triggerWord, lookDescription?, loraStrength?, denoise?, seed? }
+ *   Body: { inputImageUrl, loraUrl, triggerWord, lookDescription?, loraStrength?, denoise? (stage-1, default 0.6), seed? }
  *   Auth: required (JWT cookie)
  *   Credits: deducted upfront (30 credits for generate, 0 for describe), refunded on failure
  *   Returns: { jobId } — client polls /status/:jobId
@@ -299,7 +299,7 @@ router.post("/generate", LARGE_JSON, authMiddleware, async (req, res) => {
     triggerWord,
     lookDescription = "",
     loraStrength = 0.8,
-    denoise = 0.65,
+    denoise = 0.6,
     seed,
     modelId,
     prompt: prebuiltPrompt, // if provided, skip JoyCaption+inject steps

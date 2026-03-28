@@ -4,7 +4,8 @@
  * Orchestrates a 2-step RunPod ComfyUI flow:
  *   Step 1 — imgtoprompt: JoyCaption Beta1 describes the input image (scene, pose, activity)
  *   Step 2 — OpenAI injects the model's LoRA trigger word + look description into the prompt
- *   Step 3 — img2img: generates a swapped version using the model's LoRA on RunPod ComfyUI
+ *   Step 3 — img2img: RunPod ComfyUI graph from `attached_assets/nsfw_img2img_v2promax_workflow.json`
+ *           (ZIT encode + refiner ckpt); saved image is VAEDecode 28 without film grain or blur.
  *
  * JoyCaption (image analysis) runs on a dedicated RunPod endpoint so its queue does not block img2img gen.
  *
@@ -14,10 +15,20 @@
  *   RUNPOD_IMAGE_ANALYSIS_ENDPOINT_ID    — Optional; defaults to dedicated JoyCaption worker id
  */
 
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 import { isR2Configured } from "../utils/r2.js";
 import { isVercelBlobConfigured, uploadBufferToBlobOrR2 } from "../utils/kieUpload.js";
 import { sanitizeLoraDownloadUrl } from "../utils/loraUrl.js";
-import { buildNsfwLoraStackEntries, applyCompactLoraStackToNode250 } from "./fal.service.js";
+import {
+  buildNsfwLoraStackEntries,
+  applyCompactLoraStackToNode250,
+  comfyUiGraphToApiPrompt,
+  inlineStringLiteralRefsInApiWorkflow,
+} from "./fal.service.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // dynamicPoll removed — inline polling used directly
 
@@ -231,6 +242,124 @@ function ensureFiniteNumber(value, fieldName) {
   return n;
 }
 
+const NSFW_IMG2IMG_V2_GRAPH_PATHS = [
+  path.join(process.cwd(), "attached_assets", "nsfw_img2img_v2promax_workflow.json"),
+  path.join(__dirname, "..", "..", "attached_assets", "nsfw_img2img_v2promax_workflow.json"),
+];
+
+/** Expand Comfy 1.12+ embedded subgraph instances (UUID `type`) to a real CheckpointLoaderSimple for API. */
+function expandEmbeddedCheckpointSubgraphs(workflowData) {
+  const subgraphs = workflowData.definitions?.subgraphs;
+  const nodes = workflowData.nodes;
+  if (!Array.isArray(subgraphs) || !Array.isArray(nodes)) return;
+  const byId = Object.fromEntries(subgraphs.map((sg) => [sg.id, sg]));
+  for (let i = 0; i < nodes.length; i++) {
+    const n = nodes[i];
+    const sg = byId[n.type];
+    if (!sg?.nodes?.length) continue;
+    const inner = sg.nodes.find((x) => x.type === "CheckpointLoaderSimple");
+    if (!inner) continue;
+    const merged = JSON.parse(JSON.stringify(inner));
+    merged.id = n.id;
+    if (n.pos) merged.pos = n.pos;
+    if (n.size) merged.size = n.size;
+    nodes[i] = merged;
+  }
+}
+
+let nsfwImg2ImgV2GraphCache = null;
+
+function loadNsfwImg2ImgV2GraphPrepared() {
+  if (nsfwImg2ImgV2GraphCache) return JSON.parse(JSON.stringify(nsfwImg2ImgV2GraphCache));
+  let raw = null;
+  for (const p of NSFW_IMG2IMG_V2_GRAPH_PATHS) {
+    try {
+      if (fs.existsSync(p)) {
+        raw = fs.readFileSync(p, "utf8");
+        break;
+      }
+    } catch {
+      /* try next path */
+    }
+  }
+  if (!raw) {
+    throw new Error(
+      "NSFW img2img workflow missing: add attached_assets/nsfw_img2img_v2promax_workflow.json",
+    );
+  }
+  const data = JSON.parse(raw);
+  expandEmbeddedCheckpointSubgraphs(data);
+  nsfwImg2ImgV2GraphCache = data;
+  return JSON.parse(JSON.stringify(data));
+}
+
+/** Replace inputs wired as [sourceNodeId, slot] with a string, then remove the source node. */
+function inlineStringOutputNodeAsValue(api, sourceNodeId, value) {
+  const sid = String(sourceNodeId);
+  for (const node of Object.values(api)) {
+    if (!node?.inputs) continue;
+    for (const k of Object.keys(node.inputs)) {
+      const v = node.inputs[k];
+      if (Array.isArray(v) && v.length >= 2 && String(v[0]) === sid) {
+        node.inputs[k] = value;
+      }
+    }
+  }
+  delete api[sid];
+}
+
+/**
+ * RunPod API prompt from `attached_assets/nsfw_img2img_v2promax_workflow.json` (ZIT img encode → refiner ckpt).
+ * Output is VAEDecode 28 only — film grain / blur nodes are removed from the graph.
+ */
+function buildNsfwImg2ImgV2ApiPrompt({ positivePrompt, loraUrl, loraStrength, seed, stage1Denoise }) {
+  const graph = loadNsfwImg2ImgV2GraphPrepared();
+  const negNode = graph.nodes?.find((n) => String(n.id) === "41" && n.type === "String Literal");
+  const negativeText =
+    negNode?.widgets_values != null && negNode.widgets_values[0] != null
+      ? String(negNode.widgets_values[0])
+      : "blurry, low resolution, deformed, bad anatomy, extra limbs, mutated hands, poorly drawn face, bad proportions, watermark, text, signature, cartoon, anime, overexposed, underexposed, plastic skin, doll-like";
+
+  const api = comfyUiGraphToApiPrompt(graph.nodes, graph.links, graph.extra);
+
+  inlineStringLiteralRefsInApiWorkflow(api, { "41": negativeText });
+  delete api["41"];
+
+  inlineStringOutputNodeAsValue(api, "311", positivePrompt);
+
+  if (api["305"]?.inputs) {
+    api["305"].inputs.image = "__INPUT_IMAGE__";
+    api["305"].inputs.upload = "image";
+  }
+
+  const safeUrl = sanitizeLoraDownloadUrl(loraUrl);
+  const ls = ensureFiniteNumber(loraStrength, "loraStrength");
+  if (api["250"]?.inputs) {
+    api["250"].inputs.lora_1_url = safeUrl;
+    api["250"].inputs.lora_1_strength = ls;
+    api["250"].inputs.lora_1_model_strength = ls;
+    api["250"].inputs.lora_1_clip_strength = ls;
+  }
+
+  if (api["57"]?.inputs) {
+    api["57"].inputs.seed = seed;
+  }
+
+  if (api["276"]?.inputs) {
+    api["276"].inputs.denoise = ensureFiniteNumber(stage1Denoise, "denoise");
+  }
+
+  if (api["289"]?.inputs) {
+    api["289"].inputs.images = ["28", 0];
+    api["289"].inputs.filename_prefix = "modelclone_img2img";
+  }
+  delete api["284"];
+  delete api["286"];
+  delete api["36"];
+
+  return api;
+}
+
 // ── RunPod API helpers ────────────────────────────────────────────────────────
 
 function runpodBaseForEndpoint(endpointId) {
@@ -337,31 +466,32 @@ export async function submitImg2ImgJob({
   prompt,
   loraUrl,
   loraStrength = 0.8,
-  denoise = 0.65,
+  denoise = 0.6,
   seed,
 }) {
   const numericLoraStrength = ensureFiniteNumber(loraStrength, "loraStrength");
   const numericDenoise = ensureFiniteNumber(denoise, "denoise");
 
   const imageBase64 = imageBase64Provided || await imageUrlToBase64(imageUrl);
-  const workflow = loadImg2ImgWorkflow();
   const resolvedSeed = seed ?? Math.floor(Math.random() * 1_000_000_000);
 
-  if (!workflow["5"]?.inputs || !workflow["6"]?.inputs || !workflow["9"]?.inputs) {
-    throw new Error("img2img workflow template is missing expected nodes (5, 6, or 9)");
-  }
+  const workflow = buildNsfwImg2ImgV2ApiPrompt({
+    positivePrompt: prompt,
+    loraUrl,
+    loraStrength: numericLoraStrength,
+    seed: resolvedSeed,
+    stage1Denoise: numericDenoise,
+  });
 
-  workflow["5"].inputs.lora_1_url = sanitizeLoraDownloadUrl(loraUrl);
-  workflow["5"].inputs.lora_1_strength = numericLoraStrength;
-  workflow["6"].inputs.text = prompt;
-  workflow["9"].inputs.seed = resolvedSeed;
-  workflow["9"].inputs.denoise = numericDenoise;
+  if (!workflow["250"]?.inputs || !workflow["276"]?.inputs || !workflow["305"]?.inputs) {
+    throw new Error("NSFW img2img workflow is missing expected nodes (250, 276, or 305)");
+  }
 
   const payload = {
     prompt: workflow,
     upload_images: [
       {
-        node_id: "4",
+        node_id: "305",
         data: imageBase64,
         filename: "img2img_input.jpg",
       },
@@ -632,35 +762,36 @@ ${rawDescription}`;
  * Runs the img2img ComfyUI workflow on RunPod.
  * Returns base64-encoded image data.
  */
-export async function generateImg2Img({ imageUrl, imageBase64Provided, prompt, loraUrl, loraStrength = 0.8, denoise = 0.65, seed }) {
+export async function generateImg2Img({ imageUrl, imageBase64Provided, prompt, loraUrl, loraStrength = 0.8, denoise = 0.6, seed }) {
   const numericLoraStrength = ensureFiniteNumber(loraStrength, "loraStrength");
   const numericDenoise = ensureFiniteNumber(denoise, "denoise");
 
-  console.log("\n🎨 [img2img] Step 3 — running img2img generation...");
+  console.log("\n🎨 [img2img] Step 3 — running NSFW v2 img2img (encode → ZIT → refiner, save from node 28)...");
   console.log(`   LoRA: ${loraUrl}`);
   console.log(`   Prompt: ${prompt.slice(0, 100)}...`);
-  console.log(`   Denoise: ${numericDenoise}  LoRA strength: ${numericLoraStrength}`);
+  console.log(`   Stage-1 denoise: ${numericDenoise}  LoRA strength: ${numericLoraStrength}`);
 
   const imageBase64 = imageBase64Provided || await imageUrlToBase64(imageUrl);
-  const workflow = loadImg2ImgWorkflow();
 
   const resolvedSeed = seed ?? Math.floor(Math.random() * 1_000_000_000);
 
-  if (!workflow["5"]?.inputs || !workflow["6"]?.inputs || !workflow["9"]?.inputs) {
-    throw new Error("img2img workflow template is missing expected nodes (5, 6, or 9)");
-  }
+  const workflow = buildNsfwImg2ImgV2ApiPrompt({
+    positivePrompt: prompt,
+    loraUrl,
+    loraStrength: numericLoraStrength,
+    seed: resolvedSeed,
+    stage1Denoise: numericDenoise,
+  });
 
-  workflow["5"].inputs.lora_1_url = sanitizeLoraDownloadUrl(loraUrl);
-  workflow["5"].inputs.lora_1_strength = numericLoraStrength;
-  workflow["6"].inputs.text = prompt;
-  workflow["9"].inputs.seed = resolvedSeed;
-  workflow["9"].inputs.denoise = numericDenoise;
+  if (!workflow["250"]?.inputs || !workflow["276"]?.inputs || !workflow["305"]?.inputs) {
+    throw new Error("NSFW img2img workflow is missing expected nodes (250, 276, or 305)");
+  }
 
   const payload = {
     prompt: workflow,
     upload_images: [
       {
-        node_id: "4",
+        node_id: "305",
         data: imageBase64,
         filename: "img2img_input.jpg",
       },
@@ -702,7 +833,7 @@ export async function generateImg2Img({ imageUrl, imageBase64Provided, prompt, l
  * @param {string} params.triggerWord     - LoRA trigger word (e.g. "lora_keo")
  * @param {string} params.lookDescription - Model appearance for prompt injection (optional)
  * @param {number} params.loraStrength    - LoRA model + clip strength (default 0.8)
- * @param {number} params.denoise         - img2img denoise strength (default 0.65)
+ * @param {number} params.denoise         - stage-1 KSampler 276 denoise (default 0.6, matches workflow JSON)
  * @param {number} params.seed            - Random seed (optional)
  * @returns {Promise<{outputUrl: string, prompt: string, rawDescription: string}>}
  */
@@ -714,7 +845,7 @@ export async function runImg2ImgPipeline(params) {
     triggerWord,
     lookDescription = "",
     loraStrength = 0.8,
-    denoise = 0.65,
+    denoise = 0.6,
     seed,
   } = params;
 

@@ -1077,7 +1077,7 @@ function NsfwImg2ImgTab({ modelId, activeLoraObj, chipSelections = {} }) {
 
   // Generate step
   const [loraStrength, setLoraStrength] = useState(0.80);
-  const [denoise, setDenoise] = useState(0.65);
+  const [denoise, setDenoise] = useState(0.6);
   const [isGenerating, setIsGenerating] = useState(false);
   const [jobId, setJobId] = useState(null);
   const [jobStatus, setJobStatus] = useState(null);
