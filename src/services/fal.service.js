@@ -872,6 +872,51 @@ function getKsamplerWidgetValuesStartIndex(node, linkMap) {
   return 0;
 }
 
+/** Second widgets_values slot after numeric seed (Comfy / UltimateSDUpscale UI export). */
+const COMFY_SEED_CONTROL_MODES = new Set(["randomize", "fixed", "increment", "decrement"]);
+
+const RGTHREE_FAST_GROUPS_BYPASSER = "Fast Groups Bypasser (rgthree)";
+
+/**
+ * Remove rgthree Fast Groups Bypasser nodes from a Comfy UI export and reconnect links.
+ * The bypasser passes each input slot through to the same output slot; RunPod images often omit
+ * this class in object_info (or use a different display name), which breaks handler validation.
+ */
+export function removeRgthreeFastGroupsBypasserFromComfyUiGraph(nodes, links) {
+  if (!Array.isArray(nodes) || !Array.isArray(links)) return;
+  let guard = 0;
+  while (guard++ < 256) {
+    const idx = nodes.findIndex((n) => n.type === RGTHREE_FAST_GROUPS_BYPASSER);
+    if (idx === -1) break;
+    const bid = nodes[idx].id;
+
+    const incomingByTargetSlot = new Map();
+    for (const link of links) {
+      const [, o, os, t, ts] = link;
+      if (t === bid) incomingByTargetSlot.set(Number(ts), [o, os]);
+    }
+
+    const newLinks = [];
+    for (const link of links) {
+      const [lid, o, os, t, ts] = link;
+      if (o === bid) {
+        const src = incomingByTargetSlot.get(Number(os));
+        if (src) {
+          const row = [lid, src[0], src[1], t, ts];
+          if (link.length > 5) row.push(link[5]);
+          newLinks.push(row);
+        }
+      } else if (t === bid) {
+        continue;
+      } else {
+        newLinks.push(link);
+      }
+    }
+    links.splice(0, links.length, ...newLinks);
+    nodes.splice(idx, 1);
+  }
+}
+
 /**
  * Convert ComfyUI UI export (nodes + links) to API prompt format.
  * Links format: [linkId, originNodeId, originSlot, targetNodeId, targetSlot, type]
@@ -921,6 +966,16 @@ export function comfyUiGraphToApiPrompt(nodes, links, extra) {
       } else if (inp.widget != null) {
         if (widgetIdx < wv.length) {
           inputs[name] = wv[widgetIdx++];
+          // UltimateSDUpscale exports [seed, "randomize"|…, steps, …] like KSampler; only one `seed` API input.
+          if (
+            node.type === "UltimateSDUpscale" &&
+            name === "seed" &&
+            widgetIdx < wv.length &&
+            typeof wv[widgetIdx] === "string" &&
+            COMFY_SEED_CONTROL_MODES.has(wv[widgetIdx])
+          ) {
+            widgetIdx++;
+          }
         }
       }
     }
@@ -1069,6 +1124,7 @@ function loadNsfwCoreWorkflowApi() {
         if (fs.existsSync(p)) {
           const raw = fs.readFileSync(p, "utf8");
           const data = JSON.parse(raw);
+          removeRgthreeFastGroupsBypasserFromComfyUiGraph(data.nodes, data.links);
           nsfwCoreWorkflowCache = comfyUiGraphToApiPrompt(data.nodes, data.links, data.extra);
           break;
         }
@@ -1691,6 +1747,33 @@ export function buildNsfwPrompt(triggerWord, userPrompt, attributes = "") {
  * String Literal nodes 41/56 are stripped for API; all `[41|56, slot]` input refs are inlined with template text (not only CLIPTextEncode `text`).
  * Falls back to legacy inline workflow if the JSON is missing.
  */
+
+/** Newer ComfyUI_UltimateSDUpscale builds expect `batch_size`; desktop exports may omit it. */
+function patchUltimateSdUpscaleApiNodes(apiWorkflow) {
+  if (!apiWorkflow || typeof apiWorkflow !== "object") return;
+  for (const node of Object.values(apiWorkflow)) {
+    if (node?.class_type !== "UltimateSDUpscale" || !node.inputs) continue;
+    if (node.inputs.batch_size === undefined) {
+      node.inputs.batch_size = 1;
+    }
+  }
+}
+
+/**
+ * Skip UltimateSDUpscale + UpscaleModelLoader when the worker has no upscale_models
+ * (set NSFW_COMFY_BYPASS_UPSCALE=1). Feeds VAEDecode (25) directly into Image Film Grain (284).
+ */
+function bypassUpscaleChainInNsfwCoreApi(apiWorkflow) {
+  if (!apiWorkflow || typeof apiWorkflow !== "object") return;
+  const grain = apiWorkflow["284"];
+  if (grain?.class_type === "Image Film Grain" && grain.inputs) {
+    grain.inputs.image = ["25", 0];
+  }
+  delete apiWorkflow["323"];
+  delete apiWorkflow["329"];
+  delete apiWorkflow["327"];
+}
+
 function buildComfyWorkflow(params) {
   const {
     prompt,
@@ -1878,12 +1961,19 @@ function buildComfyWorkflow(params) {
     const negativeTextForInline = String(findNode(41)?.widgets_values?.[0] ?? "");
     const positiveTextForInline = String(findNode(56)?.widgets_values?.[0] ?? "");
 
+    removeRgthreeFastGroupsBypasserFromComfyUiGraph(workflowGraph.nodes, workflowGraph.links);
+
     // Convert graph to API format, then deep-clone so we never mutate a shared/cached object.
     const apiWorkflow = JSON.parse(
       JSON.stringify(
         comfyUiGraphToApiPrompt(workflowGraph.nodes, workflowGraph.links, workflowGraph.extra),
       ),
     );
+
+    patchUltimateSdUpscaleApiNodes(apiWorkflow);
+    if (process.env.NSFW_COMFY_BYPASS_UPSCALE === "1") {
+      bypassUpscaleChainInNsfwCoreApi(apiWorkflow);
+    }
 
     // Strip String Literal nodes 41/56 (comfy-image-saver — not on RunPod): inline every wire to them.
     if (apiWorkflow["41"] || apiWorkflow["56"]) {

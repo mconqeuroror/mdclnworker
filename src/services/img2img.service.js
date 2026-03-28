@@ -26,6 +26,7 @@ import {
   applyCompactLoraStackToNode250,
   comfyUiGraphToApiPrompt,
   inlineStringLiteralRefsInApiWorkflow,
+  removeRgthreeFastGroupsBypasserFromComfyUiGraph,
 } from "./fal.service.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -320,6 +321,7 @@ function buildNsfwImg2ImgV2ApiPrompt({ positivePrompt, loraUrl, loraStrength, se
       ? String(negNode.widgets_values[0])
       : "blurry, low resolution, deformed, bad anatomy, extra limbs, mutated hands, poorly drawn face, bad proportions, watermark, text, signature, cartoon, anime, overexposed, underexposed, plastic skin, doll-like";
 
+  removeRgthreeFastGroupsBypasserFromComfyUiGraph(graph.nodes, graph.links);
   const api = comfyUiGraphToApiPrompt(graph.nodes, graph.links, graph.extra);
 
   inlineStringLiteralRefsInApiWorkflow(api, { "41": negativeText });
