@@ -32,8 +32,8 @@ import {
   mirrorToBlob,
   isVercelBlobConfigured,
   mirrorExternalUrlToPersistentBlob,
-  deletePersistedBlobIfPossible,
 } from "../utils/kieUpload.js";
+import { deleteStoredMediaFromOutputField } from "../utils/storageDelete.js";
 import {
   validateImageUrl,
   validateVideoUrl,
@@ -1376,24 +1376,9 @@ async function deleteGenerationOutputAssetsAutoCleanup(outputUrl) {
   await deleteR2GenerationAssetMaybe(t);
 }
 
-/** User deleted history: remove R2 and allowed Blob paths (generations/, user-uploads/). */
+/** User deleted history: remove R2 + Blob for our URLs. */
 async function deleteGenerationOutputAssetsUserDelete(outputUrl) {
-  if (!outputUrl) return;
-  const t = String(outputUrl).trim();
-  const run = async (u) => {
-    await deleteR2GenerationAssetMaybe(u);
-    await deletePersistedBlobIfPossible(u);
-  };
-  try {
-    if (t.startsWith("[")) {
-      const arr = JSON.parse(t);
-      if (Array.isArray(arr)) {
-        for (const u of arr) await run(u);
-        return;
-      }
-    }
-  } catch (_) { /* single URL */ }
-  await run(t);
+  await deleteStoredMediaFromOutputField(outputUrl);
 }
 
 export async function cleanupOldGenerations(userId, modelId) {
@@ -1420,17 +1405,31 @@ export async function cleanupOldGenerations(userId, modelId) {
 
     if (oldestGenerations.length > 0) {
       for (const gen of oldestGenerations) {
-        await deleteGenerationOutputAssets(gen.outputUrl);
+        await deleteGenerationOutputAssetsAutoCleanup(gen.outputUrl);
       }
       const ids = oldestGenerations.map((g) => g.id);
       await prisma.generation.deleteMany({
         where: { id: { in: ids } },
       });
-      console.log(`🧹 Auto-cleanup: Deleted ${ids.length} old generations for model ${modelId} (kept ${maxKeep})`);
+      console.log(
+        `🧹 Auto-cleanup: Removed ${ids.length} old generation row(s) for model ${modelId} (kept ${maxKeep}); Vercel Blob files untouched`,
+      );
     }
   } catch (error) {
     console.error("🧹 Auto-cleanup error:", error.message);
   }
+}
+
+/** Schedule history-cap cleanup after a generation completes (non-blocking); logs failures. */
+export function enqueueCleanupOldGenerations(userId, modelId) {
+  if (!userId || !modelId) return;
+  cleanupOldGenerations(userId, modelId).catch((err) => {
+    console.warn(
+      "[enqueueCleanupOldGenerations]",
+      `userId=${userId} modelId=${modelId}:`,
+      err?.message || err,
+    );
+  });
 }
 
 async function cleanupAllModelsForUser(userId) {

@@ -10,7 +10,8 @@
  * On fail, error is in data.failMsg and data.failCode
  */
 
-import { isR2Configured, uploadBufferToR2 } from "../utils/r2.js";
+import { isR2Configured } from "../utils/r2.js";
+import { uploadBufferToBlobOrR2 } from "../utils/kieUpload.js";
 import { IDENTITY_RECREATE_MODEL_CLOTHES } from "../constants/identityRecreationPrompts.js";
 import {
   validateNanoBananaInputImages,
@@ -523,7 +524,7 @@ async function archiveToR2(sourceUrl) {
                         : ct.includes("jpg") || ct.includes("jpeg") ? "jpg"
                         : ct.includes("webp") ? "webp" : "png");
       const finalCt    = ext === "mp4" ? "video/mp4" : ext === "webm" ? "video/webm" : ct;
-      const r2Url      = await uploadBufferToR2(buffer, "generations", ext, finalCt);
+      const r2Url      = await uploadBufferToBlobOrR2(buffer, "generations", ext, finalCt);
 
       console.log(`[KIE] Archived to R2: ${r2Url}`);
       return r2Url;

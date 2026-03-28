@@ -105,14 +105,42 @@ export async function uploadSupportAttachmentToR2(buffer, extension = "jpg", con
   return uploadBufferToR2(buffer, "support-attachments", extension, contentType);
 }
 
+/**
+ * Resolve object key from a public R2 URL (custom R2_PUBLIC_URL or *.r2.dev).
+ * @returns {string|null}
+ */
+export function extractR2KeyFromPublicUrl(url) {
+  if (!url || typeof url !== "string") return null;
+  const pub = R2_PUBLIC_URL ? String(R2_PUBLIC_URL).replace(/\/$/, "") : "";
+  if (pub && (url.startsWith(`${pub}/`) || url === pub)) {
+    const rest = url.startsWith(`${pub}/`) ? url.slice(pub.length + 1) : url.slice(pub.length).replace(/^\//, "");
+    const key = rest.split("?")[0]?.trim();
+    return key || null;
+  }
+  try {
+    const u = new URL(url);
+    if (u.hostname.endsWith(".r2.dev")) {
+      const key = u.pathname.replace(/^\//, "").split("?")[0]?.trim();
+      return key || null;
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
 export async function deleteFromR2(url) {
   const client = getS3Client();
   if (!client) {
     throw new Error("R2 not configured");
   }
 
-  const key = url.replace(`${R2_PUBLIC_URL}/`, "");
-  
+  const key = extractR2KeyFromPublicUrl(url);
+  if (!key) {
+    console.warn(`⚠️ deleteFromR2: unsupported URL (not our R2 public URL): ${String(url).slice(0, 96)}`);
+    return;
+  }
+
   const command = new DeleteObjectCommand({
     Bucket: R2_BUCKET_NAME,
     Key: key,
@@ -194,7 +222,8 @@ export async function getPresignedGetUrl(key, expiresIn = 3600) {
  */
 export async function reMirrorToR2(url, folder = "generations") {
   if (!url || !url.startsWith("http")) return url;
-  if (!isR2Configured()) return url;
+  const { uploadBufferToBlobOrR2, isVercelBlobConfigured } = await import("./kieUpload.js");
+  if (!isVercelBlobConfigured() && !isR2Configured()) return url;
 
   try {
     console.log(`📥 Force re-mirroring for KIE: ${url.slice(0, 70)}...`);
@@ -224,14 +253,18 @@ export async function reMirrorToR2(url, folder = "generations") {
       }
     }
     const finalCt = ext === "mp4" ? "video/mp4" : ext === "webm" ? "video/webm" : ct;
-    const r2Url = await uploadBufferToR2(buffer, folder, ext, finalCt);
-
-    // Use presigned GET URL — direct to R2 storage (not CDN pub-xxx.r2.dev which KIE can't access)
-    // The key is extracted from the CDN URL pattern
-    const key = r2Url.replace(`${R2_PUBLIC_URL}/`, "");
-    const presignedGetUrl = await getPresignedGetUrl(key, 7200); // 2 hour TTL
-    console.log(`✅ Presigned GET URL ready for KIE (direct storage, no CDN): ${presignedGetUrl.slice(0, 80)}`);
-    return presignedGetUrl;
+    const storedUrl = await uploadBufferToBlobOrR2(buffer, folder, ext, finalCt);
+    if (isVercelBlobConfigured() && (storedUrl.includes("vercel-storage.com") || storedUrl.includes("blob.vercel.app"))) {
+      console.log(`✅ KIE relay URL (Blob): ${storedUrl.slice(0, 80)}`);
+      return storedUrl;
+    }
+    const key = extractR2KeyFromPublicUrl(storedUrl);
+    if (key && isR2Configured()) {
+      const presignedGetUrl = await getPresignedGetUrl(key, 7200);
+      console.log(`✅ Presigned GET URL for KIE (R2): ${presignedGetUrl.slice(0, 80)}`);
+      return presignedGetUrl;
+    }
+    return storedUrl;
   } catch (err) {
     console.warn(`⚠️ reMirrorToR2 failed: ${err.message} — using original URL`);
     return url;
@@ -246,16 +279,20 @@ export async function reMirrorToR2(url, folder = "generations") {
  * @returns {Promise<string>} - R2 public URL
  */
 export async function mirrorToR2(externalUrl, folder = "models") {
-  if (!isR2Configured()) {
-    console.warn("⚠️ R2 not configured, returning original URL");
+  const { isVercelBlobConfigured } = await import("./kieUpload.js");
+  if (!isVercelBlobConfigured() && !isR2Configured()) {
+    console.warn("⚠️ No blob/R2 storage, returning original URL");
     return externalUrl;
   }
-  
+
+  if (externalUrl.includes("vercel-storage.com") || externalUrl.includes("blob.vercel.app")) {
+    return externalUrl;
+  }
   // Skip if already on R2
-  if (externalUrl.includes("r2.dev") || externalUrl.includes(R2_PUBLIC_URL)) {
+  if (externalUrl.includes("r2.dev") || (R2_PUBLIC_URL && externalUrl.includes(R2_PUBLIC_URL))) {
     console.log(`✓ Already on R2: ${externalUrl.substring(0, 50)}...`);
     return externalUrl;
-  }  
+  }
   // External sources (WaveSpeed / provider/CDN) can be slow.
   // Increase timeout + retry to reduce "operation was aborted due to timeout".
   const MIRROR_DOWNLOAD_TIMEOUT_MS = 120_000;
@@ -309,10 +346,11 @@ export async function mirrorToR2(externalUrl, folder = "models") {
       ? (extension === "mp4" ? "video/mp4" : "video/webm")
       : contentType;
 
-      const r2Url = await uploadBufferToR2(buffer, folder, extension, finalContentType);
-      console.log(`✅ Mirrored to R2: ${r2Url}`);
+      const { uploadBufferToBlobOrR2 } = await import("./kieUpload.js");
+      const storedUrl = await uploadBufferToBlobOrR2(buffer, folder, extension, finalContentType);
+      console.log(`✅ Mirrored to storage: ${storedUrl}`);
 
-      return r2Url;
+      return storedUrl;
     } catch (error) {
       const isExpectedFailure = /HTTP (403|404|410)/i.test(error.message);
       if (isExpectedFailure) {

@@ -1,8 +1,9 @@
 import prisma from "../lib/prisma.js";
-import { isR2Configured, uploadBufferToR2 } from "../utils/r2.js";
+import { isR2Configured } from "../utils/r2.js";
+import { uploadBufferToBlobOrR2 } from "../utils/kieUpload.js";
 import { getUserFriendlyGenerationError } from "../utils/generationErrorMessages.js";
 import { getErrorMessageForDb } from "../lib/userError.js";
-import { cleanupOldGenerations } from "../controllers/generation.controller.js";
+import { enqueueCleanupOldGenerations } from "../controllers/generation.controller.js";
 import { refundGeneration } from "../services/credit.service.js";
 import http from "http";
 const WAVESPEED_API_KEY = process.env.WAVESPEED_API_KEY;
@@ -344,9 +345,7 @@ class GenerationPollerService {
     });
 
     if (updatedGen.userId && updatedGen.modelId) {
-      cleanupOldGenerations(updatedGen.userId, updatedGen.modelId).catch((err) => {
-        console.error(`⚠️ Best-effort cleanup failed for user ${updatedGen.userId}: ${err.message}`);
-      });
+      enqueueCleanupOldGenerations(updatedGen.userId, updatedGen.modelId);
     }
   }
 
@@ -387,7 +386,7 @@ class GenerationPollerService {
       : contentType;
 
     // Upload to R2 in "generations" folder
-    const r2Url = await uploadBufferToR2(buffer, "generations", extension, finalContentType);
+    const r2Url = await uploadBufferToBlobOrR2(buffer, "generations", extension, finalContentType);
     return r2Url;
   }
 
@@ -533,7 +532,7 @@ class GenerationPollerService {
                   const buf = Buffer.from(await dlRes.arrayBuffer());
                   const ct = dlRes.headers.get("content-type") || "image/png";
                   const ext = outputUrl.match(/\.(mp4|webm|jpg|jpeg|webp|png)(\?|$)/i)?.[1]?.toLowerCase() || "jpg";
-                  finalUrl = await uploadBufferToR2(buf, "generations", ext, ct);
+                  finalUrl = await uploadBufferToBlobOrR2(buf, "generations", ext, ct);
                 }
               } catch (e) {
                 console.warn(`[KIE Watchdog] R2 archive failed for ${gen.id.slice(0, 8)}: ${e.message}`);

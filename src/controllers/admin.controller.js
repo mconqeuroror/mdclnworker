@@ -1,6 +1,8 @@
 import prisma from "../lib/prisma.js";
 import Stripe from "stripe";
 import { recordReferralCommissionFromPayment } from "../services/referral.service.js";
+import { deleteElevenLabsVoice } from "../services/elevenlabs.service.js";
+import { purgeAllBlobAndR2ForUser } from "../utils/userStoragePurge.js";
 import {
   normalizeCreditUnits,
   resolveSubscriptionBillingCycle,
@@ -1185,9 +1187,32 @@ export async function deleteUser(req, res) {
       console.error("⚠️ Audit log error:", auditErr.message);
     }
 
+    const voiceIdSet = new Set();
+    const modelsForVoices = await prisma.savedModel.findMany({
+      where: { userId: id },
+      select: { elevenLabsVoiceId: true },
+    });
+    const modelVoicesRows = await prisma.modelVoice.findMany({
+      where: { userId: id },
+      select: { elevenLabsVoiceId: true },
+    });
+    for (const m of modelsForVoices) {
+      if (m.elevenLabsVoiceId) voiceIdSet.add(m.elevenLabsVoiceId);
+    }
+    for (const m of modelVoicesRows) {
+      if (m.elevenLabsVoiceId) voiceIdSet.add(m.elevenLabsVoiceId);
+    }
+    for (const vid of voiceIdSet) {
+      try {
+        await deleteElevenLabsVoice(vid);
+      } catch (_) { /* best-effort */ }
+    }
+
+    await purgeAllBlobAndR2ForUser(id);
+
     await prisma.user.delete({ where: { id } });
 
-    console.log(`✅ Admin ${req.user.email} deleted user ${user.email}`);
+    console.log(`✅ Admin ${req.user.email} deleted user ${user.email} (storage + ElevenLabs cleaned)`);
 
     res.json({
       success: true,

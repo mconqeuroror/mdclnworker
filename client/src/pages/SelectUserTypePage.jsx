@@ -234,10 +234,7 @@ export default function SelectUserTypePage() {
   ];
 
   return (
-    <div
-      className="min-h-screen text-white flex items-center justify-center px-4 sm:px-6 py-12 overflow-x-hidden relative"
-      style={{ background: '#07070b' }}
-    >
+    <div className="min-h-screen text-white flex items-center justify-center px-4 sm:px-6 py-12 overflow-x-hidden relative bg-[var(--mc-page-select)]">
       <CursorGlow />
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <div
@@ -268,7 +265,7 @@ export default function SelectUserTypePage() {
             <div className="absolute inset-0 rounded-xl blur-md opacity-60" style={{ background: 'rgba(139,92,246,0.4)' }} />
             <img src="/logo-512.png" alt="ModelClone" className="relative w-9 h-9 rounded-xl object-cover ring-1 ring-white/10" />
           </div>
-          <span className="text-xl font-bold tracking-tight">ModelClone</span>
+          <span className="text-xl font-display tracking-tight">ModelClone</span>
         </motion.div>
 
         <motion.div
@@ -277,10 +274,10 @@ export default function SelectUserTypePage() {
           transition={{ delay: 0.08 }}
           className="text-center mb-8"
         >
-          <p className="text-[10px] font-medium tracking-[0.22em] uppercase mb-3 text-white/30">
+          <p className="text-[10px] font-medium tracking-[0.26em] uppercase mb-3 text-white/30">
             {copy.hero_welcome}
           </p>
-          <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold mb-2 tracking-tight text-white">
+          <h1 className="text-3xl sm:text-4xl md:text-5xl font-display font-bold mb-2 tracking-tight text-white">
             {copy.hero_title}
           </h1>
           <p className="text-sm max-w-md mx-auto text-white/40">
@@ -309,19 +306,7 @@ export default function SelectUserTypePage() {
                     opacity: isCenter ? 1 : 0.42,
                   }}
                   transition={{ type: 'spring', stiffness: 320, damping: 28 }}
-                  className="relative p-4 sm:p-5 rounded-2xl text-left overflow-hidden origin-center"
-                  style={isCenter ? {
-                    background: 'rgba(255,255,255,0.06)',
-                    border: '1px solid rgba(255,255,255,0.16)',
-                    boxShadow: '0 0 0 1px rgba(255,255,255,0.06), inset 0 1px 0 rgba(255,255,255,0.08)',
-                    backdropFilter: 'blur(12px)',
-                    WebkitBackdropFilter: 'blur(12px)',
-                  } : {
-                    background: 'rgba(255,255,255,0.025)',
-                    border: '1px solid rgba(255,255,255,0.07)',
-                    backdropFilter: 'blur(8px)',
-                    WebkitBackdropFilter: 'blur(8px)',
-                  }}
+                  className={`relative p-4 sm:p-5 rounded-2xl text-left overflow-hidden origin-center ${isCenter ? 'mc-glass-tab-active' : 'mc-glass-dim'}`}
                   data-testid={`tab-${typeKey}`}
                 >
                   {isCenter && (
@@ -371,14 +356,7 @@ export default function SelectUserTypePage() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.22 }}
-            className="relative rounded-2xl p-5 sm:p-7 mb-6 overflow-hidden"
-            style={{
-              background: 'rgba(20,16,32,0.6)',
-              border: '1px solid rgba(255,255,255,0.09)',
-              boxShadow: '0 1px 0 rgba(255,255,255,0.06) inset, 0 8px 40px rgba(0,0,0,0.4), 0 0 60px rgba(139,92,246,0.07)',
-              backdropFilter: 'blur(24px)',
-              WebkitBackdropFilter: 'blur(24px)',
-            }}
+            className="relative rounded-2xl p-5 sm:p-7 mb-6 overflow-hidden mc-card-deep mc-edge-line"
           >
             <span
               className="pointer-events-none absolute"
@@ -392,25 +370,13 @@ export default function SelectUserTypePage() {
                 borderRadius: '50%',
               }}
             />
-            <div
-              className="pointer-events-none absolute top-0 left-0 right-0 h-px"
-              style={{ background: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.12) 40%, rgba(255,255,255,0.18) 50%, rgba(255,255,255,0.12) 60%, transparent 100%)' }}
-            />
-
             <p className="relative text-sm leading-relaxed mb-6 text-white/60">
               {currentType.description}
             </p>
 
             <div className="grid grid-cols-3 gap-2.5 mb-6 relative">
               {currentType.stats.map((stat) => (
-                <div
-                  key={stat.label}
-                  className="text-center p-3 rounded-xl"
-                  style={{
-                    background: 'rgba(255,255,255,0.03)',
-                    border: '1px solid rgba(255,255,255,0.07)',
-                  }}
-                >
+                <div key={stat.label} className="text-center p-3 rounded-xl mc-glass-card">
                   <div className="text-xl sm:text-2xl font-bold text-white tracking-tight">
                     {stat.value}
                   </div>
@@ -440,8 +406,7 @@ export default function SelectUserTypePage() {
 
             <button
               onClick={handleContinue}
-              className="relative mx-auto block py-3 px-10 rounded-xl font-semibold text-black bg-white hover:bg-slate-50 transition-all flex items-center justify-center gap-2 overflow-hidden"
-              style={{ boxShadow: '0 0 0 1px rgba(255,255,255,0.9), 0 0 32px 8px rgba(139,92,246,0.4), inset 0 1px 0 rgba(255,255,255,1)' }}
+              className="relative mx-auto block py-3 px-10 rounded-xl font-semibold text-black bg-white hover:bg-slate-50 transition-all flex items-center justify-center gap-2 overflow-hidden mc-cta-primary"
               data-testid={`button-continue-${selectedType}`}
             >
               <span
@@ -475,17 +440,11 @@ export default function SelectUserTypePage() {
           <p className="text-xs text-white/50">
             {copy.not_sure_text}
           </p>
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm"
-            style={{
-              background: 'rgba(255,255,255,0.04)',
-              border: '1px solid rgba(255,255,255,0.1)',
-            }}
-          >
+          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm mc-glass border border-white/10">
             <span className="text-white/70">{copy.already_member}</span>
             <a
               href="/login"
-              className="font-semibold transition hover:text-white"
-              style={{ color: '#e2d9ff' }}
+              className="font-semibold transition hover:text-white mc-text-link-soft"
               data-testid="link-login"
             >
               {copy.log_in}

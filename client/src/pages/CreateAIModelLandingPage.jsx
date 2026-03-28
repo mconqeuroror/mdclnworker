@@ -264,7 +264,7 @@ function DemoVideo({ videoUrl }) {
       transition={{ duration: 0.5, delay: 0.2 }}
       className="mt-6"
     >
-      <div className="relative aspect-video rounded-2xl overflow-hidden bg-gradient-to-br from-purple-900/30 to-pink-900/30 border border-white/10">
+      <div className="relative aspect-video rounded-2xl overflow-hidden bg-gradient-to-br from-violet-950/35 to-purple-950/25 border border-white/10">
         <video 
           key={src}
           ref={videoRef}
@@ -337,16 +337,7 @@ function SocialProofPopup({ messages, copy }) {
       transition={{ type: 'spring', stiffness: 260, damping: 28 }}
       className="fixed bottom-24 md:bottom-6 left-4 z-[60] max-w-[300px]"
     >
-      <div
-        className="rounded-2xl p-3 relative overflow-hidden"
-        style={{
-          background: 'rgba(10,10,14,0.88)',
-          border: '1px solid rgba(255,255,255,0.09)',
-          backdropFilter: 'blur(20px)',
-          WebkitBackdropFilter: 'blur(20px)',
-          boxShadow: '0 8px 32px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.05)',
-        }}
-      >
+      <div className="rounded-2xl p-3 relative overflow-hidden mc-glass-toast">
         {/* subtle top-left corner glow */}
         <span
           className="pointer-events-none absolute top-0 left-0 w-24 h-24 rounded-full"
@@ -749,6 +740,42 @@ const natashaYoga3 = 'https://pub-deb24e74d34c49a3a2e474e11dbf5a64.r2.dev/galler
 const natashaYoga4 = 'https://pub-deb24e74d34c49a3a2e474e11dbf5a64.r2.dev/gallery/natashaYoga4.jpg';
 const natashaMirror = 'https://pub-deb24e74d34c49a3a2e474e11dbf5a64.r2.dev/gallery/natashaMirror.jpg';
 
+const GALLERY_ASHLEY_CREATE = [
+  { src: ashleyRooftop, alt: 'Ashley rooftop' },
+  { src: ashleyBeachSunset, alt: 'Ashley beach' },
+  { src: ashleyCafe, alt: 'Ashley cafe' },
+  { src: ashleyBeachWalk, alt: 'Ashley walking' },
+  { src: ashleyPinkHair, alt: 'Ashley pink hair' },
+  { src: ashleyCity, alt: 'Ashley city' },
+  { src: ashleyBeachBikini, alt: 'Ashley bikini' },
+  { src: ashleyGlamDress, alt: 'Ashley dress' },
+  { src: ashleyFitness, alt: 'Ashley fitness' },
+];
+
+const GALLERY_LAURA_CREATE = [
+  { src: lauraBeach1, alt: 'Laura beach' },
+  { src: lauraBeach2, alt: 'Laura sunset' },
+  { src: lauraBed, alt: 'Laura selfie' },
+  { src: lauraPool, alt: 'Laura pool' },
+  { src: lauraBeach3, alt: 'Laura smile' },
+  { src: lauraLibrary, alt: 'Laura reading' },
+  { src: lauraBedNight, alt: 'Laura evening' },
+  { src: lauraCafe, alt: 'Laura cafe' },
+  { src: lauraHome, alt: 'Laura home' },
+];
+
+const GALLERY_NATASHA_CREATE = [
+  { src: natashaPark, alt: 'Natasha park' },
+  { src: natashaCar1, alt: 'Natasha car' },
+  { src: natashaYoga1, alt: 'Natasha yoga' },
+  { src: natashaYoga2, alt: 'Natasha pose' },
+  { src: natashaStreet, alt: 'Natasha street' },
+  { src: natashaCar2, alt: 'Natasha driving' },
+  { src: natashaYoga3, alt: 'Natasha fitness' },
+  { src: natashaYoga4, alt: 'Natasha workout' },
+  { src: natashaMirror, alt: 'Natasha mirror' },
+];
+
 export default function CreateAIModelLandingPage() {
   const [locale] = useState(resolveLocale);
   const copy = COPY[locale] || COPY.en;
@@ -824,12 +851,12 @@ export default function CreateAIModelLandingPage() {
     <div className="min-h-screen bg-black text-white" data-testid="page-create-ai-model">
       <CursorGlow />
       {/* Navigation - Minimal */}
-      <nav className="fixed top-0 left-0 right-0 z-50 bg-black/90 backdrop-blur-lg border-b border-white/5">
+      <nav className="fixed top-0 left-0 right-0 z-50 border-b border-white/[0.08] mc-glass-nav">
         <div className="max-w-7xl mx-auto px-4">
           <div className="flex items-center justify-between h-14">
             <Link to="/" className="flex items-center gap-2" data-testid="link-home">
               <img src="/logo-512.png" alt="ModelClone" className="w-7 h-7 rounded-lg object-cover" />
-              <span className="text-lg font-bold">ModelClone</span>
+              <span className="text-lg font-display font-bold">ModelClone</span>
             </Link>
             
             <div className="hidden md:flex items-center gap-3">
@@ -842,8 +869,7 @@ export default function CreateAIModelLandingPage() {
               </Link>
               <Link 
                 to="/signup" 
-                className="relative px-5 py-2 rounded-full font-semibold text-sm text-black bg-white hover:bg-slate-100 transition-all overflow-hidden"
-                style={{ boxShadow: '0 0 16px 3px rgba(139,92,246,0.3), inset 0 1px 0 rgba(255,255,255,0.8)' }}
+                className="relative px-5 py-2 rounded-full font-semibold text-sm text-black bg-white hover:bg-slate-100 transition-all overflow-hidden shadow-[0_0_16px_3px_rgba(139,92,246,0.3),inset_0_1px_0_rgba(255,255,255,0.8)]"
                 data-testid="link-signup-nav"
               >
                 <span className="pointer-events-none absolute top-0 left-0 w-10 h-10 rounded-full bg-purple-400/30 blur-xl -translate-x-3 -translate-y-3" />
@@ -877,8 +903,7 @@ export default function CreateAIModelLandingPage() {
               </Link>
               <Link 
                 to="/signup" 
-                className="relative px-6 py-3 rounded-full font-semibold text-center text-black bg-white overflow-hidden"
-                style={{ boxShadow: '0 0 16px 3px rgba(139,92,246,0.3)' }}
+                className="relative px-6 py-3 rounded-full font-semibold text-center text-black bg-white overflow-hidden mc-cta-glow-sm"
                 data-testid="link-signup-mobile"
               >
                 <span className="pointer-events-none absolute top-0 left-0 w-10 h-10 rounded-full bg-purple-400/30 blur-xl -translate-x-3 -translate-y-3" />
@@ -903,7 +928,7 @@ export default function CreateAIModelLandingPage() {
             className="text-center"
           >
             {/* Social Proof Badge */}
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/[0.07] text-xs mb-4" style={{ background: 'rgba(255,255,255,0.04)' }}>
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs mb-4 mc-glass">
               <div className="flex -space-x-1.5">
                 <div className="w-4 h-4 rounded-full bg-white/20 border border-white/10" />
                 <div className="w-4 h-4 rounded-full bg-white/15 border border-white/10" />
@@ -913,7 +938,7 @@ export default function CreateAIModelLandingPage() {
             </div>
 
             {/* Main Headline */}
-            <h1 className="text-3xl sm:text-4xl font-bold mb-3 leading-tight tracking-tight">
+            <h1 className="text-3xl sm:text-4xl font-display font-bold mb-3 leading-tight tracking-tight">
               {copy.heroTitle}
               <span className="block text-slate-300 font-semibold text-2xl sm:text-3xl mt-1">
                 {copy.heroSubtitle}
@@ -928,8 +953,7 @@ export default function CreateAIModelLandingPage() {
             {/* CTA Button */}
             <Link
               to="/signup"
-              className="relative inline-flex items-center justify-center gap-2 w-full max-w-xs px-6 py-4 rounded-2xl font-bold text-base text-black bg-white hover:bg-slate-100 transition-all active:scale-[0.98] overflow-hidden"
-              style={{ boxShadow: '0 0 28px 6px rgba(139,92,246,0.28), inset 0 1px 0 rgba(255,255,255,0.9)' }}
+              className="relative inline-flex items-center justify-center gap-2 w-full max-w-xs px-6 py-4 rounded-2xl font-bold text-base text-black bg-white hover:bg-slate-100 transition-all active:scale-[0.98] overflow-hidden mc-cta-glow-lg"
               data-testid="button-hero-signup"
             >
               <span className="pointer-events-none absolute top-0 left-0 w-16 h-16 rounded-full bg-purple-400/30 blur-xl -translate-x-5 -translate-y-5" />
@@ -967,7 +991,7 @@ export default function CreateAIModelLandingPage() {
               <p className="text-[9px] font-semibold uppercase tracking-[0.2em] mb-1" style={{ color: 'rgba(255,255,255,0.3)' }}>
                 {copy.realResultsLabel}
               </p>
-              <h2 className="text-xl font-bold text-white">{copy.realResultsTitle}</h2>
+              <h2 className="text-xl font-display font-bold text-white">{copy.realResultsTitle}</h2>
             </div>
             <EarningsGrowthSlider currency="$" copy={copy} />
           </motion.div>
@@ -975,7 +999,7 @@ export default function CreateAIModelLandingPage() {
       </section>
 
       {/* Stats Bar */}
-      <section className="py-6 px-4 border-y border-white/[0.06]" style={{ background: 'rgba(255,255,255,0.02)' }}>
+      <section className="py-6 px-4 border-y border-white/[0.06] bg-white/[0.02]">
         <div className="max-w-lg mx-auto">
           <div className="grid grid-cols-3 gap-4 text-center">
             <div>
@@ -1004,59 +1028,29 @@ export default function CreateAIModelLandingPage() {
       <section className="py-8 px-4 overflow-hidden">
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-5">
-            <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest mb-1">{copy.galleryLabel}</p>
-            <h2 className="text-2xl font-bold tracking-tight">{copy.galleryMeetAshley}</h2>
+            <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.2em] mb-1">{copy.galleryLabel}</p>
+            <h2 className="text-2xl font-display font-bold tracking-tight">{copy.galleryMeetAshley}</h2>
             <p className="text-slate-600 text-sm mt-1">{copy.galleryAshleyCaption}</p>
           </div>
 
-          <div className="relative overflow-hidden">
-            <div className="absolute left-0 top-0 bottom-0 w-12 bg-gradient-to-r from-black to-transparent z-10 pointer-events-none" />
-            <div className="absolute right-0 top-0 bottom-0 w-12 bg-gradient-to-l from-black to-transparent z-10 pointer-events-none" />
-            
-            <div className="flex animate-scroll-infinite">
-              {[
-                { src: ashleyRooftop, alt: 'Ashley rooftop' },
-                { src: ashleyBeachSunset, alt: 'Ashley beach' },
-                { src: ashleyCafe, alt: 'Ashley cafe' },
-                { src: ashleyBeachWalk, alt: 'Ashley walking' },
-                { src: ashleyPinkHair, alt: 'Ashley pink hair' },
-                { src: ashleyCity, alt: 'Ashley city' },
-                { src: ashleyBeachBikini, alt: 'Ashley bikini' },
-                { src: ashleyGlamDress, alt: 'Ashley dress' },
-                { src: ashleyFitness, alt: 'Ashley fitness' },
-              ].map((image, index) => (
-                <div key={`first-${index}`} className="flex-shrink-0 px-1.5">
-                  <div className="w-[140px] sm:w-[200px] aspect-[3/4] rounded-xl overflow-hidden">
-                    <OptimizedGalleryImage 
-                      src={image.src} 
-                      alt={image.alt}
-                      className="w-full h-full object-cover"
-                      testId={`ashley-image-${index}`}
-                    />
+          <div className="mc-marquee mc-marquee--black mc-marquee-rail rounded-xl">
+            <div className="mc-marquee-fade-l" aria-hidden />
+            <div className="mc-marquee-fade-r" aria-hidden />
+            <div className="mc-marquee-inner">
+              <div className="mc-marquee-track">
+                {[...GALLERY_ASHLEY_CREATE, ...GALLERY_ASHLEY_CREATE].map((image, index) => (
+                  <div key={`ashley-${index}`} className="flex-shrink-0 px-1.5">
+                    <div className="w-[140px] sm:w-[200px] aspect-[3/4] rounded-xl overflow-hidden border border-white/[0.07]">
+                      <OptimizedGalleryImage
+                        src={image.src}
+                        alt={image.alt}
+                        className="w-full h-full object-cover hover:scale-105 transition-transform duration-500"
+                        testId={index < GALLERY_ASHLEY_CREATE.length ? `ashley-image-${index}` : undefined}
+                      />
+                    </div>
                   </div>
-                </div>
-              ))}
-              {[
-                { src: ashleyRooftop, alt: 'Ashley rooftop' },
-                { src: ashleyBeachSunset, alt: 'Ashley beach' },
-                { src: ashleyCafe, alt: 'Ashley cafe' },
-                { src: ashleyBeachWalk, alt: 'Ashley walking' },
-                { src: ashleyPinkHair, alt: 'Ashley pink hair' },
-                { src: ashleyCity, alt: 'Ashley city' },
-                { src: ashleyBeachBikini, alt: 'Ashley bikini' },
-                { src: ashleyGlamDress, alt: 'Ashley dress' },
-                { src: ashleyFitness, alt: 'Ashley fitness' },
-              ].map((image, index) => (
-                <div key={`second-${index}`} className="flex-shrink-0 px-1.5">
-                  <div className="w-[140px] sm:w-[200px] aspect-[3/4] rounded-xl overflow-hidden">
-                    <OptimizedGalleryImage 
-                      src={image.src} 
-                      alt={image.alt}
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
         </div>
@@ -1066,57 +1060,27 @@ export default function CreateAIModelLandingPage() {
       <section className="py-6 overflow-hidden">
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-5 px-4">
-            <h2 className="text-2xl font-bold tracking-tight">{copy.galleryMeetLaura}</h2>
+            <h2 className="text-2xl font-display font-bold tracking-tight">{copy.galleryMeetLaura}</h2>
           </div>
 
-          <div className="relative overflow-hidden">
-            <div className="absolute left-0 top-0 bottom-0 w-12 bg-gradient-to-r from-black to-transparent z-10 pointer-events-none" />
-            <div className="absolute right-0 top-0 bottom-0 w-12 bg-gradient-to-l from-black to-transparent z-10 pointer-events-none" />
-            
-            <div className="flex animate-scroll-infinite-reverse">
-              {[
-                { src: lauraBeach1, alt: 'Laura beach' },
-                { src: lauraBeach2, alt: 'Laura sunset' },
-                { src: lauraBed, alt: 'Laura selfie' },
-                { src: lauraPool, alt: 'Laura pool' },
-                { src: lauraBeach3, alt: 'Laura smile' },
-                { src: lauraLibrary, alt: 'Laura reading' },
-                { src: lauraBedNight, alt: 'Laura evening' },
-                { src: lauraCafe, alt: 'Laura cafe' },
-                { src: lauraHome, alt: 'Laura home' },
-              ].map((image, index) => (
-                <div key={`laura-first-${index}`} className="flex-shrink-0 px-1.5">
-                  <div className="w-[140px] sm:w-[200px] aspect-[3/4] rounded-xl overflow-hidden">
-                    <OptimizedGalleryImage 
-                      src={image.src} 
-                      alt={image.alt}
-                      className="w-full h-full object-cover"
-                      testId={`laura-image-${index}`}
-                    />
+          <div className="mc-marquee mc-marquee--black mc-marquee-rail rounded-xl">
+            <div className="mc-marquee-fade-l" aria-hidden />
+            <div className="mc-marquee-fade-r" aria-hidden />
+            <div className="mc-marquee-inner">
+              <div className="mc-marquee-track-reverse">
+                {[...GALLERY_LAURA_CREATE, ...GALLERY_LAURA_CREATE].map((image, index) => (
+                  <div key={`laura-${index}`} className="flex-shrink-0 px-1.5">
+                    <div className="w-[140px] sm:w-[200px] aspect-[3/4] rounded-xl overflow-hidden border border-white/[0.07]">
+                      <OptimizedGalleryImage
+                        src={image.src}
+                        alt={image.alt}
+                        className="w-full h-full object-cover hover:scale-105 transition-transform duration-500"
+                        testId={index < GALLERY_LAURA_CREATE.length ? `laura-image-${index}` : undefined}
+                      />
+                    </div>
                   </div>
-                </div>
-              ))}
-              {[
-                { src: lauraBeach1, alt: 'Laura beach' },
-                { src: lauraBeach2, alt: 'Laura sunset' },
-                { src: lauraBed, alt: 'Laura selfie' },
-                { src: lauraPool, alt: 'Laura pool' },
-                { src: lauraBeach3, alt: 'Laura smile' },
-                { src: lauraLibrary, alt: 'Laura reading' },
-                { src: lauraBedNight, alt: 'Laura evening' },
-                { src: lauraCafe, alt: 'Laura cafe' },
-                { src: lauraHome, alt: 'Laura home' },
-              ].map((image, index) => (
-                <div key={`laura-second-${index}`} className="flex-shrink-0 px-1.5">
-                  <div className="w-[140px] sm:w-[200px] aspect-[3/4] rounded-xl overflow-hidden">
-                    <OptimizedGalleryImage 
-                      src={image.src} 
-                      alt={image.alt}
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
         </div>
@@ -1126,57 +1090,27 @@ export default function CreateAIModelLandingPage() {
       <section className="py-6 overflow-hidden">
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-5 px-4">
-            <h2 className="text-2xl font-bold tracking-tight">{copy.galleryMeetNatasha}</h2>
+            <h2 className="text-2xl font-display font-bold tracking-tight">{copy.galleryMeetNatasha}</h2>
           </div>
 
-          <div className="relative overflow-hidden">
-            <div className="absolute left-0 top-0 bottom-0 w-12 bg-gradient-to-r from-black to-transparent z-10 pointer-events-none" />
-            <div className="absolute right-0 top-0 bottom-0 w-12 bg-gradient-to-l from-black to-transparent z-10 pointer-events-none" />
-            
-            <div className="flex animate-scroll-infinite">
-              {[
-                { src: natashaPark, alt: 'Natasha park' },
-                { src: natashaCar1, alt: 'Natasha car' },
-                { src: natashaYoga1, alt: 'Natasha yoga' },
-                { src: natashaYoga2, alt: 'Natasha pose' },
-                { src: natashaStreet, alt: 'Natasha street' },
-                { src: natashaCar2, alt: 'Natasha driving' },
-                { src: natashaYoga3, alt: 'Natasha fitness' },
-                { src: natashaYoga4, alt: 'Natasha workout' },
-                { src: natashaMirror, alt: 'Natasha mirror' },
-              ].map((image, index) => (
-                <div key={`natasha-first-${index}`} className="flex-shrink-0 px-1.5">
-                  <div className="w-[140px] sm:w-[200px] aspect-[3/4] rounded-xl overflow-hidden">
-                    <OptimizedGalleryImage 
-                      src={image.src} 
-                      alt={image.alt}
-                      className="w-full h-full object-cover"
-                      testId={`natasha-image-${index}`}
-                    />
+          <div className="mc-marquee mc-marquee--black mc-marquee-rail rounded-xl">
+            <div className="mc-marquee-fade-l" aria-hidden />
+            <div className="mc-marquee-fade-r" aria-hidden />
+            <div className="mc-marquee-inner">
+              <div className="mc-marquee-track">
+                {[...GALLERY_NATASHA_CREATE, ...GALLERY_NATASHA_CREATE].map((image, index) => (
+                  <div key={`natasha-${index}`} className="flex-shrink-0 px-1.5">
+                    <div className="w-[140px] sm:w-[200px] aspect-[3/4] rounded-xl overflow-hidden border border-white/[0.07]">
+                      <OptimizedGalleryImage
+                        src={image.src}
+                        alt={image.alt}
+                        className="w-full h-full object-cover hover:scale-105 transition-transform duration-500"
+                        testId={index < GALLERY_NATASHA_CREATE.length ? `natasha-image-${index}` : undefined}
+                      />
+                    </div>
                   </div>
-                </div>
-              ))}
-              {[
-                { src: natashaPark, alt: 'Natasha park' },
-                { src: natashaCar1, alt: 'Natasha car' },
-                { src: natashaYoga1, alt: 'Natasha yoga' },
-                { src: natashaYoga2, alt: 'Natasha pose' },
-                { src: natashaStreet, alt: 'Natasha street' },
-                { src: natashaCar2, alt: 'Natasha driving' },
-                { src: natashaYoga3, alt: 'Natasha fitness' },
-                { src: natashaYoga4, alt: 'Natasha workout' },
-                { src: natashaMirror, alt: 'Natasha mirror' },
-              ].map((image, index) => (
-                <div key={`natasha-second-${index}`} className="flex-shrink-0 px-1.5">
-                  <div className="w-[140px] sm:w-[200px] aspect-[3/4] rounded-xl overflow-hidden">
-                    <OptimizedGalleryImage 
-                      src={image.src} 
-                      alt={image.alt}
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
         </div>
@@ -1186,8 +1120,8 @@ export default function CreateAIModelLandingPage() {
       <section className="py-10 px-4" id="how-it-works">
         <div className="max-w-lg mx-auto">
           <div className="text-center mb-8">
-            <h2 className="text-2xl font-bold mb-2">{copy.howItWorksTitle}</h2>
-            <p className="text-gray-500 text-sm">{copy.howItWorksSubtitle}</p>
+            <h2 className="text-2xl font-display font-bold mb-2">{copy.howItWorksTitle}</h2>
+            <p className="text-slate-500 text-sm">{copy.howItWorksSubtitle}</p>
           </div>
 
           <div className="space-y-4">
@@ -1202,14 +1136,14 @@ export default function CreateAIModelLandingPage() {
                 whileInView={{ opacity: 1, x: 0 }}
                 viewport={{ once: true }}
                 transition={{ delay: i * 0.1 }}
-                className="flex items-center gap-4 p-4 rounded-2xl bg-white/[0.03] border border-white/5"
+                className="flex items-center gap-4 p-4 rounded-2xl mc-glass-card"
               >
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500/20 to-pink-500/20 flex items-center justify-center flex-shrink-0">
-                  <span className="text-lg font-bold text-purple-400">{step.num}</span>
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-violet-600/25 to-purple-600/20 flex items-center justify-center flex-shrink-0 border border-white/[0.06]">
+                  <span className="text-lg font-bold text-[#a78bfa]">{step.num}</span>
                 </div>
                 <div>
-                  <h3 className="font-semibold text-white">{step.title}</h3>
-                  <p className="text-gray-500 text-sm">{step.desc}</p>
+                  <h3 className="font-display font-semibold text-white">{step.title}</h3>
+                  <p className="text-slate-500 text-sm">{step.desc}</p>
                 </div>
               </motion.div>
             ))}
@@ -1221,8 +1155,8 @@ export default function CreateAIModelLandingPage() {
       <section className="py-10 px-4">
         <div className="max-w-lg mx-auto">
           <div className="text-center mb-8">
-            <h2 className="text-2xl font-bold mb-2">{copy.whyTitle}</h2>
-            <p className="text-gray-500 text-sm">{copy.whySubtitle}</p>
+            <h2 className="text-2xl font-display font-bold mb-2">{copy.whyTitle}</h2>
+            <p className="text-slate-500 text-sm">{copy.whySubtitle}</p>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -1238,13 +1172,13 @@ export default function CreateAIModelLandingPage() {
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
                 transition={{ delay: i * 0.05 }}
-                className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.06] text-center"
+                className="p-4 rounded-2xl mc-glass-card text-center"
               >
                 <span className="mx-auto mb-2 flex h-9 w-9 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.03]">
                   <benefit.icon className="w-[18px] h-[18px] text-white/40" strokeWidth={1.25} aria-hidden />
                 </span>
-                <h3 className="font-semibold text-sm mb-1">{benefit.title}</h3>
-                <p className="text-gray-500 text-xs">{benefit.desc}</p>
+                <h3 className="font-display font-semibold text-sm mb-1">{benefit.title}</h3>
+                <p className="text-slate-500 text-xs">{benefit.desc}</p>
               </motion.div>
             ))}
           </div>
@@ -1255,47 +1189,32 @@ export default function CreateAIModelLandingPage() {
       <section className="py-10 px-4 overflow-hidden">
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-6">
-            <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest mb-1">{copy.successStoriesLabel}</p>
-            <h2 className="text-2xl font-bold tracking-tight">{copy.successStoriesTitle}</h2>
+            <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.2em] mb-1">{copy.successStoriesLabel}</p>
+            <h2 className="text-2xl font-display font-bold tracking-tight">{copy.successStoriesTitle}</h2>
           </div>
 
-          <div className="relative overflow-hidden">
-            <div className="absolute left-0 top-0 bottom-0 w-12 bg-gradient-to-r from-black to-transparent z-10 pointer-events-none" />
-            <div className="absolute right-0 top-0 bottom-0 w-12 bg-gradient-to-l from-black to-transparent z-10 pointer-events-none" />
-            
-            <div className="flex animate-scroll-infinite-reverse">
-              {testimonials.map((t, i) => (
-                <div key={`t1-${i}`} className="flex-shrink-0 px-2">
-                  <div className="w-[260px] bg-white/[0.03] border border-white/5 rounded-2xl p-4">
-                    <div className="flex items-center gap-2 mb-2">
-                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center text-white text-sm font-bold">
-                        {t.name[0]}
+          <div className="mc-marquee mc-marquee--black mc-marquee-rail rounded-2xl">
+            <div className="mc-marquee-fade-l" aria-hidden />
+            <div className="mc-marquee-fade-r" aria-hidden />
+            <div className="mc-marquee-inner">
+              <div className="mc-marquee-track-reverse">
+                {[...testimonials, ...testimonials].map((t, i) => (
+                  <div key={`t-${i}`} className="flex-shrink-0 px-2">
+                    <div className="w-[260px] rounded-2xl p-4 mc-glass-card">
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center text-white text-sm font-bold">
+                          {t.name[0]}
+                        </div>
+                        <div>
+                          <p className="font-semibold text-sm">{t.name}</p>
+                          <p className="text-green-400 text-xs font-medium">{t.earnings}</p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="font-semibold text-sm">{t.name}</p>
-                        <p className="text-green-400 text-xs font-medium">{t.earnings}</p>
-                      </div>
+                      <p className="text-slate-400 text-xs leading-relaxed">"{t.text}"</p>
                     </div>
-                    <p className="text-gray-400 text-xs leading-relaxed">"{t.text}"</p>
                   </div>
-                </div>
-              ))}
-              {testimonials.map((t, i) => (
-                <div key={`t2-${i}`} className="flex-shrink-0 px-2">
-                  <div className="w-[260px] bg-white/[0.03] border border-white/5 rounded-2xl p-4">
-                    <div className="flex items-center gap-2 mb-2">
-                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center text-white text-sm font-bold">
-                        {t.name[0]}
-                      </div>
-                      <div>
-                        <p className="font-semibold text-sm">{t.name}</p>
-                        <p className="text-green-400 text-xs font-medium">{t.earnings}</p>
-                      </div>
-                    </div>
-                    <p className="text-gray-400 text-xs leading-relaxed">"{t.text}"</p>
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
         </div>
@@ -1304,20 +1223,19 @@ export default function CreateAIModelLandingPage() {
       {/* Discord CTA */}
       <section className="py-8 px-4">
         <div className="max-w-lg mx-auto">
-          <div className="glass-panel-strong rounded-2xl p-5 text-center relative overflow-hidden">
-            <span className="pointer-events-none absolute top-0 left-0 w-24 h-24 rounded-full bg-indigo-500/10 blur-2xl -translate-x-6 -translate-y-6" />
+          <div className="glass-panel-strong rounded-2xl p-5 text-center relative overflow-hidden mc-edge-line">
+            <span className="pointer-events-none absolute top-0 left-0 w-24 h-24 rounded-full bg-violet-600/10 blur-2xl -translate-x-6 -translate-y-6" />
             <div className="relative">
               <div className="w-10 h-10 rounded-xl border border-white/[0.08] flex items-center justify-center mx-auto mb-3" style={{ background: 'rgba(88,101,242,0.12)' }}>
                 <SiDiscord className="w-5 h-5 text-[#7289da]" />
               </div>
-              <h3 className="font-bold text-base mb-1 tracking-tight">{copy.discordTitle}</h3>
+              <h3 className="font-display font-bold text-base mb-1 tracking-tight">{copy.discordTitle}</h3>
               <p className="text-slate-500 text-sm mb-4">{copy.discordSubtitle}</p>
               <a
                 href="https://discord.gg/vpwGygjEaB"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-semibold text-sm border border-white/[0.07] hover:bg-white/[0.06] transition-all"
-                style={{ background: 'rgba(255,255,255,0.04)' }}
+                className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-semibold text-sm hover:bg-white/[0.06] transition-all mc-glass"
                 data-testid="button-discord"
               >
                 <SiDiscord className="w-4 h-4 text-[#7289da]" />
@@ -1357,7 +1275,7 @@ export default function CreateAIModelLandingPage() {
 
               <Link
                 to="/login"
-                className="block text-slate-600 hover:text-slate-300 mt-3 text-sm transition-colors"
+                className="block mt-3 text-sm transition-colors mc-text-link-soft hover:text-white"
                 data-testid="button-cta-login"
               >
                 {copy.finalCtaSecondary}
@@ -1386,8 +1304,7 @@ export default function CreateAIModelLandingPage() {
       <div className="fixed bottom-0 left-0 right-0 p-4 bg-black/90 backdrop-blur-xl border-t border-white/[0.07] md:hidden z-50">
         <Link
           to="/signup"
-          className="relative flex items-center justify-center gap-2 w-full px-6 py-4 rounded-xl font-bold text-base text-black bg-white overflow-hidden"
-          style={{ boxShadow: '0 0 20px 4px rgba(139,92,246,0.25)' }}
+          className="relative flex items-center justify-center gap-2 w-full px-6 py-4 rounded-xl font-bold text-base text-black bg-white overflow-hidden mc-cta-glow-md"
           data-testid="button-sticky-cta"
         >
           <span className="pointer-events-none absolute top-0 left-0 w-14 h-14 rounded-full bg-purple-400/30 blur-xl -translate-x-4 -translate-y-4" />

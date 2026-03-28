@@ -18,6 +18,10 @@ import { isR2Configured, uploadFileToR2, mirrorToR2 } from "../utils/r2.js";
 import { buildAppearancePrefix } from "../utils/appearancePrompt.js";
 import { getGenerationPricing } from "../services/generation-pricing.service.js";
 import { deleteElevenLabsVoice } from "../services/elevenlabs.service.js";
+import {
+  deleteStoredMediaUrl,
+  deleteStoredMediaFromOutputField,
+} from "../utils/storageDelete.js";
 import { persistKieGenerationCorrelation } from "../utils/kieTaskCorrelation.js";
 import {
   validateGenerationUploadSync,
@@ -345,14 +349,44 @@ export async function deleteModel(req, res) {
       });
     }
 
-    const photoUrls = [model.photo1Url, model.photo2Url, model.photo3Url, model.thumbnail].filter(Boolean);
-    for (const url of photoUrls) {
-      if (url && (url.includes("r2.dev") || url.includes(process.env.R2_PUBLIC_URL || "__r2__"))) {
-        try {
-          const { deleteFromR2 } = await import("../utils/r2.js");
-          await deleteFromR2(url);
-        } catch (e) { /* best-effort */ }
-      }
+    const generations = await prisma.generation.findMany({
+      where: { modelId: id },
+      select: { outputUrl: true, inputImageUrl: true, inputVideoUrl: true },
+    });
+    for (const g of generations) {
+      await deleteStoredMediaUrl(g.inputImageUrl);
+      await deleteStoredMediaUrl(g.inputVideoUrl);
+      await deleteStoredMediaFromOutputField(g.outputUrl);
+    }
+
+    const trainedLoras = await prisma.trainedLora.findMany({
+      where: { modelId: id },
+      select: { loraUrl: true, faceReferenceUrl: true },
+    });
+    for (const tl of trainedLoras) {
+      await deleteStoredMediaUrl(tl.loraUrl);
+      await deleteStoredMediaUrl(tl.faceReferenceUrl);
+    }
+
+    const trainingImages = await prisma.loraTrainingImage.findMany({
+      where: { modelId: id },
+      select: { imageUrl: true },
+    });
+    for (const ti of trainingImages) {
+      await deleteStoredMediaUrl(ti.imageUrl);
+    }
+
+    for (const url of [model.photo1Url, model.photo2Url, model.photo3Url, model.thumbnail, model.loraUrl, model.faceReferenceUrl, model.modelVoicePreviewUrl]) {
+      await deleteStoredMediaUrl(url);
+    }
+
+    const avatars = await prisma.avatar.findMany({
+      where: { modelId: id },
+      include: { videos: true },
+    });
+    for (const av of avatars) {
+      await deleteStoredMediaUrl(av.photoUrl);
+      for (const vid of av.videos || []) await deleteStoredMediaUrl(vid.outputUrl);
     }
 
     let modelVoices = [];
@@ -365,7 +399,7 @@ export async function deleteModel(req, res) {
         }),
         prisma.generatedVoiceAudio.findMany({
           where: { modelId: id },
-          select: { audioUrl: true },
+          select: { audioUrl: true, previewUrlSnapshot: true },
         }),
       ]);
     } catch (error) {
@@ -390,22 +424,16 @@ export async function deleteModel(req, res) {
       } catch (e) { /* best-effort */ }
     }
 
-    const r2UrlsToDelete = new Set(
-      [
-        model.modelVoicePreviewUrl,
-        ...modelVoices.flatMap((voice) => [voice.previewUrl, voice.sampleAudioUrl]),
-        ...generatedVoiceAudios.map((audio) => audio.audioUrl),
-      ].filter(Boolean),
-    );
-    for (const url of r2UrlsToDelete) {
-      try {
-        const { deleteFromR2 } = await import("../utils/r2.js");
-        const pub = process.env.R2_PUBLIC_URL || "";
-        if (pub && url.startsWith(pub)) {
-          await deleteFromR2(url);
-        }
-      } catch (e) { /* best-effort */ }
+    for (const voice of modelVoices) {
+      await deleteStoredMediaUrl(voice.previewUrl);
+      await deleteStoredMediaUrl(voice.sampleAudioUrl);
     }
+    for (const audio of generatedVoiceAudios) {
+      await deleteStoredMediaUrl(audio.audioUrl);
+      await deleteStoredMediaUrl(audio.previewUrlSnapshot);
+    }
+
+    await prisma.generation.deleteMany({ where: { modelId: id } });
 
     await prisma.savedModel.delete({
       where: { id },

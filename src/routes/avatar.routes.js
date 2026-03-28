@@ -17,7 +17,7 @@ import { authMiddleware } from "../middleware/auth.middleware.js";
 import { adminMiddleware } from "../middleware/admin.middleware.js";
 import { getGenerationPricing } from "../services/generation-pricing.service.js";
 import { textToSpeech } from "../services/elevenlabs.service.js";
-import { uploadBufferToR2 } from "../utils/r2.js";
+import { uploadBufferToBlobOrR2 } from "../utils/kieUpload.js";
 import {
   uploadAsset,
   createPhotoAvatar,
@@ -193,7 +193,7 @@ router.post("/", upload.single("photo"), async (req, res) => {
   const ext = req.file.mimetype.split("/")[1] || "jpg";
   let photoUrl;
   try {
-    photoUrl = await uploadBufferToR2(req.file.buffer, "avatars", ext, req.file.mimetype);
+    photoUrl = await uploadBufferToBlobOrR2(req.file.buffer, "avatars", ext, req.file.mimetype);
   } catch (err) {
     await prisma.user.update({ where: { id: req.user.id }, data: { credits: { increment: creationCost } } });
     return res.status(500).json({ error: "Failed to upload photo: " + err.message });

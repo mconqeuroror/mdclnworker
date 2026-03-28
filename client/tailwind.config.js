@@ -31,7 +31,9 @@ export default {
         }
       },
       fontFamily: {
-        'sf': ['-apple-system', 'BlinkMacSystemFont', 'SF Pro Display', 'Segoe UI', 'Roboto', 'sans-serif'],
+        sf: ['-apple-system', 'BlinkMacSystemFont', 'SF Pro Display', 'Segoe UI', 'Roboto', 'sans-serif'],
+        sans: ['var(--font-dm-sans)', 'DM Sans', 'system-ui', 'sans-serif'],
+        display: ['var(--font-syne)', 'Syne', 'system-ui', 'sans-serif'],
       },
       animation: {
         'float': 'float 6s ease-in-out infinite',

@@ -7,6 +7,7 @@
  */
 import { put, del } from "@vercel/blob";
 import { reMirrorToR2, isR2Configured, uploadBufferToR2 } from "./r2.js";
+import { deleteStoredMediaUrl } from "./storageDelete.js";
 import {
   isMirrorRedisConfigured,
   mirrorRedisGet,
@@ -49,6 +50,15 @@ export async function uploadBufferToBlob(buffer, filename, contentType, folder =
 
   console.log(`[Blob/KIE relay] Uploaded: ${blob.url.slice(0, 80)}`);
   return blob.url;
+}
+
+/** New uploads: Vercel Blob when configured, else R2 (legacy). */
+export async function uploadBufferToBlobOrR2(buffer, folder, extension, contentType) {
+  if (isVercelBlobConfigured()) {
+    const safeFile = `file.${extension || "bin"}`;
+    return uploadBufferToBlob(buffer, safeFile, contentType || "application/octet-stream", folder);
+  }
+  return uploadBufferToR2(buffer, folder, extension, contentType);
 }
 
 function isBlobHostUrl(url) {
@@ -405,15 +415,7 @@ export async function mirrorProviderOutputUrl(outputUrl, contentTypeHint = "imag
               : ext === "mov" ? "video/quicktime"
                 : ext === "png" ? "image/png"
                   : ext === "webp" ? "image/webp" : "image/jpeg";
-        const filename = `kie-out_${Date.now()}_${Math.random().toString(36).slice(2, 10)}.${ext}`;
-
-        if (BLOB_TOKEN) {
-          return await uploadBufferToBlob(buf, filename, finalCt, "user-uploads");
-        }
-        if (isR2Configured()) {
-          return await uploadBufferToR2(buf, "generations", ext, finalCt);
-        }
-        return outputUrl;
+        return await uploadBufferToBlobOrR2(buf, "user-uploads", ext, finalCt);
       } catch (e) {
         console.warn(`[mirrorProviderOutputUrl] attempt ${attempt}/${maxAttempts} failed: ${e?.message}`);
         if (attempt < maxAttempts) await new Promise((r) => setTimeout(r, delayMs));
@@ -490,16 +492,7 @@ export async function mirrorExternalUrlToPersistentBlob(sourceUrl, folder = "gen
   return uploadBufferToBlob(buffer, filename, finalCt, folder);
 }
 
-/**
- * Best-effort delete of a user generation / upload Blob (generations/ or user-uploads/ only).
- * Does not delete kie-relay, tutorials, or arbitrary paths.
- */
+/** @deprecated Prefer deleteStoredMediaUrl from storageDelete.js */
 export async function deletePersistedBlobIfPossible(blobUrl) {
-  if (!blobUrl || !BLOB_TOKEN) return;
-  if (!isUserDurableBlobPath(blobUrl)) return;
-  try {
-    await del(blobUrl, { token: BLOB_TOKEN });
-  } catch (_) {
-    // non-fatal
-  }
+  await deleteStoredMediaUrl(blobUrl);
 }

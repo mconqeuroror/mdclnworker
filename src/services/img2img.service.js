@@ -14,7 +14,8 @@
  *   RUNPOD_IMAGE_ANALYSIS_ENDPOINT_ID    — Optional; defaults to dedicated JoyCaption worker id
  */
 
-import { isR2Configured, uploadBufferToR2 } from "../utils/r2.js";
+import { isR2Configured } from "../utils/r2.js";
+import { isVercelBlobConfigured, uploadBufferToBlobOrR2 } from "../utils/kieUpload.js";
 import { sanitizeLoraDownloadUrl } from "../utils/loraUrl.js";
 import { buildNsfwLoraStackEntries, applyCompactLoraStackToNode250 } from "./fal.service.js";
 
@@ -740,16 +741,16 @@ export async function runImg2ImgPipeline(params) {
     seed,
   });
 
-  // Step 4: Upload to R2
+  // Step 4: Upload to Blob or R2
   let outputUrl;
-  if (isR2Configured()) {
+  if (isVercelBlobConfigured() || isR2Configured()) {
     const buffer = Buffer.from(imageResult.base64, "base64");
-    outputUrl = await uploadBufferToR2(buffer, "nsfw-generations", "png", "image/png");
-    console.log(`\n✅ Pipeline complete — R2: ${outputUrl}`);
+    outputUrl = await uploadBufferToBlobOrR2(buffer, "nsfw-generations", "png", "image/png");
+    console.log(`\n✅ Pipeline complete — stored: ${outputUrl}`);
   } else {
     // Return as data URL fallback (not ideal for production)
     outputUrl = `data:image/png;base64,${imageResult.base64}`;
-    console.log(`\n✅ Pipeline complete — R2 not configured, returning data URL`);
+    console.log(`\n✅ Pipeline complete — no Blob/R2, returning data URL`);
   }
 
   return {
@@ -846,10 +847,10 @@ export async function generateNsfwTxt2Img({
   const imageResult = images[0];
 
   let outputUrl;
-  if (isR2Configured()) {
+  if (isVercelBlobConfigured() || isR2Configured()) {
     const buffer = Buffer.from(imageResult.base64, "base64");
-    outputUrl = await uploadBufferToR2(buffer, "nsfw-generations", "png", "image/png");
-    console.log(`   R2: ${outputUrl}`);
+    outputUrl = await uploadBufferToBlobOrR2(buffer, "nsfw-generations", "png", "image/png");
+    console.log(`   stored: ${outputUrl}`);
   } else {
     outputUrl = `data:image/png;base64,${imageResult.base64}`;
   }

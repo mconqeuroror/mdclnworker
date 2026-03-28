@@ -4,7 +4,8 @@ import path from "path";
 import crypto from "crypto";
 import ffmpeg from "fluent-ffmpeg";
 import { getFfmpegPathSync } from "../utils/ffmpeg-path.js";
-import { uploadBufferToR2 } from "../utils/r2.js";
+import { isR2Configured } from "../utils/r2.js";
+import { isVercelBlobConfigured, uploadBufferToBlobOrR2 } from "../utils/kieUpload.js";
 
 // ffmpeg.wasm is for browser only; server conversion requires native ffmpeg binary.
 const SERVER_CONVERSION_UNAVAILABLE_MSG =
@@ -198,7 +199,10 @@ export async function convertAndStoreMedia(file, options = {}) {
     }
   }
 
-  const outputUrl = await uploadBufferToR2(outputBuffer, folder, outputExt, outputMime);
+  if (!isVercelBlobConfigured() && !isR2Configured()) {
+    throw new Error("Media storage is not configured (Blob or R2 required).");
+  }
+  const outputUrl = await uploadBufferToBlobOrR2(outputBuffer, folder, outputExt, outputMime);
 
   return {
     success: true,

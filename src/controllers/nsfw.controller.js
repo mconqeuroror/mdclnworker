@@ -47,7 +47,7 @@ import {
 import { isR2Configured, mirrorToR2, reMirrorToR2, deleteFromR2 } from "../utils/r2.js";
 import { mirrorToBlob, isVercelBlobConfigured } from "../utils/kieUpload.js";
 import { getErrorMessageForDb } from "../lib/userError.js";
-import { cleanupOldGenerations } from "./generation.controller.js";
+import { enqueueCleanupOldGenerations } from "./generation.controller.js";
 import { resolveNsfwResolution } from "../utils/nsfwResolution.js";
 
 // Models with age < 18 cannot use NSFW or LoRA (policy)
@@ -3276,7 +3276,7 @@ export async function finalizeNsfwRunpodGeneration(generationId, requestId, runp
   }
   console.log(`✅ [finalize] ${generationId.slice(0, 8)} completed (${permanentUrls.length} imgs)`);
   if (gen.userId && gen.modelId) {
-    cleanupOldGenerations(gen.userId, gen.modelId).catch(() => {});
+    enqueueCleanupOldGenerations(gen.userId, gen.modelId);
   }
   return { ok: true };
 }

@@ -21,7 +21,7 @@ import {
   finalizeTrainingCompletion,
   syncLegacyLoraFields,
 } from "../controllers/nsfw.controller.js";
-import { cleanupOldGenerations } from "../controllers/generation.controller.js";
+import { enqueueCleanupOldGenerations } from "../controllers/generation.controller.js";
 import { refundCredits } from "../services/credit.service.js";
 
 const router = express.Router();
@@ -348,7 +348,7 @@ router.post(
         if (updated.count > 0) {
           console.log(`✅ [fal/faceswap webhook] generation ${gen.id.slice(0, 8)} completed (${finalUrls.length} imgs)`);
           if (gen.userId && gen.modelId) {
-            cleanupOldGenerations(gen.userId, gen.modelId).catch(() => {});
+            enqueueCleanupOldGenerations(gen.userId, gen.modelId);
           }
         } else {
           console.log(`[fal/faceswap webhook] generation ${gen.id.slice(0, 8)} already finalised (race)`);

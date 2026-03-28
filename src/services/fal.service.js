@@ -12,7 +12,8 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { isR2Configured, uploadBufferToR2, uploadToR2 } from "../utils/r2.js";
+import { isR2Configured, uploadToR2 } from "../utils/r2.js";
+import { isVercelBlobConfigured, uploadBufferToBlobOrR2 } from "../utils/kieUpload.js";
 import { falConstraints } from "../config/providerMediaConstraints.js";
 import { sanitizeLoraDownloadUrl } from "../utils/loraUrl.js";
 import { resolveNsfwResolution } from "../utils/nsfwResolution.js";
@@ -374,17 +375,17 @@ async function createTrainingZip(imageUrls, captions = []) {
  * @returns {Promise<string>} Public URL to the ZIP file
  */
 async function uploadZipForTraining(zipBuffer) {
-  if (!isR2Configured()) {
-    throw new Error("R2 storage not configured - required for LoRA training");
+  if (!isVercelBlobConfigured() && !isR2Configured()) {
+    throw new Error("Blob or R2 storage required for LoRA training");
   }
 
-  const url = await uploadBufferToR2(
+  const url = await uploadBufferToBlobOrR2(
     zipBuffer,
     "lora-training",
     "zip",
     "application/zip",
   );
-  console.log(`✅ Training ZIP uploaded to R2: ${url}`);
+  console.log(`✅ Training ZIP uploaded: ${url}`);
   return url;
 }
 
@@ -2537,14 +2538,14 @@ export async function getNsfwGenerationResult(jobId, cachedOutput = null) {
         continue;
       }
       const buffer = Buffer.from(b64, "base64");
-      if (isR2Configured()) {
-        const r2Url = await uploadBufferToR2(buffer, "nsfw-generations", "png", "image/png");
+      if (isVercelBlobConfigured() || isR2Configured()) {
+        const r2Url = await uploadBufferToBlobOrR2(buffer, "nsfw-generations", "png", "image/png");
         outputUrls.push(r2Url);
-        console.log(`✅ Image uploaded to R2: ${r2Url}`);
+        console.log(`✅ Image uploaded: ${r2Url}`);
       } else {
         const dataUrl = `data:image/png;base64,${b64}`;
         outputUrls.push(dataUrl);
-        console.warn(`⚠️ R2 not configured, using data URL (temporary!)`);
+        console.warn(`⚠️ No durable storage configured, using data URL (temporary!)`);
       }
     }
 
@@ -2573,8 +2574,8 @@ export async function getNsfwGenerationResult(jobId, cachedOutput = null) {
  * @returns {Promise<string>} Permanent R2 URL
  */
 export async function archiveNsfwImageToR2(imageUrl) {
-  if (!isR2Configured()) {
-    console.warn("⚠️ R2 not configured, returning source URL (temporary!)");
+  if (!isVercelBlobConfigured() && !isR2Configured()) {
+    console.warn("⚠️ No durable storage configured, returning source URL (temporary!)");
     return imageUrl;
   }
 
@@ -2598,13 +2599,13 @@ export async function archiveNsfwImageToR2(imageUrl) {
       extension = "webp";
     }
 
-    const r2Url = await uploadBufferToR2(
+    const r2Url = await uploadBufferToBlobOrR2(
       buffer,
       "nsfw-generations",
       extension,
       contentType,
     );
-    console.log(`✅ NSFW image archived to R2: ${r2Url}`);
+    console.log(`✅ NSFW image archived: ${r2Url}`);
 
     return r2Url;
   } catch (error) {

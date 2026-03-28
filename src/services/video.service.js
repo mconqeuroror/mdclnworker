@@ -4,7 +4,8 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { promisify } from "util";
-import { isR2Configured, uploadBufferToR2, getR2PresignedPutForKey } from "../utils/r2.js";
+import { isR2Configured, getR2PresignedPutForKey } from "../utils/r2.js";
+import { isVercelBlobConfigured, uploadBufferToBlobOrR2 } from "../utils/kieUpload.js";
 import { getFfmpegPathSync } from "../utils/ffmpeg-path.js";
 import { postTranscodeJobToWorker } from "./ffmpeg-worker-client.js";
 
@@ -66,11 +67,11 @@ const unlinkAsync = promisify(fs.unlink);
 const mkdirAsync = promisify(fs.mkdir);
 
 async function uploadFrameToR2(filePath) {
-  if (!isR2Configured()) {
-    throw new Error("R2 not configured — cannot upload video frames");
+  if (!isVercelBlobConfigured() && !isR2Configured()) {
+    throw new Error("Storage not configured — cannot upload video frames");
   }
   const buffer = fs.readFileSync(filePath);
-  return uploadBufferToR2(buffer, "frames", "jpg", "image/jpeg");
+  return uploadBufferToBlobOrR2(buffer, "frames", "jpg", "image/jpeg");
 }
 
 async function getVideoDuration(videoPath) {
@@ -321,7 +322,7 @@ async function preprocessAudioForTalkingHead(audioBuffer) {
   }
   try {
     // Upload source buffer as a temporary R2 object so the worker can fetch it
-    const inputUrl = await uploadBufferToR2(audioBuffer, "temp-audio", "mp3", "audio/mpeg");
+    const inputUrl = await uploadBufferToBlobOrR2(audioBuffer, "temp-audio", "mp3", "audio/mpeg");
 
     const outKey = `temp-audio/${Date.now()}_${Math.random().toString(36).slice(2)}_out.mp3`;
     const { uploadUrl, publicUrl } = await getR2PresignedPutForKey(outKey, "audio/mpeg", 3600);

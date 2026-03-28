@@ -11,7 +11,7 @@ import multer from "multer";
 import { getBlobClientUploadMaxBytes } from "../config/blobUpload.js";
 import { del } from "@vercel/blob";
 import { handleUpload } from "@vercel/blob/client";
-import { isVercelBlobConfigured } from "../utils/kieUpload.js";
+import { isVercelBlobConfigured, uploadBufferToBlobOrR2 } from "../utils/kieUpload.js";
 import { isR2Configured, uploadBufferToR2, uploadFileToR2, mirrorToR2 } from "../utils/r2.js";
 import {
   getTutorialCatalog,
@@ -1593,10 +1593,10 @@ router.post("/lora-recovery", async (req, res) => {
       });
     }
 
-    if (!isR2Configured()) {
+    if (!isVercelBlobConfigured() && !isR2Configured()) {
       return res.status(500).json({
         success: false,
-        error: "R2 storage is not configured",
+        error: "Blob or R2 storage is not configured",
       });
     }
 
@@ -1656,7 +1656,7 @@ router.post("/lora-recovery", async (req, res) => {
       });
     }
 
-    const recoveredLoraUrl = await uploadBufferToR2(
+    const recoveredLoraUrl = await uploadBufferToBlobOrR2(
       buffer,
       "loras",
       "safetensors",

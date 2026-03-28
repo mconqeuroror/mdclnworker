@@ -92,60 +92,68 @@ process.env.PORT = String(serverPort);
 console.log(`🔌 PORT: ${serverPort}`);
 console.log('');
 
-// Production: require DATABASE_URL (except on Vercel where env is set in Dashboard), then schema sync (skipped on Vercel)
-if (process.env.NODE_ENV === 'production') {
-  if (!process.env.DATABASE_URL?.trim()) {
-    console.error('❌ DATABASE_URL is missing in production.');
-    if (isVercel) {
-      console.error('   On Vercel: set env vars in Dashboard → Project → Settings → Environment Variables (DATABASE_URL, JWT_SECRET, etc.).');
-    } else {
-      console.error('   Set the database secret and redeploy.');
-    }
-    process.exit(1);
-  }
-  // On Vercel (serverless) skip DB sync and rename — run migrations elsewhere. On Replit/VM run them at startup.
-  if (!isVercel) {
-    try {
-      const { stdout, stderr } = await execAsync('node scripts/rename-crypto-oderId-to-orderId.js');
-      if (stdout?.trim()) console.log(stdout.trim());
-      if (stderr?.trim()) console.warn(stderr.trim());
-    } catch (renameErr: unknown) {
-      const msg = renameErr instanceof Error ? renameErr.message : String(renameErr);
-      console.warn('⚠️ CryptoPayment column rename skip (non-fatal):', msg);
-    }
-    if (process.env.SKIP_DB_PUSH === '1') {
-      console.warn('⚠️ SKIP_DB_PUSH=1: skipping schema sync (fix DB manually then remove this env var)');
-    } else {
-      console.log('🔄 Syncing database schema...');
-      try {
-        const { stdout, stderr } = await execAsync('npx prisma db push --skip-generate');
-        console.log(stdout);
-        if (stderr) {
-          console.warn('Schema sync warnings:', stderr);
-        }
-        console.log('✅ Database schema synced\n');
-      } catch (error: unknown) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        console.error('❌ Schema sync failed:', errorMessage);
-        console.error('To start the server anyway, set env SKIP_DB_PUSH=1, then fix the DB (e.g. rename CryptoPayment.oderId to orderId) and redeploy without SKIP_DB_PUSH.');
-        process.exit(1);
+async function bootstrap(): Promise<void> {
+  // Production: require DATABASE_URL (except on Vercel where env is set in Dashboard), then schema sync (skipped on Vercel)
+  if (process.env.NODE_ENV === 'production') {
+    if (!process.env.DATABASE_URL?.trim()) {
+      console.error('❌ DATABASE_URL is missing in production.');
+      if (isVercel) {
+        console.error('   On Vercel: set env vars in Dashboard → Project → Settings → Environment Variables (DATABASE_URL, JWT_SECRET, etc.).');
+      } else {
+        console.error('   Set the database secret and redeploy.');
       }
+      process.exit(1);
     }
+    // On Vercel (serverless) skip DB sync and rename — run migrations elsewhere. On Replit/VM run them at startup.
+    if (!isVercel) {
+      try {
+        const { stdout, stderr } = await execAsync('node scripts/rename-crypto-oderId-to-orderId.js');
+        if (stdout?.trim()) console.log(stdout.trim());
+        if (stderr?.trim()) console.warn(stderr.trim());
+      } catch (renameErr: unknown) {
+        const msg = renameErr instanceof Error ? renameErr.message : String(renameErr);
+        console.warn('⚠️ CryptoPayment column rename skip (non-fatal):', msg);
+      }
+      if (process.env.SKIP_DB_PUSH === '1') {
+        console.warn('⚠️ SKIP_DB_PUSH=1: skipping schema sync (fix DB manually then remove this env var)');
+      } else {
+        console.log('🔄 Syncing database schema...');
+        try {
+          const { stdout, stderr } = await execAsync('npx prisma db push --skip-generate');
+          console.log(stdout);
+          if (stderr) {
+            console.warn('Schema sync warnings:', stderr);
+          }
+          console.log('✅ Database schema synced\n');
+        } catch (error: unknown) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          console.error('❌ Schema sync failed:', errorMessage);
+          console.error('To start the server anyway, set env SKIP_DB_PUSH=1, then fix the DB (e.g. rename CryptoPayment.oderId to orderId) and redeploy without SKIP_DB_PUSH.');
+          process.exit(1);
+        }
+      }
+    } else {
+      console.log('⏭️ Vercel: skipping DB sync at startup (run prisma migrate/deploy separately if needed).');
+    }
+  }
+
+  // Resolve server entry: production bundle (dist/production.js) or source (src/server.js). Use resolve+normalize so paths work on Windows (dev) and Linux (deploy).
+  const bundledProduction = resolve(__dirname, 'production.js');
+  const sourceServer = resolve(__dirname, '..', 'src', 'server.js');
+  const bundledPath = normalize(bundledProduction);
+  const sourcePath = normalize(sourceServer);
+
+  if (existsSync(bundledPath)) {
+    console.log('📦 Running bundled production server...');
+    await import(pathToFileURL(bundledPath).href);
   } else {
-    console.log('⏭️ Vercel: skipping DB sync at startup (run prisma migrate/deploy separately if needed).');
+    console.log('🔨 Running development server...');
+    await import(pathToFileURL(sourcePath).href);
   }
 }
 
-// Resolve server entry: production bundle (dist/production.js) or source (src/server.js). Use resolve+normalize so paths work on Windows (dev) and Linux (deploy).
-const bundledProduction = resolve(__dirname, 'production.js');
-const sourceServer = resolve(__dirname, '..', 'src', 'server.js');
-const bundledPath = normalize(bundledProduction);
-const sourcePath = normalize(sourceServer);
-
-if (existsSync(bundledPath)) {
-  console.log('📦 Running bundled production server...');
-  await import(pathToFileURL(bundledPath).href);
-} else {
-  console.log('🔨 Running development server...');
-  await import(pathToFileURL(sourcePath).href);
-}
+bootstrap().catch((err: unknown) => {
+  const msg = err instanceof Error ? err.stack || err.message : String(err);
+  console.error('💥 Bootstrap failed:', msg);
+  process.exit(1);
+});

@@ -1,5 +1,6 @@
 import prisma from "../lib/prisma.js";
-import { isR2Configured, uploadBufferToR2, deleteFromR2 } from "../utils/r2.js";
+import { isR2Configured, deleteFromR2 } from "../utils/r2.js";
+import { isVercelBlobConfigured, uploadBufferToBlobOrR2 } from "../utils/kieUpload.js";
 import {
   checkAndExpireCredits,
   deductCredits,
@@ -90,25 +91,26 @@ async function removeOldModelVoiceAssets(model) {
 }
 
 async function storeModelVoicePreviewMp3(buffer, modelId) {
-  if (!isR2Configured()) {
-    throw new Error("Voice preview storage is not configured (R2 required).");
+  void modelId;
+  if (!isVercelBlobConfigured() && !isR2Configured()) {
+    throw new Error("Voice preview storage is not configured (Blob or R2 required).");
   }
   const keyFolder = "model-voice-previews";
-  return uploadBufferToR2(buffer, keyFolder, "mp3", "audio/mpeg");
+  return uploadBufferToBlobOrR2(buffer, keyFolder, "mp3", "audio/mpeg");
 }
 
 async function storeModelVoiceSampleAudio(buffer) {
-  if (!isR2Configured()) {
-    throw new Error("Voice sample storage is not configured (R2 required).");
+  if (!isVercelBlobConfigured() && !isR2Configured()) {
+    throw new Error("Voice sample storage is not configured (Blob or R2 required).");
   }
-  return uploadBufferToR2(buffer, "model-voice-samples", "mp3", "audio/mpeg");
+  return uploadBufferToBlobOrR2(buffer, "model-voice-samples", "mp3", "audio/mpeg");
 }
 
 async function storeGeneratedVoiceAudioMp3(buffer) {
-  if (!isR2Configured()) {
-    throw new Error("Generated voice audio storage is not configured (R2 required).");
+  if (!isVercelBlobConfigured() && !isR2Configured()) {
+    throw new Error("Generated voice audio storage is not configured (Blob or R2 required).");
   }
-  return uploadBufferToR2(buffer, "model-voice-audio", "mp3", "audio/mpeg");
+  return uploadBufferToBlobOrR2(buffer, "model-voice-audio", "mp3", "audio/mpeg");
 }
 
 function isManagedR2Url(url) {

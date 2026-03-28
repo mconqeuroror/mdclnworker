@@ -8,7 +8,7 @@ import express from "express";
 import crypto from "crypto";
 import prisma from "../lib/prisma.js";
 import { refundGeneration, refundCredits } from "../services/credit.service.js";
-import { cleanupOldGenerations } from "../controllers/generation.controller.js";
+import { enqueueCleanupOldGenerations } from "../controllers/generation.controller.js";
 import { deleteBlobAfterKie, mirrorProviderOutputUrl } from "../utils/kieUpload.js";
 import { runPipelineContinuation } from "../services/kie-pipeline-continuation.service.js";
 import { getErrorMessageForDb } from "../lib/userError.js";
@@ -580,7 +580,7 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
           }
         }
         if (gen.userId && gen.modelId) {
-          cleanupOldGenerations(gen.userId, gen.modelId).catch(() => {});
+          enqueueCleanupOldGenerations(gen.userId, gen.modelId);
         }
         try {
           // Don't delete input Blobs for video: KIE may still be fetching them (queue delay). Leave for Blob TTL or manual cleanup.
@@ -589,10 +589,20 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
               where: { id: gen.id },
               select: { inputImageUrl: true, inputVideoUrl: true },
             });
-            if (row?.inputImageUrl) deleteBlobAfterKie(row.inputImageUrl).catch(() => {});
-            if (row?.inputVideoUrl) deleteBlobAfterKie(row.inputVideoUrl).catch(() => {});
+            if (row?.inputImageUrl) {
+              deleteBlobAfterKie(row.inputImageUrl).catch((err) => {
+                console.warn("[KIE Callback] deleteBlobAfterKie inputImageUrl:", err?.message || err);
+              });
+            }
+            if (row?.inputVideoUrl) {
+              deleteBlobAfterKie(row.inputVideoUrl).catch((err) => {
+                console.warn("[KIE Callback] deleteBlobAfterKie inputVideoUrl:", err?.message || err);
+              });
+            }
           }
-        } catch {}
+        } catch (e) {
+          console.warn("[KIE Callback] input blob cleanup lookup failed:", e?.message || e);
+        }
         console.log("[KIE Callback] ✅ %s completed via webhook", gen.id.slice(0, 8));
       } else {
         await prisma.generation.update({

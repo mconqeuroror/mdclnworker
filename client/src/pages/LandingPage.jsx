@@ -1,4 +1,4 @@
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { Link, useLocation } from 'react-router-dom';
 import {
   Shield,
@@ -84,13 +84,7 @@ function LiveActivityToast({ isCreator }) {
           animate={{ opacity: 1, x: 0, y: 0 }}
           exit={{ opacity: 0, x: -16, y: 4 }}
           transition={{ type: 'spring', stiffness: 280, damping: 26 }}
-          className="fixed bottom-6 left-4 z-40 hidden md:flex items-center gap-3 px-4 py-3 rounded-2xl max-w-[280px]"
-          style={{
-            background: 'rgba(12,10,18,0.88)',
-            border: '1px solid rgba(255,255,255,0.09)',
-            backdropFilter: 'blur(20px)',
-            boxShadow: '0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.04)',
-          }}
+          className="fixed bottom-6 left-4 z-40 hidden md:flex items-center gap-3 px-4 py-3 rounded-2xl max-w-[280px] mc-glass-toast"
         >
           <div className="relative flex-shrink-0">
             <div className="w-9 h-9 rounded-full flex items-center justify-center text-[11px] font-bold text-white/80"
@@ -169,7 +163,7 @@ function AnimatedStat({ stat }) {
   }, [raw, prefix, suffix]);
 
   return (
-    <div ref={ref} className="rounded-xl p-4 border border-white/[0.07] text-left" style={{ background: 'rgba(255,255,255,0.03)' }}>
+    <div ref={ref} className="rounded-xl p-4 text-left mc-glass-card">
       <div className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
         {formatted === null ? display(count) : raw}
       </div>
@@ -245,17 +239,21 @@ const natashaImages = [
 // ── Hero primary CTA — breathing pulse + hover text swap ──────────────────────
 function HeroCTA() {
   const [hovered, setHovered] = useState(false);
+  const reduceMotion = useReducedMotion();
   return (
     <motion.div
-      animate={{ scale: hovered ? 1 : [1, 1.018, 1] }}
-      transition={hovered ? { duration: 0.15 } : { duration: 2.6, repeat: Infinity, ease: 'easeInOut' }}
+      animate={reduceMotion ? { scale: 1 } : { scale: hovered ? 1 : [1, 1.018, 1] }}
+      transition={
+        reduceMotion || hovered
+          ? { duration: 0.15 }
+          : { duration: 2.6, repeat: Infinity, ease: 'easeInOut' }
+      }
     >
       <Link
         to="/signup"
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
-        className="relative px-7 py-3.5 rounded-2xl font-semibold text-black bg-white hover:bg-slate-100 transition-colors inline-flex items-center gap-2.5 overflow-hidden"
-        style={{ boxShadow: '0 0 32px 6px rgba(139,92,246,0.35), inset 0 1px 0 rgba(255,255,255,0.8)' }}
+        className="relative px-7 py-3.5 rounded-2xl font-semibold text-black bg-white hover:bg-slate-100 transition-colors inline-flex items-center gap-2.5 overflow-hidden mc-cta-glow-lg"
         data-testid="button-hero-signup"
       >
         <span className="pointer-events-none absolute top-0 left-0 w-20 h-20 rounded-full bg-purple-400/30 blur-xl -translate-x-6 -translate-y-6" />
@@ -319,6 +317,7 @@ const CREATOR_RANGE = [[8,14],[22,31],[20,28],[19,27],[21,30],[27,36],[11,17]];
 const AGENCY_RANGE  = [[2, 4], [5, 8], [4, 7], [4, 7], [5, 8], [6, 9], [2, 4]];
 
 function LiveJoinedSignal({ isCreator }) {
+  const reduceMotion = useReducedMotion();
   const dow = new Date().getDay();
   const seed = dailySeed();
   const [lo, hi] = isCreator ? CREATOR_RANGE[dow] : AGENCY_RANGE[dow];
@@ -344,7 +343,9 @@ function LiveJoinedSignal({ isCreator }) {
       className="flex items-center justify-center gap-2 mt-4"
     >
       <span className="relative flex h-2 w-2">
-        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60" />
+        {!reduceMotion && (
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60" />
+        )}
         <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
       </span>
       <span className="text-xs text-white/35">
@@ -389,16 +390,10 @@ function LossAversionSection({ isCreator }) {
       className="py-12 px-4 sm:px-6"
     >
       <div className="max-w-3xl mx-auto">
-        <div
-          className="relative rounded-2xl p-6 sm:p-8 overflow-hidden border border-white/[0.07]"
-          style={{ background: 'rgba(255,255,255,0.02)' }}
-        >
-          <div className="pointer-events-none absolute top-0 left-0 right-0 h-px"
-            style={{ background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.08) 50%, transparent)' }} />
-
+        <div className="relative rounded-2xl p-6 sm:p-8 overflow-hidden border border-white/[0.07] bg-white/[0.02] mc-edge-line">
           <div className="text-center mb-6">
             <p className="text-[11px] font-medium uppercase tracking-widest text-white/25 mb-3">The cost of waiting</p>
-            <h3 className="text-2xl sm:text-3xl font-bold text-white">
+            <h3 className="text-2xl sm:text-3xl font-display font-bold text-white">
               Since you opened this page
             </h3>
           </div>
@@ -421,8 +416,7 @@ function LossAversionSection({ isCreator }) {
                 sub: 'while you were reading this',
               },
             ].map((item, i) => (
-              <div key={i} className="text-center rounded-xl p-4 border border-white/[0.06]"
-                style={{ background: 'rgba(255,255,255,0.02)' }}>
+              <div key={i} className="text-center rounded-xl p-4 border border-white/[0.06] bg-white/[0.02]">
                 <div className="text-2xl sm:text-3xl font-bold text-white tabular-nums tracking-tight">{item.value}</div>
                 <div className="text-xs text-white/45 mt-1">{item.label}</div>
                 <div className="text-[10px] text-white/20 mt-0.5">{item.sub}</div>
@@ -433,8 +427,7 @@ function LossAversionSection({ isCreator }) {
           <div className="text-center">
             <Link
               to="/signup"
-              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-black bg-white hover:bg-slate-100 transition-all text-sm"
-              style={{ boxShadow: '0 0 24px 4px rgba(139,92,246,0.25)' }}
+              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-black bg-white hover:bg-slate-100 transition-all text-sm mc-cta-glow-md"
             >
               Stop losing time — Start free
               <ArrowRight className="w-4 h-4" />
@@ -448,7 +441,7 @@ function LossAversionSection({ isCreator }) {
 
 function SectionBadge({ children }) {
   return (
-    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-medium tracking-widest uppercase text-slate-500 border border-white/[0.07] mb-4">
+    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-medium tracking-[0.2em] uppercase text-white/30 border border-white/[0.08] mb-4">
       {children}
     </span>
   );
@@ -864,13 +857,10 @@ export default function LandingPage() {
         transition={{ duration: 0.4 }}
         className="fixed top-0 w-full z-50 px-3 pt-3"
       >
-        <div
-          className="max-w-7xl mx-auto px-5 sm:px-6 py-3 flex items-center justify-between rounded-[20px] border border-white/[0.1]"
-          style={{ background: 'rgba(255,255,255,0.04)', backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)', boxShadow: '0 4px 30px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.06)' }}
-        >
-          <Link to="/" className="flex items-center gap-2.5 hover:opacity-80 transition">
+        <div className="max-w-7xl mx-auto px-5 sm:px-6 py-3 flex items-center justify-between rounded-[20px] border border-white/[0.1] mc-glass-nav">
+            <Link to="/" className="flex items-center gap-2.5 hover:opacity-80 transition">
             <img src="/logo-512.png" alt="ModelClone" className="w-9 h-9 rounded-xl object-cover" />
-            <span className="text-lg font-bold tracking-tight">ModelClone</span>
+            <span className="text-lg font-display tracking-tight">ModelClone</span>
           </Link>
 
           <div className="hidden md:flex items-center gap-1">
@@ -894,8 +884,7 @@ export default function LandingPage() {
             </Link>
             <Link
               to="/signup"
-              className="px-4 py-2 rounded-xl text-sm font-semibold text-black bg-white hover:bg-slate-100 transition-all"
-              style={{ boxShadow: '0 0 16px 2px rgba(139,92,246,0.3)' }}
+              className="px-4 py-2 rounded-xl text-sm font-semibold text-black bg-white hover:bg-slate-100 transition-all mc-cta-glow-sm"
               data-testid="button-nav-signup"
             >
               Start Free
@@ -958,8 +947,7 @@ export default function LandingPage() {
 
           {/* badge */}
           <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05, duration: 0.5 }}
-            className="inline-flex items-center gap-2.5 px-4 py-1.5 rounded-full mb-8"
-            style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.09)' }}
+            className="inline-flex items-center gap-2.5 px-4 py-1.5 rounded-full mb-8 mc-glass"
           >
             <SiTrustpilot className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#00b67a' }} />
             <span className="text-xs text-slate-400 tracking-wide">{activeContent.hero.badge}</span>
@@ -968,7 +956,7 @@ export default function LandingPage() {
 
           {/* headline */}
           <motion.h1 initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
-            className="text-5xl sm:text-6xl md:text-7xl lg:text-8xl font-bold leading-[1.05] mb-6 tracking-tight"
+            className="text-5xl sm:text-6xl md:text-7xl lg:text-8xl font-display font-bold leading-[1.05] mb-6 tracking-tight"
           >
             {activeContent.hero.headline1}
             <br />
@@ -1030,22 +1018,24 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-8">
             <SectionBadge>AI Portfolio</SectionBadge>
-            <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold">
+            <h2 className="text-3xl sm:text-4xl md:text-5xl font-display font-bold">
               Meet <span className="gradient-text">Ashley</span>
             </h2>
             <p className="text-slate-500 mt-2 text-sm">Every photo generated using our platform.</p>
           </div>
-          <div className="relative overflow-hidden">
-            <div className="absolute left-0 inset-y-0 w-24 bg-gradient-to-r from-black to-transparent z-10 pointer-events-none" />
-            <div className="absolute right-0 inset-y-0 w-24 bg-gradient-to-l from-black to-transparent z-10 pointer-events-none" />
-            <div className="flex animate-scroll-infinite">
-              {[...ashleyImages, ...ashleyImages].map((image, index) => (
-                <div key={index} className="flex-shrink-0 px-2">
-                  <div className="w-[180px] sm:w-[220px] md:w-[260px] aspect-[3/4] rounded-2xl overflow-hidden border border-white/[0.07]">
-                    <OptimizedGalleryImage src={image.src} alt={image.alt} className="w-full h-full object-cover hover:scale-105 transition-transform duration-500" testId={`ashley-${index}`} />
+          <div className="mc-marquee mc-marquee--black mc-marquee-rail rounded-2xl">
+            <div className="mc-marquee-fade-l" aria-hidden />
+            <div className="mc-marquee-fade-r" aria-hidden />
+            <div className="mc-marquee-inner">
+              <div className="mc-marquee-track">
+                {[...ashleyImages, ...ashleyImages].map((image, index) => (
+                  <div key={index} className="flex-shrink-0 px-2">
+                    <div className="w-[180px] sm:w-[220px] md:w-[260px] aspect-[3/4] rounded-2xl overflow-hidden border border-white/[0.07]">
+                      <OptimizedGalleryImage src={image.src} alt={image.alt} className="w-full h-full object-cover hover:scale-105 transition-transform duration-500" testId={`ashley-${index}`} />
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
         </div>
@@ -1056,22 +1046,24 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-8">
             <SectionBadge>AI Portfolio</SectionBadge>
-            <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold">
+            <h2 className="text-3xl sm:text-4xl md:text-5xl font-display font-bold">
               Meet <span className="gradient-text">Laura</span>
             </h2>
             <p className="text-slate-500 mt-2 text-sm">Another stunning AI model. The possibilities are endless.</p>
           </div>
-          <div className="relative overflow-hidden">
-            <div className="absolute left-0 inset-y-0 w-24 bg-gradient-to-r from-black to-transparent z-10 pointer-events-none" />
-            <div className="absolute right-0 inset-y-0 w-24 bg-gradient-to-l from-black to-transparent z-10 pointer-events-none" />
-            <div className="flex animate-scroll-infinite-reverse">
-              {[...lauraImages, ...lauraImages].map((image, index) => (
-                <div key={index} className="flex-shrink-0 px-2">
-                  <div className="w-[180px] sm:w-[220px] md:w-[260px] aspect-[3/4] rounded-2xl overflow-hidden border border-white/[0.07]">
-                    <OptimizedGalleryImage src={image.src} alt={image.alt} className="w-full h-full object-cover hover:scale-105 transition-transform duration-500" testId={`laura-${index}`} />
+          <div className="mc-marquee mc-marquee--black mc-marquee-rail rounded-2xl">
+            <div className="mc-marquee-fade-l" aria-hidden />
+            <div className="mc-marquee-fade-r" aria-hidden />
+            <div className="mc-marquee-inner">
+              <div className="mc-marquee-track-reverse">
+                {[...lauraImages, ...lauraImages].map((image, index) => (
+                  <div key={index} className="flex-shrink-0 px-2">
+                    <div className="w-[180px] sm:w-[220px] md:w-[260px] aspect-[3/4] rounded-2xl overflow-hidden border border-white/[0.07]">
+                      <OptimizedGalleryImage src={image.src} alt={image.alt} className="w-full h-full object-cover hover:scale-105 transition-transform duration-500" testId={`laura-${index}`} />
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
         </div>
@@ -1082,22 +1074,24 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-8">
             <SectionBadge>AI Portfolio</SectionBadge>
-            <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold">
+            <h2 className="text-3xl sm:text-4xl md:text-5xl font-display font-bold">
               Meet <span className="gradient-text">Natasha</span>
             </h2>
             <p className="text-slate-500 mt-2 text-sm">Fitness, lifestyle, and everything in between.</p>
           </div>
-          <div className="relative overflow-hidden">
-            <div className="absolute left-0 inset-y-0 w-24 bg-gradient-to-r from-black to-transparent z-10 pointer-events-none" />
-            <div className="absolute right-0 inset-y-0 w-24 bg-gradient-to-l from-black to-transparent z-10 pointer-events-none" />
-            <div className="flex animate-scroll-infinite">
-              {[...natashaImages, ...natashaImages].map((image, index) => (
-                <div key={index} className="flex-shrink-0 px-2">
-                  <div className="w-[180px] sm:w-[220px] md:w-[260px] aspect-[3/4] rounded-2xl overflow-hidden border border-white/[0.07]">
-                    <OptimizedGalleryImage src={image.src} alt={image.alt} className="w-full h-full object-cover hover:scale-105 transition-transform duration-500" testId={`natasha-${index}`} />
+          <div className="mc-marquee mc-marquee--black mc-marquee-rail rounded-2xl">
+            <div className="mc-marquee-fade-l" aria-hidden />
+            <div className="mc-marquee-fade-r" aria-hidden />
+            <div className="mc-marquee-inner">
+              <div className="mc-marquee-track">
+                {[...natashaImages, ...natashaImages].map((image, index) => (
+                  <div key={index} className="flex-shrink-0 px-2">
+                    <div className="w-[180px] sm:w-[220px] md:w-[260px] aspect-[3/4] rounded-2xl overflow-hidden border border-white/[0.07]">
+                      <OptimizedGalleryImage src={image.src} alt={image.alt} className="w-full h-full object-cover hover:scale-105 transition-transform duration-500" testId={`natasha-${index}`} />
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
         </div>
@@ -1108,7 +1102,7 @@ export default function LandingPage() {
         <div className="max-w-6xl mx-auto relative">
           <div className="text-center mb-14">
             <SectionBadge>Why ModelClone</SectionBadge>
-            <h2 className="text-4xl sm:text-5xl font-bold">
+            <h2 className="text-4xl sm:text-5xl font-display font-bold">
               Why {isCreator ? 'Top Creators' : 'Leading Agencies'}{' '}
               <span className="gradient-text">Choose ModelClone</span>
             </h2>
@@ -1121,15 +1115,14 @@ export default function LandingPage() {
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
                 transition={{ delay: index * 0.08 }}
-                className="relative rounded-2xl p-6 border border-white/[0.07] overflow-hidden"
-                style={{ background: 'rgba(255,255,255,0.03)' }}
+                className="relative rounded-2xl p-6 overflow-hidden mc-glass-card"
               >
                 <div className="flex items-start gap-4 relative">
-                  <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 border border-white/[0.07]" style={{ background: 'rgba(255,255,255,0.04)' }}>
+                  <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 border border-white/[0.07] bg-white/[0.04]">
                     <benefit.icon className="w-4 h-4 text-white/70" />
                   </div>
                   <div>
-                    <h3 className="text-sm font-semibold text-white mb-1.5 tracking-tight">{benefit.title}</h3>
+                    <h3 className="text-sm font-display font-semibold text-white mb-1.5 tracking-tight">{benefit.title}</h3>
                     <p className="text-sm text-slate-500 leading-relaxed">{benefit.description}</p>
                   </div>
                 </div>
@@ -1144,7 +1137,7 @@ export default function LandingPage() {
         <div className="max-w-6xl mx-auto">
           <div className="text-center mb-14">
             <SectionBadge>3 Simple Steps</SectionBadge>
-            <h2 className="text-4xl sm:text-5xl font-bold">
+            <h2 className="text-4xl sm:text-5xl font-display font-bold">
               Start Creating in{' '}
               <span className="gradient-text">Minutes</span>
             </h2>
@@ -1161,8 +1154,7 @@ export default function LandingPage() {
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
                 transition={{ delay: index * 0.1 }}
-                className="relative rounded-2xl p-6 border border-white/[0.07] overflow-hidden"
-                style={{ background: 'rgba(255,255,255,0.03)' }}
+                className="relative rounded-2xl p-6 overflow-hidden mc-glass-card"
               >
                 <div
                   className="text-[40px] font-black mb-3 leading-none tracking-tight"
@@ -1173,7 +1165,7 @@ export default function LandingPage() {
                     backgroundClip: 'text',
                   }}
                 >{step.step}</div>
-                <h3 className="text-sm font-semibold text-white mb-2 tracking-tight">{step.title}</h3>
+                <h3 className="text-sm font-display font-semibold text-white mb-2 tracking-tight">{step.title}</h3>
                 <p className="text-sm text-slate-500 leading-relaxed">{step.description}</p>
               </motion.div>
             ))}
@@ -1189,7 +1181,7 @@ export default function LandingPage() {
         <div className="max-w-6xl mx-auto">
           <div className="text-center mb-14">
             <SectionBadge>Success Stories</SectionBadge>
-            <h2 className="text-4xl sm:text-5xl font-bold">
+            <h2 className="text-4xl sm:text-5xl font-display font-bold">
               Real Results from{' '}
               <span className="gradient-text">Real Creators</span>
             </h2>
@@ -1202,8 +1194,7 @@ export default function LandingPage() {
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
                 transition={{ delay: index * 0.08 }}
-                className="rounded-2xl p-5 border border-white/[0.07] flex flex-col"
-                style={{ background: 'rgba(255,255,255,0.03)' }}
+                className="rounded-2xl p-5 flex flex-col mc-glass-card"
               >
                 <div className="flex gap-0.5 mb-4">
                   {[...Array(t.rating)].map((_, i) => (
@@ -1212,7 +1203,7 @@ export default function LandingPage() {
                 </div>
                 <p className="text-sm text-slate-400 leading-relaxed flex-1 mb-5">"{t.content}"</p>
                 <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-full border border-white/[0.08] flex items-center justify-center text-xs font-bold flex-shrink-0" style={{ background: 'rgba(255,255,255,0.06)' }}>
+                  <div className="w-9 h-9 rounded-full border border-white/[0.08] flex items-center justify-center text-xs font-bold flex-shrink-0 bg-white/[0.06]">
                     {t.avatar}
                   </div>
                   <div>
@@ -1231,13 +1222,13 @@ export default function LandingPage() {
         <div className="max-w-6xl mx-auto relative">
           <div className="text-center mb-12">
             <SectionBadge>Pricing</SectionBadge>
-            <h2 className="text-4xl sm:text-5xl font-bold mb-3">
+            <h2 className="text-4xl sm:text-5xl font-display font-bold mb-3">
               Pricing That <span className="gradient-text">Scales With You</span>
             </h2>
             <p className="text-slate-400 mb-8">{isCreator ? 'Start small, scale as you grow' : 'Built for agencies of all sizes'}</p>
 
             {/* billing toggle */}
-            <div className="inline-flex items-center p-1 rounded-xl border border-white/[0.08]" style={{ background: 'rgba(255,255,255,0.04)' }}>
+            <div className="inline-flex items-center p-1 rounded-xl mc-glass">
               {['monthly', 'annual'].map((cycle) => (
                 <button
                   key={cycle}
@@ -1268,16 +1259,10 @@ export default function LandingPage() {
                   viewport={{ once: true }}
                   transition={{ delay: index * 0.07 }}
                   className={`relative rounded-2xl overflow-hidden flex flex-col border ${
-                    tier.popular ? 'border-white/40' : 'border-white/[0.07]'
+                    tier.popular
+                      ? 'border-white/40 bg-white/[0.06] shadow-[0_0_0_1px_rgba(255,255,255,0.1),0_0_40px_4px_rgba(139,92,246,0.15)]'
+                      : 'border-white/[0.07] bg-white/[0.03]'
                   }`}
-                  style={{
-                    background: tier.popular
-                      ? 'rgba(255,255,255,0.06)'
-                      : 'rgba(255,255,255,0.03)',
-                    boxShadow: tier.popular
-                      ? '0 0 0 1px rgba(255,255,255,0.1), 0 0 40px 4px rgba(139,92,246,0.15)'
-                      : undefined,
-                  }}
                 >
                   {tier.popular && (
                     <>
@@ -1388,7 +1373,7 @@ export default function LandingPage() {
         <div className="max-w-2xl mx-auto">
           <div className="text-center mb-12">
             <SectionBadge>FAQ</SectionBadge>
-            <h2 className="text-4xl sm:text-5xl font-bold">Common <span className="gradient-text">Questions</span></h2>
+            <h2 className="text-4xl sm:text-5xl font-display font-bold">Common <span className="gradient-text">Questions</span></h2>
           </div>
           <div className="space-y-2">
             {activeContent.faqs.map((faq, index) => (
@@ -1398,8 +1383,7 @@ export default function LandingPage() {
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
                 transition={{ delay: index * 0.05 }}
-                className="rounded-2xl border border-white/[0.07] overflow-hidden"
-                style={{ background: 'rgba(255,255,255,0.03)' }}
+                className="rounded-2xl overflow-hidden mc-glass-card"
               >
                 <button
                   onClick={() => setOpenFaq(openFaq === index ? null : index)}
@@ -1434,14 +1418,12 @@ export default function LandingPage() {
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
-            className="relative rounded-3xl p-10 sm:p-16 text-center overflow-hidden border border-white/[0.1]"
-            style={{ background: 'rgba(255,255,255,0.04)' }}
+            className="relative rounded-3xl p-10 sm:p-16 text-center overflow-hidden mc-glass-strong mc-edge-line"
           >
             <span className="pointer-events-none absolute top-0 left-0 w-56 h-56 rounded-full bg-purple-500/15 blur-3xl -translate-x-12 -translate-y-12" />
-            <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
 
             <div className="relative z-10 flex flex-col items-center">
-              <h2 className="text-4xl sm:text-5xl font-bold mb-4">
+              <h2 className="text-4xl sm:text-5xl font-display font-bold mb-4">
                 Ready to <span className="gradient-text">{isCreator ? 'Stop Filming' : 'Scale Your Agency'}</span>?
               </h2>
               <p className="text-slate-400 mb-8 max-w-xl mx-auto">
@@ -1452,8 +1434,7 @@ export default function LandingPage() {
 
               <Link
                 to="/signup"
-                className="relative inline-flex items-center justify-center gap-2.5 px-8 py-4 rounded-2xl font-semibold text-black bg-white hover:bg-slate-100 transition-all overflow-hidden"
-                style={{ boxShadow: '0 0 32px 8px rgba(139,92,246,0.3), inset 0 1px 0 rgba(255,255,255,0.8)' }}
+                className="relative inline-flex items-center justify-center gap-2.5 px-8 py-4 rounded-2xl font-semibold text-black bg-white hover:bg-slate-100 transition-all overflow-hidden mc-cta-glow-lg"
                 data-testid="button-cta-signup"
               >
                 <span className="pointer-events-none absolute top-0 left-0 w-20 h-20 rounded-full bg-purple-400/30 blur-xl -translate-x-6 -translate-y-6" />
@@ -1527,8 +1508,7 @@ export default function LandingPage() {
       >
         <Link
           to="/signup"
-          className="flex items-center justify-center gap-2 w-full py-4 rounded-2xl font-semibold text-black bg-white"
-          style={{ boxShadow: '0 0 24px 4px rgba(139,92,246,0.35)' }}
+          className="flex items-center justify-center gap-2 w-full py-4 rounded-2xl font-semibold text-black bg-white mc-cta-glow-md"
           data-testid="button-sticky-cta"
         >
           Start Creating Free

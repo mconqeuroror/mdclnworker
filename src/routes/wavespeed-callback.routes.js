@@ -9,7 +9,7 @@ import express from "express";
 import crypto from "crypto";
 import prisma from "../lib/prisma.js";
 import { refundGeneration } from "../services/credit.service.js";
-import { cleanupOldGenerations } from "../controllers/generation.controller.js";
+import { enqueueCleanupOldGenerations } from "../controllers/generation.controller.js";
 import { deleteBlobAfterKie, mirrorProviderOutputUrl } from "../utils/kieUpload.js";
 import { runPipelineContinuation } from "../services/kie-pipeline-continuation.service.js";
 import { getErrorMessageForDb } from "../lib/userError.js";
@@ -152,7 +152,7 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
       });
       console.log("[WaveSpeed Callback] Paired gen %s to taskId %s", gen.id.slice(0, 8), String(taskId).slice(0, 12));
       if (gen.userId && gen.modelId) {
-        cleanupOldGenerations(gen.userId, gen.modelId).catch(() => {});
+        enqueueCleanupOldGenerations(gen.userId, gen.modelId);
       }
       try {
         // Skip deleting input Blobs for types that feed into video (e.g. pipeline image); leave for TTL/cleanup.
@@ -161,10 +161,20 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
             where: { id: gen.id },
             select: { inputImageUrl: true, inputVideoUrl: true },
           });
-          if (row?.inputImageUrl) deleteBlobAfterKie(row.inputImageUrl).catch(() => {});
-          if (row?.inputVideoUrl) deleteBlobAfterKie(row.inputVideoUrl).catch(() => {});
+          if (row?.inputImageUrl) {
+            deleteBlobAfterKie(row.inputImageUrl).catch((err) => {
+              console.warn("[WaveSpeed Callback] deleteBlobAfterKie inputImageUrl:", err?.message || err);
+            });
+          }
+          if (row?.inputVideoUrl) {
+            deleteBlobAfterKie(row.inputVideoUrl).catch((err) => {
+              console.warn("[WaveSpeed Callback] deleteBlobAfterKie inputVideoUrl:", err?.message || err);
+            });
+          }
         }
-      } catch {}
+      } catch (e) {
+        console.warn("[WaveSpeed Callback] input blob cleanup lookup failed:", e?.message || e);
+      }
       console.log("[WaveSpeed Callback] completed %s", gen.id.slice(0, 8));
     } else if (isFailedStatus) {
       const err = errorMsg || (status === "failed" ? "WaveSpeed task failed" : "Unknown status");

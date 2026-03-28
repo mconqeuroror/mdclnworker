@@ -24,7 +24,8 @@ import {
   extractCaptionFromRunpodOutput,
   getRunpodJobStatus,
 } from "../services/img2img.service.js";
-import { isR2Configured, uploadBufferToR2 } from "../utils/r2.js";
+import { isR2Configured } from "../utils/r2.js";
+import { isVercelBlobConfigured, uploadBufferToBlobOrR2 } from "../utils/kieUpload.js";
 import { getErrorMessageForDb } from "../lib/userError.js";
 import {
   checkAndExpireCredits,
@@ -100,9 +101,9 @@ setInterval(async () => {
         if (!images.length) throw new Error("Generation completed but returned no images");
 
         let outputUrl;
-        if (isR2Configured()) {
+        if (isVercelBlobConfigured() || isR2Configured()) {
           const buffer = Buffer.from(images[0].base64, "base64");
-          outputUrl = await uploadBufferToR2(buffer, "nsfw-generations", "png", "image/png");
+          outputUrl = await uploadBufferToBlobOrR2(buffer, "nsfw-generations", "png", "image/png");
         } else {
           outputUrl = `data:image/png;base64,${images[0].base64}`;
         }
@@ -603,9 +604,9 @@ router.get("/status/:jobId", authMiddleware, async (req, res) => {
       if (!images.length) throw new Error("Generation completed but returned no images");
 
       let outputUrl;
-      if (isR2Configured()) {
+      if (isVercelBlobConfigured() || isR2Configured()) {
         const buffer = Buffer.from(images[0].base64, "base64");
-        outputUrl = await uploadBufferToR2(buffer, "nsfw-generations", "png", "image/png");
+        outputUrl = await uploadBufferToBlobOrR2(buffer, "nsfw-generations", "png", "image/png");
       } else {
         outputUrl = `data:image/png;base64,${images[0].base64}`;
       }

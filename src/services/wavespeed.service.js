@@ -1,4 +1,5 @@
-import { isR2Configured, uploadBufferToR2 } from "../utils/r2.js";
+import { isR2Configured } from "../utils/r2.js";
+import { uploadBufferToBlobOrR2 } from "../utils/kieUpload.js";
 import {
   generateImageWithNanoBananaKie,
   generateTextToImageNanoBananaKie,
@@ -98,12 +99,12 @@ async function archiveToR2(sourceUrl) {
 
     if (extension === "mp4" || extension === "webm") {
       const videoContentType = extension === "mp4" ? "video/mp4" : "video/webm";
-      const r2Url = await uploadBufferToR2(buffer, "generations", extension, videoContentType);
+      const r2Url = await uploadBufferToBlobOrR2(buffer, "generations", extension, videoContentType);
       console.log(`âœ… Archived video to R2: ${r2Url}`);
       return r2Url;
     }
 
-    const r2Url = await uploadBufferToR2(buffer, "generations", extension, contentType);
+    const r2Url = await uploadBufferToBlobOrR2(buffer, "generations", extension, contentType);
     console.log(`âœ… Archived to R2: ${r2Url}`);
     return r2Url;
   } catch (error) {

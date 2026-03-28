@@ -1,4 +1,5 @@
-import { isR2Configured, uploadBufferToR2 } from "../utils/r2.js";
+import { isR2Configured } from "../utils/r2.js";
+import { isVercelBlobConfigured, uploadBufferToBlobOrR2 } from "../utils/kieUpload.js";
 
 function getElevenLabsApiKey() {
   return (
@@ -166,17 +167,17 @@ export async function textToSpeech(text, voiceId, options = {}) {
  */
 export async function uploadAudioToR2(audioBuffer, publicId = null) {
   void publicId;
-  if (!isR2Configured()) {
-    throw new Error("Audio hosting is not configured (R2 is unavailable).");
+  if (!isVercelBlobConfigured() && !isR2Configured()) {
+    throw new Error("Audio hosting is not configured (Blob or R2 required).");
   }
 
-  const r2Url = await uploadBufferToR2(
+  const r2Url = await uploadBufferToBlobOrR2(
     audioBuffer,
     "talking-head-audio",
     "mp3",
     "audio/mpeg",
   );
-  console.log(`✅ Audio uploaded to R2: ${r2Url}`);
+  console.log(`✅ Audio uploaded: ${r2Url}`);
   return { url: r2Url, duration: 0 };
 }
 
