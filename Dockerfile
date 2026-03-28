@@ -91,6 +91,8 @@ RUN test -d /workspace/ComfyUI/custom_nodes/ComfyUI-Image-Saver || \
     (echo "ERROR: alexopus/ComfyUI-Image-Saver failed to clone" && exit 1)
 RUN test -d /workspace/ComfyUI/custom_nodes/rgthree-comfy || \
     (echo "ERROR: rgthree/rgthree-comfy failed to clone" && exit 1)
+RUN test -d /workspace/ComfyUI/custom_nodes/comfyui-tooling-nodes || \
+    (echo "ERROR: Acly/comfyui-tooling-nodes failed to clone" && exit 1)
 RUN test -d /workspace/ComfyUI/custom_nodes/was-node-suite-comfyui || \
     (echo "ERROR: WASasquatch/was-node-suite-comfyui failed to clone" && exit 1)
 RUN test -d /workspace/ComfyUI/custom_nodes/ComfyUI_UltimateSDUpscale || \
