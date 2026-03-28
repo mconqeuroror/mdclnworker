@@ -213,8 +213,6 @@ const MAX_AVATARS = 3;
 const WORDS_PER_SECOND = 2.5;
 const MAX_VIDEO_SECONDS = 600;
 
-const BAR_BG = "linear-gradient(115deg, rgba(36,43,50,0.12) 27.54%, rgba(219,219,219,0.12) 85.5%), rgba(15,17,19,0.96)";
-
 function estimateSecs(script) {
   if (!script?.trim()) return 0;
   return Math.max(5, Math.round(script.trim().split(/\s+/).length / WORDS_PER_SECOND));
@@ -227,7 +225,8 @@ function Chip({ active, onClick, children }) {
   return (
     <button
       onClick={onClick}
-      className="px-2.5 py-1 rounded-lg text-[11px] font-semibold whitespace-nowrap transition-all select-none"
+      type="button"
+      className="px-3 py-2.5 min-h-[44px] md:min-h-0 md:px-2.5 md:py-1 rounded-xl md:rounded-lg text-xs md:text-[11px] font-semibold whitespace-nowrap transition-all select-none inline-flex items-center justify-center"
       style={active ? {
         background: "rgba(139,92,246,0.28)",
         color: "#e9d5ff",
@@ -247,13 +246,13 @@ function RefSlot({ url, onRemove, onAdd, uploading }) {
   const inputRef = useRef(null);
   if (url) {
     return (
-      <div className="relative w-10 h-10 rounded-xl overflow-hidden border border-white/10 flex-shrink-0 group">
+      <div className="relative w-11 h-11 md:w-10 md:h-10 rounded-xl overflow-hidden border border-white/10 flex-shrink-0 group">
         <img src={url} alt="" className="w-full h-full object-cover" />
         <button
           onClick={onRemove}
           className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity"
         >
-          <X className="w-3.5 h-3.5 text-white" />
+          <X className="w-4 h-4 md:w-3.5 md:h-3.5 text-white" />
         </button>
       </div>
     );
@@ -263,9 +262,9 @@ function RefSlot({ url, onRemove, onAdd, uploading }) {
       <button
         onClick={() => inputRef.current?.click()}
         disabled={uploading}
-        className="w-10 h-10 rounded-xl border border-white/10 flex items-center justify-center flex-shrink-0 hover:border-white/30 hover:bg-white/5 transition-all text-slate-500 hover:text-white disabled:opacity-40"
+        className="w-11 h-11 md:w-10 md:h-10 rounded-xl border border-white/10 flex items-center justify-center flex-shrink-0 hover:border-white/30 hover:bg-white/5 transition-all text-slate-500 hover:text-white disabled:opacity-40"
       >
-        {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+        {uploading ? <Loader2 className="w-4 h-4 md:w-3.5 md:h-3.5 animate-spin" /> : <Plus className="w-4 h-4 md:w-3.5 md:h-3.5" />}
       </button>
       <input ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
         onChange={(e) => { const f = e.target.files?.[0]; if (f) onAdd(f); e.target.value = ""; }}
@@ -1141,7 +1140,11 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
   ];
 
   return (
-    <div className="relative flex flex-col min-h-full bg-[#0a0a0c]">
+    <div
+      className={`relative flex flex-col min-h-full bg-[#0a0a0c]${
+        activeTab === "generate" ? " max-md:pb-[calc(22rem+env(safe-area-inset-bottom))]" : ""
+      }`}
+    >
 
       {/* ── Tab switcher ─────────────────────────────────────────────────── */}
       <div className="flex items-center gap-1 px-6 pt-5 pb-1 z-10 relative">
@@ -1333,47 +1336,65 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
             </div>{/* /spinning-border outer */}
           </div>{/* /fixed positioner */}
 
-          {/* Mobile bar */}
-          <div className="md:hidden fixed bottom-0 left-0 right-0 z-20 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t border-white/[0.06]" style={{ background: BAR_BG }}>
-            <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)}
-              placeholder={copy.promptPlaceholder} rows={2}
-              className="w-full bg-transparent text-sm text-white placeholder-slate-500 resize-none outline-none px-1 mb-2"
-            />
-            <div className="mb-2">
-              <span className="text-[10px] text-slate-500 uppercase tracking-widest block mb-1.5">{copy.refs}</span>
-              <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-0.5 px-0.5 [scrollbar-width:thin]">
+          {/* Mobile bar — inset glass card above dashboard tab bar; right inset clears support FAB */}
+          <div
+            className="md:hidden fixed left-3 z-[35] max-h-[min(52vh,420px)] overflow-y-auto overflow-x-hidden rounded-2xl border border-white/[0.12] bg-white/[0.08] backdrop-blur-xl shadow-[0_16px_48px_-16px_rgba(0,0,0,0.9)] p-3 [scrollbar-width:thin]"
+            style={{
+              /* Leave room for fixed support chat FAB (z-120) on the right */
+              right: "max(1rem, calc(4.5rem + env(safe-area-inset-right)))",
+              bottom:
+                "max(0.5rem, calc(var(--dashboard-mobile-tab-stack, calc(3.5rem + env(safe-area-inset-bottom))) + 0.375rem))",
+            }}
+          >
+            <div className="rounded-xl border border-white/[0.14] bg-black/35 px-3 py-2 mb-3">
+              <textarea
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                placeholder={copy.promptPlaceholder}
+                rows={2}
+                className="w-full bg-transparent text-sm text-white placeholder:text-slate-500 resize-none outline-none min-h-[2.75rem]"
+              />
+            </div>
+            <div className="mb-3">
+              <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-2 font-medium">{copy.refs}</span>
+              <div className="flex gap-2 overflow-x-auto pb-1 -mx-0.5 px-0.5 snap-x snap-mandatory [scrollbar-width:thin]">
                 {refs.map((url, i) => (
                   <RefSlot key={i} url={url} uploading={uploadingIdx === i}
                     onRemove={() => removeRef(i)} onAdd={(file) => handleAddRef(file, i)} />
                 ))}
               </div>
             </div>
-            <div className="flex gap-2 overflow-x-auto pb-2 mb-2 [scrollbar-width:thin]">
-              <span className="text-[10px] text-slate-500 uppercase tracking-widest shrink-0 self-center">{copy.aspect}</span>
-              <div className="flex items-center gap-1 shrink-0">
-                {ASPECT_RATIOS.map((ar) => (
-                  <Chip key={ar.value} active={aspectRatio === ar.value} onClick={() => setAspectRatio(ar.value)}>{ar.hint ?? ar.label}</Chip>
-                ))}
+            <div className="mb-3">
+              <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-2 font-medium">{copy.aspect}</span>
+              <div className="flex gap-2 overflow-x-auto pb-1 -mx-0.5 px-0.5 snap-x [scrollbar-width:thin]">
+                <div className="flex items-center gap-2 shrink-0 pr-2">
+                  {ASPECT_RATIOS.map((ar) => (
+                    <Chip key={ar.value} active={aspectRatio === ar.value} onClick={() => setAspectRatio(ar.value)}>{ar.hint ?? ar.label}</Chip>
+                  ))}
+                </div>
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2 gap-y-2">
-              <span className="text-[10px] text-slate-500 uppercase tracking-widest shrink-0">{copy.res}</span>
-              <div className="flex items-center gap-1 flex-wrap">
-                {RESOLUTIONS.map((r) => (
-                  <Chip key={r} active={resolution === r} onClick={() => setResolution(r)}>{r}</Chip>
-                ))}
+            <div className="flex flex-col gap-3">
+              <div>
+                <span className="text-[11px] text-slate-400 uppercase tracking-widest font-medium">{copy.res}</span>
+                <div className="flex gap-2 overflow-x-auto mt-2 pb-0.5 -mx-0.5 px-0.5 [scrollbar-width:thin]">
+                  <div className="flex items-center gap-2 shrink-0">
+                    {RESOLUTIONS.map((r) => (
+                      <Chip key={r} active={resolution === r} onClick={() => setResolution(r)}>{r}</Chip>
+                    ))}
+                  </div>
+                </div>
               </div>
-              <div className="flex-1 min-w-[4rem]" />
               <button type="button" onClick={handleGenerate} disabled={isGenerating || !prompt.trim()}
-                className="w-full sm:w-auto shrink-0 px-4 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-40 flex items-center justify-center gap-1.5"
+                className="w-full min-h-[48px] shrink-0 px-4 py-3 rounded-xl text-sm font-semibold disabled:opacity-40 flex items-center justify-center gap-1.5"
                 style={{ background: "linear-gradient(135deg,#7c3aed,#4f46e5)", color: "white" }}>
                 {isGenerating
-                  ? <Loader2 className="w-4 h-4 animate-spin" />
-                  : <span className="flex items-center gap-1 whitespace-nowrap">{formatCopy(copy.buttonGenerateCost, { cost: COST })} <Coins className="w-3.5 h-3.5 text-yellow-400" /></span>
+                  ? <Loader2 className="w-5 h-5 animate-spin" />
+                  : <span className="flex items-center gap-1.5 whitespace-nowrap">{formatCopy(copy.buttonGenerateCost, { cost: COST })} <Coins className="w-4 h-4 text-yellow-400" /></span>
                 }
               </button>
             </div>
-            <p className="text-[10px] text-slate-600 mt-2 text-center">{formatCopy(copy.creditsAvailable, { credits: creditsLeft })}</p>
+            <p className="text-[11px] text-slate-500 mt-3 text-center leading-snug">{formatCopy(copy.creditsAvailable, { credits: creditsLeft })}</p>
           </div>
 
           <AnimatePresence>
