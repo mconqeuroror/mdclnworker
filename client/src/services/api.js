@@ -1,5 +1,6 @@
 import axios from "axios";
 import toast from "react-hot-toast";
+import { upload as vercelBlobClientUpload } from "@vercel/blob/client";
 
 // Import error display (will be initialized by App.jsx)
 let showErrorDetailsGlobal = null;
@@ -716,7 +717,6 @@ export const tutorialsAPI = {
   uploadSlotVideo: async ({ slot, file }) => {
     const config = await getUploadConfig();
     if (config.directToBlob && typeof window !== "undefined") {
-      const { upload } = await import("@vercel/blob/client");
       const base = API_URL.startsWith("http")
         ? API_URL.replace(/\/$/, "")
         : `${window.location.origin}${API_URL.startsWith("/") ? API_URL : `/${API_URL}`}`;
@@ -728,7 +728,7 @@ export const tutorialsAPI = {
         .replace(/[^a-z0-9._-]+/g, "-")
         .replace(/-+/g, "-");
       const pathname = `tutorials/${Date.now()}_${slug}_${safeName}`;
-      const blob = await upload(pathname, file, {
+      const blob = await vercelBlobClientUpload(pathname, file, {
         access: "public",
         handleUploadUrl,
         clientPayload: String(slot || "").trim(),
@@ -1033,14 +1033,13 @@ export const getUploadConfig = async () => {
 
 // Direct browser → Vercel Blob (no file through server → no 413 Request Entity Too Large)
 async function uploadFileDirectToBlob(file, onProgress) {
-  const { upload } = await import("@vercel/blob/client");
   const base =
     API_URL.startsWith("http")
       ? API_URL.replace(/\/$/, "")
       : `${window.location.origin}${API_URL.startsWith("/") ? API_URL : "/" + API_URL}`;
   const handleUploadUrl = `${base}/upload/blob`;
   const pathname = `user-uploads/${Date.now()}-${(file.name || "file").replace(/[^a-zA-Z0-9._-]/g, "_")}`;
-  const blob = await upload(pathname, file, {
+  const blob = await vercelBlobClientUpload(pathname, file, {
     access: "public",
     handleUploadUrl,
     multipart: (file.size || 0) > 10 * 1024 * 1024,

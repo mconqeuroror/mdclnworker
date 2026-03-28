@@ -1,13 +1,9 @@
 /**
- * Upload media to Vercel Blob as a TEMPORARY RELAY for KIE submissions only.
+ * Vercel Blob + optional R2.
  *
- * Architecture:
- * - R2 = permanent storage for all user content (unchanged)
- * - Vercel Blob = short-lived relay ONLY for KIE downloads
- *   KIE can't reach R2 CDN (pub-xxx.r2.dev) so we temporarily host
- *   the file on Blob, let KIE download it, then delete from Blob after.
- *
- * Nothing stored in R2 is ever deleted or modified by this module.
+ * - Blob: client uploads, KIE/WaveSpeed relays (kie-relay/), durable mirrors when token is set.
+ * - R2: legacy/alternate durable storage when Blob is off or as fallback.
+ * Temporary KIE copies under kie-relay/ may be deleted after use; generations/ and user-uploads/ are durable.
  */
 import { put, del } from "@vercel/blob";
 import { reMirrorToR2, isR2Configured, uploadBufferToR2 } from "./r2.js";
@@ -146,7 +142,7 @@ function rememberMirror(sourceUrl, blobUrl, ttlMs = MIRROR_CACHE_TTL_MS, purpose
   }
 }
 
-function getBlobFilename(sourceUrl, ext) {
+export function getBlobFilename(sourceUrl, ext) {
   try {
     const pathname = new URL(sourceUrl).pathname;
     const base = pathname.split("/").pop() || `file.${ext}`;
@@ -429,4 +425,51 @@ export async function mirrorProviderOutputUrl(outputUrl, contentTypeHint = "imag
 
   providerMirrorInFlight.set(inflightKey, promise);
   return promise;
+}
+
+const MIRROR_PERSIST_TIMEOUT_MS = 120_000;
+
+/**
+ * Download a public URL and store bytes on Vercel Blob (durable folder, e.g. generations/).
+ * No-op if already a Blob URL. Throws if Blob is not configured or download fails.
+ */
+export async function mirrorExternalUrlToPersistentBlob(sourceUrl, folder = "generations") {
+  if (!sourceUrl?.startsWith("http")) return sourceUrl;
+  if (!BLOB_TOKEN) throw new Error("BLOB_READ_WRITE_TOKEN not set");
+  if (sourceUrl.includes("vercel-storage.com") || sourceUrl.includes("blob.vercel.app")) {
+    return sourceUrl;
+  }
+  const res = await fetch(sourceUrl, { signal: AbortSignal.timeout(MIRROR_PERSIST_TIMEOUT_MS) });
+  if (!res.ok) throw new Error(`mirror persist: download HTTP ${res.status}`);
+  const buffer = Buffer.from(await res.arrayBuffer());
+  if (buffer.length === 0) throw new Error("mirror persist: empty body");
+  const ctRaw = res.headers.get("content-type") || "application/octet-stream";
+  const ct = ctRaw.split(";")[0].trim() || "application/octet-stream";
+  const extFromUrl = sourceUrl.match(/\.(png|jpg|jpeg|webp|gif|mp4|webm|mov)(\?|$)/i)?.[1]?.toLowerCase();
+  const ext =
+    extFromUrl
+    || (ct.includes("png") ? "png"
+      : ct.includes("webp") ? "webp"
+        : ct.includes("mp4") ? "mp4"
+          : ct.includes("webm") ? "webm"
+            : ct.includes("quicktime") || ct.includes("mov") ? "mov" : "jpg");
+  const finalCt =
+    ext === "mp4" ? "video/mp4"
+      : ext === "webm" ? "video/webm"
+        : ext === "mov" ? "video/quicktime"
+          : ext === "png" ? "image/png"
+            : ext === "webp" ? "image/webp" : "image/jpeg";
+  const filename = getBlobFilename(sourceUrl, ext);
+  return uploadBufferToBlob(buffer, filename, finalCt, folder);
+}
+
+/** Best-effort delete of a persisted Blob object (e.g. when pruning old generations). */
+export async function deletePersistedBlobIfPossible(blobUrl) {
+  if (!blobUrl || !BLOB_TOKEN) return;
+  if (!blobUrl.includes("vercel-storage.com") && !blobUrl.includes("blob.vercel.app")) return;
+  try {
+    await del(blobUrl, { token: BLOB_TOKEN });
+  } catch (_) {
+    // non-fatal
+  }
 }

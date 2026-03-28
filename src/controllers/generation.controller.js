@@ -28,7 +28,12 @@ import {
   refundGeneration,
 } from "../services/credit.service.js";
 import { isR2Configured, mirrorToR2, reMirrorToR2 } from "../utils/r2.js";
-import { mirrorToBlob, isVercelBlobConfigured } from "../utils/kieUpload.js";
+import {
+  mirrorToBlob,
+  isVercelBlobConfigured,
+  mirrorExternalUrlToPersistentBlob,
+  deletePersistedBlobIfPossible,
+} from "../utils/kieUpload.js";
 import {
   validateImageUrl,
   validateVideoUrl,
@@ -92,25 +97,48 @@ function isR2Url(url) {
   return url.includes("r2.dev") || (publicBase && url.includes(publicBase));
 }
 
-async function ensureGenerationOutputOnR2(generation) {
-  if (!isR2Configured()) return generation;
+function isOurPersistedBlobUrl(url) {
+  if (!url || typeof url !== "string") return false;
+  return url.includes("vercel-storage.com") || url.includes("blob.vercel.app");
+}
+
+function isPersistedOutputStorageUrl(url) {
+  return isR2Url(url) || isOurPersistedBlobUrl(url);
+}
+
+/** Prefer Vercel Blob for completed image outputs; fall back to R2 when Blob fails or is off. */
+async function ensureGenerationOutputPersisted(generation) {
   if (!generation || generation.status !== "completed") return generation;
   if (!PERSISTED_IMAGE_TYPES.has(generation.type)) return generation;
   if (!generation.outputUrl || typeof generation.outputUrl !== "string") return generation;
 
+  const useBlob = isVercelBlobConfigured();
+  const useR2 = isR2Configured();
+  if (!useBlob && !useR2) return generation;
+
   const raw = generation.outputUrl.trim();
   if (!raw) return generation;
+
+  const mirrorOne = async (url) => {
+    if (typeof url !== "string" || !url.startsWith("http")) return url;
+    if (isPersistedOutputStorageUrl(url)) return url;
+    if (useBlob) {
+      try {
+        return await mirrorExternalUrlToPersistentBlob(url, "generations");
+      } catch (e) {
+        console.warn(`⚠️ Blob persist failed (${e?.message}) — ${useR2 ? "falling back to R2" : "keeping provider URL"}`);
+        if (useR2) return await mirrorToR2(url, "generations");
+        return url;
+      }
+    }
+    return await mirrorToR2(url, "generations");
+  };
 
   try {
     if (raw.startsWith("[")) {
       const parsed = JSON.parse(raw);
       if (!Array.isArray(parsed) || parsed.length === 0) return generation;
-      const mirrored = await Promise.all(
-        parsed.map(async (url) => {
-          if (typeof url !== "string" || !url.startsWith("http") || isR2Url(url)) return url;
-          return await mirrorToR2(url, "generations");
-        })
-      );
+      const mirrored = await Promise.all(parsed.map((url) => mirrorOne(url)));
       const changed = mirrored.some((url, i) => url !== parsed[i]);
       if (!changed) return generation;
       const nextOutput = JSON.stringify(mirrored);
@@ -125,9 +153,9 @@ async function ensureGenerationOutputOnR2(generation) {
     return generation;
   }
 
-  if (!raw.startsWith("http") || isR2Url(raw)) return generation;
+  if (!raw.startsWith("http") || isPersistedOutputStorageUrl(raw)) return generation;
 
-  const mirrored = await mirrorToR2(raw, "generations");
+  const mirrored = await mirrorOne(raw);
   if (!mirrored || mirrored === raw) return generation;
 
   await prisma.generation.update({
@@ -1151,7 +1179,7 @@ export async function getGenerationById(req, res) {
 
     let resolvedGeneration = generation;
     try {
-      resolvedGeneration = await ensureGenerationOutputOnR2(generation);
+      resolvedGeneration = await ensureGenerationOutputPersisted(generation);
     } catch (healError) {
       console.warn(`⚠️ Failed to self-heal generation ${generation.id} output URL:`, healError.message);
     }
@@ -1222,7 +1250,7 @@ export async function getGenerations(req, res) {
       const healed = await Promise.all(
         batch.map(async (generation) => {
           try {
-            return await ensureGenerationOutputOnR2(generation);
+            return await ensureGenerationOutputPersisted(generation);
           } catch (healError) {
             console.warn(`⚠️ Failed to self-heal generation ${generation.id} output URL:`, healError.message);
             return generation;
@@ -1321,6 +1349,34 @@ export function getMaxCompletedGenerationsPerModel() {
   return Math.min(Math.max(n, 1), MAX_GENERATIONS_PER_MODEL_CAP);
 }
 
+async function deleteStoredOutputAssetMaybe(u) {
+  if (!u || typeof u !== "string") return;
+  const r2pub = process.env.R2_PUBLIC_URL || "";
+  if (u.includes("r2.dev") || (r2pub && u.includes(r2pub))) {
+    try {
+      const { deleteFromR2 } = await import("../utils/r2.js");
+      await deleteFromR2(u);
+    } catch (_) { /* best-effort */ }
+    return;
+  }
+  await deletePersistedBlobIfPossible(u);
+}
+
+async function deleteGenerationOutputAssets(outputUrl) {
+  if (!outputUrl) return;
+  const t = String(outputUrl).trim();
+  try {
+    if (t.startsWith("[")) {
+      const arr = JSON.parse(t);
+      if (Array.isArray(arr)) {
+        for (const u of arr) await deleteStoredOutputAssetMaybe(u);
+        return;
+      }
+    }
+  } catch (_) { /* single URL */ }
+  await deleteStoredOutputAssetMaybe(t);
+}
+
 export async function cleanupOldGenerations(userId, modelId) {
   try {
     if (!userId || !modelId) return;
@@ -1345,12 +1401,7 @@ export async function cleanupOldGenerations(userId, modelId) {
 
     if (oldestGenerations.length > 0) {
       for (const gen of oldestGenerations) {
-        if (gen.outputUrl && (gen.outputUrl.includes("r2.dev") || gen.outputUrl.includes(process.env.R2_PUBLIC_URL || "__r2__"))) {
-          try {
-            const { deleteFromR2 } = await import("../utils/r2.js");
-            await deleteFromR2(gen.outputUrl);
-          } catch (e) { /* best-effort R2 cleanup */ }
-        }
+        await deleteGenerationOutputAssets(gen.outputUrl);
       }
       const ids = oldestGenerations.map((g) => g.id);
       await prisma.generation.deleteMany({
