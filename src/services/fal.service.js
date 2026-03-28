@@ -1684,7 +1684,7 @@ export function buildNsfwPrompt(triggerWord, userPrompt, attributes = "") {
  * Build the full ComfyUI workflow from the core NSFW workflow template.
  * 1:1 with `attached_assets/nsfw_core_workflow.json` by default: same KSampler steps/cfg, grain/blur,
  * and negative string as the template unless the caller opts in to overrides.
- * Patched: positive (56), LoRA stack (250/298/305/306/311), aspect (302/303), seed (57 when passed).
+ * Patched: positive (56), LoRA stack (250/298/305/306/311), aspect node 50 + DF_Integer 302/303, seed (57 when passed).
  * Negative (41): only replaced when `negativePrompt` is explicitly non-empty.
  * Grain/blur (284/286): only when `useWorkflowPostProcessing` / `NSFW_COMFY_USE_WORKFLOW_POST` / `overrideGrainBlur`.
  * Base KSampler (276) steps/cfg: only when `steps`/`cfg` are passed (e.g. admin sampler override).
@@ -1808,21 +1808,23 @@ function buildComfyWorkflow(params) {
     if (node306 && node306.widgets_values && node306.widgets_values.length > 0) {
       node306.widgets_values[0] = additive2Strength;
     }
-    
-    // Node 302 / 303: DF_Integer "aspect_width" / "aspect_height" — these are the connected inputs to
-    // CR SDXL Aspect Ratio (node 50).  The workflow has swap_dimensions="On" which swaps them, so:
-    //   final_width  = node303 value (height input, after swap becomes width)
-    //   final_height = node302 value (width input, after swap becomes height)
-    // We apply 2× scale (matching the v8 workflow's native resolution e.g. 1536×2688 for 9:16).
-    // Do NOT touch node50 aspect_ratio/swap_dimensions — they are locked in the workflow file.
-    const node302 = findNode(302); // provides "width input" → after swap = final HEIGHT
-    if (node302 && node302.widgets_values && node302.widgets_values.length > 0) {
-      node302.widgets_values[0] = (Number(height) || 768) * 2;
+
+    // Node 50 (CR SDXL Aspect Ratio): template hard-codes aspect_ratio to 16:9 — must patch or every gen stays 16:9.
+    // widgets_values[2] is aspect_ratio (width/height slots 0–1 are linked to 302/303 for conversion).
+    const node50 = findNode(50);
+    if (node50 && node50.widgets_values && node50.widgets_values.length >= 3) {
+      node50.widgets_values[2] = aspectRatio;
     }
 
-    const node303 = findNode(303); // provides "height input" → after swap = final WIDTH
+    // Node 302 / 303: DF_Integer → node 50 width/height inputs (links 1344/1345). Template uses 2× base resolution.
+    // 302 feeds "width" input, 303 feeds "height" input — match template defaults (2688=1344×2, 1536=768×2).
+    const node302 = findNode(302);
+    if (node302 && node302.widgets_values && node302.widgets_values.length > 0) {
+      node302.widgets_values[0] = (Number(width) || 1344) * 2;
+    }
+    const node303 = findNode(303);
     if (node303 && node303.widgets_values && node303.widgets_values.length > 0) {
-      node303.widgets_values[0] = (Number(width) || 1344) * 2;
+      node303.widgets_values[0] = (Number(height) || 768) * 2;
     }
     
     // Blur/grain: optional — default keeps template nodes 284/286 (1:1 with desktop export)
