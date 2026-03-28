@@ -3702,6 +3702,10 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
   const [showAddCredits, setShowAddCredits] = useState(false);
   const [showEarnModal, setShowEarnModal] = useState(false);
   const [showReferralModal, setShowReferralModal] = useState(false);
+  const [standaloneSidebarCollapsed, setStandaloneSidebarCollapsed] = useState(true);
+  const [standaloneSidebarHovered, setStandaloneSidebarHovered] = useState(false);
+  const standaloneNarrow = standaloneSidebarCollapsed && !standaloneSidebarHovered;
+  const layoutSidebarNarrow = embedded ? sidebarCollapsed : standaloneNarrow;
   
   const handleLogout = async () => {
     await logout();
@@ -4807,19 +4811,28 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
               onOpenEarn={() => setShowEarnModal(true)}
               onOpenReferral={() => setShowReferralModal(true)}
               onOpenAdmin={() => navigate("/admin")}
+              collapsed={standaloneSidebarCollapsed}
+              setCollapsed={setStandaloneSidebarCollapsed}
+              onDesktopHoverChange={setStandaloneSidebarHovered}
             />
           </div>
         </>
       )}
 
       {/* Main Content - with left margin for sidebar on desktop (only when standalone) */}
-      <div className={embedded ? "flex justify-center" : "md:ml-[260px] px-3 py-4 sm:p-6 lg:p-8 relative z-10 flex justify-center"}>
+      <div
+        className={
+          embedded
+            ? "flex justify-center"
+            : `relative z-10 flex justify-center px-3 py-4 sm:p-6 lg:p-8 transition-[margin] duration-300 ease-out ${layoutSidebarNarrow ? "md:ml-[80px]" : "md:ml-[260px]"}`
+        }
+      >
         <div className="w-full max-w-5xl">
         {/* NSFW Unlock Modal */}
         <NsfwUnlockModal 
           isOpen={showUnlockModal} 
           onClose={() => setShowUnlockModal(false)}
-          sidebarCollapsed={sidebarCollapsed}
+          sidebarCollapsed={layoutSidebarNarrow}
         />
 
         <NudesPackModal
@@ -4827,7 +4840,7 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
           onClose={() => !isSubmittingNudesPack && setNudesPackModalOpen(false)}
           onApprove={handleNudesPackApprove}
           submitting={isSubmittingNudesPack}
-          sidebarCollapsed={sidebarCollapsed}
+          sidebarCollapsed={layoutSidebarNarrow}
         />
 
         {/* Header */}

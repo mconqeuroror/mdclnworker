@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Zap,
@@ -117,18 +117,40 @@ export default function AppSidebar({
   onOpenAdmin,
   collapsed: collapsedProp,
   setCollapsed: setCollapsedProp,
+  onDesktopHoverChange,
 }) {
   const location = useLocation();
   const branding = useBranding();
   const canAccessPremium = hasPremiumAccess(user);
-  const [localCollapsed, setLocalCollapsed] = useState(false);
+  const [localCollapsed, setLocalCollapsed] = useState(true);
   const collapsed = typeof collapsedProp === "boolean" ? collapsedProp : localCollapsed;
   const setCollapsed = setCollapsedProp || setLocalCollapsed;
+  /** Desktop: expand visually while pinned collapsed (rail + hover) */
+  const [desktopHovered, setDesktopHovered] = useState(false);
+  const visuallyCollapsed = collapsed && !desktopHovered;
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [locale, setLocale] = useState(getCurrentLocale);
   const copy = SIDEBAR_COPY[locale] || SIDEBAR_COPY.en;
-  const collapsedRow = collapsed ? "justify-center px-0 gap-0 min-h-[44px]" : "";
-  const collapsedProfileRow = collapsed ? "justify-center px-0 gap-0 min-h-[48px]" : "";
+  const collapsedRow = visuallyCollapsed ? "justify-center px-0 gap-0 min-h-[44px]" : "";
+  const collapsedProfileRow = visuallyCollapsed ? "justify-center px-0 gap-0 min-h-[48px]" : "";
+
+  useEffect(() => {
+    if (!collapsed) {
+      setDesktopHovered(false);
+      onDesktopHoverChange?.(false);
+    }
+  }, [collapsed, onDesktopHoverChange]);
+
+  const handleAsidePointerEnter = () => {
+    if (!collapsed) return;
+    setDesktopHovered(true);
+    onDesktopHoverChange?.(true);
+  };
+
+  const handleAsidePointerLeave = () => {
+    setDesktopHovered(false);
+    onDesktopHoverChange?.(false);
+  };
 
   const handleLocaleChange = (nextLocale) => {
     if (!SUPPORTED_LOCALES.includes(nextLocale)) return;
@@ -179,19 +201,21 @@ export default function AppSidebar({
   return (
     <motion.aside
       initial={false}
-      animate={{ width: collapsed ? 80 : 260 }}
+      animate={{ width: visuallyCollapsed ? 80 : 260 }}
       transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
-      className="fixed left-0 top-0 h-screen z-50 flex flex-col"
+      className="fixed left-0 top-0 h-screen z-50 flex flex-col max-md:pointer-events-auto md:overflow-visible"
       style={{
         background: "linear-gradient(180deg, rgba(15,15,23,0.98) 0%, rgba(10,10,18,0.99) 50%, rgba(5,5,12,1) 100%)",
       }}
+      onPointerEnter={handleAsidePointerEnter}
+      onPointerLeave={handleAsidePointerLeave}
     >
       {/* Subtle right border */}
       <div className="absolute right-0 top-0 bottom-0 w-px bg-gradient-to-b from-white/[0.08] via-white/[0.04] to-transparent" />
 
       {/* Logo Section */}
       <div className="p-5 mb-2">
-        <Link to="/dashboard" className={`flex items-center gap-3 hover:opacity-80 transition-opacity ${collapsed ? "justify-center" : ""}`}>
+        <Link to="/dashboard" className={`flex items-center gap-3 hover:opacity-80 transition-opacity ${visuallyCollapsed ? "justify-center" : ""}`}>
           <div className="relative">
             <img
               src={branding.logoUrl}
@@ -200,7 +224,7 @@ export default function AppSidebar({
             />
           </div>
           <AnimatePresence>
-            {!collapsed && (
+            {!visuallyCollapsed && (
               <motion.div
                 initial={{ opacity: 0, x: -10 }}
                 animate={{ opacity: 1, x: 0 }}
@@ -232,7 +256,7 @@ export default function AppSidebar({
               <User className="w-4 h-4 text-white" />
             </div>
             <AnimatePresence>
-              {!collapsed && (
+              {!visuallyCollapsed && (
                 <motion.div
                   initial={{ opacity: 0, x: -6 }}
                   animate={{ opacity: 1, x: 0 }}
@@ -279,7 +303,7 @@ export default function AppSidebar({
 
           {/* Profile dropdown */}
           <AnimatePresence>
-            {showProfileMenu && !collapsed && (
+            {showProfileMenu && !visuallyCollapsed && (
               <>
                 <div
                   className="fixed inset-0 z-40"
@@ -370,7 +394,7 @@ export default function AppSidebar({
       {/* Main Navigation */}
       <nav className="flex-1 px-3 overflow-y-auto">
         <AnimatePresence>
-          {!collapsed && (
+          {!visuallyCollapsed && (
             <motion.p
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -423,7 +447,7 @@ export default function AppSidebar({
                 }`}
               />
               <AnimatePresence>
-                {!collapsed && (
+                {!visuallyCollapsed && (
                   <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
@@ -456,7 +480,7 @@ export default function AppSidebar({
             >
               <Zap className="w-5 h-5 flex-shrink-0 text-purple-400" />
               <AnimatePresence>
-                {!collapsed && (
+                {!visuallyCollapsed && (
                   <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-sm font-medium text-purple-300">
                     {copy.proStudio}
                   </motion.span>
@@ -471,7 +495,7 @@ export default function AppSidebar({
 
         {/* Monetize Section */}
         <AnimatePresence>
-          {!collapsed && (
+          {!visuallyCollapsed && (
             <motion.p
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -497,7 +521,7 @@ export default function AppSidebar({
             >
               <item.icon className="w-5 h-5 flex-shrink-0 text-emerald-400 drop-shadow-[0_0_6px_rgba(52,211,153,0.5)]" />
               <AnimatePresence>
-                {!collapsed && (
+                {!visuallyCollapsed && (
                   <motion.span
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
@@ -513,7 +537,7 @@ export default function AppSidebar({
 
           {/* Socials Section */}
           <AnimatePresence>
-            {!collapsed && (
+            {!visuallyCollapsed && (
               <motion.p
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
@@ -538,7 +562,7 @@ export default function AppSidebar({
           >
             <SiTelegram className="w-5 h-5 flex-shrink-0 text-[#26A5E4]" />
             <AnimatePresence>
-              {!collapsed && (
+              {!visuallyCollapsed && (
                 <motion.span
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
@@ -564,7 +588,7 @@ export default function AppSidebar({
           >
             <SiDiscord className="w-5 h-5 flex-shrink-0 text-[#5865F2]" />
             <AnimatePresence>
-              {!collapsed && (
+              {!visuallyCollapsed && (
                 <motion.span
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
@@ -586,7 +610,7 @@ export default function AppSidebar({
           >
             <Briefcase className="w-5 h-5 flex-shrink-0" />
             <AnimatePresence>
-              {!collapsed && (
+              {!visuallyCollapsed && (
                 <motion.div
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
@@ -618,7 +642,7 @@ export default function AppSidebar({
             >
               <Shield className="w-5 h-5 flex-shrink-0 text-red-400" />
               <AnimatePresence>
-                {!collapsed && (
+                {!visuallyCollapsed && (
                   <motion.span
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
@@ -638,13 +662,21 @@ export default function AppSidebar({
       <div className="p-4 space-y-2">
         {/* Collapse Toggle */}
         <button
-          onClick={() => setCollapsed(!collapsed)}
+          onClick={() => {
+            if (visuallyCollapsed) {
+              setCollapsed(false);
+            } else {
+              setDesktopHovered(false);
+              onDesktopHoverChange?.(false);
+              setCollapsed(true);
+            }
+          }}
           className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-500 hover:text-slate-300 hover:bg-white/[0.04] transition-all duration-200 ${
             collapsedRow
           }`}
           data-testid="sidebar-collapse"
         >
-          {collapsed ? (
+          {visuallyCollapsed ? (
             <ChevronRight className="w-5 h-5" />
           ) : (
             <>
@@ -666,7 +698,7 @@ export default function AppSidebar({
         >
           <LogOut className="w-5 h-5 flex-shrink-0 group-hover:translate-x-0.5 transition-transform" />
           <AnimatePresence>
-            {!collapsed && (
+            {!visuallyCollapsed && (
               <motion.span
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}

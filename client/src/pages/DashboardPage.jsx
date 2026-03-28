@@ -294,7 +294,10 @@ export default function DashboardPage() {
   const [uploadRealMode, setUploadRealMode] = useState(false);
   const [showWhatsNew, setShowWhatsNew] = useState(false);
   const [courseVideoId, setCourseVideoId] = useState(null);
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
+  const [sidebarDesktopHovered, setSidebarDesktopHovered] = useState(false);
+  /** Narrow rail (80px) only when pinned collapsed and not hovering the sidebar on desktop */
+  const sidebarNarrow = isSidebarCollapsed && !sidebarDesktopHovered;
   const [voiceStudioInitialModelId, setVoiceStudioInitialModelId] = useState(null);
 
   // What's New popup - version key for tracking updates
@@ -457,6 +460,7 @@ export default function DashboardPage() {
           onOpenAdmin={() => navigate("/admin")}
           collapsed={isSidebarCollapsed}
           setCollapsed={setIsSidebarCollapsed}
+          onDesktopHoverChange={setSidebarDesktopHovered}
         />
       </div>
 
@@ -683,21 +687,21 @@ export default function DashboardPage() {
       </AnimatePresence>
 
       {/* Content - with left margin for sidebar on desktop */}
-      <main className={`relative z-10 pt-16 md:pt-14 pb-12 min-h-screen transition-all duration-300 overflow-x-hidden ${isSidebarCollapsed ? "md:ml-[80px]" : "md:ml-[260px]"}`}>
-        <div className={`relative z-10 p-3 sm:p-4 md:p-6 ${isSidebarCollapsed ? "mx-auto w-full max-w-[1600px]" : ""}`}>
+      <main className={`relative z-10 pt-16 md:pt-14 pb-12 min-h-screen transition-[margin] duration-300 ease-out overflow-x-hidden ${sidebarNarrow ? "md:ml-[80px]" : "md:ml-[260px]"}`}>
+        <div className={`relative z-10 p-3 sm:p-4 md:p-6 ${sidebarNarrow ? "mx-auto w-full max-w-[1600px]" : ""}`}>
           {activeTab === "home" && <HomePage copy={copy} setActiveTab={setActiveTab} setShowEarnModal={setShowEarnModal} setShowReferralModal={setShowReferralModal} onOpenCreateModel={() => { setUploadRealMode(false); setShowCreateModelModal(true); }} onOpenUploadReal={() => { setUploadRealMode(true); setShowCreateModelModal(true); }} onOpenCredits={() => setShowAddCredits(true)} />}
-          {activeTab === "models" && <ModelsPage sidebarCollapsed={isSidebarCollapsed} openVoiceStudioForModel={openVoiceStudioForModel} />}
+          {activeTab === "models" && <ModelsPage sidebarCollapsed={sidebarNarrow} openVoiceStudioForModel={openVoiceStudioForModel} />}
 {activeTab === "generate" && <GeneratePage setActiveTab={setActiveTab} openVoiceStudioForModel={openVoiceStudioForModel} />}
-        {activeTab === "creator-studio" && <CreatorStudioPage sidebarCollapsed={isSidebarCollapsed} initialTab="generate" initialModelId={voiceStudioInitialModelId} />}
-        {activeTab === "voice-studio" && <CreatorStudioPage sidebarCollapsed={isSidebarCollapsed} initialTab="voices" initialModelId={voiceStudioInitialModelId} />}
+        {activeTab === "creator-studio" && <CreatorStudioPage sidebarCollapsed={sidebarNarrow} initialTab="generate" initialModelId={voiceStudioInitialModelId} />}
+        {activeTab === "voice-studio" && <CreatorStudioPage sidebarCollapsed={sidebarNarrow} initialTab="voices" initialModelId={voiceStudioInitialModelId} />}
         {activeTab === "reformatter" && <ContentReformatterPage />}
           {activeTab === "history" && <HistoryPage />}
           {activeTab === "settings" && <SettingsPage />}
-          {activeTab === "nsfw" && <NSFWPage embedded sidebarCollapsed={isSidebarCollapsed} setDashboardTab={(tab, videoId) => { setActiveTab(tab); if (videoId) setCourseVideoId(videoId); }} />}
+          {activeTab === "nsfw" && <NSFWPage embedded sidebarCollapsed={sidebarNarrow} setDashboardTab={(tab, videoId) => { setActiveTab(tab); if (videoId) setCourseVideoId(videoId); }} />}
           {activeTab === "course" && <CoursePage setActiveTab={setActiveTab} onOpenCredits={() => setShowAddCredits(true)} initialVideoId={courseVideoId} onVideoIdConsumed={() => setCourseVideoId(null)} />}
           {activeTab === "jobs" && <JobBoardPage />}
           {activeTab === "repurposer" && <VideoRepurposerPage embedded />}
-          {activeTab === "reelfinder" && <ViralReelFinderPage embedded sidebarCollapsed={isSidebarCollapsed} onUpgrade={() => setActiveTab("settings")} />}
+          {activeTab === "reelfinder" && <ViralReelFinderPage embedded sidebarCollapsed={sidebarNarrow} onUpgrade={() => setActiveTab("settings")} />}
           {activeTab === "referral" && <ReferralProgramPage />}
         </div>
       </main>
@@ -706,7 +710,7 @@ export default function DashboardPage() {
       <AddCreditsModal
         isOpen={showAddCredits}
         onClose={() => setShowAddCredits(false)}
-        sidebarCollapsed={isSidebarCollapsed}
+        sidebarCollapsed={sidebarNarrow}
       />
 
       {/* Purchase Success Modal */}
@@ -960,7 +964,7 @@ export default function DashboardPage() {
       <CreateModelModal
         isOpen={showCreateModelModal}
         onClose={() => setShowCreateModelModal(false)}
-        sidebarCollapsed={isSidebarCollapsed}
+        sidebarCollapsed={sidebarNarrow}
         onSuccess={() => {
           setShowCreateModelModal(false);
           setActiveTab("models");
