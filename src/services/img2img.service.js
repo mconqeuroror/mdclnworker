@@ -334,13 +334,11 @@ function buildNsfwImg2ImgV2ApiPrompt({ positivePrompt, loraUrl, loraStrength, se
     api["305"].inputs.upload = "image";
   }
 
-  const safeUrl = sanitizeLoraDownloadUrl(loraUrl);
   const ls = ensureFiniteNumber(loraStrength, "loraStrength");
-  if (api["250"]?.inputs) {
-    api["250"].inputs.lora_1_url = safeUrl;
-    api["250"].inputs.lora_1_strength = ls;
-    api["250"].inputs.lora_1_model_strength = ls;
-    api["250"].inputs.lora_1_clip_strength = ls;
+  if (api["250"]?.inputs && loraUrl) {
+    const safeUrl = sanitizeLoraDownloadUrl(loraUrl);
+    // Template graphs often ship num_loras=1 but still list HF URLs in lora_2..10; compact clears extras.
+    applyCompactLoraStackToNode250(api["250"], [{ url: safeUrl, strength: ls }]);
   }
 
   if (api["57"]?.inputs) {

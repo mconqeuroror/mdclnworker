@@ -855,6 +855,8 @@ const POSE_SLOT_URLS = {
   "295": "https://huggingface.co/bigckck/ndmstr/resolve/main/Nsfw_POV_Missionary_Anal.safetensors",
 };
 const LORA_8_RUNNING_MAKEUP_URL = "https://huggingface.co/bigckck/ndmstr/resolve/main/Nsfw_Running_makeup.safetensors";
+/** Body / scene cum effect (AI `cum: true`); not the same as `facial` enhancement LoRA. */
+const CUM_LORA_URL = "https://huggingface.co/bigckck/ndmstr/resolve/main/cum.safetensors";
 
 /**
  * KSampler exports still list [seed, seed_mode, steps, cfg, ...] in widgets_values even when
@@ -1638,14 +1640,16 @@ const NUDES_PACK_TAIL_COUPLE =
 const MAX_SIMULTANEOUS_ENHANCEMENT_LORAS = 2;
 
 /**
- * Build ordered LoRA stack entries (identity → optional pose → optional makeup → up to 2 enhancements).
- * Only includes weights that are actually used — no placeholder URLs at strength 0.
+ * Build ordered LoRA stack entries (identity → optional pose → optional makeup → up to 2 enhancements → optional cum).
+ * The identity URL is always `loraUrl` from the saved model / active trained LoRA (DB) — never from client maps.
+ * Additive URLs come only from server maps (`POSE_SLOT_URLS`, `ENHANCEMENT_LORAS`, fixed makeup/cum URLs) when strength > 0.
  */
 export function buildNsfwLoraStackEntries({
   loraUrl,
   girlLoraStrength,
   poseStrengths = {},
   makeupStrength = 0,
+  cumStrength = 0,
   enhancementStrengths = {},
 }) {
   const entries = [];
@@ -1685,21 +1689,35 @@ export function buildNsfwLoraStackEntries({
     enhAdded += 1;
   }
 
+  const cumS = Math.min(MAX_ADDITIVE_LORA_STRENGTH, Math.max(0, Number(cumStrength) || 0));
+  if (cumS > 0 && entries.length < 10) {
+    entries.push({ url: sanitizeLoraDownloadUrl(CUM_LORA_URL), strength: cumS });
+  }
+
   return entries.slice(0, 10);
 }
 
 /**
  * Pack stack into LoadLoraFromUrlOrPath node: lora_1..lora_N contiguous, rest empty, num_loras = N.
- * Avoids loading unused Hugging Face weights (URLs cleared, not left at strength 0).
+ *
+ * Only entries with a non-empty URL are applied (AI/buildNsfwLoraStackEntries must not add unused additives).
+ * Slots lora_2..lora_10 are always cleared when unused so template/desktop HF URLs never leak into RunPod.
  */
 export function applyCompactLoraStackToNode250(node250, entries) {
   if (!node250?.inputs) return;
-  const n = entries.length;
+  const compact = (Array.isArray(entries) ? entries : [])
+    .filter((e) => e && String(e.url ?? "").trim())
+    .slice(0, 10)
+    .map((e) => ({
+      url: sanitizeLoraDownloadUrl(String(e.url).trim()),
+      strength: Math.min(1, Math.max(0, Number(e.strength) || 0)),
+    }));
+  const n = compact.length;
   for (let i = 0; i < 10; i++) {
     const idx = i + 1;
-    const e = entries[i];
+    const e = compact[i];
     const p = `lora_${idx}_`;
-    if (e?.url) {
+    if (e) {
       node250.inputs[p + "url"] = e.url;
       node250.inputs[p + "strength"] = e.strength;
       node250.inputs[p + "model_strength"] = e.strength;
@@ -1816,9 +1834,10 @@ function buildComfyWorkflow(params) {
       girlLoraStrength,
       poseStrengths,
       makeupStrength,
+      cumStrength,
       enhancementStrengths,
     });
-    // Entry 0 is the girl LoRA (already applied via node298 + node250[3]); take up to 2 additives.
+    // Entry 0 is the girl LoRA; entries 1+ are pose/makeup/enhancement (see buildNsfwLoraStackEntries).
     const additives = allLoraEntries.slice(1, 3);
 
     // Compact slot assignment — no gaps.
@@ -1827,8 +1846,8 @@ function buildComfyWorkflow(params) {
     const additive2Url      = additives[1]?.url      ?? "";
     const additive2Strength = additives[1]?.strength ?? 0;
 
-    // num_loras: girl (always 1) + active additives.
-    const activeLorasCount = 1 + additives.length;
+    // Compact stack length (pose/makeup/enhancement may add 0–N slots after the girl LoRA).
+    const activeLorasCount = allLoraEntries.length;
 
     console.log(`[NSFW LoRA] girl=${loraUrl ? "✓" : "✗"} | additives=${additives.length}` +
       (additives[0] ? ` [1]=${additives[0].url.split("/").pop()} @${additives[0].strength}` : "") +
@@ -1936,19 +1955,9 @@ function buildComfyWorkflow(params) {
       }
     }
     
-    // Node 250: LoadLoraFromUrlOrPath — patch URLs in widgets_values BEFORE conversion.
-    // URLs are at indices 3, 7, 11, 15, ... (every 4th index starting from 3, accounting for linked strength inputs).
-    const node250 = findNode(250);
-    if (node250 && node250.widgets_values && node250.widgets_values.length >= 11) {
-      const safeLora = loraUrl ? sanitizeLoraDownloadUrl(String(loraUrl).trim()) : "";
-      // additive URLs are already sanitized when pushed into the additives[] array above.
-      const safeAdd1 = additive1Url;
-      const safeAdd2 = additive2Url;
-      node250.widgets_values[3] = safeLora;   // lora_1_url
-      node250.widgets_values[7] = safeAdd1;  // lora_2_url
-      node250.widgets_values[11] = safeAdd2; // lora_3_url
-    }
-    
+    // Node 250: graph `widgets_values` layout is NOT stable (header slots 0–6, then 4 widgets per LoRA).
+    // Patching [3]/[7]/[11] was wrong and corrupted the stack. Apply the compact stack on the API node instead (below).
+
     // Node 57: Seed (rgthree) — patch seed in widgets_values BEFORE conversion.
     if (seed != null) {
       const node57 = findNode(57);
@@ -1973,6 +1982,27 @@ function buildComfyWorkflow(params) {
     patchUltimateSdUpscaleApiNodes(apiWorkflow);
     if (process.env.NSFW_COMFY_BYPASS_UPSCALE === "1") {
       bypassUpscaleChainInNsfwCoreApi(apiWorkflow);
+    }
+
+    // LoadLoraFromUrlOrPath (250): set lora_1..N + num_loras on the API object (matches img2img path).
+    if (apiWorkflow["250"]?.inputs) {
+      applyCompactLoraStackToNode250(apiWorkflow["250"], allLoraEntries);
+    }
+
+    // CR SDXL Aspect Ratio (50): when the graph has no DF_Integer width/height nodes, patch API directly.
+    const api50 = apiWorkflow["50"];
+    if (api50?.class_type === "CR SDXL Aspect Ratio" && api50.inputs) {
+      const w = Number(width) || 1344;
+      const h = Number(height) || 768;
+      if (!Array.isArray(api50.inputs.width)) {
+        api50.inputs.width = w;
+      }
+      if (!Array.isArray(api50.inputs.height)) {
+        api50.inputs.height = h;
+      }
+      if (typeof api50.inputs.aspect_ratio === "string" || api50.inputs.aspect_ratio == null) {
+        api50.inputs.aspect_ratio = aspectRatio;
+      }
     }
 
     // Strip String Literal nodes 41/56 (comfy-image-saver — not on RunPod): inline every wire to them.
@@ -2022,6 +2052,7 @@ function buildComfyWorkflowLegacy(params) {
     girlLoraStrength,
     poseStrengths,
     makeupStrength,
+    cumStrength = 0,
     enhancementStrengths = {},
     postProcessing = {},
     seed,
@@ -2039,6 +2070,7 @@ function buildComfyWorkflowLegacy(params) {
     girlLoraStrength,
     poseStrengths,
     makeupStrength,
+    cumStrength,
     enhancementStrengths,
   });
   let loraNodeId = 250;
@@ -2220,7 +2252,9 @@ export async function submitNsfwGeneration(params) {
     .filter(([, v]) => v > 0)
     .map(([k, v]) => `${k}=${v}`)
     .join(", ");
-  console.log(`🎭 Enhancement LoRAs: ${activeEnhLog || "none"} → wired to node 250 lora_9/lora_10 when template loads`);
+  console.log(
+    `🎭 Enhancement LoRAs: ${activeEnhLog || "none"} → only these (plus pose/makeup if any) get URLs on node 250; unused slots cleared`,
+  );
 
   const poseStrengths = {};
   POSE_LORAS.forEach(p => { poseStrengths[p.node] = 0; });
