@@ -532,12 +532,26 @@ def upscale_model_choices(info):
     mn = req.get("model_name")
     if mn is None:
         return []
-    if isinstance(mn, list) and len(mn) > 0:
-        first = mn[0]
-        if isinstance(first, list):
-            return [x for x in first if isinstance(x, str)]
-        if isinstance(first, str):
-            return [x for x in mn if isinstance(x, str)]
+    if not isinstance(mn, list) or len(mn) == 0:
+        return []
+    # v0.18+: ["COMBO", ["a.pth", "b.pth"], {widget extras...}] — do not treat "COMBO" as a filename
+    if mn[0] == "COMBO" and len(mn) > 1:
+        opts = mn[1]
+        if isinstance(opts, list):
+            return [x for x in opts if isinstance(x, str)]
+        if isinstance(opts, dict):
+            for key in ("options", "choices", "values"):
+                v = opts.get(key)
+                if isinstance(v, list):
+                    return [x for x in v if isinstance(x, str)]
+    first = mn[0]
+    if isinstance(first, list):
+        return [x for x in first if isinstance(x, str)]
+    if isinstance(first, str) and first not in ("COMBO", "STRING", "INT", "FLOAT", "BOOLEAN"):
+        return [x for x in mn if isinstance(x, str)]
+    for item in mn:
+        if isinstance(item, list):
+            return [x for x in item if isinstance(x, str)]
     return []
 
 try:
