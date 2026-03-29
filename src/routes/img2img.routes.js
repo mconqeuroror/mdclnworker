@@ -13,6 +13,7 @@
 
 import express from "express";
 import prisma from "../lib/prisma.js";
+import { resolveRunpodWebhookUrl } from "../lib/runpodWebhookUrl.js";
 import { authMiddleware } from "../middleware/auth.middleware.js";
 import {
   runImg2ImgPipeline,
@@ -23,6 +24,7 @@ import {
   submitDescribeJob,
   extractCaptionFromRunpodOutput,
   getRunpodJobStatus,
+  parseRunpodHandlerOutput,
 } from "../services/img2img.service.js";
 import { isR2Configured } from "../utils/r2.js";
 import { isVercelBlobConfigured, uploadBufferToBlobOrR2 } from "../utils/kieUpload.js";
@@ -95,7 +97,8 @@ setInterval(async () => {
       const rpStatus = rp.status;
 
       if (rpStatus === "COMPLETED") {
-        const output = rp.output;
+        const output = parseRunpodHandlerOutput(rp.output);
+        if (!output) throw new Error("RunPod returned empty or unparsable output");
         if (output?.error) throw new Error(output.error);
         const images = output?.images || [];
         if (!images.length) throw new Error("Generation completed but returned no images");
@@ -184,7 +187,7 @@ router.post("/describe", LARGE_JSON, authMiddleware, async (req, res) => {
   }
 
   try {
-    const webhookUrl = process.env.RUNPOD_WEBHOOK_URL?.trim() || null;
+    const webhookUrl = resolveRunpodWebhookUrl();
     const runpodJobId = await submitDescribeJob(inputImageBase64 || null, inputImageUrl || null, webhookUrl);
 
     // Persist the pending job so the status endpoint can resolve it
@@ -598,7 +601,8 @@ router.get("/status/:jobId", authMiddleware, async (req, res) => {
     const rpStatus = rp.status;
 
     if (rpStatus === "COMPLETED") {
-      const output = rp.output;
+      const output = parseRunpodHandlerOutput(rp.output);
+      if (!output) throw new Error("RunPod returned empty or unparsable output");
       if (output?.error) throw new Error(output.error);
       const images = output?.images || [];
       if (!images.length) throw new Error("Generation completed but returned no images");

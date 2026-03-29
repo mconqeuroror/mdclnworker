@@ -17,6 +17,7 @@ import { isVercelBlobConfigured, uploadBufferToBlobOrR2 } from "../utils/kieUplo
 import { falConstraints } from "../config/providerMediaConstraints.js";
 import { sanitizeLoraDownloadUrl } from "../utils/loraUrl.js";
 import { resolveNsfwResolution } from "../utils/nsfwResolution.js";
+import { resolveRunpodWebhookUrl } from "../lib/runpodWebhookUrl.js";
 // dynamicPoll removed — inline polling used directly
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -2314,7 +2315,7 @@ export async function submitNsfwGeneration(params) {
   console.log(JSON.stringify({ input: { prompt: workflow } }, null, 2));
   console.log("📋 ============================================\n");
 
-  const runpodWebhook = process.env.RUNPOD_WEBHOOK_URL?.trim();
+  const runpodWebhook = resolveRunpodWebhookUrl();
   const runPayload = {
     input: {
       prompt: workflow,

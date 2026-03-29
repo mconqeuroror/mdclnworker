@@ -27,6 +27,7 @@ import {
   inlineStringLiteralRefsInApiWorkflow,
   removeRgthreeFastGroupsBypasserFromComfyUiGraph,
 } from "./fal.service.js";
+import { resolveRunpodWebhookUrl } from "../lib/runpodWebhookUrl.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -433,16 +434,47 @@ export async function submitDescribeJob(imageBase64OrNull, imageUrl, webhookUrl 
 }
 
 /**
+ * Normalize handler `output` from RunPod `/status` — sometimes JSON-stringified or wrapped in `{ output: { ... } }`.
+ */
+export function parseRunpodHandlerOutput(raw) {
+  if (raw == null) return null;
+  let o = raw;
+  if (typeof o === "string") {
+    try {
+      o = JSON.parse(o);
+    } catch {
+      return null;
+    }
+  }
+  if (typeof o !== "object" || o === null) return null;
+
+  const inner = o.output;
+  if (inner && typeof inner === "object") {
+    const outerImages = Array.isArray(o.images) && o.images.length > 0;
+    const outerText = typeof o.text === "string" && o.text.trim();
+    const innerImages = Array.isArray(inner.images) && inner.images.length > 0;
+    const innerText = typeof inner.text === "string" && inner.text.trim();
+    if (!outerImages && !outerText && (innerImages || innerText)) {
+      return inner;
+    }
+  }
+  return o;
+}
+
+/**
  * Extract the JoyCaption caption text from a completed RunPod job output object.
  * Returns null if no text found.
  */
 export function extractCaptionFromRunpodOutput(output) {
-  if (!output) return null;
+  const o = parseRunpodHandlerOutput(output);
+  if (!o) return null;
   const text =
-    (typeof output.text === "string" && output.text.trim()) ||
-    (output.result && typeof output.result.text === "string" && output.result.text.trim()) ||
-    (output.result?.output_nodes?.["53"]?.text?.[0]) ||
-    (Array.isArray(output.result?.text) && output.result.text[0]);
+    (typeof o.text === "string" && o.text.trim()) ||
+    (typeof o.output?.text === "string" && o.output.text.trim()) ||
+    (o.result && typeof o.result.text === "string" && o.result.text.trim()) ||
+    (o.result?.output_nodes?.["53"]?.text?.[0]) ||
+    (o.result?.output_nodes?.["48"]?.text?.[0]) ||
+    (Array.isArray(o.result?.text) && o.result.text[0]);
   return text ? String(text).trim() : null;
 }
 
@@ -508,7 +540,13 @@ export async function submitImg2ImgJob({
     output_node_id: "289",
   };
 
-  const runpodJobId = await runpodSubmit(payload);
+  const webhookUrl = resolveRunpodWebhookUrl();
+  if (webhookUrl) {
+    console.log(
+      `📣 [img2img] RunPod webhook: ${webhookUrl.slice(0, 88)}${webhookUrl.length > 88 ? "…" : ""}`,
+    );
+  }
+  const runpodJobId = await runpodSubmit(payload, webhookUrl);
   return { runpodJobId, resolvedSeed };
 }
 
@@ -808,18 +846,20 @@ export async function generateImg2Img({ imageUrl, imageBase64Provided, prompt, l
     output_node_id: "289",
   };
 
-  const jobId = await runpodSubmit(payload);
+  const webhookUrl = resolveRunpodWebhookUrl();
+  const jobId = await runpodSubmit(payload, webhookUrl);
   console.log(`   RunPod job submitted: ${jobId}`);
 
-  const output = await runpodPoll(jobId, 300_000);
+  const poll = await runpodPoll(jobId, 300_000);
 
-  if (!output || output.error) {
-    throw new Error(`img2img step failed: ${output?.error || "no output"}`);
+  if (!poll || poll.error) {
+    throw new Error(`img2img step failed: ${poll?.error || "no output"}`);
   }
 
-  const images = output.images;
+  const handlerOut = parseRunpodHandlerOutput(poll.result) ?? poll.result;
+  const images = handlerOut?.images;
   if (!images || images.length === 0) {
-    throw new Error(`img2img returned no images. Output: ${JSON.stringify(output)}`);
+    throw new Error(`img2img returned no images. Output: ${JSON.stringify(handlerOut)}`);
   }
 
   console.log(`   ✅ Got ${images.length} image(s) from node ${images[0].node_id}`);
@@ -968,18 +1008,20 @@ export async function generateNsfwTxt2Img({
     output_node_id: "289",
   };
 
-  const jobId = await runpodSubmit(payload);
+  const webhookUrl = resolveRunpodWebhookUrl();
+  const jobId = await runpodSubmit(payload, webhookUrl);
   console.log(`   RunPod job submitted: ${jobId}`);
 
-  const output = await runpodPoll(jobId, 300_000);
+  const poll = await runpodPoll(jobId, 300_000);
 
-  if (!output || output.error) {
-    throw new Error(`NSFW txt2img failed: ${output?.error || "no output"}`);
+  if (!poll || poll.error) {
+    throw new Error(`NSFW txt2img failed: ${poll?.error || "no output"}`);
   }
 
-  const images = output.images;
+  const handlerOut = parseRunpodHandlerOutput(poll.result) ?? poll.result;
+  const images = handlerOut?.images;
   if (!images || images.length === 0) {
-    throw new Error(`NSFW txt2img returned no images. Output: ${JSON.stringify(output)}`);
+    throw new Error(`NSFW txt2img returned no images. Output: ${JSON.stringify(handlerOut)}`);
   }
 
   console.log(`   ✅ Got ${images.length} image(s)`);

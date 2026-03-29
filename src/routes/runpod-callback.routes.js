@@ -1,7 +1,8 @@
 /**
  * RunPod serverless webhook — RunPod POSTs here when a job completes (optional; polling still works).
- * Configure: RUNPOD_WEBHOOK_URL=https://YOUR_DOMAIN/api/runpod/callback?secret=YOUR_SECRET
- *            RUNPOD_WEBHOOK_SECRET=YOUR_SECRET
+ * URL is sent on every RunPod `/run` when `resolveRunpodWebhookUrl()` returns a value:
+ *   - RUNPOD_WEBHOOK_URL (full URL), or
+ *   - {CALLBACK_BASE_URL}/api/runpod/callback (?secret= when RUNPOD_WEBHOOK_SECRET is set)
  * @see https://docs.runpod.io/serverless/endpoints/webhooks
  */
 import express from "express";
@@ -10,7 +11,11 @@ import { normalizeRunpodNsfwOutput } from "../services/fal.service.js";
 import { finalizeNsfwRunpodGeneration } from "../controllers/nsfw.controller.js";
 import { refundCredits, refundGeneration } from "../services/credit.service.js";
 import { getErrorMessageForDb } from "../lib/userError.js";
-import { extractCaptionFromRunpodOutput, injectModelIntoPrompt } from "../services/img2img.service.js";
+import {
+  extractCaptionFromRunpodOutput,
+  injectModelIntoPrompt,
+  parseRunpodHandlerOutput,
+} from "../services/img2img.service.js";
 
 const router = express.Router();
 const SECRET = process.env.RUNPOD_WEBHOOK_SECRET?.trim();
@@ -46,7 +51,7 @@ async function findNsfwGenerationByRunpodJobId(jobId) {
     rows.find((g) => {
       try {
         const j = typeof g.inputImageUrl === "string" ? JSON.parse(g.inputImageUrl) : g.inputImageUrl;
-        return j?.comfyuiPromptId === jobId;
+        return j?.comfyuiPromptId === jobId || j?.runpodJobId === jobId;
       } catch {
         return false;
       }
@@ -170,7 +175,7 @@ router.post("/callback", async (req, res) => {
       return res.status(200).json({ ok: true, skipped: true, status: st });
     }
 
-    const out = normalizeRunpodNsfwOutput(rawOut);
+    const out = normalizeRunpodNsfwOutput(parseRunpodHandlerOutput(rawOut) ?? rawOut);
     if (!out?.images?.length) {
       console.warn(`[RunPod webhook] COMPLETED but no images for ${jobId}`);
       return res.status(200).json({ ok: true, skipped: true, reason: "no_images" });
