@@ -138,6 +138,10 @@ RUN mkdir -p /workspace/ComfyUI/models/checkpoints \
              /workspace/ComfyUI/models/unet \
              /workspace/ComfyUI/models/upscale_models
 
+# upscale_models is EMPTY in the image. 4xFaceUpDAT.pth (~148MB) is fetched at runtime by
+# start.sh (Google Drive + Hugging Face fallback) into /runpod-volume/models or ComfyUI/models.
+# There is no baked URL in the Dockerfile for that file — see runpod-mdcln/start.sh (download_4x_face_up_dat).
+
 # Models: auto-downloaded to Network Volume by start.sh
 #    OR uncomment below to bake HuggingFace models into image
 COPY setup_models.sh /workspace/setup_models.sh

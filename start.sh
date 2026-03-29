@@ -170,12 +170,14 @@ if [ -d "$VOLUME_DIR" ]; then
 
     echo ""
     echo ">>> Symlinking network volume models into ComfyUI..."
+    # Always mkdir + link each subdir. Linking only when the volume path already existed could
+    # skip upscale_models on some boots; ComfyUI would then keep the empty image layer directory
+    # and UpscaleModelLoader would see [] (workflow validation: 4xFaceUpDAT.pth not in list).
     for subdir in checkpoints clip loras vae unet diffusion_models LLavacheckpoints upscale_models; do
-        if [ -d "${VOLUME_MODELS}/$subdir" ]; then
-            rm -rf "${MODELS_DIR}/$subdir"
-            ln -sf "${VOLUME_MODELS}/$subdir" "${MODELS_DIR}/$subdir"
-            echo "  [OK] Linked: $subdir"
-        fi
+        mkdir -p "${VOLUME_MODELS}/${subdir}"
+        rm -rf "${MODELS_DIR}/${subdir}"
+        ln -sfn "${VOLUME_MODELS}/${subdir}" "${MODELS_DIR}/${subdir}"
+        echo "  [OK] Linked: ${MODELS_DIR}/${subdir} -> ${VOLUME_MODELS}/${subdir}"
     done
     # Volume may have an empty upscale_models dir (failed prior download). Re-attempt into linked path.
     if [ ! -f "${MODELS_DIR}/upscale_models/4xFaceUpDAT.pth" ]; then
@@ -415,7 +417,18 @@ else
 fi
 
 echo ""
-echo ">>> Model files available:"
+echo ">>> Upscale models directory (UltimateSDUpscale / UpscaleModelLoader):"
+ls -la "${MODELS_DIR}/upscale_models" 2>/dev/null || echo "  [!!] missing ${MODELS_DIR}/upscale_models"
+if [ -L "${MODELS_DIR}/upscale_models" ]; then
+    echo "  (symlink -> $(readlink -f "${MODELS_DIR}/upscale_models" 2>/dev/null || readlink "${MODELS_DIR}/upscale_models"))"
+fi
+for p in "${MODELS_DIR}/upscale_models"/*.pth; do
+    [ -e "$p" ] || continue
+    echo "  $(du -h "$p" 2>/dev/null | cut -f1)  $(basename "$p")"
+done
+
+echo ""
+echo ">>> Model files available (.safetensors):"
 find ${MODELS_DIR} -name "*.safetensors" -type f -o -name "*.safetensors" -type l 2>/dev/null | while read f; do
     echo "  $(du -h "$f" 2>/dev/null | cut -f1)  $(basename $f)"
 done
@@ -513,7 +526,8 @@ REQUIRED_UPSCALE = "4xFaceUpDAT.pth"
 
 def upscale_model_choices(info):
     ul = info.get("UpscaleModelLoader") or {}
-    inp = ul.get("input") or {}
+    # ComfyUI 0.18+ object_info may use "inputs" instead of "input"
+    inp = ul.get("input") or ul.get("inputs") or {}
     req = inp.get("required") or {}
     mn = req.get("model_name")
     if mn is None:
@@ -521,7 +535,7 @@ def upscale_model_choices(info):
     if isinstance(mn, list) and len(mn) > 0:
         first = mn[0]
         if isinstance(first, list):
-            return first
+            return [x for x in first if isinstance(x, str)]
         if isinstance(first, str):
             return [x for x in mn if isinstance(x, str)]
     return []
