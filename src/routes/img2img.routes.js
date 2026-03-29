@@ -25,6 +25,8 @@ import {
   extractCaptionFromRunpodOutput,
   getRunpodJobStatus,
   parseRunpodHandlerOutput,
+  normalizeRunpodStatusResponse,
+  classifyRunpodDescribePhase,
 } from "../services/img2img.service.js";
 import { isR2Configured } from "../utils/r2.js";
 import { isVercelBlobConfigured, uploadBufferToBlobOrR2 } from "../utils/kieUpload.js";
@@ -62,6 +64,9 @@ const LARGE_JSON = express.json({ limit: "50mb" });
 
 const DESCRIBE_CREDIT_COST = 0;
 const IMG2IMG_CREDIT_COST = 30;
+/** Stuck describe jobs: no RunPod id in DB — fail fast; with id — allow long JoyCaption queue. */
+const DESCRIBE_STUCK_MS_NO_RUNPOD = 4 * 60 * 1000;
+const DESCRIBE_STUCK_MS_WITH_RUNPOD = 28 * 60 * 1000;
 
 // In-memory job store (per-process; sufficient for async polling pattern)
 const jobs = new Map();
@@ -239,7 +244,15 @@ router.get("/describe-status/:id", authMiddleware, async (req, res) => {
   try {
     const gen = await prisma.generation.findUnique({
       where: { id },
-      select: { id: true, userId: true, status: true, inputImageUrl: true, pipelinePayload: true, errorMessage: true },
+      select: {
+        id: true,
+        userId: true,
+        status: true,
+        inputImageUrl: true,
+        pipelinePayload: true,
+        errorMessage: true,
+        createdAt: true,
+      },
     });
 
     if (!gen) return res.status(404).json({ error: "Describe job not found" });
@@ -260,7 +273,21 @@ router.get("/describe-status/:id", authMiddleware, async (req, res) => {
     try { meta = JSON.parse(gen.inputImageUrl || "{}"); } catch {}
     const { runpodJobId, triggerWord, lookDescription = "" } = meta;
 
+    const describeAgeMs = () => Math.max(0, Date.now() - new Date(gen.createdAt).getTime());
+    const failDescribeStuck = async (message) => {
+      await prisma.generation.update({ where: { id }, data: { status: "failed", errorMessage: message } });
+      if (DESCRIBE_CREDIT_COST > 0) {
+        try {
+          await refundCredits(userId, DESCRIBE_CREDIT_COST);
+        } catch {}
+      }
+      return res.json({ status: "failed", error: message });
+    };
+
     if (!runpodJobId) {
+      if (describeAgeMs() > DESCRIBE_STUCK_MS_NO_RUNPOD) {
+        return failDescribeStuck("Analysis job is missing RunPod id — please try Analyze again");
+      }
       return res.json({ status: "processing" });
     }
 
@@ -269,12 +296,18 @@ router.get("/describe-status/:id", authMiddleware, async (req, res) => {
       rpStatus = await getRunpodJobStatus(runpodJobId, { useImageAnalysisEndpoint: true });
     } catch (pollErr) {
       console.warn(`[describe-status] RunPod poll error for ${runpodJobId}:`, pollErr.message);
+      if (describeAgeMs() > DESCRIBE_STUCK_MS_WITH_RUNPOD) {
+        return failDescribeStuck("Could not reach analysis service — timed out");
+      }
       return res.json({ status: "processing" });
     }
 
-    if (rpStatus.status === "COMPLETED") {
-      // Finalize inline
-      const caption = extractCaptionFromRunpodOutput(rpStatus.output);
+    const norm = normalizeRunpodStatusResponse(rpStatus);
+    const phase = classifyRunpodDescribePhase(norm);
+    const podBlob = norm.output ?? norm.raw;
+
+    if (phase === "done") {
+      const caption = extractCaptionFromRunpodOutput(podBlob);
       if (!caption) {
         await prisma.generation.update({ where: { id }, data: { status: "failed", errorMessage: "JoyCaption returned no text" } });
         return res.json({ status: "failed", error: "JoyCaption returned no text" });
@@ -293,14 +326,22 @@ router.get("/describe-status/:id", authMiddleware, async (req, res) => {
       return res.json({ status: "completed", prompt, rawDescription: caption });
     }
 
-    if (rpStatus.status === "FAILED" || rpStatus.status === "CANCELLED") {
-      const errMsg = coerceRunpodErrorToString(rpStatus.output?.error) || "RunPod job failed";
+    if (phase === "failed") {
+      const errMsg =
+        coerceRunpodErrorToString(norm.raw?.error ?? norm.output?.error ?? rpStatus?.error) || "RunPod job failed";
       await prisma.generation.update({ where: { id }, data: { status: "failed", errorMessage: errMsg } });
-      if (DESCRIBE_CREDIT_COST > 0) { try { await refundCredits(userId, DESCRIBE_CREDIT_COST); } catch {} }
+      if (DESCRIBE_CREDIT_COST > 0) {
+        try {
+          await refundCredits(userId, DESCRIBE_CREDIT_COST);
+        } catch {}
+      }
       return res.json({ status: "failed", error: errMsg });
     }
 
-    // IN_QUEUE or IN_PROGRESS
+    if (describeAgeMs() > DESCRIBE_STUCK_MS_WITH_RUNPOD) {
+      return failDescribeStuck("Analysis timed out");
+    }
+
     return res.json({ status: "processing" });
   } catch (err) {
     console.error("❌ /describe-status error:", err.message);

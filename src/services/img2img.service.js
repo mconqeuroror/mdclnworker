@@ -478,6 +478,46 @@ export function extractCaptionFromRunpodOutput(output) {
   return text ? String(text).trim() : null;
 }
 
+/** RunPod status values that mean success (casing / synonyms differ by API version). */
+const RUNPOD_DONE_STATUSES = new Set(["COMPLETED", "SUCCESS", "SUCCEEDED", "COMPLETE", "DONE"]);
+/** RunPod status values that mean terminal failure. */
+const RUNPOD_FAILED_STATUSES = new Set(["FAILED", "CANCELLED", "CANCELED", "TIMED_OUT", "TIMEOUT", "ERROR"]);
+
+/**
+ * Normalize `/status` JSON from RunPod serverless (status vs state, mixed case, nested execution).
+ */
+export function normalizeRunpodStatusResponse(body) {
+  if (!body || typeof body !== "object") {
+    return { status: null, output: null, raw: body };
+  }
+  let status = body.status ?? body.state;
+  if (status == null && body.execution && typeof body.execution === "object") {
+    status = body.execution.status ?? body.execution.state;
+  }
+  if (typeof status === "string") {
+    status = status.trim().toUpperCase();
+    if (status === "SUCCEEDED" || status === "SUCCESS" || status === "COMPLETE" || status === "DONE") {
+      status = "COMPLETED";
+    }
+    if (status === "CANCELED") status = "CANCELLED";
+  } else {
+    status = null;
+  }
+  const output = body.output !== undefined && body.output !== null ? body.output : body.result;
+  return { status, output, raw: body };
+}
+
+/**
+ * Map normalized RunPod response to done | failed | processing for describe / polling.
+ */
+export function classifyRunpodDescribePhase(normalized) {
+  const { status, output, raw } = normalized;
+  if (status && RUNPOD_DONE_STATUSES.has(status)) return "done";
+  if (status && RUNPOD_FAILED_STATUSES.has(status)) return "failed";
+  if (extractCaptionFromRunpodOutput(output ?? raw)) return "done";
+  return "processing";
+}
+
 /**
  * @param {string} jobId
  * @param {{ useImageAnalysisEndpoint?: boolean }} [options] — use dedicated JoyCaption endpoint for status (required for jobs submitted there)

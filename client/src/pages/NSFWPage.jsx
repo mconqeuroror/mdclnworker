@@ -1273,7 +1273,14 @@ function NsfwImg2ImgTab({ modelId, activeLoraObj, chipSelections = {} }) {
           }
           try {
             const sr = await api.get(`/img2img/describe-status/${describeJobId}`);
-            const { status, prompt: p, error } = sr.data;
+            const { status, prompt: p, error } = sr.data || {};
+            if (!status && error) {
+              setIsAnalyzing(false);
+              const errText = formatImg2imgUserMessage(error, "Analysis failed");
+              setAnalyzeError(errText);
+              toast.error(`${copy.toastAnalysisFailedPrefix} ${errText}`);
+              return;
+            }
             if (status === "completed") {
               setEditablePrompt(p || "");
               setIsAnalyzing(false);
@@ -1282,8 +1289,13 @@ function NsfwImg2ImgTab({ modelId, activeLoraObj, chipSelections = {} }) {
               const errText = formatImg2imgUserMessage(error, "Analysis failed");
               setAnalyzeError(errText);
               toast.error(`${copy.toastAnalysisFailedPrefix} ${errText}`);
-            } else {
+            } else if (status === "processing") {
               setTimeout(pollDescribe, 3000);
+            } else {
+              console.warn("[img2img describe-status] unexpected payload:", sr.data);
+              setIsAnalyzing(false);
+              setAnalyzeError("Unexpected server response. Please try Analyze again.");
+              toast.error(copy.toastAnalysisFailedPrefix + " Unexpected server response.");
             }
           } catch (pollErr) {
             console.warn("describe-status poll error:", pollErr.message);
