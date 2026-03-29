@@ -37,6 +37,22 @@ import {
   refundGeneration,
 } from "../services/credit.service.js";
 
+/** RunPod may put `{ code, message }` in output.error — always send a string to the client. */
+function coerceRunpodErrorToString(err) {
+  if (err == null || err === "") return "";
+  if (typeof err === "string") return err;
+  if (typeof err === "object") {
+    if (typeof err.message === "string" && err.message.trim()) return err.message;
+    if (err.message != null && String(err.message).trim()) return String(err.message);
+    try {
+      return JSON.stringify(err);
+    } catch {
+      return "RunPod job failed";
+    }
+  }
+  return String(err);
+}
+
 const router = express.Router();
 
 // img2img routes accept base64-encoded images in the JSON body.
@@ -278,7 +294,7 @@ router.get("/describe-status/:id", authMiddleware, async (req, res) => {
     }
 
     if (rpStatus.status === "FAILED" || rpStatus.status === "CANCELLED") {
-      const errMsg = rpStatus.output?.error || "RunPod job failed";
+      const errMsg = coerceRunpodErrorToString(rpStatus.output?.error) || "RunPod job failed";
       await prisma.generation.update({ where: { id }, data: { status: "failed", errorMessage: errMsg } });
       if (DESCRIBE_CREDIT_COST > 0) { try { await refundCredits(userId, DESCRIBE_CREDIT_COST); } catch {} }
       return res.json({ status: "failed", error: errMsg });

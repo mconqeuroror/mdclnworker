@@ -1051,6 +1051,31 @@ function NsfwGallery({ modelId }) {
   );
 }
 
+/**
+ * RunPod / API sometimes return `error` as `{ code, message }`. Passing that into JSX crashes React (#31).
+ */
+function formatImg2imgUserMessage(value, fallback = "") {
+  if (value == null || value === "") return fallback || "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (typeof value === "object") {
+    if (typeof value.message === "string" && value.message.trim()) return value.message;
+    if (value.message != null && String(value.message).trim()) return String(value.message);
+    if (typeof value.error === "string" && value.error.trim()) return value.error;
+    const code = value.code;
+    if (code != null && code !== "") {
+      const m = value.message != null ? String(value.message) : "";
+      return m ? `${code}: ${m}` : String(code);
+    }
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return fallback || "Something went wrong";
+    }
+  }
+  return String(value);
+}
+
 // ============================================
 // NSFW Img2Img Tab — Photo-to-Photo with LoRA
 // ============================================
@@ -1254,8 +1279,9 @@ function NsfwImg2ImgTab({ modelId, activeLoraObj, chipSelections = {} }) {
               setIsAnalyzing(false);
             } else if (status === "failed") {
               setIsAnalyzing(false);
-              setAnalyzeError(error || "Analysis failed");
-              toast.error(`${copy.toastAnalysisFailedPrefix} ${error || "Unknown error"}`);
+              const errText = formatImg2imgUserMessage(error, "Analysis failed");
+              setAnalyzeError(errText);
+              toast.error(`${copy.toastAnalysisFailedPrefix} ${errText}`);
             } else {
               setTimeout(pollDescribe, 3000);
             }
@@ -1275,8 +1301,14 @@ function NsfwImg2ImgTab({ modelId, activeLoraObj, chipSelections = {} }) {
     } catch (err) {
       const errData = err.response?.data;
       const msg = errData?.errors?.length
-        ? errData.errors.map(e => e.field ? `${e.field}: ${e.message}` : e.message).join('; ')
-        : (errData?.error || err.message);
+        ? errData.errors
+            .map((e) =>
+              e.field
+                ? `${e.field}: ${formatImg2imgUserMessage(e.message, "invalid")}`
+                : formatImg2imgUserMessage(e.message, "Error"),
+            )
+            .join("; ")
+        : formatImg2imgUserMessage(errData?.error ?? errData?.message ?? err.message, err.message || "Request failed");
       setAnalyzeError(msg);
       toast.error(`${copy.toastAnalysisFailedPrefix} ${msg}`);
       setIsAnalyzing(false);
@@ -1303,12 +1335,13 @@ function NsfwImg2ImgTab({ modelId, activeLoraObj, chipSelections = {} }) {
         const res = await api.get(`/img2img/status/${jid}`);
         failCount = 0;
         const { status, outputUrl: url, error } = res.data;
-        setBgJobs(prev => prev.map(j => j.jobId === jid ? { ...j, status, outputUrl: url || null, error: error || null } : j));
+        const errStr = error != null ? formatImg2imgUserMessage(error, "Generation failed") : null;
+        setBgJobs(prev => prev.map(j => j.jobId === jid ? { ...j, status, outputUrl: url || null, error: errStr } : j));
         if (status === 'completed' || status === 'failed') {
           clearInterval(bgPollRefs.current[jid]);
           delete bgPollRefs.current[jid];
           refreshUserCredits();
-          if (status === 'failed') toast.error(error || 'Generation failed — credits refunded');
+          if (status === 'failed') toast.error(errStr || "Generation failed — credits refunded");
           else toast.success('img2img generation ready!');
         }
       } catch (err) {
@@ -1356,7 +1389,7 @@ function NsfwImg2ImgTab({ modelId, activeLoraObj, chipSelections = {} }) {
           refreshUserCredits();
         } else if (status === "failed") {
           clearInterval(pollRef.current);
-          setGenError(error || copy.toastGenerationFailed);
+          setGenError(formatImg2imgUserMessage(error, copy.toastGenerationFailed));
           setIsGenerating(false);
         }
       } catch (err) {
@@ -1411,8 +1444,14 @@ function NsfwImg2ImgTab({ modelId, activeLoraObj, chipSelections = {} }) {
     } catch (err) {
       const errData = err.response?.data;
       const msg = errData?.errors?.length
-        ? errData.errors.map(e => e.field ? `${e.field}: ${e.message}` : e.message).join('; ')
-        : (errData?.error || err.message);
+        ? errData.errors
+            .map((e) =>
+              e.field
+                ? `${e.field}: ${formatImg2imgUserMessage(e.message, "invalid")}`
+                : formatImg2imgUserMessage(e.message, "Error"),
+            )
+            .join("; ")
+        : formatImg2imgUserMessage(errData?.error ?? errData?.message ?? err.message, err.message || "Request failed");
       setGenError(msg);
       setIsGenerating(false);
       setJobStatus(null);
