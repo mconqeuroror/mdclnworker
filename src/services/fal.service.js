@@ -842,7 +842,13 @@ const ENHANCEMENT_LORAS = {
   },
 };
 
-/** Never load these HF LoRAs or inject triggers (Amateur Nudes + bjz / deepthroat slot). */
+/**
+ * Pose / makeup / enhancement / cum HF LoRAs on node 250. Default off — only the trained identity LoRA loads.
+ * Set `NSFW_ENABLE_ADDITIVE_LORAS=1` to restore OpenRouter selection + additive stack.
+ */
+const NSFW_ADDITIVE_LORAS_ENABLED = process.env.NSFW_ENABLE_ADDITIVE_LORAS === "1";
+
+/** When additives are on: keep these enhancement slots at 0 (Amateur Nudes + bjz). */
 const DISABLED_ENHANCEMENT_LORA_KEYS = new Set(["amateur_nudes", "deepthroat"]);
 
 function zeroDisabledEnhancementStrengths(strengths) {
@@ -851,6 +857,25 @@ function zeroDisabledEnhancementStrengths(strengths) {
     o[k] = 0;
   }
   return o;
+}
+
+/** Identity LoRA strength only — no OpenRouter call when additives are disabled. */
+function buildGirlOnlyLoraSelection(quickFlow, userLoraStrength) {
+  const defaultEnhancements = {};
+  for (const key of Object.keys(ENHANCEMENT_LORAS)) defaultEnhancements[key] = 0;
+  const defaultGirlStrength = quickFlow ? 0.65 : 0.70;
+  let girlStrength = defaultGirlStrength;
+  if (userLoraStrength != null && Number.isFinite(Number(userLoraStrength))) {
+    const u = Number(userLoraStrength);
+    girlStrength = quickFlow ? Math.min(0.65, Math.max(0.55, u)) : Math.max(0.65, u);
+  }
+  return {
+    pose: null,
+    runningMakeup: false,
+    cumEffect: false,
+    girlStrength,
+    enhancementStrengths: defaultEnhancements,
+  };
 }
 
 const RUNNING_MAKEUP_NODE = "296";
@@ -1633,13 +1658,18 @@ export function buildNsfwLoraStackEntries({
   cumStrength = 0,
   enhancementStrengths = {},
 }) {
-  const enhSafe = zeroDisabledEnhancementStrengths(enhancementStrengths);
   const entries = [];
   const gUrl = loraUrl ? String(loraUrl).trim() : "";
   const gStr = Math.min(1, Math.max(0, Number(girlLoraStrength) || 0.6));
   if (gUrl) {
     entries.push({ url: sanitizeLoraDownloadUrl(gUrl), strength: gStr });
   }
+
+  if (!NSFW_ADDITIVE_LORAS_ENABLED) {
+    return entries.slice(0, 10);
+  }
+
+  const enhSafe = zeroDisabledEnhancementStrengths(enhancementStrengths);
 
   for (const p of POSE_LORAS) {
     const str = poseStrengths[p.node] || 0;
@@ -2186,7 +2216,7 @@ export async function submitNsfwGeneration(params) {
   const hasTriggerAnchor = basePrompt.toLowerCase().includes(String(triggerWord || "").toLowerCase());
   let prompt = hasTriggerAnchor ? basePrompt : `${triggerWord}, ${basePrompt}`;
 
-  // AI decides additive LoRAs from full prompt/context (pose + makeup + effects). Quick flow: girl max 0.65; additive max 0.35.
+  // AI decides additive LoRAs when NSFW_ENABLE_ADDITIVE_LORAS=1; otherwise identity strength only (no OpenRouter).
   const aiSelection = await detectLorasWithAI({
     finalPrompt: prompt,
     sceneDescription: sceneDescription || userPrompt,
@@ -2195,10 +2225,12 @@ export async function submitNsfwGeneration(params) {
     userLoraStrength: validatedOverride,
     quickFlow,
   });
-  applyOralBlowjobLoraPolicy(aiSelection, prompt);
-  applyExplicitPoseHeuristic(aiSelection, prompt);
-  applyNudesPackAdditiveLoraHint(aiSelection, packAdditiveLoraHint);
-  aiSelection.enhancementStrengths = zeroDisabledEnhancementStrengths(aiSelection.enhancementStrengths);
+  if (NSFW_ADDITIVE_LORAS_ENABLED) {
+    applyOralBlowjobLoraPolicy(aiSelection, prompt);
+    applyExplicitPoseHeuristic(aiSelection, prompt);
+    applyNudesPackAdditiveLoraHint(aiSelection, packAdditiveLoraHint);
+    aiSelection.enhancementStrengths = zeroDisabledEnhancementStrengths(aiSelection.enhancementStrengths);
+  }
 
   // Inject trigger words for active enhancement LoRAs (e.g. facial) that require them in-prompt.
   for (const [key, strength] of Object.entries(aiSelection.enhancementStrengths || {})) {
@@ -2227,16 +2259,18 @@ export async function submitNsfwGeneration(params) {
   console.log(`📦 Girl LoRA URL: ${loraUrl}`);
   console.log(`🔑 Trigger Word: ${triggerWord}`);
   console.log(`📝 Prompt: ${prompt.substring(0, 120)}...`);
-  console.log(`💪 Girl LoRA Strength: ${girlLoraStrength}${loraStrength ? " (user override)" : " (AI-determined)"}`);
-  console.log(`🎯 Detected Pose: ${detectedPose ? detectedPose.id + " (node " + detectedPose.node + ")" : "none"}`);
-  console.log(`💄 Running Makeup: ${hasRunningMakeup ? "YES" : "no"}`);
-  console.log(`💦 Cum Effect: ${hasCumEffect ? "YES" : "no"}`);
+  console.log(`💪 Girl LoRA Strength: ${girlLoraStrength}${loraStrength ? " (user override)" : NSFW_ADDITIVE_LORAS_ENABLED ? " (AI-determined)" : " (default; additives off)"}`);
+  console.log(`🎯 Detected Pose: ${NSFW_ADDITIVE_LORAS_ENABLED ? (detectedPose ? detectedPose.id + " (node " + detectedPose.node + ")" : "none") : "disabled (identity only)"}`);
+  console.log(`💄 Running Makeup: ${NSFW_ADDITIVE_LORAS_ENABLED ? (hasRunningMakeup ? "YES" : "no") : "disabled"}`);
+  console.log(`💦 Cum Effect: ${NSFW_ADDITIVE_LORAS_ENABLED ? (hasCumEffect ? "YES" : "no") : "disabled"}`);
   const activeEnhLog = Object.entries(enhancementStrengths)
     .filter(([, v]) => v > 0)
     .map(([k, v]) => `${k}=${v}`)
     .join(", ");
   console.log(
-    `🎭 Enhancement LoRAs: ${activeEnhLog || "none"} → only these (plus pose/makeup if any) get URLs on node 250; unused slots cleared`,
+    NSFW_ADDITIVE_LORAS_ENABLED
+      ? `🎭 Enhancement LoRAs: ${activeEnhLog || "none"} → only these (plus pose/makeup if any) get URLs on node 250; unused slots cleared`
+      : "🎭 Additive LoRAs: off — node 250 is identity LoRA only (NSFW_ENABLE_ADDITIVE_LORAS=1 to re-enable)",
   );
 
   const poseStrengths = {};
