@@ -91,6 +91,8 @@ const PAGE_COPY = {
     tabAvatars: "Real Avatars",
     uploadFailedPrefix: "Upload failed: ",
     unknownError: "Unknown error",
+    expandGenControls: "References, aspect ratio, and resolution",
+    collapseGenControls: "Collapse",
   },
   ru: {
     generating: "Генерация…",
@@ -1141,6 +1143,8 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
 
   const COST = resolution === "4K" ? 25 : 20;
   const creditsLeft = user?.credits ?? 0;
+  const selectedAspect = ASPECT_RATIOS.find((ar) => ar.value === aspectRatio);
+  const aspectSummary = selectedAspect?.hint ?? selectedAspect?.label ?? aspectRatio;
   const displayGens = [
     ...(activeGeneration ? [activeGeneration] : []),
     ...history.filter((g) => g.id !== activeGeneration?.id),
