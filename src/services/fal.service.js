@@ -842,6 +842,17 @@ const ENHANCEMENT_LORAS = {
   },
 };
 
+/** Never load these HF LoRAs or inject triggers (Amateur Nudes + bjz / deepthroat slot). */
+const DISABLED_ENHANCEMENT_LORA_KEYS = new Set(["amateur_nudes", "deepthroat"]);
+
+function zeroDisabledEnhancementStrengths(strengths) {
+  const o = strengths && typeof strengths === "object" ? { ...strengths } : {};
+  for (const k of DISABLED_ENHANCEMENT_LORA_KEYS) {
+    o[k] = 0;
+  }
+  return o;
+}
+
 const RUNNING_MAKEUP_NODE = "296";
 const CUM_NODE = "303";
 const RUNNING_MAKEUP_KEYWORDS = ["running makeup", "smeared makeup", "mascara running", "ruined makeup", "crying makeup", "makeup running", "smeared mascara"];
@@ -1248,27 +1259,20 @@ RULES FOR POSE SELECTION:
 - ONLY select a pose if the scene EXPLICITLY shows that EXACT sex position being performed
 - "bent over" alone is NOT doggystyle - it must explicitly describe doggy style sex
 - "from behind" alone is NOT anal - there must be explicit anal penetration
-- "kneeling" is NOT any pose - it's just a body position (kneeling + blowjob = pose "none", deepthroat enhancement ON)
+- "kneeling" is NOT any pose - it's just a body position (kneeling + blowjob = pose "none")
 - "lying in bed" is NOT missionary - there must be explicit missionary sex OR missionary + penetration words
 - If the prompt describes oral sex (blowjob, deepthroat, mouth on penis, penis in mouth), select "none" for pose ALWAYS — even if it says one hand on shaft (normal for POV blowjob). NEVER select "handjob" for those scenes — handjob pose + oral text causes duplicate penis mutations.
-- Mirror selfie / casual girlfriend nude (no partnered sex act): set amateur_nudes to 0.25-0.35 even if pose is "none".
 - If unsure, select "none" - it's better to have no pose LoRA than the wrong one
 
 ENHANCEMENT LORAS (each can be independently activated):
-- "amateur_nudes": Casual girlfriend-style nude photos. Activate for: casual nude selfies, gf nudes, naked in bed/couch/mirror, relaxed nude poses, topless casual moments, sending nudes, lounging naked. Strength 0.25-0.35.
-- "deepthroat": ALL blowjob and oral sex scenes (uses bjz LoRA, trigger word "bjz"). Activate for: blowjob, deepthroat, oral sex, sucking, on knees giving head, mouth around cock, licking, POV oral. Strength 0.35-0.45 (use 0.45 for all oral scenes). ALWAYS set pose to "none" for oral.
+- "amateur_nudes" and "deepthroat": ALWAYS 0 — permanently disabled on the server (keep both keys in JSON at 0).
 - "masturbation": Solo masturbation scenes. Activate for: masturbating, fingering herself, touching herself, hand between legs/thighs, playing with herself, rubbing pussy. Strength 0.25-0.35.
 - "dildo": Using a dildo/vibrator/toy. Activate for: dildo, vibrator, sex toy, inserting toy, using toy on herself. Strength 0.25-0.35.
-- "facial": Cumshot-on-face / facial scenes (trigger word "facial"). Activate for: cum on face, facial, cumshot on face, jizz on face, shooting load on face, covered in cum facial, cum dripping on face. Strength 0.35-0.45 (use 0.45). Works best with kneeling/lying-down poses facing camera. CAN combine with deepthroat for blowjob-ending-in-cumshot scenes.
+- "facial": Cumshot-on-face / facial scenes (trigger word "facial"). Activate for: cum on face, facial, cumshot on face, jizz on face, shooting load on face, covered in cum facial, cum dripping on face. Strength 0.35-0.45 (use 0.45). Works best with kneeling/lying-down poses facing camera.
 
 RULES FOR ENHANCEMENT LORAS:
-- Multiple CAN be active simultaneously (e.g. amateur_nudes + masturbation for casual gf masturbating)
-- amateur_nudes stacks well with masturbation or dildo for the casual/gf aesthetic
-- For ANY blowjob/oral/deepthroat scene: set deepthroat to 0.45 and pose to "none"
-- deepthroat should NOT combine with masturbation or dildo (incompatible acts)
-- For blowjob scenes that end in a cumshot/facial: activate BOTH deepthroat=0.45 AND facial=0.45
-- Look at the FULL context: if chips say "on knees" + prompt mentions "mouth" or "oral" = activate deepthroat
-- Look at outfit chips: if outfit is "nude"/"naked"/"topless" + casual scene = consider amateur_nudes
+- Multiple CAN be active simultaneously (e.g. masturbation + dildo when both acts apply)
+- For blowjob/oral scenes: pose "none"; leave deepthroat at 0 (disabled). You may still set facial for cumshot-on-face endings.
 - If the scene doesn't match any enhancement, set its strength to 0
 
 ${girlStrengthSection}
@@ -1352,6 +1356,9 @@ OUTPUT: Return ONLY valid JSON on one line, no explanation:
         enhancementStrengths[key] = 0;
       }
     }
+    for (const k of DISABLED_ENHANCEMENT_LORA_KEYS) {
+      enhancementStrengths[k] = 0;
+    }
 
     const aiResult = {
       pose: selectedPose,
@@ -1378,7 +1385,7 @@ function getPoseDescription(poseId) {
     anal_doggystyle:
       "Anal sex in doggy / rear-entry position — girl on all fours or bent over with rear anal penetration visible. Matches workflow LoRA slot (not titfuck).",
     handjob:
-      "Handjob ONLY — stroking/jerking penis with hand(s) as the main act, no mouth on penis. If the mouth is on the penis (blowjob), this is WRONG — use pose 'none' + deepthroat enhancement instead.",
+      "Handjob ONLY — stroking/jerking penis with hand(s) as the main act, no mouth on penis. If the mouth is on the penis (blowjob), this is WRONG — use pose 'none' (do not use handjob pose with oral).",
     missionary_anal: "Anal sex in missionary position - girl on her back during anal penetration",
   };
   return descriptions[poseId] || poseId;
@@ -1386,7 +1393,7 @@ function getPoseDescription(poseId) {
 
 /**
  * Blowjob/oral prompts often mention a hand on shaft — the AI wrongly picks handjob pose LoRA,
- * which stacks a second phallus/handjob prior with oral. Oral scenes must use pose none + deepthroat LoRA only.
+ * which stacks a second phallus/handjob prior with oral. Oral scenes must use pose none (bjz/deepthroat LoRA disabled).
  */
 function isOralBlowjobScenePrompt(promptText) {
   const t = (promptText || "").toLowerCase();
@@ -1423,24 +1430,20 @@ const NSFW_NEG_ORAL_DISCONNECTED_PHALLUS =
   "disembodied penis, floating penis, detached cock, penis with no male body, disconnected genitals, male torso completely missing, penis prop";
 
 /**
- * Server-side guard after Grok: never stack pose LoRAs on oral; ensure deepthroat enhancement is on; strip incompatible enhancers.
+ * Server-side guard after Grok: never stack pose LoRAs on oral; keep bjz/deepthroat off; strip incompatible enhancers.
  */
 function applyOralBlowjobLoraPolicy(aiSelection, fullPromptText) {
   if (!isOralBlowjobScenePrompt(fullPromptText)) return;
 
   if (aiSelection.pose) {
     console.warn(
-      `🛡️ Oral/blowjob scene — cleared pose LoRA "${aiSelection.pose.id}" (prevents handjob/doggy + oral double-penis artifacts; use deepthroat slot only).`
+      `🛡️ Oral/blowjob scene — cleared pose LoRA "${aiSelection.pose.id}" (prevents handjob/doggy + oral double-penis artifacts).`
     );
     aiSelection.pose = null;
   }
 
   aiSelection.enhancementStrengths = { ...(aiSelection.enhancementStrengths || {}) };
-  const cur = Number(aiSelection.enhancementStrengths.deepthroat) || 0;
-  if (cur < 0.45) {
-    aiSelection.enhancementStrengths.deepthroat = 0.45;
-    console.log("🛡️ Oral scene: enabling deepthroat (bjz) LoRA at 0.45.");
-  }
+  aiSelection.enhancementStrengths.deepthroat = 0;
   // facial CAN combine with blowjob/oral for cumshot-ending scenes — do not zero it out
   aiSelection.enhancementStrengths.masturbation = 0;
   aiSelection.enhancementStrengths.dildo = 0;
@@ -1475,11 +1478,10 @@ function isPartneredExplicitPrompt(text) {
 }
 
 /**
- * After Grok: force pose / amateur_nudes when keywords are unambiguous (reduces "no LoRA" failures).
+ * After Grok: force pose LoRA when keywords are unambiguous (reduces "no LoRA" failures).
  */
 function applyExplicitPoseHeuristic(aiSelection, fullPromptText) {
   const t = String(fullPromptText || "").toLowerCase();
-  const enh = { ...(aiSelection.enhancementStrengths || {}) };
 
   if (isOralBlowjobScenePrompt(fullPromptText)) {
     return;
@@ -1510,15 +1512,6 @@ function applyExplicitPoseHeuristic(aiSelection, fullPromptText) {
   ) {
     setPose("doggystyle_facing");
   }
-
-  if (
-    (/\bmirror selfie\b/.test(t) || (/\bmirror\b/.test(t) && /\biphone\b/.test(t))) &&
-    (!enh.amateur_nudes || Number(enh.amateur_nudes) < 0.35)
-  ) {
-    enh.amateur_nudes = MAX_ADDITIVE_LORA_STRENGTH;
-    aiSelection.enhancementStrengths = enh;
-    console.log(`🎯 Heuristic: amateur_nudes ${MAX_ADDITIVE_LORA_STRENGTH} (mirror selfie)`);
-  }
 }
 
 /**
@@ -1540,11 +1533,7 @@ function applyNudesPackAdditiveLoraHint(aiSelection, hint) {
       );
     }
     aiSelection.pose = null;
-    const dtMax = ENHANCEMENT_LORAS.deepthroat?.strengthRange?.[1] ?? 0.45;
-    const dt = Number(hint.deepthroat);
-    enh.deepthroat = Number.isFinite(dt) && dt >= 0.25
-      ? Math.min(dtMax, Math.max(Number(enh.deepthroat) || 0, dt))
-      : Math.min(dtMax, Math.max(Number(enh.deepthroat) || 0, 0.45));
+    enh.deepthroat = 0;
     enh.masturbation = 0;
     enh.dildo = 0;
     // facial can coexist with oral for cumshot-ending pack rows
@@ -1554,11 +1543,11 @@ function applyNudesPackAdditiveLoraHint(aiSelection, hint) {
       if (Number.isFinite(v) && v > loraMax) enh[k] = loraMax;
     }
     aiSelection.enhancementStrengths = enh;
-    console.log(`📦 Pack additive hint: oral — deepthroat=${enh.deepthroat}`);
+    console.log(`📦 Pack additive hint: oral — deepthroat/bjz LoRA disabled`);
     return;
   }
 
-  // Solo / girlfriend rows: only amateur_nudes in hint — drop spurious pose LoRA from softened Grok text.
+  // Solo / girlfriend rows: pack may only suggest amateur aesthetic — drop spurious pose LoRA from softened Grok text.
   if (hint.amateurNudes != null && !hint.poseId && hint.oralScene !== true) {
     if (aiSelection.pose) {
       console.log(`📦 Pack additive hint: cleared pose (solo / amateur-only pack row)`);
@@ -1576,15 +1565,6 @@ function applyNudesPackAdditiveLoraHint(aiSelection, hint) {
     }
   }
 
-  if (hint.amateurNudes != null) {
-    const a = Number(hint.amateurNudes);
-    if (Number.isFinite(a)) {
-      enh.amateur_nudes = Math.min(
-        MAX_ADDITIVE_LORA_STRENGTH,
-        Math.max(Number(enh.amateur_nudes) || 0, a),
-      );
-    }
-  }
   if (hint.masturbation != null) {
     const m = Number(hint.masturbation);
     if (Number.isFinite(m)) {
@@ -1653,6 +1633,7 @@ export function buildNsfwLoraStackEntries({
   cumStrength = 0,
   enhancementStrengths = {},
 }) {
+  const enhSafe = zeroDisabledEnhancementStrengths(enhancementStrengths);
   const entries = [];
   const gUrl = loraUrl ? String(loraUrl).trim() : "";
   const gStr = Math.min(1, Math.max(0, Number(girlLoraStrength) || 0.6));
@@ -1674,12 +1655,12 @@ export function buildNsfwLoraStackEntries({
     entries.push({ url: sanitizeLoraDownloadUrl(LORA_8_RUNNING_MAKEUP_URL), strength: mk });
   }
 
-  // deepthroat (bjz) and facial both support up to 0.45; others cap at MAX_ADDITIVE_LORA_STRENGTH
+  // facial supports up to 0.45; others cap at MAX_ADDITIVE_LORA_STRENGTH (amateur_nudes/deepthroat zeroed in enhSafe)
   const enhOrder = ["deepthroat", "facial", "amateur_nudes", "masturbation", "dildo"];
   let enhAdded = 0;
   for (const key of enhOrder) {
     if (entries.length >= 10 || enhAdded >= MAX_SIMULTANEOUS_ENHANCEMENT_LORAS) break;
-    const raw = Number(enhancementStrengths[key]) || 0;
+    const raw = Number(enhSafe[key]) || 0;
     if (raw <= 0) continue;
     const meta = ENHANCEMENT_LORAS[key];
     if (!meta?.url) continue;
@@ -2217,8 +2198,9 @@ export async function submitNsfwGeneration(params) {
   applyOralBlowjobLoraPolicy(aiSelection, prompt);
   applyExplicitPoseHeuristic(aiSelection, prompt);
   applyNudesPackAdditiveLoraHint(aiSelection, packAdditiveLoraHint);
+  aiSelection.enhancementStrengths = zeroDisabledEnhancementStrengths(aiSelection.enhancementStrengths);
 
-  // Inject trigger words for active enhancement LoRAs (bjz, facial) that require them in-prompt.
+  // Inject trigger words for active enhancement LoRAs (e.g. facial) that require them in-prompt.
   for (const [key, strength] of Object.entries(aiSelection.enhancementStrengths || {})) {
     const tw = ENHANCEMENT_LORAS[key]?.triggerWord;
     if (tw && Number(strength) > 0 && !prompt.toLowerCase().includes(tw.toLowerCase())) {
