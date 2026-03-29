@@ -5,7 +5,7 @@
  *   Step 1 — imgtoprompt: JoyCaption Beta1 describes the input image (scene, pose, activity)
  *   Step 2 — OpenAI injects the model's LoRA trigger word + look description into the prompt
  *   Step 3 — img2img: RunPod ComfyUI graph from `attached_assets/nsfw_img2img_v2promax_workflow.json`
- *           (ZIT encode + refiner ckpt); SaveImage reads node 28 so the returned file skips grain/blur, but the full workflow graph (incl. rgthree, film grain, previews) stays in the API prompt for worker compatibility.
+ *           (ZIT encode + refiner ckpt). Node 250 uses only the passed girl `loraUrl` (same stack rules as txt2img with no AI additives — no pose/makeup/enhancement/cum URLs).
  *
  * JoyCaption (image analysis) runs on a dedicated RunPod endpoint so its queue does not block img2img gen.
  *
@@ -20,7 +20,6 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { isR2Configured } from "../utils/r2.js";
 import { isVercelBlobConfigured, uploadBufferToBlobOrR2 } from "../utils/kieUpload.js";
-import { sanitizeLoraDownloadUrl } from "../utils/loraUrl.js";
 import {
   buildNsfwLoraStackEntries,
   applyCompactLoraStackToNode250,
@@ -312,8 +311,14 @@ function inlineStringOutputNodeAsValue(api, sourceNodeId, value) {
 /**
  * RunPod API prompt from `attached_assets/nsfw_img2img_v2promax_workflow.json` (ZIT img encode → refiner ckpt).
  * SaveImage is pointed at VAEDecode 28 so the handler output skips grain/blur; all other nodes from the JSON remain in the prompt (same worker serves multiple workflows).
+ *
+ * LoadLoraFromUrlOrPath (250): exactly one URL — the model’s girl LoRA (`loraUrl`). Uses `buildNsfwLoraStackEntries` with no additives so desktop template HF slots are never used.
  */
 function buildNsfwImg2ImgV2ApiPrompt({ positivePrompt, loraUrl, loraStrength, seed, stage1Denoise }) {
+  if (!String(loraUrl ?? "").trim()) {
+    throw new Error("img2img requires a model LoRA URL (loraUrl)");
+  }
+
   const graph = loadNsfwImg2ImgV2GraphPrepared();
   const negNode = graph.nodes?.find((n) => String(n.id) === "41" && n.type === "String Literal");
   const negativeText =
@@ -335,10 +340,16 @@ function buildNsfwImg2ImgV2ApiPrompt({ positivePrompt, loraUrl, loraStrength, se
   }
 
   const ls = ensureFiniteNumber(loraStrength, "loraStrength");
-  if (api["250"]?.inputs && loraUrl) {
-    const safeUrl = sanitizeLoraDownloadUrl(loraUrl);
-    // Template graphs often ship num_loras=1 but still list HF URLs in lora_2..10; compact clears extras.
-    applyCompactLoraStackToNode250(api["250"], [{ url: safeUrl, strength: ls }]);
+  if (api["250"]?.inputs) {
+    const stack = buildNsfwLoraStackEntries({
+      loraUrl,
+      girlLoraStrength: ls,
+      poseStrengths: {},
+      makeupStrength: 0,
+      cumStrength: 0,
+      enhancementStrengths: {},
+    });
+    applyCompactLoraStackToNode250(api["250"], stack);
   }
 
   if (api["57"]?.inputs) {
