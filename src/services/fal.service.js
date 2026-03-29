@@ -1052,10 +1052,10 @@ let nsfwCoreWorkflowCache = null;
  * Allowed on RunPod: civitai_comfy_nodes, ComfyUI-KJNodes, ComfyUI-Manager, ComfyUI-GlifNodes,
  * ComfyUI_Comfyroll_CustomNodes, cg-use-everywhere, ComfyUI-Image-Saver (alexopus), rgthree-comfy,
  * was-node-suite-comfyui, ComfyUI-load-lora-from-url, ComfyUI_LayerStyle_Advance, ComfyUI-JoyCaption, ComfyUI-Easy-Use.
- * We strip: Crystools (257), GetNode (288), String Literal (41,56), Fast Groups Bypasser (61), PrimitiveFloat (298,290-296).
+ * We strip: Crystools (257), String Literal (41,56), Fast Groups Bypasser (61), PrimitiveFloat (298,290-296).
  */
 const UNSUPPORTED_NODE_IDS = [
-  "257", "288", "41", "56", "61",
+  "257", "41", "56", "61",
   "298", "290", "291", "292", "293", "294", "295", "296",
   // Primitive wrappers (PrimitiveFloat / Crystools integer) inlined by comfyUiGraphToApiPrompt;
   // listed here as a safety net for the NSFW_COMFY_STRIP_UNSUPPORTED path.
@@ -1087,7 +1087,7 @@ export function inlineStringLiteralRefsInApiWorkflow(apiWorkflow, resolvedByNode
 }
 
 /**
- * Remove unsupported nodes (String Literal, Primitive string, GetNode, Fast Groups Bypasser, Crystools, PrimitiveFloat) and
+ * Remove unsupported nodes (String Literal, Primitive string, Fast Groups Bypasser, Crystools, PrimitiveFloat) and
  * inject their values directly into any node that referenced them.
  */
 function stripUnsupportedNodesAndInjectValues(workflow, { prompt, negativePrompt, loraUrl, activeLorasCount = 1, loraGirlStrength = 0.6, loraAdditive1Strength = 0, loraAdditive2Strength = 0 }) {
