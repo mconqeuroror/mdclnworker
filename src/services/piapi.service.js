@@ -37,9 +37,25 @@ export async function submitPiApiTask(taskPayload, { endpoint = "/task" } = {}) 
     throw new Error("PiAPI callback URL is required (set PIAPI_CALLBACK_URL or CALLBACK_BASE_URL)");
   }
 
+  const webhookSecret = (process.env.PIAPI_WEBHOOK_SECRET || "").trim();
+  const basePayload = taskPayload && typeof taskPayload === "object" ? taskPayload : {};
+  const existingConfig = basePayload.config && typeof basePayload.config === "object" ? basePayload.config : {};
+  const existingWebhookConfig = existingConfig.webhook_config && typeof existingConfig.webhook_config === "object"
+    ? existingConfig.webhook_config
+    : {};
+
   const payload = {
-    ...(taskPayload && typeof taskPayload === "object" ? taskPayload : {}),
-    // Keep both key variants for compatibility across PiAPI endpoint families.
+    ...basePayload,
+    // Unified API schema webhook config (required for reliable callbacks).
+    config: {
+      ...existingConfig,
+      webhook_config: {
+        ...existingWebhookConfig,
+        endpoint: callbackUrl,
+        secret: webhookSecret || existingWebhookConfig.secret || "",
+      },
+    },
+    // Keep both key variants too for compatibility across families.
     callbackUrl,
     callback_url: callbackUrl,
   };
