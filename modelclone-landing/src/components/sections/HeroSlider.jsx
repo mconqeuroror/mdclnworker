@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-const ADVANCE_MS = 5000;
+const FALLBACK_MS = 5000; // used when slide has no video
 
 function CinematicStill({ type = "video", title, tag }) {
   return (
@@ -20,30 +20,36 @@ function CinematicStill({ type = "video", title, tag }) {
 }
 
 export function HeroSlider({ data }) {
-  const [active, setActive] = useState(0);
-  const timerRef = useRef(null);
+  const [active, setActive]           = useState(0);
+  const [chipDuration, setChipDuration] = useState(FALLBACK_MS);
+  const timerRef  = useRef(null);
+
+  const advance = () => setActive(prev => (prev + 1) % data.slides.length);
 
   const goTo = (idx) => {
+    clearTimeout(timerRef.current);
     setActive(idx);
-    clearInterval(timerRef.current);
-    timerRef.current = setInterval(advance, ADVANCE_MS);
+    setChipDuration(FALLBACK_MS); // will be overridden when video metadata loads
   };
 
-  const advance = () => {
-    setActive((prev) => (prev + 1) % data.slides.length);
-  };
-
+  // For non-video slides use a fixed timer; videos drive timing via onEnded
   useEffect(() => {
-    timerRef.current = setInterval(advance, ADVANCE_MS);
-    return () => clearInterval(timerRef.current);
+    clearTimeout(timerRef.current);
+    const slide = data.slides[active];
+    const hasVideo = slide?.mediaUrl && slide.mediaType === "video";
+    if (!hasVideo) {
+      timerRef.current = setTimeout(advance, FALLBACK_MS);
+    }
+    return () => clearTimeout(timerRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data.slides.length]);
+  }, [active, data.slides.length]);
 
   const slide = data.slides[active];
+  const hasVideo = slide?.mediaUrl && slide.mediaType === "video";
 
   return (
     <section className="container hero-wrap" id="explore">
-      {/* Tab chips with auto-advance progress */}
+      {/* Tab chips — progress bar uses --chip-duration CSS var */}
       <div className="hero-track">
         {data.slides.map((s, idx) => (
           <button
@@ -51,7 +57,7 @@ export function HeroSlider({ data }) {
             type="button"
             onClick={() => goTo(idx)}
             className={`hero-chip ${active === idx ? "is-active" : ""}`}
-            style={active === idx ? { "--chip-duration": `${ADVANCE_MS}ms` } : {}}
+            style={active === idx ? { "--chip-duration": `${chipDuration}ms` } : {}}
           >
             {s.eyebrow}
           </button>
@@ -68,8 +74,20 @@ export function HeroSlider({ data }) {
 
         <div className="hero-media" id="video" data-dp-target-id="hero.media">
           {slide.mediaUrl ? (
-            slide.mediaType === "video" ? (
-              <video src={slide.mediaUrl} autoPlay muted loop playsInline />
+            hasVideo ? (
+              <video
+                // key forces re-mount when slide or src changes
+                key={`${active}-${slide.mediaUrl}`}
+                src={slide.mediaUrl}
+                autoPlay
+                muted
+                playsInline
+                onLoadedMetadata={e => {
+                  const dur = e.target.duration;
+                  if (isFinite(dur) && dur > 0) setChipDuration(dur * 1000);
+                }}
+                onEnded={advance}
+              />
             ) : (
               <img src={slide.mediaUrl} alt={slide.title} />
             )

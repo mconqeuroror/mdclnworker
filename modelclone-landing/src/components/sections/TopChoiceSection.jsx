@@ -1,4 +1,12 @@
-function ChoicePreview({ mediaType = "video", title }) {
+function ChoicePreview({ mediaType = "video", title, imageUrl }) {
+  if (imageUrl) {
+    return (
+      <div className={`choice-preview ${mediaType} has-media`}>
+        <img src={imageUrl} alt={title} className="choice-preview-media" />
+        <div className="choice-preview-noise" />
+      </div>
+    );
+  }
   return (
     <div className={`choice-preview ${mediaType}`}>
       <div className="choice-preview-bars" />
@@ -34,7 +42,11 @@ export function TopChoiceSection({ data }) {
               {...(idx < origLen ? { "data-dp-target-id": `topChoice.item.${idx}` } : {})}
             >
               <span className="pill">Top Choice</span>
-              <ChoicePreview mediaType={item.mediaType ?? "video"} title={item.title} />
+              <ChoicePreview
+                mediaType={item.mediaType ?? "video"}
+                title={item.title}
+                imageUrl={item.imageUrl || ""}
+              />
               <h3>{item.title}</h3>
               <p className="muted" style={{ fontSize: "0.82rem" }}>{item.description}</p>
               <a className="choice-link" href="#explore">Explore tool</a>

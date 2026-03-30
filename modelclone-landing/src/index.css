@@ -964,6 +964,16 @@ main {
   100% { transform: translateX(360%); }
 }
 
+/* Actual media (video/image) inside the create-today thumb */
+.cinematic-thumb-media {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+
 /* ─── Top Choice ──────────────────────────────────────────────────────────── */
 .top-choice-wrap { margin-bottom: 1.7rem; }
 
@@ -1121,6 +1131,25 @@ main {
     radial-gradient(circle at 24% 26%, rgba(255,255,255,0.14), transparent 50%),
     radial-gradient(circle at 74% 74%, rgba(139,92,246,0.18), transparent 50%),
     linear-gradient(135deg, #0c1118 0%, #101722 100%);
+}
+
+/* Actual media uploaded via admin */
+.choice-preview-media {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+  z-index: 1;
+}
+.choice-preview.has-media .choice-preview-noise {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background-image: radial-gradient(rgba(255,255,255,0.06) 0.4px, transparent 0.4px);
+  background-size: 3px 3px;
+  pointer-events: none;
 }
 
 .choice-preview-glow {

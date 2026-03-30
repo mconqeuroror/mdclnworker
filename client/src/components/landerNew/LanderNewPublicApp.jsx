@@ -11,11 +11,40 @@ import { CustomCursor } from "../../../../modelclone-landing/src/components/Cust
 import { landingConfig as STANDALONE_LANDING_CONFIG } from "../../../../modelclone-landing/src/config/landing.config";
 import "../../../../modelclone-landing/src/index.css";
 
+function mergeSlides(adminSlides, standaloneSlides) {
+  // For each standalone slide, overlay admin config on top
+  return standaloneSlides.map((standSlide, idx) => {
+    const admin = adminSlides?.[idx] || {};
+    return {
+      ...standSlide,
+      eyebrow:     admin.eyebrow     || standSlide.eyebrow,
+      title:       admin.title       || standSlide.title,
+      description: admin.description || standSlide.description,
+      mediaType:   admin.mediaType   || standSlide.mediaType,
+      mediaUrl:    admin.mediaUrl    || standSlide.mediaUrl || "",
+    };
+  });
+}
+
+function mergeCards(adminCards, standaloneCards) {
+  return standaloneCards.map((standCard, idx) => {
+    const admin = adminCards?.[idx] || {};
+    return {
+      ...standCard,
+      title:       admin.title       || standCard.title,
+      description: admin.description || standCard.description,
+      mediaType:   admin.mediaType   || standCard.mediaType,
+      mediaUrl:    admin.mediaUrl    || standCard.mediaUrl || "",
+    };
+  });
+}
+
 function mapToStandaloneConfig(config) {
-  const hero = config?.sections?.hero || {};
-  const topChoice = config?.sections?.topChoice || {};
-  const partners = config?.sections?.partners || {};
-  const pricing = config?.sections?.pricing || {};
+  const hero        = config?.sections?.hero        || {};
+  const createToday = config?.sections?.createToday || {};
+  const topChoice   = config?.sections?.topChoice   || {};
+  const partners    = config?.sections?.partners    || {};
+  const pricing     = config?.sections?.pricing     || {};
 
   const pricingTiers = (pricing.tiers || []).map((tier) => ({
     id: tier.id,
@@ -23,72 +52,70 @@ function mapToStandaloneConfig(config) {
     credits: Number(tier.credits || 0),
     price: tier.price || {
       monthly: Number(tier.monthly || 0),
-      annual: Number(tier.annual || 0),
+      annual:  Number(tier.annual  || 0),
     },
     pricePerCredit: Number(tier.pricePerCredit || 0),
-    bonusCredits: Number(tier.bonusCredits || 0),
+    bonusCredits:   Number(tier.bonusCredits   || 0),
     popular: Boolean(tier.popular),
   }));
 
   return {
     brand: {
-      appName: config?.brand?.appName || STANDALONE_LANDING_CONFIG.brand.appName || "ModelClone",
-      logoText: "MC",
-      logoUrl: config?.brand?.logoUrl || "/modelclone-logo.svg",
-      loginHref: "/login",
+      appName:    config?.brand?.appName || STANDALONE_LANDING_CONFIG.brand.appName || "ModelClone",
+      logoText:   "MC",
+      logoUrl:    config?.brand?.logoUrl || "/modelclone-logo.svg",
+      loginHref:  "/login",
       signupHref: config?.brand?.ctaHref || "/signup",
     },
+
     promotionBar: STANDALONE_LANDING_CONFIG.promotionBar,
+
     hero: {
       enabled: true,
-      slides: hero.slides?.length
-        ? hero.slides
-        : STANDALONE_LANDING_CONFIG.hero.slides.map((slide, idx) =>
-            idx === 0
-              ? {
-                  ...slide,
-                  title: hero.title || slide.title,
-                  description: hero.subtitle || slide.description,
-                  mediaUrl: hero.mediaUrl || slide.mediaUrl || "",
-                }
-              : slide,
-          ),
+      slides: mergeSlides(hero.slides, STANDALONE_LANDING_CONFIG.hero.slides),
     },
+
     countdown: STANDALONE_LANDING_CONFIG.countdown,
-    createToday: STANDALONE_LANDING_CONFIG.createToday,
-    topChoice: {
-      enabled: true,
-      title: topChoice.heading || "Top Choice",
-      subtitle: topChoice.subtitle || STANDALONE_LANDING_CONFIG.topChoice.subtitle,
-      items: topChoice.items?.length ? topChoice.items : STANDALONE_LANDING_CONFIG.topChoice.items,
+
+    createToday: {
+      ...STANDALONE_LANDING_CONFIG.createToday,
+      cards: mergeCards(createToday.cards, STANDALONE_LANDING_CONFIG.createToday.cards),
     },
+
+    topChoice: {
+      enabled:  true,
+      title:    topChoice.heading  || STANDALONE_LANDING_CONFIG.topChoice.title,
+      subtitle: topChoice.subtitle || STANDALONE_LANDING_CONFIG.topChoice.subtitle,
+      items: (topChoice.items?.length ? topChoice.items : STANDALONE_LANDING_CONFIG.topChoice.items)
+        .map((item, idx) => ({
+          ...item,
+          // imageUrl from admin config overlays standalone default
+          imageUrl: item.imageUrl || "",
+        })),
+    },
+
     partners: {
       enabled: true,
-      title: partners.heading || "Partners",
-      items:
-        partners.logos?.length
-          ? partners.logos.map((logo) => ({
-              name: logo.name,
-              logoUrl: logo.logoUrl || "",
-            }))
-          : STANDALONE_LANDING_CONFIG.partners.items,
+      title:   partners.heading || "Partners",
+      items: partners.logos?.length
+        ? partners.logos.map((logo) => ({ name: logo.name, logoUrl: logo.logoUrl || "" }))
+        : STANDALONE_LANDING_CONFIG.partners.items,
     },
+
     pricing: {
       enabled: true,
-      title: pricing.heading || "Pricing",
-      subtitle: pricing.subtitle || STANDALONE_LANDING_CONFIG.pricing.subtitle,
-      billingCycleDefault: pricing.billingCycleDefault || "monthly",
-      signupHref: config?.brand?.ctaHref || "/signup",
+      title:                pricing.heading              || "Pricing",
+      subtitle:             pricing.subtitle             || STANDALONE_LANDING_CONFIG.pricing.subtitle,
+      billingCycleDefault:  pricing.billingCycleDefault  || "monthly",
+      signupHref:           config?.brand?.ctaHref       || "/signup",
       oneTime: {
         name: "Pay As You Go",
-        pricePerCredit: Number(
-          pricing?.payAsYouGo?.pricePerCredit || STANDALONE_LANDING_CONFIG.pricing.oneTime.pricePerCredit,
-        ),
-        description:
-          pricing?.payAsYouGo?.description || STANDALONE_LANDING_CONFIG.pricing.oneTime.description,
+        pricePerCredit: Number(pricing?.payAsYouGo?.pricePerCredit || STANDALONE_LANDING_CONFIG.pricing.oneTime.pricePerCredit),
+        description:    pricing?.payAsYouGo?.description            || STANDALONE_LANDING_CONFIG.pricing.oneTime.description,
       },
       tiers: pricingTiers.length ? pricingTiers : STANDALONE_LANDING_CONFIG.pricing.tiers,
     },
+
     footerCta: {
       ...STANDALONE_LANDING_CONFIG.footerCta,
       ctaHref: config?.brand?.ctaHref || "/signup",
