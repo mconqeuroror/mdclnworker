@@ -17,7 +17,7 @@ export function PricingSection({ data }) {
   return (
     <section className="container pricing-section" id="pricing">
       {/* Header */}
-      <header className="pricing-section-header" data-ale-id="pricing.heading">
+      <header className="pricing-section-header" data-dp-target-id="pricing.heading">
         <h2>{data.title}</h2>
         <div className="pricing-cycle-toggle" role="tablist" aria-label="Billing cycle">
           {["monthly", "annual"].map((cycle) => (
@@ -48,7 +48,7 @@ export function PricingSection({ data }) {
             <article
               key={tier.id}
               className={`pricing-card-glass${tier.popular ? " is-popular" : ""}`}
-              data-ale-id={`pricing.tier.${tierIdx}`}
+              data-dp-target-id={`pricing.tier.${tierIdx}`}
             >
               {tier.popular && (
                 <>
@@ -95,7 +95,7 @@ export function PricingSection({ data }) {
 
       {/* Row 2 — Pay As You Go, full-width horizontal card */}
       <div className="pricing-payg-row">
-        <article className="pricing-card-glass pricing-card-payg" data-ale-id="pricing.payg">
+        <article className="pricing-card-glass pricing-card-payg" data-dp-target-id="pricing.payg">
           <div className="pricing-payg-inner">
             <div className="pricing-payg-left">
               <span className="pricing-card-pill">Flexible</span>

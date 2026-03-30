@@ -54,7 +54,7 @@ export function Navbar({ brand }) {
 
   return (
     <div className="navbar-rounded-shell">
-    <header id="header" className="navbar-wrap" data-ale-id="brand">
+    <header id="header" className="navbar-wrap" data-dp-target-id="brand">
       <nav aria-label="primary navigation" className="container navbar-grid">
         <a href="#" className="brand">
           <span className="brand-mark">

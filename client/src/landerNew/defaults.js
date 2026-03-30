@@ -96,5 +96,7 @@ export const LANDER_NEW_DEFAULTS = {
   },
   layout: {},
   styles: {},
+  spatialOverrides: {},
+  styleOverrides: {},
 };
 

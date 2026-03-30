@@ -1820,3 +1820,31 @@ main {
   .pricing-card-glass:hover { transform: none; }
   .pricing-card-popular-glow { animation: none; }
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   VISUAL EDITOR — in-preview selection UI (data-dp-target-id)
+═══════════════════════════════════════════════════════════════ */
+
+/* Make every editable element show a pointer so users know they're clickable */
+[data-dp-target-id] {
+  cursor: pointer !important;
+}
+[data-dp-target-id]:hover {
+  outline: 1px solid rgba(99, 102, 241, 0.45) !important;
+  outline-offset: 2px;
+}
+[data-dp-target-id][data-dp-selected="true"] {
+  outline: 2px solid rgba(251, 191, 36, 0.85) !important;
+  outline-offset: 2px;
+}
+
+/* In edit-mode suppress IntersectionObserver-driven opacity: 0 states
+   so hidden-before-reveal elements remain visible for the editor */
+.edit-mode .reveal-on-scroll,
+.edit-mode [data-reveal],
+.edit-mode .fade-in {
+  opacity: 1 !important;
+  transform: none !important;
+  visibility: visible !important;
+  transition: none !important;
+}

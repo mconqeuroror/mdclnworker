@@ -96,7 +96,7 @@ function mapToStandaloneConfig(config) {
   };
 }
 
-export default function LanderNewPublicApp({ config, noCursor = false }) {
+export default function LanderNewPublicApp({ config, noCursor = false, editMode = false }) {
   const data = useMemo(() => mapToStandaloneConfig(config), [config]);
   const { brand, promotionBar, hero, countdown, createToday, topChoice, partners, pricing, footerCta } = data;
   useEffect(() => {
@@ -108,7 +108,7 @@ export default function LanderNewPublicApp({ config, noCursor = false }) {
   }, [noCursor]);
 
   return (
-    <div className="page">
+    <div className={`page${editMode ? " edit-mode" : ""}`}>
       <div className="legacy-grid-bg" aria-hidden="true" />
       {!noCursor && <CustomCursor />}
       <div className="site-header-shell">

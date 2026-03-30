@@ -22,7 +22,7 @@ export function PartnersSection({ data }) {
 
   return (
     <section className="partners-wrap" id="partners">
-      <div className="container partners-header" data-ale-id="partners.heading">
+      <div className="container partners-header" data-dp-target-id="partners.heading">
         <h2>{data.title}</h2>
       </div>
 
@@ -31,7 +31,7 @@ export function PartnersSection({ data }) {
           {loopItems.map((partner, idx) => (
             <div
               key={`${partner.name}-${idx}`}
-              {...(idx < origLen ? { "data-ale-id": `partners.logo.${idx}` } : {})}
+              {...(idx < origLen ? { "data-dp-target-id": `partners.logo.${idx}` } : {})}
             >
               <PartnerChip partner={partner} />
             </div>
