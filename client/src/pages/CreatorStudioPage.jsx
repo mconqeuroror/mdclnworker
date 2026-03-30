@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { motion, AnimatePresence } from "framer-motion";
@@ -7,7 +7,7 @@ import {
   Trash2, Video, User, Play, Clock, Coins, ChevronDown, Mic, CheckCircle,
   PauseCircle, Info,
 } from "lucide-react";
-import { creatorStudioAPI, avatarAPI, modelAPI, uploadFile } from "../services/api";
+import { creatorStudioAPI, avatarAPI, modelAPI, pricingAPI, uploadFile } from "../services/api";
 import { useAuthStore } from "../store";
 import { useActiveGeneration } from "../hooks/useActiveGeneration";
 import CreatorStudioVoiceTab from "../components/CreatorStudioVoiceTab";
@@ -227,6 +227,42 @@ const VIDEO_FAMILIES = [
   { id: "veo31", label: "Veo 3.1" },
 ];
 
+const VIDEO_DEFAULT_PRICING = Object.freeze({
+  sora2Standard10Frames: 150,
+  sora2Standard15Frames: 270,
+  sora2High10Frames: 330,
+  sora2High15Frames: 630,
+  kling30StdNoSoundPerSec: 14,
+  kling30StdSoundPerSec: 20,
+  kling30ProNoSoundPerSec: 18,
+  kling30ProSoundPerSec: 27,
+  kling26NoSound5s: 55,
+  kling26NoSound10s: 110,
+  kling26Sound5s: 110,
+  kling26Sound10s: 220,
+  veo31GenerateFast1080p8s: 60,
+  veo31GenerateQuality1080p8s: 250,
+  veo31ExtendFast: 60,
+  veo31ExtendQuality: 250,
+  veo31Render1080p: 5,
+});
+
+function toPrice(source, key) {
+  const value = source?.[key];
+  return Number.isFinite(value) ? value : VIDEO_DEFAULT_PRICING[key];
+}
+
+function getDurationConfig(family, mode) {
+  if (family === "kling26" || family === "kling30") {
+    return { min: 5, max: 10, step: 5, fixed: false };
+  }
+  if (family === "veo31") {
+    if (mode === "extend") return { min: 8, max: 8, step: 1, fixed: true };
+    return { min: 8, max: 8, step: 1, fixed: true };
+  }
+  return { min: 10, max: 15, step: 5, fixed: false };
+}
+
 function estimateSecs(script) {
   if (!script?.trim()) return 0;
   return Math.max(5, Math.round(script.trim().split(/\s+/).length / WORDS_PER_SECOND));
@@ -284,6 +320,69 @@ function RefSlot({ url, onRemove, onAdd, uploading }) {
         onChange={(e) => { const f = e.target.files?.[0]; if (f) onAdd(f); e.target.value = ""; }}
       />
     </>
+  );
+}
+
+function MediaUploadField({ label, value, onUploaded }) {
+  const inputRef = useRef(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+
+  const uploadOne = useCallback(async (file) => {
+    if (!file) return;
+    setIsUploading(true);
+    try {
+      const result = await uploadFile(file);
+      const url = result?.url || result;
+      if (!url) throw new Error("No URL returned");
+      onUploaded(url);
+    } catch (err) {
+      toast.error(`Upload failed: ${err?.message || "Unknown error"}`);
+    } finally {
+      setIsUploading(false);
+    }
+  }, [onUploaded]);
+
+  return (
+    <div className="space-y-1.5">
+      <label className="block text-xs text-slate-400">{label}</label>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => uploadOne(e.target.files?.[0])}
+      />
+      <button
+        type="button"
+        onClick={() => inputRef.current?.click()}
+        onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+        onDragLeave={() => setIsDragging(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setIsDragging(false);
+          uploadOne(e.dataTransfer?.files?.[0]);
+        }}
+        className={`w-full rounded-xl border border-dashed px-3 py-3 text-left transition ${
+          isDragging ? "border-violet-400 bg-violet-500/10" : "border-white/20 bg-black/30"
+        }`}
+      >
+        {value ? (
+          <div className="flex items-center gap-3">
+            <img src={value} alt="" className="w-12 h-12 rounded-lg object-cover border border-white/20" />
+            <div className="min-w-0 flex-1">
+              <p className="text-xs text-slate-300 truncate">Uploaded</p>
+              <p className="text-[11px] text-slate-500 truncate">{value}</p>
+            </div>
+            <span className="text-[11px] text-slate-400">Replace</span>
+          </div>
+        ) : (
+          <p className="text-xs text-slate-400">
+            {isUploading ? "Uploading..." : "Drag and drop or click to upload"}
+          </p>
+        )}
+      </button>
+    </div>
   );
 }
 
@@ -1128,6 +1227,12 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
     },
     staleTime: 30_000,
   });
+  const { data: generationPricingData } = useQuery({
+    queryKey: ["generation-pricing-creator-studio-video"],
+    queryFn: () => pricingAPI.getGeneration(),
+    staleTime: 60_000,
+  });
+  const generationPricing = generationPricingData?.pricing || {};
 
   useEffect(() => {
     if (!isAdminUser && activeTab === "avatars") {
@@ -1188,7 +1293,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
       return;
     }
     if ((videoFamily === "sora2" || videoFamily === "kling26" || videoFamily === "kling30") && videoMode === "i2v" && !videoImageUrl.trim()) {
-      toast.error("Image URL is required for image-to-video.");
+      toast.error("An image upload is required for image-to-video.");
       return;
     }
     if (videoFamily === "veo31" && videoMode === "extend" && !extendSourceId.trim()) {
@@ -1253,6 +1358,61 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
     : ["t2v", "i2v"];
   const soundAvailable = videoFamily === "kling26" || videoFamily === "kling30";
   const selectedVideoFamily = VIDEO_FAMILIES.find((f) => f.id === videoFamily);
+  const durationConfig = useMemo(
+    () => getDurationConfig(videoFamily, videoMode),
+    [videoFamily, videoMode],
+  );
+
+  useEffect(() => {
+    setVideoDuration((prev) => {
+      const numeric = Number(prev) || durationConfig.min;
+      const clamped = Math.min(durationConfig.max, Math.max(durationConfig.min, numeric));
+      const snapped = durationConfig.step > 1
+        ? Math.round(clamped / durationConfig.step) * durationConfig.step
+        : clamped;
+      return snapped;
+    });
+  }, [durationConfig.max, durationConfig.min, durationConfig.step]);
+
+  const videoPricingInfo = useMemo(() => {
+    const duration = Number(videoDuration) || durationConfig.min;
+    if (videoFamily === "sora2") {
+      const cost = videoSize === "high"
+        ? (videoNFrames === "15" ? toPrice(generationPricing, "sora2High15Frames") : toPrice(generationPricing, "sora2High10Frames"))
+        : (videoNFrames === "15" ? toPrice(generationPricing, "sora2Standard15Frames") : toPrice(generationPricing, "sora2Standard10Frames"));
+      return { cost, details: `${cost} cr per generation (${videoNFrames} frames · ${videoSize})` };
+    }
+    if (videoFamily === "kling26") {
+      const bucket = duration >= 10 ? "10s" : "5s";
+      const cost = soundEnabled
+        ? (bucket === "10s" ? toPrice(generationPricing, "kling26Sound10s") : toPrice(generationPricing, "kling26Sound5s"))
+        : (bucket === "10s" ? toPrice(generationPricing, "kling26NoSound10s") : toPrice(generationPricing, "kling26NoSound5s"));
+      const perSec = Math.round((cost / (bucket === "10s" ? 10 : 5)) * 10) / 10;
+      return { cost, details: `${perSec} cr/sec (${bucket} billing bucket)` };
+    }
+    if (videoFamily === "kling30") {
+      const perSec = kling30Quality === "pro"
+        ? (soundEnabled ? toPrice(generationPricing, "kling30ProSoundPerSec") : toPrice(generationPricing, "kling30ProNoSoundPerSec"))
+        : (soundEnabled ? toPrice(generationPricing, "kling30StdSoundPerSec") : toPrice(generationPricing, "kling30StdNoSoundPerSec"));
+      return { cost: Math.ceil(perSec * duration), details: `${perSec} cr/sec (${kling30Quality.toUpperCase()}${soundEnabled ? " + sound" : ""})` };
+    }
+    if (videoFamily === "veo31") {
+      if (videoMode === "extend") {
+        const cost = videoSpeed === "quality"
+          ? toPrice(generationPricing, "veo31ExtendQuality")
+          : toPrice(generationPricing, "veo31ExtendFast");
+        const perSec = Math.round((cost / 8) * 10) / 10;
+        return { cost, details: `${cost} cr per extension (~${perSec} cr/sec @8s)` };
+      }
+      const cost = videoSpeed === "quality"
+        ? toPrice(generationPricing, "veo31GenerateQuality1080p8s")
+        : toPrice(generationPricing, "veo31GenerateFast1080p8s");
+      const renderCost = toPrice(generationPricing, "veo31Render1080p");
+      const perSec = Math.round((cost / 8) * 10) / 10;
+      return { cost, details: `${cost} cr per generation (~${perSec} cr/sec @8s) · 1080p render ${renderCost} cr` };
+    }
+    return { cost: 0, details: "Pricing unavailable" };
+  }, [durationConfig.min, generationPricing, kling30Quality, soundEnabled, videoDuration, videoFamily, videoMode, videoNFrames, videoSize, videoSpeed]);
 
   return (
     <div
@@ -1599,13 +1759,10 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
 
       {activeTab === "video" && (
         <div className="px-4 md:px-6 pb-6 pt-4 min-h-screen">
-          <div className="w-full rounded-3xl border border-white/10 bg-[#0d1016] p-4 md:p-6 shadow-[0_16px_64px_-24px_rgba(0,0,0,0.9)]">
+          <div className="w-full rounded-3xl border border-white/20 bg-white/10 p-4 md:p-6 shadow-[0_16px_64px_-24px_rgba(0,0,0,0.9)] backdrop-blur-2xl">
             <div className="flex flex-wrap items-start justify-between gap-3 mb-5">
               <div>
                 <h2 className="text-2xl font-bold text-white">Video Generation</h2>
-                <p className="text-sm text-slate-400 mt-1">
-                  Full-screen model sheet with family to mode routing
-                </p>
               </div>
               <div className="text-xs text-slate-400 rounded-xl border border-white/10 px-3 py-2">
                 {selectedVideoFamily?.label || "Video"} · {videoMode.toUpperCase()}
@@ -1640,6 +1797,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                     </Chip>
                   ))}
                 </div>
+                <p className="text-xs text-violet-200/90 mt-2">{videoPricingInfo.details}</p>
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -1655,22 +1813,13 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-black/30 p-3 space-y-3">
                   {(videoMode === "i2v" || videoMode === "ref2v") && (
-                    <div>
-                      <label className="block text-xs text-slate-400 mb-1">Input image URL</label>
-                      <input value={videoImageUrl} onChange={(e) => setVideoImageUrl(e.target.value)} className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-white outline-none" />
-                    </div>
+                    <MediaUploadField label="Input image" value={videoImageUrl} onUploaded={setVideoImageUrl} />
                   )}
                   {videoFamily === "veo31" && videoMode === "ref2v" && (
-                    <div>
-                      <label className="block text-xs text-slate-400 mb-1">Reference image URL</label>
-                      <input value={videoRefImageUrl} onChange={(e) => setVideoRefImageUrl(e.target.value)} className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-white outline-none" />
-                    </div>
+                    <MediaUploadField label="Reference image" value={videoRefImageUrl} onUploaded={setVideoRefImageUrl} />
                   )}
                   {videoFamily === "veo31" && videoMode === "i2v" && (
-                    <div>
-                      <label className="block text-xs text-slate-400 mb-1">End frame image URL (optional)</label>
-                      <input value={videoEndFrameUrl} onChange={(e) => setVideoEndFrameUrl(e.target.value)} className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-white outline-none" />
-                    </div>
+                    <MediaUploadField label="End frame image (optional)" value={videoEndFrameUrl} onUploaded={setVideoEndFrameUrl} />
                   )}
                   {videoFamily === "veo31" && videoMode === "extend" && (
                     <div>
@@ -1682,9 +1831,25 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
               </div>
 
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <div className="rounded-xl border border-white/10 p-3">
-                  <label className="block text-xs text-slate-400 mb-1">Duration (sec)</label>
-                  <input type="number" min={5} max={15} value={videoDuration} onChange={(e) => setVideoDuration(e.target.value)} className="w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm text-white outline-none" />
+                <div className="rounded-xl border border-white/10 p-3 col-span-2 md:col-span-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-xs text-slate-400">Duration</label>
+                    <span className="text-xs text-slate-300">{videoDuration}s</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={durationConfig.min}
+                    max={durationConfig.max}
+                    step={durationConfig.step}
+                    disabled={durationConfig.fixed}
+                    value={videoDuration}
+                    onChange={(e) => setVideoDuration(Number(e.target.value))}
+                    className="w-full accent-violet-500 disabled:opacity-50"
+                  />
+                  <div className="mt-1 flex justify-between text-[10px] text-slate-500">
+                    <span>{durationConfig.min}s</span>
+                    <span>{durationConfig.max}s</span>
+                  </div>
                 </div>
                 {videoFamily === "sora2" && (
                   <>
@@ -1725,7 +1890,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                   <div className="col-span-2 md:col-span-4 rounded-xl border border-white/10 p-3">
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                       <div>
-                        <label className="block text-xs text-slate-400 mb-1">Speed</label>
+                        <label className="block text-xs text-slate-400 mb-1">Mode</label>
                         <select value={videoSpeed} onChange={(e) => setVideoSpeed(e.target.value)} className="w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm text-white outline-none">
                           <option value="fast">Fast</option>
                           <option value="quality">Quality</option>
@@ -1799,7 +1964,9 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                   className="min-h-[46px] px-5 rounded-xl text-sm font-semibold bg-gradient-to-r from-violet-600 to-indigo-600 disabled:opacity-40 text-white flex items-center gap-2"
                 >
                   {isVideoGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Video className="w-4 h-4" />}
-                  {isVideoGenerating ? copy.generatingVideo : copy.generateVideo}
+                  {isVideoGenerating
+                    ? `${copy.generatingVideo} · ${videoPricingInfo.cost} cr`
+                    : `${copy.generateVideo} · ${videoPricingInfo.cost} cr`}
                 </button>
               </div>
             </div>

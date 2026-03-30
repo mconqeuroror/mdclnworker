@@ -709,9 +709,9 @@ export default function DashboardPage() {
 
       {/* Mobile bottom nav (Instagram-style): NSFW · Home · Generate — desktop uses sidebar */}
       <nav
-        className="md:hidden fixed bottom-0 left-0 right-0 z-[45] flex items-center justify-around gap-1 border-t border-white/10 px-2 min-h-[3.5rem] py-1 pb-[max(0.25rem,env(safe-area-inset-bottom))] backdrop-blur-xl"
+        className="md:hidden fixed bottom-2 left-2 right-2 z-[45] flex items-center justify-around gap-1 border border-white/20 rounded-2xl px-2 min-h-[3.5rem] py-1 pb-[max(0.25rem,env(safe-area-inset-bottom))] backdrop-blur-2xl"
         style={{
-          background: "linear-gradient(180deg, rgba(10,10,16,0.88) 0%, rgba(5,5,12,0.96) 100%)",
+          background: "rgba(255,255,255,0.10)",
         }}
         aria-label="Primary navigation"
       >
