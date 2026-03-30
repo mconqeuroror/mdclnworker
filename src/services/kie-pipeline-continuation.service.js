@@ -73,22 +73,12 @@ async function runQuickVideoContinuation(generationId, payload, imageUrl) {
   const {
     referenceVideoUrl,
     referenceVideoUrlKie,
-    modelId,
     ultra,
     recreateEngine = RECREATE_ENGINE.KLING,
     wanResolution = "580p",
   } = payload;
-  if (!referenceVideoUrl || !modelId) {
-    console.warn("[KIE Pipeline] quick_video missing referenceVideoUrl or modelId");
-    return false;
-  }
-
-  const model = await prisma.savedModel.findUnique({
-    where: { id: modelId },
-    select: { photo1Url: true, photo2Url: true, photo3Url: true },
-  });
-  if (!model) {
-    console.warn("[KIE Pipeline] quick_video model not found:", modelId);
+  if (!referenceVideoUrl) {
+    console.warn("[KIE Pipeline] quick_video missing referenceVideoUrl");
     return false;
   }
 

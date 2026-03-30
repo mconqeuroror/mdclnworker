@@ -579,7 +579,7 @@ RULES:
  */
 async function processVideoMotionInBackground(
   generationId,
-  generatedImageUrl,
+  identityInputImageUrl,
   referenceVideoUrl,
   prompt,
   userId,
@@ -590,21 +590,60 @@ async function processVideoMotionInBackground(
   wanResolution = "580p",
 ) {
   try {
-    console.log(
-      `\n🔄 Starting video motion generation for ${generationId}`,
-    );
+    console.log(`\n🔄 Starting video motion generation for ${generationId}`);
     console.log(`🔊 Keep audio from video: ${keepAudio}`);
+    console.log("\n📍 STEP 1/3: Extracting first frame from reference video...");
+    const frameResult = await extractFrameFromVideo(referenceVideoUrl, 1);
+    if (!frameResult.success || !frameResult.frameUrl) {
+      throw new Error(`Frame extraction failed: ${frameResult.error || "Unknown error"}`);
+    }
 
-    // Generate video with motion transfer
-    console.log("\n📍 Generating video with motion transfer...");
-    // Ensure both image and video are accessible to KIE (mirror to fresh R2 URLs)
-    const kieAccessibleImageUrl = await ensureKieAccessibleUrl(generatedImageUrl, "starting image");
-    const preprocessedRefVideo = await preprocessReferenceVideoForKling(referenceVideoUrl).catch(() => referenceVideoUrl);
-    const kieAccessibleVideoUrl = await ensureKieAccessibleUrl(preprocessedRefVideo, "reference video");
-    const videoResult = await requestQueue.enqueue(async () =>
+    const [kieFigure1Frame, kieFigure2Identity, kieReferenceVideoUrl] = await Promise.all([
+      ensureKieAccessibleUrl(frameResult.frameUrl, "figure-1-frame").catch(() => frameResult.frameUrl),
+      ensureKieAccessibleUrl(identityInputImageUrl, "figure-2-identity-image").catch(() => identityInputImageUrl),
+      (async () => {
+        const preprocessed = await preprocessReferenceVideoForKling(referenceVideoUrl).catch(() => referenceVideoUrl);
+        return ensureKieAccessibleUrl(preprocessed, "reference video");
+      })(),
+    ]);
+
+    console.log("\n📍 STEP 2/3: Recreating first frame identity (source outfit mode)...");
+    const imageResult = await requestQueue.enqueue(() =>
+      generateImageWithIdentityWaveSpeed([kieFigure1Frame], kieFigure2Identity, {
+        customImagePrompt: IDENTITY_RECREATE_PROMPT_KEEP_SOURCE_CLOTHES,
+        onTaskCreated: async (taskId) => {
+          await prisma.generation.update({
+            where: { id: generationId },
+            data: {
+              pipelinePayload: {
+                kind: "complete_recreation",
+                imageTaskId: taskId,
+                originalVideoUrl: referenceVideoUrl,
+                originalVideoUrlKie: kieReferenceVideoUrl,
+                videoPrompt: prompt || "",
+                recreateEngine: normalizeRecreateEngine(recreateEngine),
+                wanResolution: normalizeWanResolution(wanResolution),
+                ultra: !!ultra,
+              },
+            },
+          });
+        },
+      }),
+    );
+    if (imageResult.success && imageResult.deferred) {
+      console.log("⏳ Identity image submitted; waiting for WaveSpeed callback continuation.");
+      return;
+    }
+    if (!imageResult.success || !imageResult.outputUrl) {
+      throw new Error(`Identity recreation failed: ${imageResult.error || "Unknown error"}`);
+    }
+
+    console.log("\n📍 STEP 3/3: Submitting final recreate video task...");
+    const kieImageUrl = await ensureKieAccessibleUrl(imageResult.outputUrl, "generated image");
+    const videoResult = await requestQueue.enqueue(() =>
       submitRecreateVideoTask({
-        imageUrl: kieAccessibleImageUrl,
-        referenceVideoUrl: kieAccessibleVideoUrl,
+        imageUrl: kieImageUrl,
+        referenceVideoUrl: kieReferenceVideoUrl,
         recreateEngine,
         recreateUltra: ultra,
         wanResolution,
@@ -617,34 +656,18 @@ async function processVideoMotionInBackground(
             kind: "video-motion",
           });
         },
-      })
+      }),
     );
 
-    if (videoResult.deferred) {
-      // Result will arrive via KIE callback; generation already has kie-task:taskId
-      console.log("\n⏳ Video motion submitted; result will arrive via callback.");
-      return;
-    }
+    if (videoResult.deferred) return;
     if (videoResult.success && videoResult.outputUrl) {
-      // SUCCESS: Update generation record with video URL (sync path when callback not used)
       await prisma.generation.update({
         where: { id: generationId },
-        data: {
-          status: "completed",
-          outputUrl: videoResult.outputUrl,
-          completedAt: new Date(),
-        },
+        data: { status: "completed", outputUrl: videoResult.outputUrl, completedAt: new Date() },
       });
-
-      console.log("\n✅ ========================================");
-      console.log("✅ VIDEO MOTION GENERATION COMPLETE!");
-      console.log("✅ ========================================");
-      console.log(`🎥 Generated Video: ${videoResult.outputUrl}\n`);
-    } else {
-      throw new Error(
-        `Video generation failed: ${videoResult.error || "Unknown error"}`,
-      );
+      return;
     }
+    throw new Error(`Video generation failed: ${videoResult.error || "Unknown error"}`);
   } catch (error) {
     console.error(
       `❌ Video motion generation failed for ${generationId}:`,
@@ -706,17 +729,10 @@ export async function generateVideoWithMotion(req, res) {
     userId = req.user.userId;
 
     // Validate required fields
-    if (!modelId) {
-      return res.status(400).json({
-        success: false,
-        message: "Model ID is required",
-      });
-    }
-
     if (!generatedImageUrl) {
       return res.status(400).json({
         success: false,
-        message: "Generated image URL is required. First generate an image, then use it here.",
+        message: "Identity input image URL is required.",
       });
     }
 
@@ -740,18 +756,6 @@ export async function generateVideoWithMotion(req, res) {
       return res.status(400).json({
         success: false,
         message: "Video duration in seconds is required",
-      });
-    }
-
-    // Verify model ownership
-    const model = await prisma.savedModel.findUnique({
-      where: { id: modelId },
-    });
-
-    if (!model || model.userId !== userId) {
-      return res.status(403).json({
-        success: false,
-        message: "Model not found or unauthorized",
       });
     }
 
@@ -790,10 +794,10 @@ export async function generateVideoWithMotion(req, res) {
     const generation = await prisma.generation.create({
       data: {
         userId,
-        modelId: modelId,
+        modelId: modelId || null,
         type: "video",
-        prompt: prompt || "Motion transfer",
-        inputImageUrl: generatedImageUrl,
+        prompt: prompt || "Video recreate (identity input + source frame)",
+        inputImageUrl: JSON.stringify({ figure2IdentityImage: generatedImageUrl }),
         inputVideoUrl: referenceVideoUrl,
         status: "processing",
         creditsCost: creditsNeeded,
@@ -2069,7 +2073,7 @@ export async function completeVideoGeneration(req, res) {
  */
 async function processQuickVideoInBackground(
   generationId,
-  model,
+  identityImageUrl,
   referenceVideoUrl,
   userId,
   creditsNeeded,
@@ -2082,9 +2086,7 @@ async function processQuickVideoInBackground(
       normalizeRecreateEngine(recreateEngine) === RECREATE_ENGINE.WAN
         ? `wan-animate-move-${normalizeWanResolution(wanResolution)}`
         : (ultra ? "motion-pro-plus" : "motion-classic");
-    console.log(
-      `\n🔄 Starting background processing for generation ${generationId} [${tierLabel}]`,
-    );
+    console.log(`\n🔄 Starting background processing for generation ${generationId} [${tierLabel}]`);
 
     // STEP 1: Extract first frame from reference video
     console.log("\n📍 STEP 1/3: Extracting frame from reference video...");
@@ -2098,15 +2100,15 @@ async function processQuickVideoInBackground(
 
     console.log(`✅ Frame extracted: ${frameResult.frameUrl}`);
 
-    // STEP 2: Upload all inputs to Blob so KIE can fetch immediately; then submit image
+    // STEP 2: Upload all inputs to Blob so provider can fetch immediately; then submit identity recreate image
     console.log("\n📍 Uploading inputs to Blob for KIE...");
-    const modelFigure2 = String(model.photo3Url || "");
-    if (!modelFigure2 || !modelFigure2.startsWith("http")) {
-      throw new Error("Model photo 3 is required for identity recreation.");
+    const figure2Identity = String(identityImageUrl || "");
+    if (!figure2Identity || !figure2Identity.startsWith("http")) {
+      throw new Error("Identity input image is required for recreate.");
     }
 
-    const [kieModelFigure2, kieFrameUrl, kieReferenceVideoUrl] = await Promise.all([
-      ensureKieAccessibleUrl(modelFigure2, "model-photo-3").catch(() => modelFigure2),
+    const [kieFigure2, kieFrameUrl, kieReferenceVideoUrl] = await Promise.all([
+      ensureKieAccessibleUrl(figure2Identity, "figure-2-identity-image").catch(() => figure2Identity),
       ensureKieAccessibleUrl(frameResult.frameUrl, "frame").catch(() => frameResult.frameUrl),
       (async () => {
         const preprocessed = await preprocessReferenceVideoForKling(referenceVideoUrl).catch(() => referenceVideoUrl);
@@ -2116,7 +2118,7 @@ async function processQuickVideoInBackground(
 
     console.log("\n📍 STEP 2/3: Submitting image to WaveSpeed (inputs already on Blob)...");
     const imageResult = await requestQueue.enqueue(async () => {
-      return await generateImageWithIdentityWaveSpeed([kieFrameUrl], kieModelFigure2, {
+      return await generateImageWithIdentityWaveSpeed([kieFrameUrl], kieFigure2, {
         aspectRatio: "9:16",
         customImagePrompt: IDENTITY_RECREATE_PROMPT_KEEP_SOURCE_CLOTHES,
         onTaskCreated: async (taskId) => {
@@ -2128,7 +2130,6 @@ async function processQuickVideoInBackground(
                 imageTaskId: taskId,
                 referenceVideoUrl,
                 referenceVideoUrlKie: kieReferenceVideoUrl,
-                modelId: model.id,
                 userId,
                 creditsNeeded,
                 ultra,
@@ -2246,7 +2247,6 @@ export async function generateVideoDirectly(req, res) {
 
   try {
     const {
-      modelId,
       referenceVideoUrl,
       videoDuration,
       tempId,
@@ -2255,7 +2255,7 @@ export async function generateVideoDirectly(req, res) {
       selectedImageUrl,
       recreateEngine,
       wanResolution,
-    } = req.body; // selectedImageUrl = user's first frame (identity already applied) → skip identity step
+    } = req.body;
     userId = req.user.userId;
     const useUltraDirect = ultra === true || ultraMode === true;
     const recreateEngineNormalized = normalizeRecreateEngine(recreateEngine);
@@ -2281,18 +2281,16 @@ export async function generateVideoDirectly(req, res) {
       });
     }
 
-    // When user provides first-frame image (already identity-changed), go straight to KIE — no identity step
-    const hasFirstFrameImage = selectedImageUrl && typeof selectedImageUrl === "string" && selectedImageUrl.startsWith("http");
-    if (hasFirstFrameImage) {
-      const imgCheck = validateImageUrl(selectedImageUrl);
-      if (!imgCheck.valid) {
-        return res.status(400).json({ success: false, message: imgCheck.message });
-      }
-    } else if (!modelId) {
+    const identityInputImage = selectedImageUrl && typeof selectedImageUrl === "string" ? selectedImageUrl : "";
+    if (!identityInputImage) {
       return res.status(400).json({
         success: false,
-        message: "Model ID or first-frame image (selectedImageUrl) is required",
+        message: "Identity input image is required",
       });
+    }
+    const identityInputCheck = validateImageUrl(identityInputImage);
+    if (!identityInputCheck.valid) {
+      return res.status(400).json({ success: false, message: identityInputCheck.message });
     }
 
     // Credits check
@@ -2313,128 +2311,18 @@ export async function generateVideoDirectly(req, res) {
       });
     }
 
-    if (hasFirstFrameImage) {
-      // Direct path: first-frame image + reference video → KIE (no identity step, no frame extract)
-      console.log("\n🎬 VIDEO RECREATE (direct): first-frame image + video → KIE");
-      await deductCredits(userId, creditsNeeded);
-      creditsDeducted = creditsNeeded;
-
-      const generation = await prisma.generation.create({
-        data: {
-          userId,
-          modelId: modelId || null,
-          type: "video",
-          prompt: "Video recreate (direct)",
-          inputImageUrl: selectedImageUrl,
-          inputVideoUrl: referenceVideoUrl,
-          status: "processing",
-          creditsCost: creditsNeeded,
-          replicateModel: getRecreateReplicateModel({
-            engine: recreateEngineNormalized,
-            ultra: useUltraDirect,
-            wanResolution: wanResolutionNormalized,
-          }),
-          duration: videoDuration,
-        },
-      });
-      generationId = generation.id;
-
-      const [kieImageUrl, kieVideoUrl] = await Promise.all([
-        ensureKieAccessibleUrl(selectedImageUrl, "first-frame image"),
-        (async () => {
-          const preprocessed = await preprocessReferenceVideoForKling(referenceVideoUrl).catch(() => referenceVideoUrl);
-          return ensureKieAccessibleUrl(preprocessed, "reference video");
-        })(),
-      ]).catch((err) => {
-        console.error("[Video direct] Blob upload failed:", err?.message);
-        throw err;
-      });
-
-      const result = await requestQueue.enqueue(async () =>
-        submitRecreateVideoTask({
-          imageUrl: kieImageUrl,
-          referenceVideoUrl: kieVideoUrl,
-          recreateEngine: recreateEngineNormalized,
-          recreateUltra: useUltraDirect,
-          wanResolution: wanResolutionNormalized,
-          onTaskSubmitted: async (taskId) => {
-            await persistKieGenerationCorrelation({
-              taskId,
-              generationId: generation.id,
-              userId,
-              kind: "video-motion",
-            });
-          },
-        })
-      );
-
-      if (result?.success && result?.deferred) {
-        if (result.taskId) {
-          await persistKieGenerationCorrelation({
-            taskId: result.taskId,
-            generationId: generation.id,
-            userId,
-            kind: "video-motion",
-          });
-        }
-        return res.json({
-          success: true,
-          message: "Video is generating and will appear when ready.",
-          generation: { id: generation.id, type: "video", status: "processing", tempId, createdAt: generation.createdAt },
-          creditsUsed: creditsNeeded,
-          creditsRemaining: totalCredits - creditsNeeded,
-        });
-      }
-      if (result?.success && result?.outputUrl) {
-        await prisma.generation.update({
-          where: { id: generation.id },
-          data: { status: "completed", outputUrl: result.outputUrl, completedAt: new Date() },
-        });
-        return res.json({
-          success: true,
-          message: "Video generated.",
-          generation: { id: generation.id, type: "video", status: "completed", outputUrl: result.outputUrl, tempId },
-          creditsUsed: creditsNeeded,
-          creditsRemaining: totalCredits - creditsNeeded,
-        });
-      }
-      const errMsg = result?.error || "Video submission failed";
-      await prisma.generation.update({
-        where: { id: generation.id },
-        data: { status: "failed", errorMessage: getErrorMessageForDb(errMsg), completedAt: new Date() },
-      }).catch(() => {});
-      await refundGeneration(generation.id).catch(() => {});
-      creditsDeducted = 0;
-      return res.status(500).json({ success: false, message: errMsg });
-    }
-
-    // Legacy path: model + video → extract frame → identity recreate → callback → KIE
-    const model = await prisma.savedModel.findFirst({
-      where: { id: modelId, userId },
-    });
-    if (!model) {
-      return res.status(404).json({
-        success: false,
-        message: "Model not found or you do not own this model",
-      });
-    }
-
-    console.log("\n🎬 QUICK VIDEO (2-step): model + video → identity on frame → KIE");
-    console.log(`📸 Model: ${model.name}`);
+    console.log("\n🎬 QUICK VIDEO (2-step): identity image + source video → identity on first frame → KIE");
+    console.log(`🧷 Identity image: ${identityInputImage}`);
     console.log(`🎥 Video: ${referenceVideoUrl}`);
     console.log(`💰 Credits: ${creditsNeeded}`);
 
     const generation = await prisma.generation.create({
       data: {
         userId,
-        modelId: modelId,
+        modelId: null,
         type: "video",
         prompt: "Quick video generation",
-        inputImageUrl: JSON.stringify([
-          model.photo1Url,
-          model.photo2Url,
-          model.photo3Url,
-        ]),
+        inputImageUrl: JSON.stringify({ figure2IdentityImage: identityInputImage }),
         inputVideoUrl: referenceVideoUrl,
         status: "processing",
         creditsCost: creditsNeeded,
@@ -2460,7 +2348,7 @@ export async function generateVideoDirectly(req, res) {
 
     processQuickVideoInBackground(
       generation.id,
-      model,
+      identityInputImage,
       referenceVideoUrl,
       userId,
       creditsNeeded,

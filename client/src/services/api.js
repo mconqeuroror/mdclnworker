@@ -473,21 +473,19 @@ export const generationAPI = {
   },
 
   // Simplified direct video generation (TikTok/Reel format)
-  generateVideoDirectly: async (
-    modelId,
-    referenceVideoUrl,
-    videoDuration,
-    tempId,
-    options = {},
-  ) => {
+  generateVideoDirectly: async (modelId, referenceVideoUrl, videoDuration, tempId, options = {}) => {
     const requestBody = {
+      // modelId kept in signature for backward-compatible callers; backend ignores it for recreate now.
       modelId,
       referenceVideoUrl,
       videoDuration,
       tempId,
       ultra: options.ultra === true,
       ultraMode: options.ultraMode === true,
+      // Identity input image (figure 2). Required by recreate pipeline.
       selectedImageUrl: options.selectedImageUrl || undefined,
+      recreateEngine: options.recreateEngine || undefined,
+      wanResolution: options.wanResolution || undefined,
     };
     console.log("📦 [API] generateVideoDirectly request body:", requestBody);
     return await api.post("/generate/video-directly", requestBody);
