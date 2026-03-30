@@ -51,6 +51,13 @@ export const LANDER_NEW_DEFAULTS = {
     ctaHref: "/signup",
   },
 
+  promotionBar: {
+    enabled: true,
+    message: "1 YEAR ANNIVERSARY — 65% OFF UNLIMITED NANO BANANA PRO",
+    ctaText: "Get 65% OFF",
+    ctaHref: "#pricing",
+  },
+
   sections: {
     hero: {
       // Per-slide config — these overlay on top of the standalone landing.config defaults

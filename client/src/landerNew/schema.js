@@ -15,6 +15,18 @@ export const LANDER_EDITOR_SCHEMA = [
     ],
   },
 
+  // ── Announcement Bar ─────────────────────────────────────────────────────
+  {
+    id: "promo",
+    label: "Announcement Bar",
+    group: "Brand",
+    fields: [
+      { key: "promotionBar.message", type: "text", label: "Message" },
+      { key: "promotionBar.ctaText", type: "text", label: "CTA Label (optional)" },
+      { key: "promotionBar.ctaHref", type: "url",  label: "CTA URL (optional)" },
+    ],
+  },
+
   // ── Hero slides ──────────────────────────────────────────────────────────
   // Each slide has copy + a media upload (video or image)
   ...[0, 1, 2].map((i) => ({

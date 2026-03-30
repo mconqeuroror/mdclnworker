@@ -70,7 +70,14 @@ function mapToStandaloneConfig(config) {
       signupHref: config?.brand?.ctaHref || "/signup",
     },
 
-    promotionBar: STANDALONE_LANDING_CONFIG.promotionBar,
+    promotionBar: {
+      ...STANDALONE_LANDING_CONFIG.promotionBar,
+      ...(config?.promotionBar?.message ? {
+        message: config.promotionBar.message,
+        ctaText: config.promotionBar.ctaText ?? STANDALONE_LANDING_CONFIG.promotionBar.ctaText,
+        ctaHref: config.promotionBar.ctaHref ?? STANDALONE_LANDING_CONFIG.promotionBar.ctaHref,
+      } : {}),
+    },
 
     hero: {
       enabled: true,
