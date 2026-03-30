@@ -1,0 +1,85 @@
+import { useEffect, useState } from "react";
+
+function ToolCard({ item, isFeatured, slot }) {
+  const mediaId = item.title.toLowerCase().includes("image")
+    ? "image"
+    : item.title.toLowerCase().includes("video") || item.title.toLowerCase().includes("motion")
+      ? "video"
+      : "audio";
+
+  return (
+    <article
+      className={`tool-card ${isFeatured ? "is-featured" : "is-side"} tool-card--${slot}`}
+      id={mediaId}
+    >
+      <div className={`cinematic-thumb ${item.mediaType}`}>
+        <div className="cinematic-thumb-noise" />
+        <div className="cinematic-thumb-ui">
+          <span>{item.mediaType}</span>
+          <span>{isFeatured ? "Live" : "Queued"}</span>
+        </div>
+        <div className={`cinematic-thumb-playline ${isFeatured ? "is-active" : ""}`}>
+          <span />
+        </div>
+      </div>
+      <h3>{item.title}</h3>
+      <p className="muted">{item.description}</p>
+    </article>
+  );
+}
+
+export function CreateTodaySection({ data }) {
+  const [featured, setFeatured] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setFeatured((prev) => (prev + 1) % data.cards.length);
+    }, 4200);
+    return () => clearInterval(timer);
+  }, [data.cards.length]);
+
+  return (
+    <section className="container create-wrap">
+      <header className="create-header">
+        <div>
+          <p className="eyebrow" style={{ marginBottom: "0.6rem" }}>Create</p>
+          <h2>{data.title}</h2>
+        </div>
+        <p className="muted">{data.description}</p>
+        <a className="btn btn-primary" href={data.ctaHref}
+          style={{ alignSelf: "flex-start" }}>
+          {data.ctaText}
+        </a>
+      </header>
+
+      <div className="create-grid">
+        {data.cards
+          .map((card, idx) => {
+            const len = data.cards.length;
+            const delta = (idx - featured + len) % len;
+            const isCenter = delta === 0;
+            const isRight = delta === 1;
+            const isLeft = delta === len - 1;
+
+            return {
+              card,
+              idx,
+              isCenter,
+              slot: isCenter ? "center" : isRight ? "right" : isLeft ? "left" : "hidden",
+              order: isCenter ? 2 : isRight ? 3 : isLeft ? 1 : 99,
+            };
+          })
+          .filter((entry) => entry.slot !== "hidden")
+          .sort((a, b) => a.order - b.order)
+          .map((entry) => (
+            <ToolCard
+              item={entry.card}
+              slot={entry.slot}
+              isFeatured={entry.isCenter}
+              key={`${entry.card.title}-${entry.idx}`}
+            />
+          ))}
+      </div>
+    </section>
+  );
+}

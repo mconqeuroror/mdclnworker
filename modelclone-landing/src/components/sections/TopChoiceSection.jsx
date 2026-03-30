@@ -1,0 +1,45 @@
+function ChoicePreview({ mediaType = "video", title }) {
+  return (
+    <div className={`choice-preview ${mediaType}`}>
+      <div className="choice-preview-bars" />
+      <div className="choice-preview-glow" />
+      <div className="choice-preview-noise" />
+      <div className="choice-preview-title">{title}</div>
+      <div className="choice-preview-ui">
+        <span className="choice-dot" />
+        <span className="choice-line" />
+      </div>
+    </div>
+  );
+}
+
+export function TopChoiceSection({ data }) {
+  const loopItems = [...data.items, ...data.items];
+
+  return (
+    <section className="container top-choice-wrap" id="top-choice">
+      <header className="top-choice-header">
+        <h2>{data.title}</h2>
+        <p className="muted">{data.subtitle}</p>
+      </header>
+
+      <div className="top-choice-row">
+        <div className="top-choice-track">
+          {loopItems.map((item, idx) => (
+            <article
+              key={`${item.title}-${idx}`}
+              className="choice-card"
+              style={{ animationDelay: `${(idx % data.items.length) * 55}ms` }}
+            >
+              <span className="pill">Top Choice</span>
+              <ChoicePreview mediaType={item.mediaType ?? "video"} title={item.title} />
+              <h3>{item.title}</h3>
+              <p className="muted" style={{ fontSize: "0.82rem" }}>{item.description}</p>
+              <a className="choice-link" href="#explore">Explore tool</a>
+            </article>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
