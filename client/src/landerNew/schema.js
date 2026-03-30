@@ -27,6 +27,20 @@ export const LANDER_EDITOR_SCHEMA = [
     ],
   },
 
+  // ── Countdown Banner ─────────────────────────────────────────────────────
+  {
+    id: "countdown",
+    label: "Countdown Banner",
+    group: "Brand",
+    fields: [
+      { key: "countdown.heading",   type: "text",     label: "Heading"              },
+      { key: "countdown.body",      type: "textarea", label: "Body text"            },
+      { key: "countdown.ctaText",   type: "text",     label: "CTA Label"            },
+      { key: "countdown.ctaHref",   type: "url",      label: "CTA URL"              },
+      { key: "countdown.targetISO", type: "text",     label: "Target date (ISO 8601, e.g. 2026-05-01T23:59:59Z)" },
+    ],
+  },
+
   // ── Hero slides ──────────────────────────────────────────────────────────
   // Each slide has copy + a media upload (video or image)
   ...[0, 1, 2].map((i) => ({

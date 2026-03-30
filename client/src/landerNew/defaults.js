@@ -58,6 +58,15 @@ export const LANDER_NEW_DEFAULTS = {
     ctaHref: "#pricing",
   },
 
+  countdown: {
+    enabled: true,
+    targetISO: "2026-05-01T23:59:59Z",
+    heading: "Anniversary Release Window — 65% OFF Unlimited Nano Banana Pro",
+    body: "Limited access pricing for creators building with high output volume this month.",
+    ctaText: "Claim Discount",
+    ctaHref: "#pricing",
+  },
+
   sections: {
     hero: {
       // Per-slide config — these overlay on top of the standalone landing.config defaults

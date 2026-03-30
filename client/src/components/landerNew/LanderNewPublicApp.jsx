@@ -84,7 +84,16 @@ function mapToStandaloneConfig(config) {
       slides: mergeSlides(hero.slides, STANDALONE_LANDING_CONFIG.hero.slides),
     },
 
-    countdown: STANDALONE_LANDING_CONFIG.countdown,
+    countdown: {
+      ...STANDALONE_LANDING_CONFIG.countdown,
+      ...(config?.countdown?.heading ? {
+        heading:   config.countdown.heading,
+        body:      config.countdown.body      ?? STANDALONE_LANDING_CONFIG.countdown.body,
+        ctaText:   config.countdown.ctaText   ?? STANDALONE_LANDING_CONFIG.countdown.ctaText,
+        ctaHref:   config.countdown.ctaHref   ?? STANDALONE_LANDING_CONFIG.countdown.ctaHref,
+        targetISO: config.countdown.targetISO ?? STANDALONE_LANDING_CONFIG.countdown.targetISO,
+      } : {}),
+    },
 
     createToday: {
       ...STANDALONE_LANDING_CONFIG.createToday,

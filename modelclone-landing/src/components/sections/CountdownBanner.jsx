@@ -30,7 +30,7 @@ export function CountdownBanner({ data }) {
   );
 
   return (
-    <section className="container">
+    <section className="container" data-dp-target-id="countdown">
       <a className="countdown-banner" href={data.ctaHref}>
         <div className="countdown-timer">
           {units.map((u) => (
