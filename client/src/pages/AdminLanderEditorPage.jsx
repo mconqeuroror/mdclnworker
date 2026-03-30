@@ -340,7 +340,9 @@ export default function AdminLanderEditorPage() {
               Live Preview — <a href="/lander-new" target="_blank" rel="noopener" className="ale-preview-link">open in new tab ↗</a>
             </div>
             <div className="ale-preview-scroll">
-              <LanderNewPublicApp config={config} />
+              <div className="ale-preview-inner">
+                <LanderNewPublicApp config={config} noCursor />
+              </div>
             </div>
           </div>
         )}

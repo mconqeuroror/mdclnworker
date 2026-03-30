@@ -1623,11 +1623,16 @@ textarea:focus-visible {
 .ale-preview-link:hover { color: #a78bfa; }
 .ale-preview-scroll {
   flex: 1;
-  overflow-y: auto;
+  overflow: auto;
   scrollbar-width: thin;
   scrollbar-color: rgba(255,255,255,0.1) transparent;
-  zoom: 0.72;
+}
+
+.ale-preview-inner {
+  transform: scale(0.72);
   transform-origin: top left;
+  width: calc(100% / 0.72);
+  pointer-events: auto;
 }
 
 @media (max-width: 900px) {

@@ -96,20 +96,21 @@ function mapToStandaloneConfig(config) {
   };
 }
 
-export default function LanderNewPublicApp({ config }) {
+export default function LanderNewPublicApp({ config, noCursor = false }) {
   const data = useMemo(() => mapToStandaloneConfig(config), [config]);
   const { brand, promotionBar, hero, countdown, createToday, topChoice, partners, pricing, footerCta } = data;
   useEffect(() => {
+    if (noCursor) return undefined;
     document.body.classList.add("lander-cursor-enabled");
     return () => {
       document.body.classList.remove("lander-cursor-enabled");
     };
-  }, []);
+  }, [noCursor]);
 
   return (
     <div className="page">
       <div className="legacy-grid-bg" aria-hidden="true" />
-      <CustomCursor />
+      {!noCursor && <CustomCursor />}
       <div className="site-header-shell">
         {promotionBar.enabled && <PromoBar data={promotionBar} />}
         <Navbar brand={brand} />

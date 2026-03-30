@@ -1,82 +1,52 @@
 export const BREAKPOINTS = ["base", "sm", "md", "lg", "xl"];
 
+// ─── All keys must match the actual LANDER_NEW_DEFAULTS shape:
+//   brand.*, seo.*, sections.hero.*, sections.topChoice.*,
+//   sections.partners.*, sections.pricing.*
+// Bracket notation [n] is supported via utils.setByPath / getByPath
+
 export const LANDER_EDITOR_SCHEMA = [
+
   // ── Brand ─────────────────────────────────────────────────────────────
   {
     id: "brand",
     label: "Brand",
     group: "Brand",
     fields: [
-      { key: "brand.logoUrl",  type: "url",  label: "Logo URL" },
       { key: "brand.appName",  type: "text", label: "App Name" },
-    ],
-  },
-
-  // ── Promo Bar ─────────────────────────────────────────────────────────
-  {
-    id: "promo",
-    label: "Promo Bar",
-    group: "Promo Bar",
-    fields: [
-      { key: "sections.promotionBar.message",  type: "text", label: "Message" },
-      { key: "sections.promotionBar.ctaText",  type: "text", label: "CTA Text" },
-      { key: "sections.promotionBar.ctaHref",  type: "url",  label: "CTA URL" },
+      { key: "brand.logoUrl",  type: "url",  label: "Logo URL" },
+      { key: "brand.ctaText",  type: "text", label: "CTA Label" },
+      { key: "brand.ctaHref",  type: "url",  label: "CTA URL" },
     ],
   },
 
   // ── Hero ──────────────────────────────────────────────────────────────
   {
-    id: "hero.slide.0",
-    label: "Hero – Slide 1",
+    id: "hero.copy",
+    label: "Hero – Copy",
     group: "Hero",
     fields: [
-      { key: "sections.hero.slides[0].eyebrow",     type: "text",     label: "Eyebrow" },
-      { key: "sections.hero.slides[0].title",       type: "text",     label: "Title" },
-      { key: "sections.hero.slides[0].description", type: "textarea", label: "Description" },
-      { key: "sections.hero.slides[0].mediaUrl",    type: "url",      label: "Media URL" },
+      { key: "sections.hero.title",              type: "text",     label: "Headline" },
+      { key: "sections.hero.subtitle",           type: "textarea", label: "Subtitle" },
+      { key: "sections.hero.primaryCtaText",     type: "text",     label: "Primary CTA Label" },
+      { key: "sections.hero.primaryCtaHref",     type: "url",      label: "Primary CTA URL" },
+      { key: "sections.hero.secondaryCtaText",   type: "text",     label: "Secondary CTA Label" },
+      { key: "sections.hero.secondaryCtaHref",   type: "url",      label: "Secondary CTA URL" },
     ],
   },
   {
-    id: "hero.slide.1",
-    label: "Hero – Slide 2",
+    id: "hero.media",
+    label: "Hero – Media",
     group: "Hero",
     fields: [
-      { key: "sections.hero.slides[1].eyebrow",     type: "text",     label: "Eyebrow" },
-      { key: "sections.hero.slides[1].title",       type: "text",     label: "Title" },
-      { key: "sections.hero.slides[1].description", type: "textarea", label: "Description" },
-      { key: "sections.hero.slides[1].mediaUrl",    type: "url",      label: "Media URL" },
-    ],
-  },
-  {
-    id: "hero.slide.2",
-    label: "Hero – Slide 3",
-    group: "Hero",
-    fields: [
-      { key: "sections.hero.slides[2].eyebrow",     type: "text",     label: "Eyebrow" },
-      { key: "sections.hero.slides[2].title",       type: "text",     label: "Title" },
-      { key: "sections.hero.slides[2].description", type: "textarea", label: "Description" },
-      { key: "sections.hero.slides[2].mediaUrl",    type: "url",      label: "Media URL" },
-    ],
-  },
-
-  // ── Countdown ────────────────────────────────────────────────────────
-  {
-    id: "countdown",
-    label: "Countdown Banner",
-    group: "Countdown",
-    fields: [
-      { key: "sections.countdown.heading",   type: "text", label: "Heading" },
-      { key: "sections.countdown.body",      type: "textarea", label: "Body text" },
-      { key: "sections.countdown.ctaText",   type: "text", label: "CTA Text" },
-      { key: "sections.countdown.ctaHref",   type: "url",  label: "CTA URL" },
-      { key: "sections.countdown.targetISO", type: "text", label: "End date (ISO)" },
+      { key: "sections.hero.mediaUrl", type: "url", label: "Media URL (image or video)" },
     ],
   },
 
   // ── Top Choice ───────────────────────────────────────────────────────
   {
     id: "topChoice.heading",
-    label: "Top Choice – Heading",
+    label: "Top Choice – Header",
     group: "Top Choice",
     fields: [
       { key: "sections.topChoice.heading",  type: "text", label: "Heading" },
@@ -96,7 +66,7 @@ export const LANDER_EDITOR_SCHEMA = [
   // ── Partners ──────────────────────────────────────────────────────────
   {
     id: "partners.heading",
-    label: "Partners – Heading",
+    label: "Partners – Header",
     group: "Partners",
     fields: [
       { key: "sections.partners.heading", type: "text", label: "Heading" },
@@ -104,7 +74,7 @@ export const LANDER_EDITOR_SCHEMA = [
   },
   ...[0, 1, 2, 3, 4, 5, 6, 7].map((i) => ({
     id: `partners.logo.${i}`,
-    label: `Partner Logo ${i + 1}`,
+    label: `Partner ${i + 1}`,
     group: "Partners",
     fields: [
       { key: `sections.partners.logos[${i}].name`,    type: "text", label: "Name" },
@@ -115,7 +85,7 @@ export const LANDER_EDITOR_SCHEMA = [
   // ── Pricing ───────────────────────────────────────────────────────────
   {
     id: "pricing.heading",
-    label: "Pricing – Heading",
+    label: "Pricing – Header",
     group: "Pricing",
     fields: [
       { key: "sections.pricing.heading", type: "text", label: "Heading" },
@@ -123,35 +93,23 @@ export const LANDER_EDITOR_SCHEMA = [
   },
   ...[0, 1, 2].map((i) => ({
     id: `pricing.tier.${i}`,
-    label: `Pricing Tier ${i + 1}`,
+    label: `Pricing – Tier ${i + 1}`,
     group: "Pricing",
     fields: [
-      { key: `sections.pricing.tiers[${i}].name`,                 type: "text",   label: "Name" },
-      { key: `sections.pricing.tiers[${i}].credits`,              type: "number", label: "Credits / mo" },
-      { key: `sections.pricing.tiers[${i}].price.monthly`,        type: "number", label: "Monthly price ($)" },
-      { key: `sections.pricing.tiers[${i}].price.annual`,         type: "number", label: "Annual price ($)" },
-      { key: `sections.pricing.tiers[${i}].bonusCredits`,         type: "number", label: "Bonus credits" },
+      { key: `sections.pricing.tiers[${i}].name`,         type: "text",   label: "Name" },
+      { key: `sections.pricing.tiers[${i}].credits`,      type: "number", label: "Credits / mo" },
+      { key: `sections.pricing.tiers[${i}].monthly`,      type: "number", label: "Monthly price ($)" },
+      { key: `sections.pricing.tiers[${i}].annual`,       type: "number", label: "Annual price ($)" },
+      { key: `sections.pricing.tiers[${i}].bonusCredits`, type: "number", label: "Bonus credits" },
     ],
   })),
   {
     id: "pricing.payg",
-    label: "Pay As You Go",
+    label: "Pricing – Pay As You Go",
     group: "Pricing",
     fields: [
-      { key: "sections.pricing.oneTime.pricePerCredit", type: "number",   label: "Price per credit ($)" },
-      { key: "sections.pricing.oneTime.description",    type: "textarea", label: "Description" },
-    ],
-  },
-
-  // ── Footer ────────────────────────────────────────────────────────────
-  {
-    id: "footer",
-    label: "Footer CTA",
-    group: "Footer",
-    fields: [
-      { key: "sections.footerCta.text",    type: "text", label: "Text" },
-      { key: "sections.footerCta.ctaText", type: "text", label: "CTA Label" },
-      { key: "sections.footerCta.ctaHref", type: "url",  label: "CTA URL" },
+      { key: "sections.pricing.payAsYouGo.pricePerCredit", type: "number",   label: "Price per credit ($)" },
+      { key: "sections.pricing.payAsYouGo.description",    type: "textarea", label: "Description" },
     ],
   },
 
@@ -174,7 +132,7 @@ export const LANDER_EDITOR_SCHEMA = [
     fields: [
       { key: "seo.ogTitle",       type: "text",     label: "OG Title" },
       { key: "seo.ogDescription", type: "textarea", label: "OG Description" },
-      { key: "seo.ogImageUrl",    type: "url",      label: "OG Image URL" },
+      { key: "seo.ogImageUrl",    type: "url",      label: "OG Image" },
     ],
   },
   {
@@ -184,7 +142,7 @@ export const LANDER_EDITOR_SCHEMA = [
     fields: [
       { key: "seo.twitterTitle",       type: "text",     label: "Twitter Title" },
       { key: "seo.twitterDescription", type: "textarea", label: "Twitter Description" },
-      { key: "seo.twitterImageUrl",    type: "url",      label: "Twitter Image URL" },
+      { key: "seo.twitterImageUrl",    type: "url",      label: "Twitter Image" },
     ],
   },
 ];
