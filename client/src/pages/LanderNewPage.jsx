@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { landerNewAPI } from "../services/api";
 import { LANDER_NEW_DEFAULTS } from "../landerNew/defaults";
 import { deepMerge } from "../landerNew/utils";
-import LanderNewRenderer from "../components/landerNew/LanderNewRenderer";
+import LanderNewPublicApp from "../components/landerNew/LanderNewPublicApp";
 
 function upsertMeta(selector, attrs) {
   let el = document.head.querySelector(selector);
@@ -122,6 +122,6 @@ export default function LanderNewPage() {
 
   if (loading) return <div className="min-h-screen grid place-items-center text-slate-300">Loading lander...</div>;
 
-  return <LanderNewRenderer config={config} />;
+  return <LanderNewPublicApp config={config} />;
 }
 
