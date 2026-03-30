@@ -26,8 +26,14 @@ This document is the in-depth map of:
 | NSFW image generation | ComfyUI NSFW workflow (Illustrious checkpoint) | RunPod endpoint workflow | RunPod | `src/controllers/nsfw.controller.js`, `src/services/fal.service.js` |
 | NSFW video generation | i2v | `wavespeed-ai/wan-2.2-spicy/image-to-video` | WaveSpeed | `src/services/wavespeed.service.js` |
 | NSFW video extend | extend | `wavespeed-ai/wan-2.2-spicy/video-extend` | WaveSpeed | `src/services/wavespeed.service.js` |
-| Motion recreate | classic (2.6) vs ultra (3.0) | `kling-2.6/motion-control`, `kling-3.0/motion-control` | KIE.AI | `src/services/kie.service.js` |
-| Motion recreate params | Motion-control createTask uses **stringified `input`** on the wire. **`mode`:** **`1080p`** for both tiers in modelclone. **2.6:** includes `character_orientation: "video"`. **3.0:** same + **`background_source`:** **`input_video`**. | KIE.AI | `src/services/kie.service.js` |
+| Motion recreate | Kling classic (2.6) vs ultra (3.0) | `kling-2.6/motion-control`, `kling-3.0/motion-control` | KIE.AI | `src/services/kie.service.js` |
+| Motion recreate (fast/cheap engine) | Wan animate move | `wan/2-2-animate-move` | KIE.AI | `src/services/kie.service.js` |
+| Motion recreate params | Recreate engine switch: **Kling** (classic/ultra) or **Wan**. Kling motion-control keeps `character_orientation: "video"` and 3.0 adds `background_source: "input_video"`. Wan recreate uses `video_url` + `image_url` + `resolution` (`480p/580p/720p`). | KIE.AI | `src/services/kie.service.js`, `src/controllers/generation.controller.js` |
+| Creator Studio video | Sora 2 Pro i2v/t2v | `sora-2-pro-image-to-video`, `sora-2-pro-text-to-video` | KIE.AI | `src/services/kie.service.js`, `src/controllers/generation.controller.js` |
+| Creator Studio video | Kling 2.6 i2v/t2v | `kling-2.6/image-to-video`, `kling-2.6/text-to-video` | KIE.AI | `src/services/kie.service.js`, `src/controllers/generation.controller.js` |
+| Creator Studio video | Kling 3.0 i2v/t2v (+ multi-shot) | `kling-3.0/video` | KIE.AI | `src/services/kie.service.js`, `src/controllers/generation.controller.js` |
+| Creator Studio video | Veo 3.1 generate / extend | `/api/v1/veo/generate`, `/api/v1/veo/extend` | KIE.AI | `src/services/kie.service.js`, `src/controllers/generation.controller.js` |
+| Kling sound injection | Prompt shaping | `prompt, sound prompt: ...` when enabled | KIE.AI | `src/controllers/generation.controller.js` |
 | LoRA training | training pipeline | `fal-ai/z-image-turbo-trainer-v2` | fal.ai | `src/services/fal.service.js` |
 | LoRA captioning helper | dataset captions | `x-ai/grok-4.1-fast` | OpenRouter/xAI | `src/services/fal.service.js` |
 | LoRA auto-assign helper | pose/additive LoRA selection | `x-ai/grok-4.1-fast` | OpenRouter/xAI | `src/services/fal.service.js` |

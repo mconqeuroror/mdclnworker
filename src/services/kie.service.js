@@ -21,6 +21,10 @@ import {
 } from "../utils/fileValidation.js";
 import { kieConstraints } from "../config/providerMediaConstraints.js";
 import { verifyUrlReachable } from "../utils/kieUpload.js";
+import {
+  KIE_VIDEO_MODEL_CATALOG,
+  normalizeWanResolution,
+} from "../config/kie-video-catalog.js";
 
 const KIE_API_KEY = process.env.KIE_API_KEY;
 const KIE_API_URL = "https://api.kie.ai/api/v1";
@@ -278,6 +282,35 @@ async function kieCreateTask(requestBody, label = "task") {
   if (!taskId) throw new Error(`AI service returned no task ID: ${JSON.stringify(data).slice(0, 200)}`);
 
   console.log(`[KIE] Task submitted: ${taskId} (${label})`);
+  return taskId;
+}
+
+async function kiePostJson(endpointPath, requestBody, label = "task") {
+  await waitForRateSlot(label);
+  const res = await fetch(`${KIE_API_URL}${endpointPath}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${KIE_API_KEY}`,
+    },
+    body: JSON.stringify(requestBody),
+    signal: AbortSignal.timeout(30_000),
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(kieHttpErrorMessage(res.status, text));
+  }
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error(`AI service invalid response: ${text.slice(0, 200)}`);
+  }
+  if (data.code !== 200) {
+    throw new Error(`AI service error (code ${data.code}): ${data.message || data.msg || "unknown"}`);
+  }
+  const taskId = data.data?.taskId || data.data?.task_id || data.taskId || data.task_id;
+  if (!taskId) throw new Error(`AI service returned no task ID: ${JSON.stringify(data).slice(0, 200)}`);
   return taskId;
 }
 
@@ -754,6 +787,84 @@ async function generateVideoWithMotionKieInternal(imageUrl, videoUrl, options = 
 }
 
 /**
+ * Wan 2.2 animate-move recreate (image + reference video).
+ * Uses callback-only completion flow, same as motion-control recreate.
+ */
+async function generateVideoWithWanAnimateMoveKieInternal(imageUrl, videoUrl, options = {}) {
+  console.log(`[KIE/wan-animate-move] image="${imageUrl.slice(0, 120)}"`);
+  console.log(`[KIE/wan-animate-move] video="${videoUrl.slice(0, 120)}"`);
+
+  const img = typeof imageUrl === "string" ? imageUrl.trim() : String(imageUrl || "");
+  const vid = typeof videoUrl === "string" ? videoUrl.trim() : String(videoUrl || "");
+  const resolution = normalizeWanResolution(options.resolution);
+
+  try {
+    await verifyUrlReachable(img, "WAN animate input image");
+    await verifyUrlReachable(vid, "WAN animate input video");
+  } catch (e) {
+    throw new Error(
+      `Wan animate media URL is not reachable (KIE must download it). Re-upload your image/video and try again. ${e?.message || ""}`,
+    );
+  }
+
+  const callbackUrl = getKieCallbackUrl();
+  if (!callbackUrl) {
+    throw new Error("[KIE/wan-animate-move] Callback URL is required (set KIE_CALLBACK_URL / CALLBACK_BASE_URL)");
+  }
+
+  const modelName = KIE_VIDEO_MODEL_CATALOG.recreate.wan22AnimateMove.model;
+  const requestBody = {
+    model: modelName,
+    callBackUrl: callbackUrl,
+    input: {
+      video_url: vid,
+      image_url: img,
+      resolution,
+      nsfw_checker: options.nsfwChecker === true,
+    },
+  };
+
+  const MAX_ATTEMPTS = 3;
+  let lastErr;
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    if (attempt > 1) {
+      const backoff = attempt * 30_000;
+      console.log(`[KIE/wan-animate-move] Retrying (attempt ${attempt}/${MAX_ATTEMPTS}) after ${backoff / 1000}s`);
+      await new Promise((r) => setTimeout(r, backoff));
+    }
+    try {
+      console.log(
+        `[KIE/wan-animate-move] Submitting mode=${resolution} attempt ${attempt}:`,
+        JSON.stringify(requestBody.input),
+      );
+      const taskId = await kieCreateTask(requestBody, "wan-animate-move");
+      if (typeof options.onTaskSubmitted === "function") {
+        try { await options.onTaskSubmitted(taskId); } catch (_) {}
+      }
+      console.log(`[KIE/wan-animate-move] Deferred: result will arrive via callback for task ${taskId}`);
+      return { success: true, deferred: true, taskId };
+    } catch (err) {
+      lastErr = err;
+      const msg = (err?.message || "").toLowerCase();
+      const isTransient =
+        msg.includes("busy") || msg.includes("server issue") || msg.includes("overload") ||
+        msg.includes("capacity") || msg.includes("timeout") || msg.includes("timed out") ||
+        msg.includes("internal") || msg.includes("unavailable") || msg.includes("http 5") ||
+        msg.includes("http 429") || msg.includes("rate limit") || msg.includes("fetch failed") ||
+        msg.includes("network") || msg.includes("econnreset") || err?.name === "TypeError";
+      if (isTransient && attempt < MAX_ATTEMPTS) {
+        console.warn(`[KIE/wan-animate-move] Transient failure (attempt ${attempt}): ${err.message}`);
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  throw lastErr;
+}
+
+/**
  * Kling image-to-video (2.6 or 3.0).
  * @param {string} imageUrl - starting image
  * @param {string} prompt
@@ -796,6 +907,153 @@ async function generateVideoWithKling26KieInternal(imageUrl, prompt, options = {
   return result;
 }
 
+async function generateVideoWithSora2ProKieInternal(options = {}) {
+  const mode = options.mode === "i2v" ? "i2v" : "t2v";
+  const model = mode === "i2v"
+    ? KIE_VIDEO_MODEL_CATALOG.sora2Pro.imageToVideoModel
+    : KIE_VIDEO_MODEL_CATALOG.sora2Pro.textToVideoModel;
+  const callbackUrl = getKieCallbackUrl();
+  if (!callbackUrl) {
+    throw new Error("[KIE/sora2] Callback URL is required (set KIE_CALLBACK_URL / CALLBACK_BASE_URL)");
+  }
+  const nFrames = String(options.nFrames || "10");
+  const size = options.size === "high" ? "high" : "standard";
+  const input = {
+    prompt: String(options.prompt || ""),
+    aspect_ratio: options.aspectRatio === "portrait" ? "portrait" : "landscape",
+    n_frames: nFrames === "15" ? "15" : "10",
+    size,
+    remove_watermark: options.removeWatermark === true,
+    upload_method: "s3",
+  };
+  if (mode === "i2v") {
+    const imageUrl = String(options.imageUrl || "").trim();
+    if (!imageUrl) throw new Error("Sora2 image-to-video requires imageUrl.");
+    input.image_urls = [imageUrl];
+  }
+  if (Array.isArray(options.characterIdList) && options.characterIdList.length) {
+    input.character_id_list = options.characterIdList.slice(0, 5).map((v) => String(v)).filter(Boolean);
+  }
+
+  const requestBody = {
+    model,
+    callBackUrl: callbackUrl,
+    input,
+  };
+  const taskId = await kieCreateTask(requestBody, `sora2-${mode}`);
+  if (typeof options.onTaskSubmitted === "function") {
+    try { await options.onTaskSubmitted(taskId); } catch {}
+  }
+  return { success: true, deferred: true, taskId };
+}
+
+async function generateVideoWithKlingTextKieInternal(prompt, options = {}) {
+  const useKling3 = options.useKling3 === true;
+  const model = useKling3
+    ? KIE_VIDEO_MODEL_CATALOG.klingVideo.kling30VideoModel
+    : KIE_VIDEO_MODEL_CATALOG.klingVideo.kling26TextToVideoModel;
+  const callbackUrl = getKieCallbackUrl();
+  if (!callbackUrl) {
+    throw new Error("[KIE/kling-text] Callback URL is required (set KIE_CALLBACK_URL / CALLBACK_BASE_URL)");
+  }
+  const duration = String(options.duration ?? (useKling3 ? "5" : "5")).trim();
+  const input = {
+    prompt: String(prompt || ""),
+    duration: duration === "10" ? "10" : "5",
+    sound: options.sound === true,
+  };
+  if (useKling3) {
+    input.aspect_ratio = options.aspectRatio || "16:9";
+    input.mode = options.quality === "pro" ? "pro" : "std";
+    input.multi_shots = options.multiShots === true;
+  }
+  const taskId = await kieCreateTask({ model, callBackUrl: callbackUrl, input }, useKling3 ? "kling30-t2v" : "kling26-t2v");
+  if (typeof options.onTaskSubmitted === "function") {
+    try { await options.onTaskSubmitted(taskId); } catch {}
+  }
+  return { success: true, deferred: true, taskId };
+}
+
+async function generateVideoWithVeo31KieInternal(options = {}) {
+  const callbackUrl = getKieCallbackUrl();
+  if (!callbackUrl) {
+    throw new Error("[KIE/veo31] Callback URL is required (set KIE_CALLBACK_URL / CALLBACK_BASE_URL)");
+  }
+  const endpoint = KIE_VIDEO_MODEL_CATALOG.veo31.generate.endpoint;
+  const model = options.speed === "quality" ? "veo3" : "veo3_fast";
+  const generationType = options.mode === "FIRST_AND_LAST_FRAMES_2_VIDEO"
+    ? "FIRST_AND_LAST_FRAMES_2_VIDEO"
+    : options.mode === "TEXT_2_VIDEO"
+      ? "TEXT_2_VIDEO"
+      : "REFERENCE_2_VIDEO";
+  const aspectRatio = (options.aspectRatio === "9:16" || options.aspectRatio === "Auto") ? options.aspectRatio : "16:9";
+
+  const candidates = [
+    options.imageUrl,
+    options.referenceImageUrl,
+    options.endFrameUrl,
+  ]
+    .map((v) => String(v || "").trim())
+    .filter(Boolean);
+  const dedupedImageUrls = [...new Set(candidates)];
+  let imageUrls = [];
+  if (generationType === "FIRST_AND_LAST_FRAMES_2_VIDEO") {
+    imageUrls = dedupedImageUrls.slice(0, 2);
+  } else if (generationType === "REFERENCE_2_VIDEO") {
+    imageUrls = dedupedImageUrls.slice(0, 3);
+  }
+
+  if (generationType === "REFERENCE_2_VIDEO" && model !== "veo3_fast") {
+    throw new Error("REFERENCE_2_VIDEO currently supports only veo3_fast.");
+  }
+  if (generationType !== "TEXT_2_VIDEO" && imageUrls.length === 0) {
+    throw new Error(`${generationType} requires at least one image URL.`);
+  }
+
+  const requestBody = {
+    prompt: String(options.prompt || ""),
+    model,
+    generationType,
+    aspect_ratio: aspectRatio,
+    callBackUrl: callbackUrl,
+    enableTranslation: options.enableTranslation !== false,
+  };
+  if (imageUrls.length) requestBody.imageUrls = imageUrls;
+  const seed = Number(options.seeds);
+  if (Number.isInteger(seed) && seed >= 10000 && seed <= 99999) requestBody.seeds = seed;
+  if (options.watermark) requestBody.watermark = String(options.watermark);
+
+  const taskId = await kiePostJson(endpoint, requestBody, "veo31-generate");
+  if (typeof options.onTaskSubmitted === "function") {
+    try { await options.onTaskSubmitted(taskId); } catch {}
+  }
+  return { success: true, deferred: true, taskId };
+}
+
+async function extendVideoWithVeo31KieInternal(options = {}) {
+  const callbackUrl = getKieCallbackUrl();
+  if (!callbackUrl) {
+    throw new Error("[KIE/veo31-extend] Callback URL is required (set KIE_CALLBACK_URL / CALLBACK_BASE_URL)");
+  }
+  const endpoint = KIE_VIDEO_MODEL_CATALOG.veo31.extend.endpoint;
+  const model = options.speed === "quality" ? "quality" : "fast";
+  const requestBody = {
+    model,
+    callBackUrl: callbackUrl,
+    taskId: String(options.originalTaskId || ""),
+    prompt: String(options.prompt || ""),
+    duration: String(options.duration || "8"),
+  };
+  if (!requestBody.taskId) {
+    throw new Error("Veo extend requires original task id.");
+  }
+  const taskId = await kiePostJson(endpoint, requestBody, "veo31-extend");
+  if (typeof options.onTaskSubmitted === "function") {
+    try { await options.onTaskSubmitted(taskId); } catch {}
+  }
+  return { success: true, deferred: true, taskId };
+}
+
 // ─── Public API — all go through the queue ────────────────────────────────────
 
 export function generateImageWithSeedreamKie(...args) {
@@ -815,4 +1073,19 @@ export function generateVideoWithMotionKie(...args) {
 }
 export function generateVideoWithKling26Kie(...args) {
   return enqueueKieJob(() => generateVideoWithKling26KieInternal(...args));
+}
+export function generateVideoWithWanAnimateMoveKie(...args) {
+  return enqueueKieJob(() => generateVideoWithWanAnimateMoveKieInternal(...args));
+}
+export function generateVideoWithSora2ProKie(...args) {
+  return enqueueKieJob(() => generateVideoWithSora2ProKieInternal(...args));
+}
+export function generateVideoWithKlingTextKie(...args) {
+  return enqueueKieJob(() => generateVideoWithKlingTextKieInternal(...args));
+}
+export function generateVideoWithVeo31Kie(...args) {
+  return enqueueKieJob(() => generateVideoWithVeo31KieInternal(...args));
+}
+export function extendVideoWithVeo31Kie(...args) {
+  return enqueueKieJob(() => extendVideoWithVeo31KieInternal(...args));
 }

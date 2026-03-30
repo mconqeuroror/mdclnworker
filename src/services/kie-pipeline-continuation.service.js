@@ -3,12 +3,20 @@
  * (image -> video pipeline), run the video step and wire the generation to the video taskId.
  */
 import prisma from "../lib/prisma.js";
-import { generateVideoWithMotionKie } from "./kie.service.js";
+import {
+  generateVideoWithMotionKie,
+  generateVideoWithWanAnimateMoveKie,
+} from "./kie.service.js";
 import { ensureKieAccessibleUrl } from "../utils/kieUpload.js";
 import { preprocessReferenceVideoForKling } from "./video.service.js";
 import requestQueue from "./queue.service.js";
 import { getErrorMessageForDb } from "../lib/userError.js";
 import { persistKieGenerationCorrelation } from "../utils/kieTaskCorrelation.js";
+import {
+  RECREATE_ENGINE,
+  normalizeRecreateEngine,
+  normalizeWanResolution,
+} from "../config/kie-video-catalog.js";
 
 /**
  * Find generation by pipelinePayload.imageTaskId and run the video step.
@@ -39,8 +47,37 @@ export async function runPipelineContinuation(taskId, imageUrl) {
   return false;
 }
 
+async function submitRecreateVideoTask({
+  imageUrl,
+  referenceVideoUrl,
+  recreateEngine = RECREATE_ENGINE.KLING,
+  recreateUltra = false,
+  wanResolution = "580p",
+  videoPrompt = "",
+  onTaskSubmitted,
+}) {
+  if (normalizeRecreateEngine(recreateEngine) === RECREATE_ENGINE.WAN) {
+    return generateVideoWithWanAnimateMoveKie(imageUrl, referenceVideoUrl, {
+      resolution: normalizeWanResolution(wanResolution),
+      onTaskSubmitted,
+    });
+  }
+  return generateVideoWithMotionKie(imageUrl, referenceVideoUrl, {
+    ultra: !!recreateUltra,
+    videoPrompt,
+    onTaskSubmitted,
+  });
+}
+
 async function runQuickVideoContinuation(generationId, payload, imageUrl) {
-  const { referenceVideoUrl, referenceVideoUrlKie, modelId, ultra } = payload;
+  const {
+    referenceVideoUrl,
+    referenceVideoUrlKie,
+    modelId,
+    ultra,
+    recreateEngine = RECREATE_ENGINE.KLING,
+    wanResolution = "580p",
+  } = payload;
   if (!referenceVideoUrl || !modelId) {
     console.warn("[KIE Pipeline] quick_video missing referenceVideoUrl or modelId");
     return false;
@@ -66,8 +103,12 @@ async function runQuickVideoContinuation(generationId, payload, imageUrl) {
     const kieImageUrl = await ensureKieAccessibleUrl(imageUrl, "generated image");
 
     const videoResult = await requestQueue.enqueue(() =>
-      generateVideoWithMotionKie(kieImageUrl, kieVideoUrl, {
-        ultra: !!ultra,
+      submitRecreateVideoTask({
+        imageUrl: kieImageUrl,
+        referenceVideoUrl: kieVideoUrl,
+        recreateEngine,
+        recreateUltra: !!ultra,
+        wanResolution,
         onTaskSubmitted: async (videoTaskId) => {
           await persistKieGenerationCorrelation({
             taskId: videoTaskId,
@@ -121,7 +162,15 @@ async function runQuickVideoContinuation(generationId, payload, imageUrl) {
 }
 
 async function runCompleteRecreationContinuation(generationId, payload, imageUrl) {
-  const { originalVideoUrl, originalVideoUrlKie, videoPrompt, ultra, imageGenId } = payload;
+  const {
+    originalVideoUrl,
+    originalVideoUrlKie,
+    videoPrompt,
+    ultra,
+    imageGenId,
+    recreateEngine = RECREATE_ENGINE.KLING,
+    wanResolution = "580p",
+  } = payload;
   if (!originalVideoUrl && !originalVideoUrlKie) {
     console.warn("[KIE Pipeline] complete_recreation missing originalVideoUrl");
     return false;
@@ -144,9 +193,13 @@ async function runCompleteRecreationContinuation(generationId, payload, imageUrl
     const kieImageUrl = await ensureKieAccessibleUrl(imageUrl, "generated image");
 
     const videoResult = await requestQueue.enqueue(() =>
-      generateVideoWithMotionKie(kieImageUrl, kieVideoUrl, {
+      submitRecreateVideoTask({
+        imageUrl: kieImageUrl,
+        referenceVideoUrl: kieVideoUrl,
+        recreateEngine,
+        recreateUltra: !!ultra,
+        wanResolution,
         videoPrompt: videoPrompt || "",
-        ultra: !!ultra,
         onTaskSubmitted: async (videoTaskId) => {
           await persistKieGenerationCorrelation({
             taskId: videoTaskId,

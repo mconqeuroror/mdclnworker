@@ -562,7 +562,8 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
 
     if (isSuccess) {
       if (outputUrl) {
-        const finalUrl = await mirrorProviderOutputUrl(outputUrl, gen.type === "video" ? "video/mp4" : "image/png");
+        const isVideoType = ["video", "prompt-video", "recreate-video", "talking-head", "nsfw-video", "nsfw-video-extend", "creator-studio-video"].includes(gen.type);
+        const finalUrl = await mirrorProviderOutputUrl(outputUrl, isVideoType ? "video/mp4" : "image/png");
         await prisma.generation.update({
           where: { id: gen.id },
           data: { status: "completed", outputUrl: finalUrl, completedAt: new Date(), pipelinePayload: null },
@@ -584,7 +585,7 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
         }
         try {
           // Don't delete input Blobs for video: KIE may still be fetching them (queue delay). Leave for Blob TTL or manual cleanup.
-          if (gen.type !== "video") {
+          if (!isVideoType) {
             const row = await prisma.generation.findUnique({
               where: { id: gen.id },
               select: { inputImageUrl: true, inputVideoUrl: true },

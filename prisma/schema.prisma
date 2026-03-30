@@ -102,6 +102,17 @@ model Generation {
   prompt          String
   duration        Int?
   resolution      String?
+  provider        String?     @default("kie")
+  providerTaskId  String?
+  providerModel   String?
+  providerFamily  String?
+  providerMode    String?
+  providerType    String?
+  parentTaskId    String?
+  extendEligible  Boolean     @default(false)
+  originalGenerationId String?
+  providerRequest Json?
+  providerResponse Json?
   creditsCost     Int
   actualCostUSD   Float?
   inputImageUrl   String?
@@ -116,12 +127,19 @@ model Generation {
   isTrial         Boolean     @default(false)
   isNsfw          Boolean     @default(false)
   pipelinePayload Json? // when set, callback finds by imageTaskId and continues pipeline (e.g. image -> video)
+  originalGeneration Generation? @relation("GenerationExtensionChain", fields: [originalGenerationId], references: [id], onDelete: SetNull)
+  extensions      Generation[] @relation("GenerationExtensionChain")
   model           SavedModel? @relation(fields: [modelId], references: [id])
   user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([modelId])
   @@index([status])
+  @@index([providerTaskId])
+  @@index([provider, providerModel])
+  @@index([providerFamily, providerType])
+  @@index([extendEligible, createdAt])
+  @@index([originalGenerationId])
   @@index([userId, createdAt])
   @@index([status, createdAt])
 }

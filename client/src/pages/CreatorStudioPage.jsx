@@ -86,6 +86,8 @@ const PAGE_COPY = {
     deleteToAdd: "Delete an avatar to add a new one",
     recentVideos: "Recent Videos",
     billingNote: "Active avatars are billed 500 credits/month to keep them live. Suspended avatars cannot generate videos.",
+    tabPhoto: "Photo",
+    tabVideo: "Video",
     tabGenerate: "Generate",
     tabVoices: "Voice Studio",
     tabAvatars: "Real Avatars",
@@ -164,6 +166,8 @@ const PAGE_COPY = {
     deleteToAdd: "Удалите аватар, чтобы добавить новый",
     recentVideos: "Последние видео",
     billingNote: "За активные аватары списывается 500 кредитов/месяц для поддержания работы. Приостановленные аватары не могут создавать видео.",
+    tabPhoto: "Фото",
+    tabVideo: "Видео",
     tabGenerate: "Создать",
     tabVoices: "Голосовая студия",
     tabAvatars: "Реальные аватары",
@@ -216,6 +220,12 @@ const MAX_REFS = 8;
 const MAX_AVATARS = 3;
 const WORDS_PER_SECOND = 2.5;
 const MAX_VIDEO_SECONDS = 600;
+const VIDEO_FAMILIES = [
+  { id: "sora2", label: "Sora 2 Pro" },
+  { id: "kling30", label: "Kling 3.0" },
+  { id: "kling26", label: "Kling 2.6" },
+  { id: "veo31", label: "Veo 3.1" },
+];
 
 function estimateSecs(script) {
   if (!script?.trim()) return 0;
@@ -1053,7 +1063,8 @@ function RealAvatarsTab({ sidebarCollapsed }) {
 // Main page — tab switcher wrapping both sections
 // ---------------------------------------------------------------------------
 const TABS = [
-  { id: "generate",    label: "Generate",     icon: Zap,  desc: "Advanced image generation · no model required" },
+  { id: "generate",    label: "Photo",        icon: Sparkles, desc: "Advanced image generation · no model required" },
+  { id: "video",       label: "Video",        icon: Video, desc: "Model-family video generation sheet" },
   { id: "voices",      label: "Voice Studio", icon: Mic,  desc: "Custom voice audio" },
   { id: "avatars",     label: "Real Avatars",  icon: User, desc: "Photo avatar videos" },
 ];
@@ -1075,14 +1086,44 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
   const [resolution, setResolution]     = useState("1K");
   const { activeGeneration, isGenerating, startGeneration, pollForCompletion, reset } = useActiveGeneration();
   const [history, setHistory]           = useState([]);
+  const [videoHistory, setVideoHistory] = useState([]);
   const [lightboxGen, setLightboxGen]   = useState(null);
   const [mobileGenBarExpanded, setMobileGenBarExpanded] = useState(false);
+  const [videoFamily, setVideoFamily] = useState("kling30");
+  const [videoMode, setVideoMode] = useState("t2v");
+  const [videoPrompt, setVideoPrompt] = useState("");
+  const [videoImageUrl, setVideoImageUrl] = useState("");
+  const [videoRefImageUrl, setVideoRefImageUrl] = useState("");
+  const [videoEndFrameUrl, setVideoEndFrameUrl] = useState("");
+  const [videoDuration, setVideoDuration] = useState(8);
+  const [videoNFrames, setVideoNFrames] = useState("10");
+  const [videoSize, setVideoSize] = useState("standard");
+  const [videoSpeed, setVideoSpeed] = useState("fast");
+  const [veoSeed, setVeoSeed] = useState("");
+  const [veoEnableTranslation, setVeoEnableTranslation] = useState(true);
+  const [veoWatermark, setVeoWatermark] = useState("");
+  const [soundEnabled, setSoundEnabled] = useState(false);
+  const [soundPrompt, setSoundPrompt] = useState("");
+  const [kling30Quality, setKling30Quality] = useState("std");
+  const [kling30MultiShot, setKling30MultiShot] = useState(false);
+  const [isVideoGenerating, setIsVideoGenerating] = useState(false);
+  const [extendSourceId, setExtendSourceId] = useState("");
 
   const { isLoading: histLoading } = useQuery({
     queryKey: ["creator-studio-history"],
     queryFn: async () => {
       const data = await creatorStudioAPI.getHistory({ limit: 20 });
       setHistory(data.generations ?? []);
+      return data;
+    },
+    staleTime: 30_000,
+  });
+
+  const { isLoading: videoHistLoading } = useQuery({
+    queryKey: ["creator-studio-video-history"],
+    queryFn: async () => {
+      const data = await creatorStudioAPI.getVideoHistory({ limit: 20 });
+      setVideoHistory(data.generations ?? []);
       return data;
     },
     staleTime: 30_000,
@@ -1141,6 +1182,64 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
     }
   };
 
+  const handleGenerateVideo = async () => {
+    if (!videoPrompt.trim() && !(videoFamily === "veo31" && videoMode === "extend")) {
+      toast.error(copy.enterPrompt);
+      return;
+    }
+    if ((videoFamily === "sora2" || videoFamily === "kling26" || videoFamily === "kling30") && videoMode === "i2v" && !videoImageUrl.trim()) {
+      toast.error("Image URL is required for image-to-video.");
+      return;
+    }
+    if (videoFamily === "veo31" && videoMode === "extend" && !extendSourceId.trim()) {
+      toast.error("Original Veo task id is required for extend.");
+      return;
+    }
+    setIsVideoGenerating(true);
+    try {
+      const payload = {
+        family: videoFamily,
+        mode: videoMode,
+        prompt: videoPrompt.trim(),
+        imageUrl: videoImageUrl.trim() || undefined,
+        referenceImageUrl: videoRefImageUrl.trim() || undefined,
+        endFrameUrl: videoEndFrameUrl.trim() || undefined,
+        durationSeconds: Number(videoDuration) || 8,
+        nFrames: videoNFrames,
+        size: videoSize,
+        speed: videoSpeed,
+        soundEnabled,
+        soundPrompt: soundPrompt.trim(),
+        kling30Quality,
+        kling30MultiShot,
+        aspectRatio,
+        veoSeeds: veoSeed ? Number(veoSeed) : undefined,
+        veoEnableTranslation,
+        veoWatermark: veoWatermark.trim() || undefined,
+        originalTaskId: extendSourceId.trim() || undefined,
+      };
+      const data = videoFamily === "veo31" && videoMode === "extend"
+        ? await creatorStudioAPI.extendVideo(payload)
+        : await creatorStudioAPI.generateVideo(payload);
+      if (!data?.success || !data?.generation?.id) {
+        throw new Error(data?.message || copy.generationFailed);
+      }
+      toast.success(copy.videoGenerationStarted);
+      pollForCompletion(data.generation.id, {
+        onSuccess: (gen) => {
+          toast.success(copy.videoReady);
+          refreshUser?.();
+          setVideoHistory((prev) => [{ ...gen, prompt: videoPrompt.trim() }, ...prev.filter((g) => g.id !== gen.id)]);
+        },
+        onFailure: (gen) => toast.error(gen.errorMessage || copy.videoFailedRefunded),
+      });
+    } catch (err) {
+      toast.error(err.response?.data?.message || err.message || copy.failedStartVideoGeneration);
+    } finally {
+      setIsVideoGenerating(false);
+    }
+  };
+
   const COST = resolution === "4K" ? 25 : 20;
   const creditsLeft = user?.credits ?? 0;
   const selectedAspect = ASPECT_RATIOS.find((ar) => ar.value === aspectRatio);
@@ -1149,6 +1248,11 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
     ...(activeGeneration ? [activeGeneration] : []),
     ...history.filter((g) => g.id !== activeGeneration?.id),
   ];
+  const videoModes = videoFamily === "veo31"
+    ? ["ref2v", "t2v", "i2v", "extend"]
+    : ["t2v", "i2v"];
+  const soundAvailable = videoFamily === "kling26" || videoFamily === "kling30";
+  const selectedVideoFamily = VIDEO_FAMILIES.find((f) => f.id === videoFamily);
 
   return (
     <div
@@ -1190,7 +1294,13 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                 />
               )}
               <Icon className="w-4 h-4" />
-              {tab.id === "generate" ? copy.tabGenerate : tab.id === "voices" ? copy.tabVoices : copy.tabAvatars}
+              {tab.id === "generate"
+                ? (copy.tabPhoto || copy.tabGenerate)
+                : tab.id === "video"
+                  ? (copy.tabVideo || "Video")
+                  : tab.id === "voices"
+                    ? copy.tabVoices
+                    : copy.tabAvatars}
             </button>
           );
         })}
@@ -1485,6 +1595,255 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
             {lightboxGen && <Lightbox gen={lightboxGen} onClose={() => setLightboxGen(null)} />}
           </AnimatePresence>
         </>
+      )}
+
+      {activeTab === "video" && (
+        <div className="px-4 md:px-6 pb-6 pt-4 min-h-screen">
+          <div className="w-full rounded-3xl border border-white/10 bg-[#0d1016] p-4 md:p-6 shadow-[0_16px_64px_-24px_rgba(0,0,0,0.9)]">
+            <div className="flex flex-wrap items-start justify-between gap-3 mb-5">
+              <div>
+                <h2 className="text-2xl font-bold text-white">Video Generation</h2>
+                <p className="text-sm text-slate-400 mt-1">
+                  Full-screen model sheet with family to mode routing
+                </p>
+              </div>
+              <div className="text-xs text-slate-400 rounded-xl border border-white/10 px-3 py-2">
+                {selectedVideoFamily?.label || "Video"} · {videoMode.toUpperCase()}
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <p className="text-xs text-slate-400 uppercase tracking-widest mb-2">Family</p>
+                <div className="flex flex-wrap gap-2">
+                  {VIDEO_FAMILIES.map((family) => (
+                    <Chip
+                      key={family.id}
+                      active={videoFamily === family.id}
+                      onClick={() => {
+                        setVideoFamily(family.id);
+                        setVideoMode(family.id === "veo31" ? "ref2v" : "t2v");
+                      }}
+                    >
+                      {family.label}
+                    </Chip>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <p className="text-xs text-slate-400 uppercase tracking-widest mb-2">Mode</p>
+                <div className="flex flex-wrap gap-2">
+                  {videoModes.map((m) => (
+                    <Chip key={m} active={videoMode === m} onClick={() => setVideoMode(m)}>
+                      {m === "t2v" ? "Text to Video" : m === "i2v" ? "Image to Video" : m === "ref2v" ? "Reference to Video" : "Extend"}
+                    </Chip>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="rounded-2xl border border-white/10 bg-black/30 p-3">
+                  <label className="block text-xs text-slate-400 mb-2">Prompt</label>
+                  <textarea
+                    value={videoPrompt}
+                    onChange={(e) => setVideoPrompt(e.target.value)}
+                    placeholder="Describe motion, camera, timing, and atmosphere"
+                    rows={5}
+                    className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-white resize-none outline-none"
+                  />
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-black/30 p-3 space-y-3">
+                  {(videoMode === "i2v" || videoMode === "ref2v") && (
+                    <div>
+                      <label className="block text-xs text-slate-400 mb-1">Input image URL</label>
+                      <input value={videoImageUrl} onChange={(e) => setVideoImageUrl(e.target.value)} className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-white outline-none" />
+                    </div>
+                  )}
+                  {videoFamily === "veo31" && videoMode === "ref2v" && (
+                    <div>
+                      <label className="block text-xs text-slate-400 mb-1">Reference image URL</label>
+                      <input value={videoRefImageUrl} onChange={(e) => setVideoRefImageUrl(e.target.value)} className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-white outline-none" />
+                    </div>
+                  )}
+                  {videoFamily === "veo31" && videoMode === "i2v" && (
+                    <div>
+                      <label className="block text-xs text-slate-400 mb-1">End frame image URL (optional)</label>
+                      <input value={videoEndFrameUrl} onChange={(e) => setVideoEndFrameUrl(e.target.value)} className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-white outline-none" />
+                    </div>
+                  )}
+                  {videoFamily === "veo31" && videoMode === "extend" && (
+                    <div>
+                      <label className="block text-xs text-slate-400 mb-1">Original Veo task id</label>
+                      <input value={extendSourceId} onChange={(e) => setExtendSourceId(e.target.value)} className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-white outline-none" />
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="rounded-xl border border-white/10 p-3">
+                  <label className="block text-xs text-slate-400 mb-1">Duration (sec)</label>
+                  <input type="number" min={5} max={15} value={videoDuration} onChange={(e) => setVideoDuration(e.target.value)} className="w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm text-white outline-none" />
+                </div>
+                {videoFamily === "sora2" && (
+                  <>
+                    <div className="rounded-xl border border-white/10 p-3">
+                      <label className="block text-xs text-slate-400 mb-1">Frames</label>
+                      <select value={videoNFrames} onChange={(e) => setVideoNFrames(e.target.value)} className="w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm text-white outline-none">
+                        <option value="10">10</option>
+                        <option value="15">15</option>
+                      </select>
+                    </div>
+                    <div className="rounded-xl border border-white/10 p-3">
+                      <label className="block text-xs text-slate-400 mb-1">Quality</label>
+                      <select value={videoSize} onChange={(e) => setVideoSize(e.target.value)} className="w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm text-white outline-none">
+                        <option value="standard">Standard</option>
+                        <option value="high">High</option>
+                      </select>
+                    </div>
+                  </>
+                )}
+                {videoFamily === "kling30" && (
+                  <>
+                    <div className="rounded-xl border border-white/10 p-3">
+                      <label className="block text-xs text-slate-400 mb-1">Tier</label>
+                      <select value={kling30Quality} onChange={(e) => setKling30Quality(e.target.value)} className="w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm text-white outline-none">
+                        <option value="std">Standard</option>
+                        <option value="pro">Pro</option>
+                      </select>
+                    </div>
+                    <div className="rounded-xl border border-white/10 p-3 flex items-center justify-between">
+                      <span className="text-xs text-slate-300">Multi-shot</span>
+                      <button type="button" onClick={() => setKling30MultiShot((v) => !v)} className={`px-3 py-1.5 rounded-lg text-xs ${kling30MultiShot ? "bg-violet-600 text-white" : "bg-white/10 text-slate-300"}`}>
+                        {kling30MultiShot ? "On" : "Off"}
+                      </button>
+                    </div>
+                  </>
+                )}
+                {videoFamily === "veo31" && (
+                  <div className="col-span-2 md:col-span-4 rounded-xl border border-white/10 p-3">
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                      <div>
+                        <label className="block text-xs text-slate-400 mb-1">Speed</label>
+                        <select value={videoSpeed} onChange={(e) => setVideoSpeed(e.target.value)} className="w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm text-white outline-none">
+                          <option value="fast">Fast</option>
+                          <option value="quality">Quality</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-slate-400 mb-1">Seed (10000-99999)</label>
+                        <input
+                          type="number"
+                          min={10000}
+                          max={99999}
+                          value={veoSeed}
+                          onChange={(e) => setVeoSeed(e.target.value)}
+                          placeholder="optional"
+                          className="w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm text-white outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-slate-400 mb-1">Watermark (optional)</label>
+                        <input
+                          value={veoWatermark}
+                          onChange={(e) => setVeoWatermark(e.target.value)}
+                          placeholder="MyBrand"
+                          className="w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm text-white outline-none"
+                        />
+                      </div>
+                      <div className="flex items-end">
+                        <button
+                          type="button"
+                          onClick={() => setVeoEnableTranslation((v) => !v)}
+                          className={`w-full px-3 py-2 rounded-lg text-xs ${veoEnableTranslation ? "bg-violet-600 text-white" : "bg-white/10 text-slate-300"}`}
+                        >
+                          Translation: {veoEnableTranslation ? "On" : "Off"}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {soundAvailable && (
+                <div className="rounded-2xl border border-white/10 p-3 bg-black/30">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm text-white">Sound generation</span>
+                    <button
+                      type="button"
+                      onClick={() => setSoundEnabled((v) => !v)}
+                      className={`px-3 py-1.5 rounded-lg text-xs ${soundEnabled ? "bg-violet-600 text-white" : "bg-white/10 text-slate-300"}`}
+                    >
+                      {soundEnabled ? "Enabled" : "Disabled"}
+                    </button>
+                  </div>
+                  {soundEnabled && (
+                    <textarea
+                      value={soundPrompt}
+                      onChange={(e) => setSoundPrompt(e.target.value)}
+                      rows={2}
+                      placeholder="Speech, ambience, SFX (injected as: prompt, sound prompt: ...)"
+                      className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-white resize-none outline-none"
+                    />
+                  )}
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-xs text-slate-400">{formatCopy(copy.creditsAvailable, { credits: creditsLeft })}</p>
+                <button
+                  type="button"
+                  onClick={handleGenerateVideo}
+                  disabled={isVideoGenerating}
+                  className="min-h-[46px] px-5 rounded-xl text-sm font-semibold bg-gradient-to-r from-violet-600 to-indigo-600 disabled:opacity-40 text-white flex items-center gap-2"
+                >
+                  {isVideoGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Video className="w-4 h-4" />}
+                  {isVideoGenerating ? copy.generatingVideo : copy.generateVideo}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-6">
+            <p className="text-xs uppercase tracking-widest text-slate-500 mb-3">Recent Video Jobs</p>
+            {videoHistory.length === 0 && !videoHistLoading && (
+              <p className="text-sm text-slate-500">No video jobs yet.</p>
+            )}
+            {videoHistory.length > 0 && (
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {videoHistory.map((item) => (
+                  <div key={item.id} className="rounded-2xl border border-white/10 bg-[#0d1016] overflow-hidden">
+                    {item.outputUrl ? (
+                      <video src={item.outputUrl} controls className="w-full h-48 object-cover bg-black" />
+                    ) : (
+                      <div className="w-full h-48 bg-black/50 flex items-center justify-center text-slate-400 text-xs">
+                        {item.status}
+                      </div>
+                    )}
+                    <div className="p-3">
+                      <p className="text-xs text-slate-400">{item.providerFamily || "video"} · {item.providerMode || "mode"}</p>
+                      <p className="text-sm text-white mt-1 line-clamp-2">{item.prompt || "—"}</p>
+                      {item.extendEligible && item.providerTaskId && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setVideoFamily("veo31");
+                            setVideoMode("extend");
+                            setExtendSourceId(item.providerTaskId);
+                          }}
+                          className="mt-2 text-xs px-2.5 py-1.5 rounded-lg bg-white/10 text-slate-200 hover:bg-white/15"
+                        >
+                          Extend this video
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {/* ── Real Avatars tab ──────────────────────────────────────────────── */}

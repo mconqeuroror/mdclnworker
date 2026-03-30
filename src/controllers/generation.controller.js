@@ -7,6 +7,11 @@ import {
   generateTextToImageNanoBananaKie,
   generateVideoWithMotionKie,
   generateVideoWithKling26Kie,
+  generateVideoWithWanAnimateMoveKie,
+  generateVideoWithSora2ProKie,
+  generateVideoWithKlingTextKie,
+  generateVideoWithVeo31Kie,
+  extendVideoWithVeo31Kie,
 } from "../services/kie.service.js";
 import {
   generateImageWithIdentityWaveSpeed,
@@ -53,6 +58,16 @@ import {
   IDENTITY_RECREATE_REFERENCE_CLOTHES,
 } from "../constants/identityRecreationPrompts.js";
 import { persistKieGenerationCorrelation } from "../utils/kieTaskCorrelation.js";
+import {
+  RECREATE_ENGINE,
+  normalizeRecreateEngine,
+  normalizeWanResolution,
+  getRecreateReplicateModel,
+} from "../config/kie-video-catalog.js";
+import {
+  estimateRecreateCredits,
+  getRecreateCreditsPerSecond,
+} from "../services/video-generation-pricing.js";
 
 const PERSISTED_IMAGE_TYPES = new Set([
   "image",
@@ -104,6 +119,29 @@ function isOurPersistedBlobUrl(url) {
 
 function isPersistedOutputStorageUrl(url) {
   return isR2Url(url) || isOurPersistedBlobUrl(url);
+}
+
+async function submitRecreateVideoTask({
+  imageUrl,
+  referenceVideoUrl,
+  recreateEngine = RECREATE_ENGINE.KLING,
+  recreateUltra = false,
+  wanResolution = "580p",
+  videoPrompt = "",
+  onTaskSubmitted,
+}) {
+  if (normalizeRecreateEngine(recreateEngine) === RECREATE_ENGINE.WAN) {
+    return generateVideoWithWanAnimateMoveKie(imageUrl, referenceVideoUrl, {
+      resolution: normalizeWanResolution(wanResolution),
+      nsfwChecker: false,
+      onTaskSubmitted,
+    });
+  }
+  return generateVideoWithMotionKie(imageUrl, referenceVideoUrl, {
+    videoPrompt,
+    ultra: !!recreateUltra,
+    onTaskSubmitted,
+  });
 }
 
 /** Prefer Vercel Blob for completed image outputs; fall back to R2 when Blob fails or is off. */
@@ -554,6 +592,8 @@ async function processVideoMotionInBackground(
   creditsNeeded,
   keepAudio = true,
   ultra = false,
+  recreateEngine = RECREATE_ENGINE.KLING,
+  wanResolution = "580p",
 ) {
   try {
     console.log(
@@ -567,24 +607,24 @@ async function processVideoMotionInBackground(
     const kieAccessibleImageUrl = await ensureKieAccessibleUrl(generatedImageUrl, "starting image");
     const preprocessedRefVideo = await preprocessReferenceVideoForKling(referenceVideoUrl).catch(() => referenceVideoUrl);
     const kieAccessibleVideoUrl = await ensureKieAccessibleUrl(preprocessedRefVideo, "reference video");
-    const videoResult = await requestQueue.enqueue(async () => {
-      return await generateVideoWithMotionKie(
-        kieAccessibleImageUrl,
-        kieAccessibleVideoUrl,
-        {
-          videoPrompt: prompt || "",
-          ultra,
-          onTaskSubmitted: async (taskId) => {
-            await persistKieGenerationCorrelation({
-              taskId,
-              generationId,
-              userId,
-              kind: "video-motion",
-            });
-          },
+    const videoResult = await requestQueue.enqueue(async () =>
+      submitRecreateVideoTask({
+        imageUrl: kieAccessibleImageUrl,
+        referenceVideoUrl: kieAccessibleVideoUrl,
+        recreateEngine,
+        recreateUltra: ultra,
+        wanResolution,
+        videoPrompt: prompt || "",
+        onTaskSubmitted: async (taskId) => {
+          await persistKieGenerationCorrelation({
+            taskId,
+            generationId,
+            userId,
+            kind: "video-motion",
+          });
         },
-      );
-    });
+      })
+    );
 
     if (videoResult.deferred) {
       // Result will arrive via KIE callback; generation already has kie-task:taskId
@@ -663,8 +703,12 @@ export async function generateVideoWithMotion(req, res) {
       keepAudio = true,
       ultra = false,
       ultraMode,
+      recreateEngine,
+      wanResolution,
     } = req.body;
     const useUltra = ultra === true || ultraMode === true;
+    const recreateEngineNormalized = normalizeRecreateEngine(recreateEngine);
+    const wanResolutionNormalized = normalizeWanResolution(wanResolution);
     userId = req.user.userId;
 
     // Validate required fields
@@ -721,14 +765,17 @@ export async function generateVideoWithMotion(req, res) {
     const user = await checkAndExpireCredits(userId);
     const totalCredits = getTotalCredits(user);
     const pricing = await getGenerationPricing();
-    const classicPerSec =
-      typeof pricing.videoRecreateMotionProPerSec === "number"
-        ? pricing.videoRecreateMotionProPerSec
-        : 18;
-    // Tiers: 1080p kling-2.6 (classic) | 1080p kling-3.0 (ultra)
-    const creditsNeeded = useUltra
-      ? Math.ceil(videoDuration * pricing.videoRecreateUltraPerSec)
-      : Math.ceil(videoDuration * classicPerSec);
+    const perSec = getRecreateCreditsPerSecond(pricing, {
+      engine: recreateEngineNormalized,
+      ultra: useUltra,
+      wanResolution: wanResolutionNormalized,
+    });
+    const creditsNeeded = estimateRecreateCredits(pricing, {
+      durationSeconds: videoDuration,
+      engine: recreateEngineNormalized,
+      ultra: useUltra,
+      wanResolution: wanResolutionNormalized,
+    });
 
     if (totalCredits < creditsNeeded) {
       return res.status(403).json({
@@ -740,7 +787,10 @@ export async function generateVideoWithMotion(req, res) {
     // Deduct credits BEFORE generation
     await deductCredits(userId, creditsNeeded);
     creditsDeducted = creditsNeeded; // Track for emergency refund
-    const tierLog = useUltra ? "ultra-3.0-1080p" : "classic-2.6-1080p";
+    const tierLog =
+      recreateEngineNormalized === RECREATE_ENGINE.WAN
+        ? `wan-animate-move-${wanResolutionNormalized}`
+        : (useUltra ? "ultra-3.0-1080p" : "classic-2.6-1080p");
     console.log(`💳 Deducted ${creditsNeeded} credits upfront (motion ${tierLog})`);
 
     const generation = await prisma.generation.create({
@@ -753,7 +803,11 @@ export async function generateVideoWithMotion(req, res) {
         inputVideoUrl: referenceVideoUrl,
         status: "processing",
         creditsCost: creditsNeeded,
-        replicateModel: useUltra ? "kie-kling-3.0-motion-control" : "kie-kling-2.6-motion-control",
+        replicateModel: getRecreateReplicateModel({
+          engine: recreateEngineNormalized,
+          ultra: useUltra,
+          wanResolution: wanResolutionNormalized,
+        }),
         duration: videoDuration,
       },
     });
@@ -776,6 +830,8 @@ export async function generateVideoWithMotion(req, res) {
       creditsNeeded,
       keepAudio,
       useUltra,
+      recreateEngineNormalized,
+      wanResolutionNormalized,
     ).catch((error) => {
       console.error("❌ Background processing error:", error);
     });
@@ -795,6 +851,7 @@ export async function generateVideoWithMotion(req, res) {
       },
       creditsUsed: creditsNeeded,
       creditsRemaining: totalCredits - creditsNeeded,
+      pricingMeta: { perSec },
     });
   } catch (error) {
     console.error("Generate video error:", error);
@@ -841,9 +898,16 @@ export async function generateCompleteRecreation(req, res) {
       originalVideoUrl,
       videoPrompt,
       ultra = false,
+      ultraMode,
+      recreateEngine,
+      wanResolution,
+      videoDuration = 5,
       aspectRatio,
       numFrames,
     } = req.body;
+    const useUltra = ultra === true || ultraMode === true;
+    const recreateEngineNormalized = normalizeRecreateEngine(recreateEngine);
+    const wanResolutionNormalized = normalizeWanResolution(wanResolution);
     userId = req.user.userId;
 
     // Validate
@@ -905,10 +969,19 @@ export async function generateCompleteRecreation(req, res) {
       return res.status(400).json({ success: false, message: origVideoCheck.message });
     }
 
-    // Check credits (10 for image + 50 for video = 60 credits total, kie.ai pricing)
+    // Check credits (image identity step + recreate video step)
     const user = await checkAndExpireCredits(userId);
     const totalCredits = getTotalCredits(user);
-    const creditsNeeded = 60; // Fixed: 10 for image + 50 for video
+    const pricing = await getGenerationPricing();
+    const imageCredits = typeof pricing.imageIdentity === "number" ? pricing.imageIdentity : 10;
+    const recreateSeconds = Math.max(1, Number(videoDuration) || 5);
+    const videoCredits = estimateRecreateCredits(pricing, {
+      durationSeconds: recreateSeconds,
+      engine: recreateEngineNormalized,
+      ultra: useUltra,
+      wanResolution: wanResolutionNormalized,
+    });
+    const creditsNeeded = imageCredits + videoCredits;
 
     if (totalCredits < creditsNeeded) {
       return res.status(403).json({
@@ -941,7 +1014,7 @@ export async function generateCompleteRecreation(req, res) {
         prompt: "Complete pipeline - image",
         inputImageUrl: JSON.stringify({ modelIdentityImages, videoScreenshot }),
         status: "processing",
-        creditsCost: 10,
+        creditsCost: imageCredits,
         replicateModel: "wavespeed-seedream-v4.5-edit",
       },
     });
@@ -963,7 +1036,9 @@ export async function generateCompleteRecreation(req, res) {
       originalVideoUrlKie: kieOriginalVideoUrl,
       userId,
       modelId,
-      ultra,
+      ultra: useUltra,
+      recreateEngine: recreateEngineNormalized,
+      wanResolution: wanResolutionNormalized,
     };
     const videoGen = await prisma.generation.create({
       data: {
@@ -973,8 +1048,12 @@ export async function generateCompleteRecreation(req, res) {
         prompt: videoPrompt || "Complete pipeline - video",
         inputVideoUrl: originalVideoUrl,
         status: "processing",
-        creditsCost: 50,
-        replicateModel: ultra ? "kie-kling-3.0-motion-control" : "kie-kling-2.6-motion-control",
+        creditsCost: videoCredits,
+        replicateModel: getRecreateReplicateModel({
+          engine: recreateEngineNormalized,
+          ultra: useUltra,
+          wanResolution: wanResolutionNormalized,
+        }),
         pipelinePayload,
       },
     });
@@ -1023,10 +1102,14 @@ export async function generateCompleteRecreation(req, res) {
       const preprocessedOrigVideo = await preprocessReferenceVideoForKling(videoForPreprocess).catch(() => videoForPreprocess);
       const kieVideoUrl2 = await ensureKieAccessibleUrl(preprocessedOrigVideo, "reference video");
       const kieImageUrl2 = await ensureKieAccessibleUrl(imageResult.outputUrl, "generated image");
-      const videoResult = await requestQueue.enqueue(async () => {
-        return await generateVideoWithMotionKie(kieImageUrl2, kieVideoUrl2, {
+      const videoResult = await requestQueue.enqueue(async () =>
+        submitRecreateVideoTask({
+          imageUrl: kieImageUrl2,
+          referenceVideoUrl: kieVideoUrl2,
+          recreateEngine: recreateEngineNormalized,
+          recreateUltra: useUltra,
+          wanResolution: wanResolutionNormalized,
           videoPrompt: videoPrompt || "",
-          ultra,
           onTaskSubmitted: async (taskId) => {
             await persistKieGenerationCorrelation({
               taskId,
@@ -1036,8 +1119,8 @@ export async function generateCompleteRecreation(req, res) {
               extraGenerationData: { pipelinePayload: null },
             });
           },
-        });
-      });
+        })
+      );
 
       if (videoResult.success && videoResult.deferred) {
         if (videoResult.taskId) {
@@ -1205,7 +1288,7 @@ export async function getGenerations(req, res) {
     const where = { userId };
     if (type) {
       if (type === "video") {
-        where.type = { in: ["video", "prompt-video", "face-swap", "nsfw-video", "nsfw-video-extend", "recreate-video", "talking-head"] };
+        where.type = { in: ["video", "prompt-video", "face-swap", "nsfw-video", "nsfw-video-extend", "recreate-video", "talking-head", "creator-studio-video"] };
       } else if (type === "image") {
         where.type = { in: ["image", "image-identity", "prompt-image", "face-swap-image"] };
       } else {
@@ -1236,6 +1319,14 @@ export async function getGenerations(req, res) {
         duration: true,
         outputUrl: true,
         inputImageUrl: true,
+        provider: true,
+        providerTaskId: true,
+        providerFamily: true,
+        providerMode: true,
+        providerType: true,
+        parentTaskId: true,
+        extendEligible: true,
+        originalGenerationId: true,
         status: true,
         errorMessage: true,
         createdAt: true,
@@ -1306,7 +1397,7 @@ export async function getMonthlyStats(req, res) {
           userId,
           status: "completed",
           createdAt: { gte: firstOfMonth },
-          type: { in: ["video", "prompt-video", "face-swap", "recreate-video", "talking-head", "nsfw-video", "nsfw-video-extend"] },
+          type: { in: ["video", "prompt-video", "face-swap", "recreate-video", "talking-head", "nsfw-video", "nsfw-video-extend", "creator-studio-video"] },
         },
       }),
     ]);
@@ -1777,7 +1868,20 @@ export async function completeVideoGeneration(req, res) {
   let userId = null;
 
   try {
-    const { modelId, selectedImageUrl, referenceVideoUrl, prompt, ultra = false } = req.body;
+    const {
+      modelId,
+      selectedImageUrl,
+      referenceVideoUrl,
+      prompt,
+      ultra = false,
+      ultraMode,
+      recreateEngine,
+      wanResolution,
+      videoDuration = 5,
+    } = req.body;
+    const useUltra = ultra === true || ultraMode === true;
+    const recreateEngineNormalized = normalizeRecreateEngine(recreateEngine);
+    const wanResolutionNormalized = normalizeWanResolution(wanResolution);
     userId = req.user.userId;
 
     if (!selectedImageUrl || !referenceVideoUrl) {
@@ -1796,10 +1900,16 @@ export async function completeVideoGeneration(req, res) {
       return res.status(400).json({ success: false, message: refVidCheck.message });
     }
 
-    // Check user credits (10 credits for video generation)
+    // Check user credits
     const user = await checkAndExpireCredits(userId);
     const totalCredits = getTotalCredits(user);
-    const creditsNeeded = 100;
+    const pricing = await getGenerationPricing();
+    const creditsNeeded = estimateRecreateCredits(pricing, {
+      durationSeconds: videoDuration,
+      engine: recreateEngineNormalized,
+      ultra: useUltra,
+      wanResolution: wanResolutionNormalized,
+    });
 
     if (totalCredits < creditsNeeded) {
       return res.status(403).json({
@@ -1830,7 +1940,11 @@ export async function completeVideoGeneration(req, res) {
         inputVideoUrl: referenceVideoUrl,
         status: "processing",
         creditsCost: creditsNeeded,
-        replicateModel: ultra ? "kie-kling-3.0-motion-control" : "kie-kling-2.6-motion-control",
+        replicateModel: getRecreateReplicateModel({
+          engine: recreateEngineNormalized,
+          ultra: useUltra,
+          wanResolution: wanResolutionNormalized,
+        }),
       },
     });
     generationId = generation.id;
@@ -1845,10 +1959,14 @@ export async function completeVideoGeneration(req, res) {
     const preprocessedRefVideo3 = await preprocessReferenceVideoForKling(referenceVideoUrl).catch(() => referenceVideoUrl);
     const kieVideoUrl3 = await ensureKieAccessibleUrl(preprocessedRefVideo3, "reference video");
     const kieImageUrl3 = await ensureKieAccessibleUrl(selectedImageUrl, "selected image");
-    const result = await requestQueue.enqueue(async () => {
-      return await generateVideoWithMotionKie(kieImageUrl3, kieVideoUrl3, {
-        videoPrompt: prompt,
-        ultra,
+    const result = await requestQueue.enqueue(async () =>
+      submitRecreateVideoTask({
+        imageUrl: kieImageUrl3,
+        referenceVideoUrl: kieVideoUrl3,
+        recreateEngine: recreateEngineNormalized,
+        recreateUltra: useUltra,
+        wanResolution: wanResolutionNormalized,
+        videoPrompt: prompt || "",
         onTaskSubmitted: async (taskId) => {
           await persistKieGenerationCorrelation({
             taskId,
@@ -1857,8 +1975,8 @@ export async function completeVideoGeneration(req, res) {
             kind: "video-motion",
           });
         },
-      });
-    });
+      })
+    );
 
     if (result.success && result.deferred) {
       if (result.taskId) {
@@ -1962,9 +2080,14 @@ async function processQuickVideoInBackground(
   userId,
   creditsNeeded,
   ultra = false,
+  recreateEngine = RECREATE_ENGINE.KLING,
+  wanResolution = "580p",
 ) {
   try {
-    const tierLabel = ultra ? "motion-pro-plus" : "motion-classic";
+    const tierLabel =
+      normalizeRecreateEngine(recreateEngine) === RECREATE_ENGINE.WAN
+        ? `wan-animate-move-${normalizeWanResolution(wanResolution)}`
+        : (ultra ? "motion-pro-plus" : "motion-classic");
     console.log(
       `\n🔄 Starting background processing for generation ${generationId} [${tierLabel}]`,
     );
@@ -2019,6 +2142,8 @@ async function processQuickVideoInBackground(
                 userId,
                 creditsNeeded,
                 ultra,
+                recreateEngine: normalizeRecreateEngine(recreateEngine),
+                wanResolution: normalizeWanResolution(wanResolution),
               },
             },
           });
@@ -2046,9 +2171,13 @@ async function processQuickVideoInBackground(
       "reference video"
     );
     const kieImageUrl4 = await ensureKieAccessibleUrl(imageResult.outputUrl, "generated image");
-    const videoResult = await requestQueue.enqueue(async () => {
-      return await generateVideoWithMotionKie(kieImageUrl4, kieVideoUrl4, {
-        ultra,
+    const videoResult = await requestQueue.enqueue(async () =>
+      submitRecreateVideoTask({
+        imageUrl: kieImageUrl4,
+        referenceVideoUrl: kieVideoUrl4,
+        recreateEngine,
+        recreateUltra: ultra,
+        wanResolution,
         onTaskSubmitted: async (taskId) => {
           await persistKieGenerationCorrelation({
             taskId,
@@ -2057,8 +2186,8 @@ async function processQuickVideoInBackground(
             kind: "video-motion",
           });
         },
-      });
-    });
+      })
+    );
 
     if (videoResult.success && videoResult.deferred) {
       if (videoResult.taskId) {
@@ -2134,9 +2263,13 @@ export async function generateVideoDirectly(req, res) {
       ultra = false,
       ultraMode,
       selectedImageUrl,
+      recreateEngine,
+      wanResolution,
     } = req.body; // selectedImageUrl = user's first frame (identity already applied) → skip identity step
     userId = req.user.userId;
     const useUltraDirect = ultra === true || ultraMode === true;
+    const recreateEngineNormalized = normalizeRecreateEngine(recreateEngine);
+    const wanResolutionNormalized = normalizeWanResolution(wanResolution);
 
     // Validate inputs
     if (!referenceVideoUrl) {
@@ -2172,17 +2305,16 @@ export async function generateVideoDirectly(req, res) {
       });
     }
 
-    // Credits check - 20 credits per second
+    // Credits check
     const user = await checkAndExpireCredits(userId);
     const totalCredits = getTotalCredits(user);
     const pricing = await getGenerationPricing();
-    const classicPerSecDirect =
-      typeof pricing.videoRecreateMotionProPerSec === "number"
-        ? pricing.videoRecreateMotionProPerSec
-        : 18;
-    const creditsNeeded = useUltraDirect
-      ? Math.ceil(videoDuration * pricing.videoRecreateUltraPerSec)
-      : Math.ceil(videoDuration * classicPerSecDirect);
+    const creditsNeeded = estimateRecreateCredits(pricing, {
+      durationSeconds: videoDuration,
+      engine: recreateEngineNormalized,
+      ultra: useUltraDirect,
+      wanResolution: wanResolutionNormalized,
+    });
 
     if (totalCredits < creditsNeeded) {
       return res.status(403).json({
@@ -2207,7 +2339,11 @@ export async function generateVideoDirectly(req, res) {
           inputVideoUrl: referenceVideoUrl,
           status: "processing",
           creditsCost: creditsNeeded,
-          replicateModel: useUltraDirect ? "kie-kling-3.0-motion-control" : "kie-kling-2.6-motion-control",
+          replicateModel: getRecreateReplicateModel({
+            engine: recreateEngineNormalized,
+            ultra: useUltraDirect,
+            wanResolution: wanResolutionNormalized,
+          }),
           duration: videoDuration,
         },
       });
@@ -2225,8 +2361,12 @@ export async function generateVideoDirectly(req, res) {
       });
 
       const result = await requestQueue.enqueue(async () =>
-        generateVideoWithMotionKie(kieImageUrl, kieVideoUrl, {
-          ultra: useUltraDirect,
+        submitRecreateVideoTask({
+          imageUrl: kieImageUrl,
+          referenceVideoUrl: kieVideoUrl,
+          recreateEngine: recreateEngineNormalized,
+          recreateUltra: useUltraDirect,
+          wanResolution: wanResolutionNormalized,
           onTaskSubmitted: async (taskId) => {
             await persistKieGenerationCorrelation({
               taskId,
@@ -2308,7 +2448,11 @@ export async function generateVideoDirectly(req, res) {
         inputVideoUrl: referenceVideoUrl,
         status: "processing",
         creditsCost: creditsNeeded,
-        replicateModel: "wan-2.2-animate-quick",
+        replicateModel: getRecreateReplicateModel({
+          engine: recreateEngineNormalized,
+          ultra: useUltraDirect,
+          wanResolution: wanResolutionNormalized,
+        }),
         duration: videoDuration,
       },
     });
@@ -2331,6 +2475,8 @@ export async function generateVideoDirectly(req, res) {
       userId,
       creditsNeeded,
       useUltraDirect,
+      recreateEngineNormalized,
+      wanResolutionNormalized,
     ).catch((error) => {
       console.error("❌ Background processing error:", error);
     });
@@ -3957,6 +4103,65 @@ const CREATOR_STUDIO_ASPECT_RATIOS = [
 ];
 const CREATOR_STUDIO_RESOLUTIONS = ["1K", "2K", "4K"];
 const CREATOR_STUDIO_MODELS = ["nano-banana-pro"];
+const CREATOR_STUDIO_VIDEO_FAMILIES = ["sora2", "kling26", "kling30", "veo31"];
+
+function normalizeCreatorStudioVideoMode(family, mode) {
+  const fam = String(family || "").toLowerCase();
+  const normalized = String(mode || "").toLowerCase();
+  if (fam === "veo31") {
+    if (normalized === "extend") return "extend";
+    if (normalized === "t2v") return "t2v";
+    if (normalized === "i2v") return "i2v";
+    return "ref2v";
+  }
+  if (fam === "sora2") return normalized === "i2v" ? "i2v" : "t2v";
+  if (fam === "kling26") return normalized === "i2v" ? "i2v" : "t2v";
+  if (fam === "kling30") return normalized === "i2v" ? "i2v" : "t2v";
+  return "t2v";
+}
+
+function buildKlingPromptWithSound(prompt, soundEnabled, soundPrompt) {
+  const base = String(prompt || "").trim();
+  if (!soundEnabled) return base;
+  const sound = String(soundPrompt || "").trim();
+  if (!sound) return base;
+  if (!base) return `sound prompt: ${sound}`;
+  return `${base}, sound prompt: ${sound}`;
+}
+
+function estimateCreatorStudioVideoCredits(pricing, payload) {
+  const family = String(payload.family || "").toLowerCase();
+  const mode = normalizeCreatorStudioVideoMode(family, payload.mode);
+  const duration = Number(payload.durationSeconds || 8);
+  const seconds = Number.isFinite(duration) ? Math.max(1, duration) : 8;
+  const speed = String(payload.speed || "fast").toLowerCase() === "quality" ? "quality" : "fast";
+  const sound = payload.soundEnabled === true;
+  if (family === "sora2") {
+    const nFrames = String(payload.nFrames || "10") === "15" ? "15" : "10";
+    const size = String(payload.size || "standard").toLowerCase() === "high" ? "high" : "standard";
+    if (size === "high") return nFrames === "15" ? pricing.sora2High15Frames : pricing.sora2High10Frames;
+    return nFrames === "15" ? pricing.sora2Standard15Frames : pricing.sora2Standard10Frames;
+  }
+  if (family === "kling26") {
+    const bucket = seconds >= 10 ? "10s" : "5s";
+    if (sound) return bucket === "10s" ? pricing.kling26Sound10s : pricing.kling26Sound5s;
+    return bucket === "10s" ? pricing.kling26NoSound10s : pricing.kling26NoSound5s;
+  }
+  if (family === "kling30") {
+    const quality = String(payload.kling30Quality || "std").toLowerCase() === "pro" ? "pro" : "std";
+    const perSec = quality === "pro"
+      ? (sound ? pricing.kling30ProSoundPerSec : pricing.kling30ProNoSoundPerSec)
+      : (sound ? pricing.kling30StdSoundPerSec : pricing.kling30StdNoSoundPerSec);
+    return Math.ceil(seconds * perSec);
+  }
+  if (family === "veo31") {
+    if (mode === "extend") {
+      return speed === "quality" ? pricing.veo31ExtendQuality : pricing.veo31ExtendFast;
+    }
+    return speed === "quality" ? pricing.veo31GenerateQuality1080p8s : pricing.veo31GenerateFast1080p8s;
+  }
+  return 0;
+}
 
 export async function generateCreatorStudio(req, res) {
   let creditsDeducted = 0;
@@ -4138,4 +4343,364 @@ async function processCreatorStudioInBackground(
       console.error("❌ [Creator Studio] DB/refund error:", dbErr);
     }
   }
+}
+
+async function processCreatorStudioVideoInBackground({
+  generationId,
+  userId,
+  family,
+  mode,
+  prompt,
+  imageUrl,
+  referenceImageUrl,
+  endFrameUrl,
+  durationSeconds,
+  nFrames,
+  size,
+  speed,
+  soundEnabled,
+  soundPrompt,
+  kling30Quality,
+  kling30MultiShot,
+  aspectRatio,
+  originalTaskId = null,
+  originalGenerationId = null,
+  veoSeeds = null,
+  veoEnableTranslation = true,
+  veoWatermark = "",
+}) {
+  const lowerFamily = String(family || "").toLowerCase();
+  const normalizedMode = normalizeCreatorStudioVideoMode(lowerFamily, mode);
+  try {
+    const onTaskSubmitted = async (taskId) => {
+      await persistKieGenerationCorrelation({
+        taskId,
+        generationId,
+        userId,
+        kind: "creator-studio-video",
+        extraGenerationData: {
+          provider: "kie",
+          providerTaskId: taskId,
+          providerFamily: lowerFamily,
+          providerMode: normalizedMode,
+          providerType: normalizedMode,
+          parentTaskId: originalTaskId,
+          originalGenerationId,
+        },
+      });
+    };
+
+    const finalPrompt = (lowerFamily === "kling26" || lowerFamily === "kling30")
+      ? buildKlingPromptWithSound(prompt, soundEnabled, soundPrompt)
+      : String(prompt || "");
+
+    let result;
+    if (lowerFamily === "sora2") {
+      result = await requestQueue.enqueue(() =>
+        generateVideoWithSora2ProKie({
+          mode: normalizedMode,
+          prompt: finalPrompt,
+          imageUrl,
+          nFrames: String(nFrames || "10"),
+          size: String(size || "standard"),
+          aspectRatio: String(aspectRatio || "landscape"),
+          removeWatermark: true,
+          onTaskSubmitted,
+        }),
+      );
+    } else if (lowerFamily === "kling26") {
+      if (normalizedMode === "i2v") {
+        result = await requestQueue.enqueue(() =>
+          generateVideoWithKling26Kie(imageUrl, finalPrompt, {
+            duration: String(durationSeconds || 5),
+            useKling3: false,
+            sound: !!soundEnabled,
+            onTaskCreated: onTaskSubmitted,
+          }),
+        );
+      } else {
+        result = await requestQueue.enqueue(() =>
+          generateVideoWithKlingTextKie(finalPrompt, {
+            useKling3: false,
+            duration: String(durationSeconds || 5),
+            sound: !!soundEnabled,
+            onTaskSubmitted,
+          }),
+        );
+      }
+    } else if (lowerFamily === "kling30") {
+      if (normalizedMode === "i2v") {
+        result = await requestQueue.enqueue(() =>
+          generateVideoWithKling26Kie(imageUrl, finalPrompt, {
+            duration: String(durationSeconds || 5),
+            useKling3: true,
+            sound: !!soundEnabled,
+            aspectRatio: String(aspectRatio || "16:9"),
+            onTaskCreated: onTaskSubmitted,
+          }),
+        );
+      } else {
+        result = await requestQueue.enqueue(() =>
+          generateVideoWithKlingTextKie(finalPrompt, {
+            useKling3: true,
+            duration: String(durationSeconds || 5),
+            sound: !!soundEnabled,
+            aspectRatio: String(aspectRatio || "16:9"),
+            quality: kling30Quality || "std",
+            multiShots: !!kling30MultiShot,
+            onTaskSubmitted,
+          }),
+        );
+      }
+    } else if (lowerFamily === "veo31") {
+      if (normalizedMode === "extend") {
+        result = await requestQueue.enqueue(() =>
+          extendVideoWithVeo31Kie({
+            originalTaskId,
+            prompt: String(finalPrompt || ""),
+            duration: String(durationSeconds || 8),
+            speed: speed || "fast",
+            onTaskSubmitted,
+          }),
+        );
+      } else {
+        const veoMode = normalizedMode === "t2v"
+          ? "TEXT_2_VIDEO"
+          : normalizedMode === "i2v"
+            ? "FIRST_AND_LAST_FRAMES_2_VIDEO"
+            : "REFERENCE_2_VIDEO";
+        result = await requestQueue.enqueue(() =>
+          generateVideoWithVeo31Kie({
+            mode: veoMode,
+            prompt: String(finalPrompt || ""),
+            imageUrl,
+            referenceImageUrl,
+            endFrameUrl,
+            speed: speed || "fast",
+            aspectRatio: String(aspectRatio || "16:9"),
+            seeds: veoSeeds,
+            enableTranslation: veoEnableTranslation !== false,
+            watermark: veoWatermark || undefined,
+            onTaskSubmitted,
+          }),
+        );
+      }
+    } else {
+      throw new Error(`Unsupported Creator Studio video family: ${lowerFamily}`);
+    }
+
+    if (result?.success && result?.deferred && result?.taskId) {
+      await prisma.generation.update({
+        where: { id: generationId },
+        data: {
+          replicateModel: `kie-task:${result.taskId}`,
+          providerTaskId: result.taskId,
+        },
+      });
+      return;
+    }
+    if (result?.success && result?.outputUrl) {
+      await prisma.generation.update({
+        where: { id: generationId },
+        data: {
+          status: "completed",
+          outputUrl: result.outputUrl,
+          completedAt: new Date(),
+          providerResponse: { outputUrl: result.outputUrl },
+        },
+      });
+      return;
+    }
+    throw new Error(result?.error || "Unknown video generation error");
+  } catch (error) {
+    console.error(`❌ [Creator Studio video] Background failed for ${generationId}:`, error.message);
+    await prisma.generation.update({
+      where: { id: generationId },
+      data: { status: "failed", errorMessage: getErrorMessageForDb(error.message || "Generation failed") },
+    }).catch(() => {});
+    await refundGeneration(generationId).catch(() => {});
+  }
+}
+
+export async function generateCreatorStudioVideo(req, res) {
+  let creditsDeducted = 0;
+  let generationId = null;
+  let userId = null;
+  try {
+    userId = req.user.userId;
+    const {
+      family = "kling30",
+      mode = "t2v",
+      prompt = "",
+      imageUrl = "",
+      referenceImageUrl = "",
+      endFrameUrl = "",
+      durationSeconds = 8,
+      nFrames = "10",
+      size = "standard",
+      speed = "fast",
+      soundEnabled = false,
+      soundPrompt = "",
+      kling30Quality = "std",
+      kling30MultiShot = false,
+      aspectRatio = "16:9",
+      originalTaskId = null,
+      originalGenerationId = null,
+      veoSeeds = null,
+      veoEnableTranslation = true,
+      veoWatermark = "",
+    } = req.body || {};
+
+    const lowerFamily = String(family || "").toLowerCase();
+    if (!CREATOR_STUDIO_VIDEO_FAMILIES.includes(lowerFamily)) {
+      return res.status(400).json({ success: false, message: "Unsupported video family." });
+    }
+    const normalizedMode = normalizeCreatorStudioVideoMode(lowerFamily, mode);
+    if (!prompt?.trim() && normalizedMode !== "extend") {
+      return res.status(400).json({ success: false, message: "A prompt is required." });
+    }
+    if ((lowerFamily === "sora2" || lowerFamily === "kling26" || lowerFamily === "kling30") && normalizedMode === "i2v" && !imageUrl) {
+      return res.status(400).json({ success: false, message: "Image URL is required for image-to-video mode." });
+    }
+    if (lowerFamily === "veo31") {
+      if (normalizedMode === "ref2v" && !referenceImageUrl && !imageUrl) {
+        return res.status(400).json({ success: false, message: "Reference image is required for Veo reference mode." });
+      }
+      if (normalizedMode === "ref2v" && String(speed || "fast").toLowerCase() !== "fast") {
+        return res.status(400).json({ success: false, message: "Veo REFERENCE_2_VIDEO currently supports only fast mode (veo3_fast)." });
+      }
+      if (normalizedMode === "i2v" && !imageUrl) {
+        return res.status(400).json({ success: false, message: "Start frame image is required for Veo i2v." });
+      }
+      if (normalizedMode === "extend" && !originalTaskId) {
+        return res.status(400).json({ success: false, message: "Original task id is required for Veo extend." });
+      }
+    }
+
+    const pricing = await getGenerationPricing();
+    const creditsNeeded = estimateCreatorStudioVideoCredits(pricing, {
+      family: lowerFamily,
+      mode: normalizedMode,
+      durationSeconds,
+      nFrames,
+      size,
+      speed,
+      soundEnabled,
+      kling30Quality,
+    });
+    if (!Number.isFinite(creditsNeeded) || creditsNeeded <= 0) {
+      return res.status(400).json({ success: false, message: "Could not calculate credits for this configuration." });
+    }
+    const user = await checkAndExpireCredits(userId);
+    const totalCredits = getTotalCredits(user);
+    if (totalCredits < creditsNeeded) {
+      return res.status(403).json({
+        success: false,
+        message: `Need ${creditsNeeded} credits, you have ${totalCredits}.`,
+      });
+    }
+    await deductCredits(userId, creditsNeeded);
+    creditsDeducted = creditsNeeded;
+
+    const generation = await prisma.generation.create({
+      data: {
+        userId,
+        type: "creator-studio-video",
+        prompt: String(prompt || "").trim(),
+        duration: Number(durationSeconds) || null,
+        inputImageUrl: imageUrl || referenceImageUrl || null,
+        inputVideoUrl: null,
+        status: "processing",
+        creditsCost: creditsNeeded,
+        provider: "kie",
+        providerFamily: lowerFamily,
+        providerMode: normalizedMode,
+        providerType: normalizedMode,
+        providerModel: `kie-${lowerFamily}-${normalizedMode}`,
+        parentTaskId: originalTaskId,
+        originalGenerationId: originalGenerationId || null,
+        replicateModel: `kie-${lowerFamily}-${normalizedMode}`,
+        extendEligible: lowerFamily === "veo31" && normalizedMode !== "extend",
+        providerRequest: {
+          family: lowerFamily,
+          mode: normalizedMode,
+          imageUrl,
+          referenceImageUrl,
+          endFrameUrl,
+          durationSeconds,
+          nFrames,
+          size,
+          speed,
+          soundEnabled,
+          soundPrompt,
+          kling30Quality,
+          kling30MultiShot,
+          aspectRatio,
+          originalTaskId,
+          veoSeeds,
+          veoEnableTranslation,
+          veoWatermark,
+        },
+      },
+    });
+    generationId = generation.id;
+
+    processCreatorStudioVideoInBackground({
+      generationId: generation.id,
+      userId,
+      family: lowerFamily,
+      mode: normalizedMode,
+      prompt: String(prompt || "").trim(),
+      imageUrl,
+      referenceImageUrl,
+      endFrameUrl,
+      durationSeconds,
+      nFrames,
+      size,
+      speed,
+      soundEnabled,
+      soundPrompt,
+      kling30Quality,
+      kling30MultiShot,
+      aspectRatio,
+      originalTaskId,
+      originalGenerationId,
+      veoSeeds,
+      veoEnableTranslation,
+      veoWatermark,
+    }).catch((err) => console.error("❌ Creator Studio video background error:", err));
+
+    return res.json({
+      success: true,
+      message: "Video generation started!",
+      generation: {
+        id: generation.id,
+        type: "creator-studio-video",
+        status: "processing",
+        createdAt: generation.createdAt,
+      },
+      creditsUsed: creditsNeeded,
+      creditsRemaining: totalCredits - creditsNeeded,
+    });
+  } catch (error) {
+    console.error("❌ Creator Studio video generation error:", error);
+    if (creditsDeducted > 0 && userId) {
+      try {
+        if (generationId) {
+          await refundGeneration(generationId);
+        } else {
+          await refundCredits(userId, creditsDeducted);
+        }
+      } catch (refundErr) {
+        console.error("❌ Creator Studio video refund failed:", refundErr);
+      }
+    }
+    return res.status(500).json({ success: false, message: "Server error", error: error.message });
+  }
+}
+
+export async function extendCreatorStudioVideo(req, res) {
+  const payload = { ...(req.body || {}), family: "veo31", mode: "extend" };
+  req.body = payload;
+  return generateCreatorStudioVideo(req, res);
 }

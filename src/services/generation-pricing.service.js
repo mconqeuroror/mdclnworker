@@ -18,6 +18,9 @@ export const DEFAULT_GENERATION_PRICING = Object.freeze({
   // Creator Studio — NanoBanana Pro
   creatorStudio1K2K: 20,
   creatorStudio4K: 25,
+  nanoBananaFlash1K: 4,
+  nanoBanana2Flash4K: 8,
+  nanoBananaPro4K: 24,
 
   // Real Avatars — HeyGen Photo Avatar IV
   avatarCreation: 1000,   // one-time creation fee
@@ -29,6 +32,45 @@ export const DEFAULT_GENERATION_PRICING = Object.freeze({
   /** kling-2.6/motion-control @ 1080p (default “classic” recreate) */
   videoRecreateMotionProPerSec: 18,
   videoRecreateUltraPerSec: 25,
+  wan22AnimateMove720pPerSec: 12.5,
+  wan22AnimateMove580pPerSec: 9.5,
+  wan22AnimateMove480pPerSec: 6,
+  wan22AnimateReplace720pPerSec: 12.5,
+  wan22AnimateReplace580pPerSec: 9.5,
+  wan22AnimateReplace480pPerSec: 6,
+
+  // Veo 3.1
+  veo31GenerateFast1080p8s: 60,
+  veo31GenerateQuality1080p8s: 250,
+  veo31ExtendFast: 60,
+  veo31ExtendQuality: 250,
+  veo31Render1080p: 5,
+  veo31Upscale4k: 120,
+
+  // Sora 2 Pro
+  sora2Standard10Frames: 150,
+  sora2Standard15Frames: 270,
+  sora2High10Frames: 330,
+  sora2High15Frames: 630,
+  sora2Storyboard10s: 150,
+  sora2Storyboard15To25s: 270,
+
+  // Kling generation (non-motion)
+  kling30StdNoSoundPerSec: 14,
+  kling30StdSoundPerSec: 20,
+  kling30ProNoSoundPerSec: 18,
+  kling30ProSoundPerSec: 27,
+  kling26NoSound5s: 55,
+  kling26NoSound10s: 110,
+  kling26Sound5s: 110,
+  kling26Sound10s: 220,
+
+  // Seedance 2 (PiAPI) converted to equivalent credits/sec at current policy
+  seedance2PreviewCreditsPerSec: 60,
+  seedance2FastPreviewCreditsPerSec: 32,
+  seedance2PreviewEditCreditsPerSec: 100,
+  seedance2FastPreviewEditCreditsPerSec: 52,
+
   videoPrompt5s: 60,
   videoPrompt10s: 100,
   videoFaceSwapPerSec: 10,
@@ -48,7 +90,7 @@ function sanitizePricingObject(input) {
     const raw = input[key];
     const value = typeof raw === "string" ? Number(raw) : raw;
     if (!Number.isFinite(value) || value < 0) continue;
-    sanitized[key] = Math.round(value);
+    sanitized[key] = Math.round(value * 1000) / 1000;
   }
   return sanitized;
 }

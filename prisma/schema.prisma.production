@@ -129,6 +129,17 @@ model Generation {
   
   duration          Int?
   resolution        String?
+  provider          String?   @default("kie")
+  providerTaskId    String?
+  providerModel     String?
+  providerFamily    String?
+  providerMode      String?
+  providerType      String?
+  parentTaskId      String?
+  extendEligible    Boolean   @default(false)
+  originalGenerationId String?
+  providerRequest   Json?
+  providerResponse  Json?
   
   creditsCost       Int
   creditsRefunded   Boolean   @default(false)
@@ -145,6 +156,8 @@ model Generation {
   isTrial           Boolean   @default(false)
   
   isNsfw            Boolean   @default(false)
+  originalGeneration Generation? @relation("GenerationExtensionChain", fields: [originalGenerationId], references: [id], onDelete: SetNull)
+  extensions        Generation[] @relation("GenerationExtensionChain")
   
   createdAt         DateTime  @default(now())
   completedAt       DateTime?
@@ -152,6 +165,11 @@ model Generation {
   @@index([userId])
   @@index([modelId])
   @@index([status])
+  @@index([providerTaskId])
+  @@index([provider, providerModel])
+  @@index([providerFamily, providerType])
+  @@index([extendEligible, createdAt])
+  @@index([originalGenerationId])
   @@index([userId, createdAt])
   @@index([status, createdAt])
 }

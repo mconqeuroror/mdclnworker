@@ -818,6 +818,18 @@ export const creatorStudioAPI = {
     const response = await api.get(`/generations?type=creator-studio&limit=${limit}&offset=${offset}`);
     return response.data;
   },
+  generateVideo: async (payload) => {
+    const response = await api.post("/generate/creator-studio/video", payload);
+    return response.data;
+  },
+  extendVideo: async (payload) => {
+    const response = await api.post("/generate/creator-studio/video/extend", payload);
+    return response.data;
+  },
+  getVideoHistory: async ({ limit = 20, offset = 0 } = {}) => {
+    const response = await api.get(`/generations?type=creator-studio-video&limit=${limit}&offset=${offset}`);
+    return response.data;
+  },
 };
 
 // Real Avatars API

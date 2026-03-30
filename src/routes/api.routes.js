@@ -43,6 +43,8 @@ import {
   getVoices,
   getVoicePreview,
   generateCreatorStudio,
+  generateCreatorStudioVideo,
+  extendCreatorStudioVideo,
 } from "../controllers/generation.controller.js";
 import {
   createModel,
@@ -1985,6 +1987,22 @@ router.post(
   generationLimiter,
   validateGeneration,
   generateCreatorStudio,
+);
+
+router.post(
+  "/generate/creator-studio/video",
+  authMiddleware,
+  generationLimiter,
+  validateGeneration,
+  generateCreatorStudioVideo,
+);
+
+router.post(
+  "/generate/creator-studio/video/extend",
+  authMiddleware,
+  generationLimiter,
+  validateGeneration,
+  extendCreatorStudioVideo,
 );
 
 /**
