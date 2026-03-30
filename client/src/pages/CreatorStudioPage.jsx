@@ -225,13 +225,15 @@ const VIDEO_FAMILIES = [
   { id: "kling30", label: "Kling 3.0" },
   { id: "kling26", label: "Kling 2.6" },
   { id: "veo31", label: "Veo 3.1" },
+  { id: "wan22", label: "WAN 2.2" },
+  { id: "seedance2", label: "Seedance 2.0" },
 ];
 
 const VIDEO_DEFAULT_PRICING = Object.freeze({
-  sora2Standard10Frames: 150,
-  sora2Standard15Frames: 270,
-  sora2High10Frames: 330,
-  sora2High15Frames: 630,
+  sora2Standard10Frames: 300,
+  sora2Standard15Frames: 540,
+  sora2High10Frames: 660,
+  sora2High15Frames: 1260,
   kling30StdNoSoundPerSec: 14,
   kling30StdSoundPerSec: 20,
   kling30ProNoSoundPerSec: 18,
@@ -245,6 +247,16 @@ const VIDEO_DEFAULT_PRICING = Object.freeze({
   veo31ExtendFast: 60,
   veo31ExtendQuality: 250,
   veo31Render1080p: 5,
+  wan22AnimateMove720pPerSec: 12.5,
+  wan22AnimateMove580pPerSec: 9.5,
+  wan22AnimateMove480pPerSec: 6,
+  wan22AnimateReplace720pPerSec: 12.5,
+  wan22AnimateReplace580pPerSec: 9.5,
+  wan22AnimateReplace480pPerSec: 6,
+  seedance2PreviewCreditsPerSec: 60,
+  seedance2FastPreviewCreditsPerSec: 32,
+  seedance2PreviewEditCreditsPerSec: 100,
+  seedance2FastPreviewEditCreditsPerSec: 52,
 });
 
 function toPrice(source, key) {
@@ -253,14 +265,38 @@ function toPrice(source, key) {
 }
 
 function getDurationConfig(family, mode) {
-  if (family === "kling26" || family === "kling30") {
+  if (family === "kling30") {
+    return { min: 3, max: 15, step: 1, fixed: false };
+  }
+  if (family === "kling26") {
     return { min: 5, max: 10, step: 5, fixed: false };
   }
   if (family === "veo31") {
-    if (mode === "extend") return { min: 8, max: 8, step: 1, fixed: true };
     return { min: 8, max: 8, step: 1, fixed: true };
   }
+  if (family === "seedance2" && mode === "edit") {
+    return { min: 5, max: 5, step: 1, fixed: true };
+  }
+  if (family === "seedance2") {
+    return { min: 5, max: 15, step: 5, fixed: false };
+  }
+  if (family === "wan22") {
+    return { min: 5, max: 5, step: 1, fixed: true };
+  }
   return { min: 10, max: 15, step: 5, fixed: false };
+}
+
+function getVideoModesByFamily(family) {
+  if (family === "veo31") return ["ref2v", "t2v", "i2v", "extend"];
+  if (family === "wan22") return ["move", "replace"];
+  if (family === "seedance2") return ["t2v", "i2v", "edit", "extend"];
+  return ["t2v", "i2v"];
+}
+
+function defaultModeByFamily(family) {
+  if (family === "veo31") return "ref2v";
+  if (family === "wan22") return "move";
+  return "t2v";
 }
 
 function estimateSecs(script) {
@@ -289,6 +325,28 @@ function Chip({ active, onClick, children }) {
     >
       {children}
     </button>
+  );
+}
+
+function ToggleGroup({ value, onChange, options, className = "" }) {
+  return (
+    <div className={`inline-flex rounded-xl border border-white/15 bg-black/40 p-1 ${className}`}>
+      {options.map((option, idx) => {
+        const isActive = value === option.value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => onChange(option.value)}
+            className={`min-h-[38px] px-3 text-xs font-semibold transition ${
+              idx === 0 ? "rounded-l-lg" : idx === options.length - 1 ? "rounded-r-lg" : ""
+            } ${isActive ? "bg-violet-600 text-white" : "text-slate-300 hover:bg-white/10"}`}
+          >
+            {option.label}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -323,7 +381,7 @@ function RefSlot({ url, onRemove, onAdd, uploading }) {
   );
 }
 
-function MediaUploadField({ label, value, onUploaded }) {
+function MediaUploadField({ label, value, onUploaded, accept = "image/*", preview = "image" }) {
   const inputRef = useRef(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -349,7 +407,7 @@ function MediaUploadField({ label, value, onUploaded }) {
       <input
         ref={inputRef}
         type="file"
-        accept="image/*"
+        accept={accept}
         className="hidden"
         onChange={(e) => uploadOne(e.target.files?.[0])}
       />
@@ -369,7 +427,13 @@ function MediaUploadField({ label, value, onUploaded }) {
       >
         {value ? (
           <div className="flex items-center gap-3">
-            <img src={value} alt="" className="w-12 h-12 rounded-lg object-cover border border-white/20" />
+            {preview === "video" ? (
+              <div className="w-12 h-12 rounded-lg border border-white/20 bg-black/60 flex items-center justify-center">
+                <Video className="w-5 h-5 text-slate-300" />
+              </div>
+            ) : (
+              <img src={value} alt="" className="w-12 h-12 rounded-lg object-cover border border-white/20" />
+            )}
             <div className="min-w-0 flex-1">
               <p className="text-xs text-slate-300 truncate">Uploaded</p>
               <p className="text-[11px] text-slate-500 truncate">{value}</p>
@@ -1194,10 +1258,15 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
   const [videoImageUrl, setVideoImageUrl] = useState("");
   const [videoRefImageUrl, setVideoRefImageUrl] = useState("");
   const [videoEndFrameUrl, setVideoEndFrameUrl] = useState("");
+  const [videoThirdImageUrl, setVideoThirdImageUrl] = useState("");
+  const [videoInputVideoUrl, setVideoInputVideoUrl] = useState("");
   const [videoDuration, setVideoDuration] = useState(8);
   const [videoNFrames, setVideoNFrames] = useState("10");
   const [videoSize, setVideoSize] = useState("standard");
+  const [soraQuality, setSoraQuality] = useState("standard");
+  const [soraRemoveWatermark, setSoraRemoveWatermark] = useState(false);
   const [videoSpeed, setVideoSpeed] = useState("fast");
+  const [videoAspectRatio, setVideoAspectRatio] = useState("16:9");
   const [veoSeed, setVeoSeed] = useState("");
   const [veoEnableTranslation, setVeoEnableTranslation] = useState(true);
   const [veoWatermark, setVeoWatermark] = useState("");
@@ -1205,6 +1274,12 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
   const [soundPrompt, setSoundPrompt] = useState("");
   const [kling30Quality, setKling30Quality] = useState("std");
   const [kling30MultiShot, setKling30MultiShot] = useState(false);
+  const [klingElements, setKlingElements] = useState([]);
+  const [klingElementName, setKlingElementName] = useState("");
+  const [klingElementDescription, setKlingElementDescription] = useState("");
+  const [klingElementMediaUrls, setKlingElementMediaUrls] = useState(["", "", "", ""]);
+  const [seedanceTaskType, setSeedanceTaskType] = useState("seedance-2-preview");
+  const [wanResolution, setWanResolution] = useState("580p");
   const [isVideoGenerating, setIsVideoGenerating] = useState(false);
   const [extendSourceId, setExtendSourceId] = useState("");
 
@@ -1288,20 +1363,50 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
   };
 
   const handleGenerateVideo = async () => {
-    if (!videoPrompt.trim() && !(videoFamily === "veo31" && videoMode === "extend")) {
+    if (!videoPrompt.trim()) {
       toast.error(copy.enterPrompt);
       return;
     }
-    if ((videoFamily === "sora2" || videoFamily === "kling26" || videoFamily === "kling30") && videoMode === "i2v" && !videoImageUrl.trim()) {
+    if ((videoFamily === "sora2" || videoFamily === "kling26" || videoFamily === "kling30" || videoFamily === "seedance2") && videoMode === "i2v" && !videoImageUrl.trim()) {
       toast.error("An image upload is required for image-to-video.");
       return;
     }
+    if (videoFamily === "kling30" && videoMode === "i2v" && !videoImageUrl.trim()) {
+      toast.error("Start frame is required for Kling 3.0 image-to-video.");
+      return;
+    }
+    if (videoFamily === "veo31" && videoMode === "ref2v" && !videoImageUrl.trim()) {
+      toast.error("At least one reference image is required for Veo 3.1 reference mode.");
+      return;
+    }
     if (videoFamily === "veo31" && videoMode === "extend" && !extendSourceId.trim()) {
-      toast.error("Original Veo task id is required for extend.");
+      toast.error("Select a Veo video from your gallery to extend.");
+      return;
+    }
+    if (videoFamily === "wan22" && (!videoInputVideoUrl.trim() || !videoImageUrl.trim())) {
+      toast.error("WAN requires both input video and input image uploads.");
+      return;
+    }
+    if (videoFamily === "seedance2" && videoMode === "edit" && !videoInputVideoUrl.trim()) {
+      toast.error("Seedance video edit requires a source video.");
+      return;
+    }
+    if (videoFamily === "seedance2" && videoMode === "extend" && !extendSourceId.trim()) {
+      toast.error("Select a previous Seedance generation to extend.");
       return;
     }
     setIsVideoGenerating(true);
     try {
+      const normalizedKlingElements = klingElements
+        .filter((entry) => entry?.name && entry?.description)
+        .map((entry) => ({
+          name: entry.name,
+          description: entry.description,
+          element_input_urls: Array.isArray(entry.element_input_urls)
+            ? entry.element_input_urls.filter(Boolean).slice(0, 4)
+            : [],
+        }))
+        .filter((entry) => entry.element_input_urls.length >= 2);
       const payload = {
         family: videoFamily,
         mode: videoMode,
@@ -1309,15 +1414,22 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
         imageUrl: videoImageUrl.trim() || undefined,
         referenceImageUrl: videoRefImageUrl.trim() || undefined,
         endFrameUrl: videoEndFrameUrl.trim() || undefined,
+        thirdImageUrl: videoThirdImageUrl.trim() || undefined,
+        inputVideoUrl: videoInputVideoUrl.trim() || undefined,
         durationSeconds: Number(videoDuration) || 8,
         nFrames: videoNFrames,
         size: videoSize,
+        soraQuality,
+        removeWatermark: soraRemoveWatermark,
         speed: videoSpeed,
         soundEnabled,
         soundPrompt: soundPrompt.trim(),
         kling30Quality,
         kling30MultiShot,
-        aspectRatio,
+        klingElements: normalizedKlingElements,
+        aspectRatio: videoAspectRatio,
+        seedanceTaskType,
+        wanResolution,
         veoSeeds: veoSeed ? Number(veoSeed) : undefined,
         veoEnableTranslation,
         veoWatermark: veoWatermark.trim() || undefined,
@@ -1353,9 +1465,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
     ...(activeGeneration ? [activeGeneration] : []),
     ...history.filter((g) => g.id !== activeGeneration?.id),
   ];
-  const videoModes = videoFamily === "veo31"
-    ? ["ref2v", "t2v", "i2v", "extend"]
-    : ["t2v", "i2v"];
+  const videoModes = getVideoModesByFamily(videoFamily);
   const soundAvailable = videoFamily === "kling26" || videoFamily === "kling30";
   const selectedVideoFamily = VIDEO_FAMILIES.find((f) => f.id === videoFamily);
   const durationConfig = useMemo(
@@ -1374,13 +1484,23 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
     });
   }, [durationConfig.max, durationConfig.min, durationConfig.step]);
 
+  useEffect(() => {
+    if (videoFamily === "sora2") {
+      setVideoAspectRatio((prev) => (prev === "portrait" || prev === "landscape" ? prev : "landscape"));
+    } else if (videoFamily === "veo31") {
+      setVideoAspectRatio((prev) => (["Auto", "16:9", "9:16"].includes(prev) ? prev : "Auto"));
+    } else if (videoFamily === "kling26" || videoFamily === "kling30" || videoFamily === "seedance2") {
+      setVideoAspectRatio((prev) => (["1:1", "16:9", "9:16", "4:3", "3:4"].includes(prev) ? prev : "16:9"));
+    }
+  }, [videoFamily]);
+
   const videoPricingInfo = useMemo(() => {
     const duration = Number(videoDuration) || durationConfig.min;
     if (videoFamily === "sora2") {
       const cost = videoSize === "high"
         ? (videoNFrames === "15" ? toPrice(generationPricing, "sora2High15Frames") : toPrice(generationPricing, "sora2High10Frames"))
         : (videoNFrames === "15" ? toPrice(generationPricing, "sora2Standard15Frames") : toPrice(generationPricing, "sora2Standard10Frames"));
-      return { cost, details: `${cost} cr per generation (${videoNFrames} frames · ${videoSize})` };
+      return { cost, details: `Per generation (${videoNFrames}s · ${videoSize})` };
     }
     if (videoFamily === "kling26") {
       const bucket = duration >= 10 ? "10s" : "5s";
@@ -1388,13 +1508,13 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
         ? (bucket === "10s" ? toPrice(generationPricing, "kling26Sound10s") : toPrice(generationPricing, "kling26Sound5s"))
         : (bucket === "10s" ? toPrice(generationPricing, "kling26NoSound10s") : toPrice(generationPricing, "kling26NoSound5s"));
       const perSec = Math.round((cost / (bucket === "10s" ? 10 : 5)) * 10) / 10;
-      return { cost, details: `${perSec} cr/sec (${bucket} billing bucket)` };
+      return { cost, details: `~${perSec}/sec (${bucket} billing bucket)` };
     }
     if (videoFamily === "kling30") {
       const perSec = kling30Quality === "pro"
         ? (soundEnabled ? toPrice(generationPricing, "kling30ProSoundPerSec") : toPrice(generationPricing, "kling30ProNoSoundPerSec"))
         : (soundEnabled ? toPrice(generationPricing, "kling30StdSoundPerSec") : toPrice(generationPricing, "kling30StdNoSoundPerSec"));
-      return { cost: Math.ceil(perSec * duration), details: `${perSec} cr/sec (${kling30Quality.toUpperCase()}${soundEnabled ? " + sound" : ""})` };
+      return { cost: Math.ceil(perSec * duration), details: `${perSec}/sec (${kling30Quality.toUpperCase()}${soundEnabled ? " + sound" : ""})` };
     }
     if (videoFamily === "veo31") {
       if (videoMode === "extend") {
@@ -1402,17 +1522,31 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
           ? toPrice(generationPricing, "veo31ExtendQuality")
           : toPrice(generationPricing, "veo31ExtendFast");
         const perSec = Math.round((cost / 8) * 10) / 10;
-        return { cost, details: `${cost} cr per extension (~${perSec} cr/sec @8s)` };
+        return { cost, details: `Per extension (~${perSec}/sec @8s)` };
       }
       const cost = videoSpeed === "quality"
         ? toPrice(generationPricing, "veo31GenerateQuality1080p8s")
         : toPrice(generationPricing, "veo31GenerateFast1080p8s");
       const renderCost = toPrice(generationPricing, "veo31Render1080p");
       const perSec = Math.round((cost / 8) * 10) / 10;
-      return { cost, details: `${cost} cr per generation (~${perSec} cr/sec @8s) · 1080p render ${renderCost} cr` };
+      return { cost, details: `Per generation (~${perSec}/sec @8s) · 1080p render ${renderCost}` };
+    }
+    if (videoFamily === "wan22") {
+      const perSec = videoMode === "replace"
+        ? toPrice(generationPricing, `wan22AnimateReplace${wanResolution}PerSec`)
+        : toPrice(generationPricing, `wan22AnimateMove${wanResolution}PerSec`);
+      return { cost: Math.ceil(perSec * duration), details: `${perSec}/sec (${wanResolution})` };
+    }
+    if (videoFamily === "seedance2") {
+      const fast = seedanceTaskType === "seedance-2-fast-preview";
+      const key = videoMode === "edit"
+        ? (fast ? "seedance2FastPreviewEditCreditsPerSec" : "seedance2PreviewEditCreditsPerSec")
+        : (fast ? "seedance2FastPreviewCreditsPerSec" : "seedance2PreviewCreditsPerSec");
+      const perSec = toPrice(generationPricing, key);
+      return { cost: Math.ceil(perSec * duration), details: `${perSec}/sec (${fast ? "Fast" : "Quality"})` };
     }
     return { cost: 0, details: "Pricing unavailable" };
-  }, [durationConfig.min, generationPricing, kling30Quality, soundEnabled, videoDuration, videoFamily, videoMode, videoNFrames, videoSize, videoSpeed]);
+  }, [durationConfig.min, generationPricing, kling30Quality, seedanceTaskType, soundEnabled, videoDuration, videoFamily, videoMode, videoNFrames, videoSize, videoSpeed, wanResolution]);
 
   return (
     <div
@@ -1779,7 +1913,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                       active={videoFamily === family.id}
                       onClick={() => {
                         setVideoFamily(family.id);
-                        setVideoMode(family.id === "veo31" ? "ref2v" : "t2v");
+                        setVideoMode(defaultModeByFamily(family.id));
                       }}
                     >
                       {family.label}
@@ -1793,11 +1927,26 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                 <div className="flex flex-wrap gap-2">
                   {videoModes.map((m) => (
                     <Chip key={m} active={videoMode === m} onClick={() => setVideoMode(m)}>
-                      {m === "t2v" ? "Text to Video" : m === "i2v" ? "Image to Video" : m === "ref2v" ? "Reference to Video" : "Extend"}
+                      {m === "t2v"
+                        ? "Text to Video"
+                        : m === "i2v"
+                          ? "Image to Video"
+                          : m === "ref2v"
+                            ? "Reference to Video"
+                            : m === "move"
+                              ? "Animate Move"
+                              : m === "replace"
+                                ? "Animate Replace"
+                                : m === "edit"
+                                  ? "Video Edit"
+                                  : "Extend"}
                     </Chip>
                   ))}
                 </div>
-                <p className="text-xs text-violet-200/90 mt-2">{videoPricingInfo.details}</p>
+                <p className="text-xs text-violet-200/90 mt-2 flex items-center gap-1.5">
+                  <Coins className="w-3.5 h-3.5 text-yellow-400" />
+                  {videoPricingInfo.details}
+                </p>
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -1812,77 +1961,218 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                   />
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-black/30 p-3 space-y-3">
-                  {(videoMode === "i2v" || videoMode === "ref2v") && (
-                    <MediaUploadField label="Input image" value={videoImageUrl} onUploaded={setVideoImageUrl} />
+                  {(videoFamily === "sora2" || videoFamily === "kling26") && videoMode === "i2v" && (
+                    <MediaUploadField label="Input Image" value={videoImageUrl} onUploaded={setVideoImageUrl} />
                   )}
-                  {videoFamily === "veo31" && videoMode === "ref2v" && (
-                    <MediaUploadField label="Reference image" value={videoRefImageUrl} onUploaded={setVideoRefImageUrl} />
+                  {videoFamily === "kling30" && videoMode === "i2v" && (
+                    <>
+                      <MediaUploadField label="Start Frame" value={videoImageUrl} onUploaded={setVideoImageUrl} />
+                      <MediaUploadField label="End Frame (optional)" value={videoEndFrameUrl} onUploaded={setVideoEndFrameUrl} />
+                    </>
                   )}
                   {videoFamily === "veo31" && videoMode === "i2v" && (
-                    <MediaUploadField label="End frame image (optional)" value={videoEndFrameUrl} onUploaded={setVideoEndFrameUrl} />
+                    <>
+                      <MediaUploadField label="Start Frame" value={videoImageUrl} onUploaded={setVideoImageUrl} />
+                      <MediaUploadField label="End Frame (optional)" value={videoEndFrameUrl} onUploaded={setVideoEndFrameUrl} />
+                    </>
                   )}
-                  {videoFamily === "veo31" && videoMode === "extend" && (
+                  {videoFamily === "veo31" && videoMode === "ref2v" && (
+                    <>
+                      <MediaUploadField label="Reference Image 1" value={videoImageUrl} onUploaded={setVideoImageUrl} />
+                      <MediaUploadField label="Reference Image 2 (optional)" value={videoRefImageUrl} onUploaded={setVideoRefImageUrl} />
+                      <MediaUploadField label="Reference Image 3 (optional)" value={videoThirdImageUrl} onUploaded={setVideoThirdImageUrl} />
+                    </>
+                  )}
+                  {videoFamily === "wan22" && (
+                    <>
+                      <MediaUploadField label="Input Video" value={videoInputVideoUrl} onUploaded={setVideoInputVideoUrl} accept="video/*" preview="video" />
+                      <MediaUploadField label="Input Image" value={videoImageUrl} onUploaded={setVideoImageUrl} />
+                    </>
+                  )}
+                  {videoFamily === "seedance2" && (videoMode === "i2v" || videoMode === "edit") && (
+                    <>
+                      {videoMode === "edit" && (
+                        <MediaUploadField label="Input Video" value={videoInputVideoUrl} onUploaded={setVideoInputVideoUrl} accept="video/*" preview="video" />
+                      )}
+                      <MediaUploadField label="Reference Image (optional)" value={videoImageUrl} onUploaded={setVideoImageUrl} />
+                    </>
+                  )}
+                  {(videoFamily === "veo31" && videoMode === "extend") && (
                     <div>
-                      <label className="block text-xs text-slate-400 mb-1">Original Veo task id</label>
-                      <input value={extendSourceId} onChange={(e) => setExtendSourceId(e.target.value)} className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-white outline-none" />
+                      <label className="block text-xs text-slate-400 mb-1">Select Veo video to extend</label>
+                      <select value={extendSourceId} onChange={(e) => setExtendSourceId(e.target.value)} className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-white outline-none">
+                        <option value="">Choose from gallery</option>
+                        {videoHistory
+                          .filter((item) => item?.providerFamily === "veo31" && item?.providerTaskId && item?.status === "completed")
+                          .map((item) => (
+                            <option key={item.id} value={item.providerTaskId}>
+                              {item.prompt?.slice(0, 56) || "Veo generation"} ({item.providerTaskId})
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+                  )}
+                  {(videoFamily === "seedance2" && videoMode === "extend") && (
+                    <div>
+                      <label className="block text-xs text-slate-400 mb-1">Select Seedance video to extend</label>
+                      <select value={extendSourceId} onChange={(e) => setExtendSourceId(e.target.value)} className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-white outline-none">
+                        <option value="">Choose from gallery</option>
+                        {videoHistory
+                          .filter((item) => item?.providerFamily === "seedance2" && item?.providerTaskId && item?.status === "completed")
+                          .map((item) => (
+                            <option key={item.id} value={item.providerTaskId}>
+                              {item.prompt?.slice(0, 56) || "Seedance generation"} ({item.providerTaskId})
+                            </option>
+                          ))}
+                      </select>
                     </div>
                   )}
                 </div>
               </div>
 
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <div className="rounded-xl border border-white/10 p-3 col-span-2 md:col-span-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="block text-xs text-slate-400">Duration</label>
-                    <span className="text-xs text-slate-300">{videoDuration}s</span>
+                {videoFamily !== "sora2" && videoFamily !== "kling26" && videoFamily !== "veo31" && (
+                  <div className="rounded-xl border border-white/10 p-3 col-span-2 md:col-span-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="block text-xs text-slate-400">Duration</label>
+                      <span className="text-xs text-slate-300">{videoDuration}s</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={durationConfig.min}
+                      max={durationConfig.max}
+                      step={durationConfig.step}
+                      disabled={durationConfig.fixed}
+                      value={videoDuration}
+                      onChange={(e) => setVideoDuration(Number(e.target.value))}
+                      className="w-full accent-violet-500 disabled:opacity-50"
+                    />
+                    <div className="mt-1 flex justify-between text-[10px] text-slate-500">
+                      <span>{durationConfig.min}s</span>
+                      <span>{durationConfig.max}s</span>
+                    </div>
                   </div>
-                  <input
-                    type="range"
-                    min={durationConfig.min}
-                    max={durationConfig.max}
-                    step={durationConfig.step}
-                    disabled={durationConfig.fixed}
-                    value={videoDuration}
-                    onChange={(e) => setVideoDuration(Number(e.target.value))}
-                    className="w-full accent-violet-500 disabled:opacity-50"
-                  />
-                  <div className="mt-1 flex justify-between text-[10px] text-slate-500">
-                    <span>{durationConfig.min}s</span>
-                    <span>{durationConfig.max}s</span>
-                  </div>
-                </div>
+                )}
                 {videoFamily === "sora2" && (
                   <>
                     <div className="rounded-xl border border-white/10 p-3">
-                      <label className="block text-xs text-slate-400 mb-1">Frames</label>
-                      <select value={videoNFrames} onChange={(e) => setVideoNFrames(e.target.value)} className="w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm text-white outline-none">
-                        <option value="10">10</option>
-                        <option value="15">15</option>
-                      </select>
+                      <label className="block text-xs text-slate-400 mb-2">Duration</label>
+                      <ToggleGroup value={videoNFrames} onChange={setVideoNFrames} options={[{ value: "10", label: "10s" }, { value: "15", label: "15s" }]} />
                     </div>
                     <div className="rounded-xl border border-white/10 p-3">
-                      <label className="block text-xs text-slate-400 mb-1">Quality</label>
-                      <select value={videoSize} onChange={(e) => setVideoSize(e.target.value)} className="w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm text-white outline-none">
-                        <option value="standard">Standard</option>
-                        <option value="high">High</option>
-                      </select>
+                      <label className="block text-xs text-slate-400 mb-2">Quality</label>
+                      <ToggleGroup value={soraQuality} onChange={setSoraQuality} options={[{ value: "standard", label: "Standard" }, { value: "high", label: "High" }]} />
+                    </div>
+                    <div className="rounded-xl border border-white/10 p-3">
+                      <label className="block text-xs text-slate-400 mb-2">Size</label>
+                      <ToggleGroup value={videoSize} onChange={setVideoSize} options={[{ value: "standard", label: "Standard" }, { value: "high", label: "High" }]} />
+                    </div>
+                    <div className="rounded-xl border border-white/10 p-3">
+                      <label className="block text-xs text-slate-400 mb-2">Aspect Ratio</label>
+                      <ToggleGroup value={videoAspectRatio} onChange={setVideoAspectRatio} options={[{ value: "portrait", label: "Portrait" }, { value: "landscape", label: "Landscape" }]} />
+                    </div>
+                    <div className="rounded-xl border border-white/10 p-3 col-span-2 md:col-span-4">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-slate-300">Remove watermark</span>
+                        <button
+                          type="button"
+                          onClick={() => setSoraRemoveWatermark((v) => !v)}
+                          className={`px-3 py-1.5 rounded-lg text-xs ${soraRemoveWatermark ? "bg-violet-600 text-white" : "bg-white/10 text-slate-300"}`}
+                        >
+                          {soraRemoveWatermark ? "On" : "Off"}
+                        </button>
+                      </div>
                     </div>
                   </>
                 )}
                 {videoFamily === "kling30" && (
                   <>
                     <div className="rounded-xl border border-white/10 p-3">
-                      <label className="block text-xs text-slate-400 mb-1">Tier</label>
-                      <select value={kling30Quality} onChange={(e) => setKling30Quality(e.target.value)} className="w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm text-white outline-none">
-                        <option value="std">Standard</option>
-                        <option value="pro">Pro</option>
-                      </select>
+                      <label className="block text-xs text-slate-400 mb-2">Mode</label>
+                      <ToggleGroup value={kling30Quality} onChange={setKling30Quality} options={[{ value: "std", label: "Standard" }, { value: "pro", label: "Pro" }]} />
                     </div>
                     <div className="rounded-xl border border-white/10 p-3 flex items-center justify-between">
-                      <span className="text-xs text-slate-300">Multi-shot</span>
+                      <span className="text-xs text-slate-300 flex items-center gap-1.5">
+                        Multi-shot
+                        <span title="Create multiple shots of the same video (up to 5 shots). Total duration of all shots cannot exceed 15 seconds.">
+                          <Info className="w-3.5 h-3.5 text-slate-400" />
+                        </span>
+                      </span>
                       <button type="button" onClick={() => setKling30MultiShot((v) => !v)} className={`px-3 py-1.5 rounded-lg text-xs ${kling30MultiShot ? "bg-violet-600 text-white" : "bg-white/10 text-slate-300"}`}>
                         {kling30MultiShot ? "On" : "Off"}
                       </button>
+                    </div>
+                    <div className="rounded-xl border border-white/10 p-3 col-span-2">
+                      <label className="block text-xs text-slate-400 mb-2">Aspect Ratio</label>
+                      <ToggleGroup value={videoAspectRatio} onChange={setVideoAspectRatio} options={[{ value: "16:9", label: "16:9" }, { value: "9:16", label: "9:16" }, { value: "1:1", label: "1:1" }]} />
+                    </div>
+                    <div className="rounded-xl border border-white/10 p-3 col-span-2 md:col-span-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <label className="block text-xs text-slate-400">Duration</label>
+                        <span className="text-xs text-slate-300">{videoDuration}s</span>
+                      </div>
+                      <input type="range" min={3} max={15} step={1} value={videoDuration} onChange={(e) => setVideoDuration(Number(e.target.value))} className="w-full accent-violet-500" />
+                    </div>
+                    <div className="rounded-xl border border-white/10 p-3 col-span-2 md:col-span-4 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-slate-300">Elements</span>
+                        <span className="text-[11px] text-slate-500">Up to 3 elements (2-4 images each)</span>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        <input value={klingElementName} onChange={(e) => setKlingElementName(e.target.value)} placeholder="Element name (used as @name)" className="rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm text-white outline-none" />
+                        <input value={klingElementDescription} onChange={(e) => setKlingElementDescription(e.target.value)} placeholder="Description" className="rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm text-white outline-none" />
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        {klingElementMediaUrls.map((url, idx) => (
+                          <MediaUploadField key={idx} label={`Element image ${idx + 1}`} value={url} onUploaded={(newUrl) => setKlingElementMediaUrls((prev) => prev.map((v, i) => (i === idx ? newUrl : v)))} />
+                        ))}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const media = klingElementMediaUrls.filter(Boolean);
+                          if (!klingElementName.trim() || !klingElementDescription.trim() || media.length < 2) {
+                            toast.error("Element needs name, description, and at least 2 images.");
+                            return;
+                          }
+                          setKlingElements((prev) => [
+                            ...prev.slice(0, 2),
+                            { name: klingElementName.trim(), description: klingElementDescription.trim(), element_input_urls: media.slice(0, 4) },
+                          ]);
+                          setKlingElementName("");
+                          setKlingElementDescription("");
+                          setKlingElementMediaUrls(["", "", "", ""]);
+                        }}
+                        className="px-3 py-2 rounded-lg text-xs bg-violet-600 text-white"
+                      >
+                        Add element
+                      </button>
+                      {klingElements.length > 0 && (
+                        <div className="space-y-1">
+                          {klingElements.map((element, idx) => (
+                            <div key={`${element.name}-${idx}`} className="text-xs text-slate-300 flex items-center justify-between rounded-lg bg-black/40 px-2 py-1.5">
+                              <span>@{element.name} · {element.description} · {element.element_input_urls.length} images</span>
+                              <button type="button" className="text-slate-400 hover:text-white" onClick={() => setKlingElements((prev) => prev.filter((_, i) => i !== idx))}>
+                                Remove
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+                {videoFamily === "kling26" && (
+                  <>
+                    {videoMode === "t2v" && (
+                      <div className="rounded-xl border border-white/10 p-3 col-span-2">
+                        <label className="block text-xs text-slate-400 mb-2">Aspect Ratio</label>
+                        <ToggleGroup value={videoAspectRatio} onChange={setVideoAspectRatio} options={[{ value: "1:1", label: "1:1" }, { value: "16:9", label: "16:9" }, { value: "9:16", label: "9:16" }]} />
+                      </div>
+                    )}
+                    <div className="rounded-xl border border-white/10 p-3">
+                      <label className="block text-xs text-slate-400 mb-2">Duration</label>
+                      <ToggleGroup value={String(videoDuration)} onChange={(v) => setVideoDuration(Number(v))} options={[{ value: "5", label: "5s" }, { value: "10", label: "10s" }]} />
                     </div>
                   </>
                 )}
@@ -1891,10 +2181,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                       <div>
                         <label className="block text-xs text-slate-400 mb-1">Mode</label>
-                        <select value={videoSpeed} onChange={(e) => setVideoSpeed(e.target.value)} className="w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm text-white outline-none">
-                          <option value="fast">Fast</option>
-                          <option value="quality">Quality</option>
-                        </select>
+                        <ToggleGroup value={videoSpeed} onChange={setVideoSpeed} options={[{ value: "fast", label: "Fast" }, { value: "quality", label: "Quality" }]} />
                       </div>
                       <div>
                         <label className="block text-xs text-slate-400 mb-1">Seed (10000-99999)</label>
@@ -1927,7 +2214,36 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                         </button>
                       </div>
                     </div>
+                    {(videoMode === "ref2v" || videoMode === "i2v") && (
+                      <div className="mt-3">
+                        <label className="block text-xs text-slate-400 mb-2">Aspect Ratio</label>
+                        <ToggleGroup value={videoAspectRatio} onChange={setVideoAspectRatio} options={[{ value: "Auto", label: "Auto" }, { value: "16:9", label: "16:9" }, { value: "9:16", label: "9:16" }]} />
+                      </div>
+                    )}
+                    <p className="text-xs text-slate-400 mt-3">Duration: 8s (fixed)</p>
                   </div>
+                )}
+                {videoFamily === "wan22" && (
+                  <>
+                    <div className="rounded-xl border border-white/10 p-3">
+                      <label className="block text-xs text-slate-400 mb-2">Resolution</label>
+                      <ToggleGroup value={wanResolution} onChange={setWanResolution} options={[{ value: "480p", label: "480p" }, { value: "580p", label: "580p" }, { value: "720p", label: "720p" }]} />
+                    </div>
+                  </>
+                )}
+                {videoFamily === "seedance2" && (
+                  <>
+                    <div className="rounded-xl border border-white/10 p-3">
+                      <label className="block text-xs text-slate-400 mb-2">Model Variant</label>
+                      <ToggleGroup value={seedanceTaskType} onChange={setSeedanceTaskType} options={[{ value: "seedance-2-preview", label: "Quality" }, { value: "seedance-2-fast-preview", label: "Fast" }]} />
+                    </div>
+                    {(videoMode === "t2v" || videoMode === "i2v") && (
+                      <div className="rounded-xl border border-white/10 p-3 col-span-2">
+                        <label className="block text-xs text-slate-400 mb-2">Aspect Ratio</label>
+                        <ToggleGroup value={videoAspectRatio} onChange={setVideoAspectRatio} options={[{ value: "16:9", label: "16:9" }, { value: "9:16", label: "9:16" }, { value: "4:3", label: "4:3" }, { value: "3:4", label: "3:4" }]} />
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
 
@@ -1964,9 +2280,13 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                   className="min-h-[46px] px-5 rounded-xl text-sm font-semibold bg-gradient-to-r from-violet-600 to-indigo-600 disabled:opacity-40 text-white flex items-center gap-2"
                 >
                   {isVideoGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Video className="w-4 h-4" />}
-                  {isVideoGenerating
-                    ? `${copy.generatingVideo} · ${videoPricingInfo.cost} cr`
-                    : `${copy.generateVideo} · ${videoPricingInfo.cost} cr`}
+                  <span className="inline-flex items-center gap-1.5">
+                    {isVideoGenerating ? copy.generatingVideo : copy.generateVideo}
+                    <span className="inline-flex items-center gap-1">
+                      {videoPricingInfo.cost}
+                      <Coins className="w-3.5 h-3.5 text-yellow-300" />
+                    </span>
+                  </span>
                 </button>
               </div>
             </div>
@@ -1995,7 +2315,8 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                         <button
                           type="button"
                           onClick={() => {
-                            setVideoFamily("veo31");
+                            const family = item.providerFamily === "seedance2" ? "seedance2" : "veo31";
+                            setVideoFamily(family);
                             setVideoMode("extend");
                             setExtendSourceId(item.providerTaskId);
                           }}

@@ -26,6 +26,15 @@ export const KIE_VIDEO_MODEL_CATALOG = Object.freeze({
         resolutionEnum: WAN_RECREATE_RESOLUTIONS,
       },
     },
+    wan22AnimateReplace: {
+      provider: "kie",
+      model: "wan/2-2-animate-replace",
+      endpoint: "/api/v1/jobs/createTask",
+      inputSchema: {
+        required: ["video_url", "image_url"],
+        resolutionEnum: WAN_RECREATE_RESOLUTIONS,
+      },
+    },
   },
   veo31: {
     generate: { endpoint: "/api/v1/veo/generate", models: ["veo3_fast", "veo3"] },

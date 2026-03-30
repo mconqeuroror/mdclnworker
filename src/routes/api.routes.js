@@ -45,6 +45,7 @@ import {
   generateCreatorStudio,
   generateCreatorStudioVideo,
   extendCreatorStudioVideo,
+  handlePiApiCallback,
 } from "../controllers/generation.controller.js";
 import {
   createModel,
@@ -2004,6 +2005,8 @@ router.post(
   validateGeneration,
   extendCreatorStudioVideo,
 );
+
+router.post("/piapi/callback", handlePiApiCallback);
 
 /**
  * Get ElevenLabs voices for talking head

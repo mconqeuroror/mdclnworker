@@ -864,6 +864,37 @@ async function generateVideoWithWanAnimateMoveKieInternal(imageUrl, videoUrl, op
   throw lastErr;
 }
 
+async function generateVideoWithWanAnimateReplaceKieInternal(imageUrl, videoUrl, options = {}) {
+  console.log(`[KIE/wan-animate-replace] image="${imageUrl.slice(0, 120)}"`);
+  console.log(`[KIE/wan-animate-replace] video="${videoUrl.slice(0, 120)}"`);
+
+  const img = typeof imageUrl === "string" ? imageUrl.trim() : String(imageUrl || "");
+  const vid = typeof videoUrl === "string" ? videoUrl.trim() : String(videoUrl || "");
+  const resolution = normalizeWanResolution(options.resolution);
+
+  const callbackUrl = getKieCallbackUrl();
+  if (!callbackUrl) {
+    throw new Error("[KIE/wan-animate-replace] Callback URL is required (set KIE_CALLBACK_URL / CALLBACK_BASE_URL)");
+  }
+
+  const requestBody = {
+    model: "wan/2-2-animate-replace",
+    callBackUrl: callbackUrl,
+    input: {
+      video_url: vid,
+      image_url: img,
+      resolution,
+      nsfw_checker: options.nsfwChecker === true,
+    },
+  };
+
+  const taskId = await kieCreateTask(requestBody, "wan-animate-replace");
+  if (typeof options.onTaskSubmitted === "function") {
+    try { await options.onTaskSubmitted(taskId); } catch {}
+  }
+  return { success: true, deferred: true, taskId };
+}
+
 /**
  * Kling image-to-video (2.6 or 3.0).
  * @param {string} imageUrl - starting image
@@ -882,9 +913,12 @@ async function generateVideoWithKling26KieInternal(imageUrl, prompt, options = {
     );
   }
   const model = useKling3 ? "kling-3.0/video" : "kling-2.6/image-to-video";
+  const firstImageUrl = String(imageUrl || "").trim();
+  const endFrameUrl = String(options.endFrameUrl || "").trim();
+  const imageUrls = [firstImageUrl, endFrameUrl].filter(Boolean).slice(0, 2);
   const aspectRatio = options.aspectRatio || "16:9";
-  console.log(`[KIE/kling-i2v] model=${model}, image="${imageUrl.slice(0, 80)}", duration=${duration}s`);
-  const validation = await validateKlingImageToVideoInput(imageUrl, { useKling3: options.useKling3 === true });
+  console.log(`[KIE/kling-i2v] model=${model}, image="${firstImageUrl.slice(0, 80)}", duration=${duration}s`);
+  const validation = await validateKlingImageToVideoInput(firstImageUrl, { useKling3: options.useKling3 === true });
   if (!validation.valid) {
     throw new Error(validation.message);
   }
@@ -893,11 +927,20 @@ async function generateVideoWithKling26KieInternal(imageUrl, prompt, options = {
     {
       model,
       input: {
-        image_urls: [imageUrl],
+        image_urls: imageUrls.length ? imageUrls : [firstImageUrl],
         prompt,
         duration,
         sound: options.sound === true,
-        ...(useKling3 ? { aspect_ratio: aspectRatio, mode: "pro", multi_shots: false } : {}),
+        ...(useKling3
+          ? {
+              aspect_ratio: aspectRatio,
+              mode: options.mode === "pro" ? "pro" : "std",
+              multi_shots: options.multiShots === true,
+              ...(Array.isArray(options.klingElements) && options.klingElements.length
+                ? { kling_elements: options.klingElements.slice(0, 3) }
+                : {}),
+            }
+          : {}),
       },
     },
     useKling3 ? "kling-i2v-3" : "kling-i2v",
@@ -923,6 +966,7 @@ async function generateVideoWithSora2ProKieInternal(options = {}) {
     aspect_ratio: options.aspectRatio === "portrait" ? "portrait" : "landscape",
     n_frames: nFrames === "15" ? "15" : "10",
     size,
+    quality: options.quality === "high" ? "high" : "standard",
     remove_watermark: options.removeWatermark === true,
     upload_method: "s3",
   };
@@ -956,16 +1000,26 @@ async function generateVideoWithKlingTextKieInternal(prompt, options = {}) {
   if (!callbackUrl) {
     throw new Error("[KIE/kling-text] Callback URL is required (set KIE_CALLBACK_URL / CALLBACK_BASE_URL)");
   }
-  const duration = String(options.duration ?? (useKling3 ? "5" : "5")).trim();
+  const duration = String(options.duration ?? "5").trim();
   const input = {
     prompt: String(prompt || ""),
-    duration: duration === "10" ? "10" : "5",
+    duration: useKling3
+      ? (["3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15"].includes(duration) ? duration : "5")
+      : (duration === "10" ? "10" : "5"),
     sound: options.sound === true,
   };
   if (useKling3) {
     input.aspect_ratio = options.aspectRatio || "16:9";
     input.mode = options.quality === "pro" ? "pro" : "std";
     input.multi_shots = options.multiShots === true;
+    if (options.multiShots === true) {
+      input.multi_prompt = [{ prompt: String(prompt || ""), duration: Math.min(12, Math.max(1, Number(duration) || 5)) }];
+    }
+    if (Array.isArray(options.klingElements) && options.klingElements.length) {
+      input.kling_elements = options.klingElements.slice(0, 3);
+    }
+  } else if (options.aspectRatio) {
+    input.aspect_ratio = options.aspectRatio;
   }
   const taskId = await kieCreateTask({ model, callBackUrl: callbackUrl, input }, useKling3 ? "kling30-t2v" : "kling26-t2v");
   if (typeof options.onTaskSubmitted === "function") {
@@ -992,6 +1046,7 @@ async function generateVideoWithVeo31KieInternal(options = {}) {
     options.imageUrl,
     options.referenceImageUrl,
     options.endFrameUrl,
+    options.thirdImageUrl,
   ]
     .map((v) => String(v || "").trim())
     .filter(Boolean);
@@ -1076,6 +1131,9 @@ export function generateVideoWithKling26Kie(...args) {
 }
 export function generateVideoWithWanAnimateMoveKie(...args) {
   return enqueueKieJob(() => generateVideoWithWanAnimateMoveKieInternal(...args));
+}
+export function generateVideoWithWanAnimateReplaceKie(...args) {
+  return enqueueKieJob(() => generateVideoWithWanAnimateReplaceKieInternal(...args));
 }
 export function generateVideoWithSora2ProKie(...args) {
   return enqueueKieJob(() => generateVideoWithSora2ProKieInternal(...args));

@@ -48,10 +48,10 @@ export const DEFAULT_GENERATION_PRICING = Object.freeze({
   veo31Upscale4k: 120,
 
   // Sora 2 Pro
-  sora2Standard10Frames: 150,
-  sora2Standard15Frames: 270,
-  sora2High10Frames: 330,
-  sora2High15Frames: 630,
+  sora2Standard10Frames: 300,
+  sora2Standard15Frames: 540,
+  sora2High10Frames: 660,
+  sora2High15Frames: 1260,
   sora2Storyboard10s: 150,
   sora2Storyboard15To25s: 270,
 

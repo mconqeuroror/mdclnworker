@@ -8,11 +8,13 @@ import {
   generateVideoWithMotionKie,
   generateVideoWithKling26Kie,
   generateVideoWithWanAnimateMoveKie,
+  generateVideoWithWanAnimateReplaceKie,
   generateVideoWithSora2ProKie,
   generateVideoWithKlingTextKie,
   generateVideoWithVeo31Kie,
   extendVideoWithVeo31Kie,
 } from "../services/kie.service.js";
+import { submitPiApiTask } from "../services/piapi.service.js";
 import {
   generateImageWithIdentityWaveSpeed,
   generateImageWithSeedreamWaveSpeed,
@@ -4103,7 +4105,7 @@ const CREATOR_STUDIO_ASPECT_RATIOS = [
 ];
 const CREATOR_STUDIO_RESOLUTIONS = ["1K", "2K", "4K"];
 const CREATOR_STUDIO_MODELS = ["nano-banana-pro"];
-const CREATOR_STUDIO_VIDEO_FAMILIES = ["sora2", "kling26", "kling30", "veo31"];
+const CREATOR_STUDIO_VIDEO_FAMILIES = ["sora2", "kling26", "kling30", "veo31", "wan22", "seedance2"];
 
 function normalizeCreatorStudioVideoMode(family, mode) {
   const fam = String(family || "").toLowerCase();
@@ -4113,6 +4115,16 @@ function normalizeCreatorStudioVideoMode(family, mode) {
     if (normalized === "t2v") return "t2v";
     if (normalized === "i2v") return "i2v";
     return "ref2v";
+  }
+  if (fam === "wan22") {
+    if (normalized === "replace") return "replace";
+    return "move";
+  }
+  if (fam === "seedance2") {
+    if (normalized === "i2v") return "i2v";
+    if (normalized === "edit") return "edit";
+    if (normalized === "extend") return "extend";
+    return "t2v";
   }
   if (fam === "sora2") return normalized === "i2v" ? "i2v" : "t2v";
   if (fam === "kling26") return normalized === "i2v" ? "i2v" : "t2v";
@@ -4159,6 +4171,20 @@ function estimateCreatorStudioVideoCredits(pricing, payload) {
       return speed === "quality" ? pricing.veo31ExtendQuality : pricing.veo31ExtendFast;
     }
     return speed === "quality" ? pricing.veo31GenerateQuality1080p8s : pricing.veo31GenerateFast1080p8s;
+  }
+  if (family === "wan22") {
+    const resolution = String(payload.wanResolution || "580p");
+    const perSec = mode === "replace"
+      ? pricing[`wan22AnimateReplace${resolution}PerSec`]
+      : pricing[`wan22AnimateMove${resolution}PerSec`];
+    return Math.ceil(seconds * (Number(perSec) || 0));
+  }
+  if (family === "seedance2") {
+    const fast = String(payload.seedanceTaskType || "seedance-2-preview") === "seedance-2-fast-preview";
+    const perSec = mode === "edit"
+      ? (fast ? pricing.seedance2FastPreviewEditCreditsPerSec : pricing.seedance2PreviewEditCreditsPerSec)
+      : (fast ? pricing.seedance2FastPreviewCreditsPerSec : pricing.seedance2PreviewCreditsPerSec);
+    return Math.ceil(seconds * (Number(perSec) || 0));
   }
   return 0;
 }
@@ -4354,15 +4380,22 @@ async function processCreatorStudioVideoInBackground({
   imageUrl,
   referenceImageUrl,
   endFrameUrl,
+  thirdImageUrl,
+  inputVideoUrl,
   durationSeconds,
   nFrames,
   size,
+  soraQuality,
+  removeWatermark,
   speed,
   soundEnabled,
   soundPrompt,
   kling30Quality,
   kling30MultiShot,
+  klingElements,
   aspectRatio,
+  seedanceTaskType,
+  wanResolution,
   originalTaskId = null,
   originalGenerationId = null,
   veoSeeds = null,
@@ -4403,8 +4436,9 @@ async function processCreatorStudioVideoInBackground({
           imageUrl,
           nFrames: String(nFrames || "10"),
           size: String(size || "standard"),
+          quality: String(soraQuality || "standard"),
           aspectRatio: String(aspectRatio || "landscape"),
-          removeWatermark: true,
+          removeWatermark: removeWatermark === true,
           onTaskSubmitted,
         }),
       );
@@ -4415,6 +4449,7 @@ async function processCreatorStudioVideoInBackground({
             duration: String(durationSeconds || 5),
             useKling3: false,
             sound: !!soundEnabled,
+            aspectRatio: String(aspectRatio || "1:1"),
             onTaskCreated: onTaskSubmitted,
           }),
         );
@@ -4424,6 +4459,7 @@ async function processCreatorStudioVideoInBackground({
             useKling3: false,
             duration: String(durationSeconds || 5),
             sound: !!soundEnabled,
+            aspectRatio: String(aspectRatio || "1:1"),
             onTaskSubmitted,
           }),
         );
@@ -4436,6 +4472,10 @@ async function processCreatorStudioVideoInBackground({
             useKling3: true,
             sound: !!soundEnabled,
             aspectRatio: String(aspectRatio || "16:9"),
+            mode: kling30Quality || "std",
+            multiShots: !!kling30MultiShot,
+            endFrameUrl: String(endFrameUrl || ""),
+            klingElements: Array.isArray(klingElements) ? klingElements : [],
             onTaskCreated: onTaskSubmitted,
           }),
         );
@@ -4448,6 +4488,7 @@ async function processCreatorStudioVideoInBackground({
             aspectRatio: String(aspectRatio || "16:9"),
             quality: kling30Quality || "std",
             multiShots: !!kling30MultiShot,
+            klingElements: Array.isArray(klingElements) ? klingElements : [],
             onTaskSubmitted,
           }),
         );
@@ -4476,6 +4517,7 @@ async function processCreatorStudioVideoInBackground({
             imageUrl,
             referenceImageUrl,
             endFrameUrl,
+            thirdImageUrl,
             speed: speed || "fast",
             aspectRatio: String(aspectRatio || "16:9"),
             seeds: veoSeeds,
@@ -4485,6 +4527,47 @@ async function processCreatorStudioVideoInBackground({
           }),
         );
       }
+    } else if (lowerFamily === "wan22") {
+      result = await requestQueue.enqueue(() =>
+        (normalizedMode === "replace"
+          ? generateVideoWithWanAnimateReplaceKie(imageUrl, inputVideoUrl, {
+              resolution: String(wanResolution || "580p"),
+              onTaskSubmitted,
+            })
+          : generateVideoWithWanAnimateMoveKie(imageUrl, inputVideoUrl, {
+              resolution: String(wanResolution || "580p"),
+              onTaskSubmitted,
+            })),
+      );
+    } else if (lowerFamily === "seedance2") {
+      const submit = await requestQueue.enqueue(() =>
+        submitPiApiTask({
+          model: "seedance",
+          task_type: String(seedanceTaskType || "seedance-2-preview"),
+          input: {
+            prompt: String(finalPrompt || ""),
+            duration: Number(durationSeconds) || 5,
+            aspect_ratio: String(aspectRatio || "16:9"),
+            ...(imageUrl ? { image_urls: [String(imageUrl)] } : {}),
+            ...(inputVideoUrl ? { video_urls: [String(inputVideoUrl)] } : {}),
+            ...(normalizedMode === "extend" ? { parent_task_id: String(originalTaskId || "") } : {}),
+          },
+        }),
+      );
+      const taskId = submit?.data?.data?.task_id || submit?.data?.data?.taskId || submit?.data?.task_id || submit?.data?.taskId;
+      if (!taskId) {
+        throw new Error("Seedance task submission did not return task id.");
+      }
+      await prisma.generation.update({
+        where: { id: generationId },
+        data: {
+          provider: "piapi",
+          replicateModel: `piapi-task:${taskId}`,
+          providerTaskId: taskId,
+          providerResponse: submit?.data || null,
+        },
+      });
+      result = { success: true, deferred: true, taskId };
     } else {
       throw new Error(`Unsupported Creator Studio video family: ${lowerFamily}`);
     }
@@ -4493,7 +4576,7 @@ async function processCreatorStudioVideoInBackground({
       await prisma.generation.update({
         where: { id: generationId },
         data: {
-          replicateModel: `kie-task:${result.taskId}`,
+          replicateModel: lowerFamily === "seedance2" ? `piapi-task:${result.taskId}` : `kie-task:${result.taskId}`,
           providerTaskId: result.taskId,
         },
       });
@@ -4535,15 +4618,22 @@ export async function generateCreatorStudioVideo(req, res) {
       imageUrl = "",
       referenceImageUrl = "",
       endFrameUrl = "",
+      thirdImageUrl = "",
+      inputVideoUrl = "",
       durationSeconds = 8,
       nFrames = "10",
       size = "standard",
+      soraQuality = "standard",
+      removeWatermark = false,
       speed = "fast",
       soundEnabled = false,
       soundPrompt = "",
       kling30Quality = "std",
       kling30MultiShot = false,
+      klingElements = [],
       aspectRatio = "16:9",
+      seedanceTaskType = "seedance-2-preview",
+      wanResolution = "580p",
       originalTaskId = null,
       originalGenerationId = null,
       veoSeeds = null,
@@ -4556,10 +4646,10 @@ export async function generateCreatorStudioVideo(req, res) {
       return res.status(400).json({ success: false, message: "Unsupported video family." });
     }
     const normalizedMode = normalizeCreatorStudioVideoMode(lowerFamily, mode);
-    if (!prompt?.trim() && normalizedMode !== "extend") {
+    if (!prompt?.trim()) {
       return res.status(400).json({ success: false, message: "A prompt is required." });
     }
-    if ((lowerFamily === "sora2" || lowerFamily === "kling26" || lowerFamily === "kling30") && normalizedMode === "i2v" && !imageUrl) {
+    if ((lowerFamily === "sora2" || lowerFamily === "kling26" || lowerFamily === "kling30" || lowerFamily === "seedance2") && normalizedMode === "i2v" && !imageUrl) {
       return res.status(400).json({ success: false, message: "Image URL is required for image-to-video mode." });
     }
     if (lowerFamily === "veo31") {
@@ -4576,6 +4666,22 @@ export async function generateCreatorStudioVideo(req, res) {
         return res.status(400).json({ success: false, message: "Original task id is required for Veo extend." });
       }
     }
+    if (lowerFamily === "wan22") {
+      if (!inputVideoUrl || !imageUrl) {
+        return res.status(400).json({ success: false, message: "WAN mode requires both input video and image." });
+      }
+    }
+    if (lowerFamily === "seedance2") {
+      if (!["seedance-2-preview", "seedance-2-fast-preview"].includes(String(seedanceTaskType))) {
+        return res.status(400).json({ success: false, message: "Invalid Seedance task type." });
+      }
+      if (normalizedMode === "edit" && !inputVideoUrl) {
+        return res.status(400).json({ success: false, message: "Seedance video edit requires input video." });
+      }
+      if (normalizedMode === "extend" && !originalTaskId) {
+        return res.status(400).json({ success: false, message: "Seedance extend requires original task id." });
+      }
+    }
 
     const pricing = await getGenerationPricing();
     const creditsNeeded = estimateCreatorStudioVideoCredits(pricing, {
@@ -4587,6 +4693,8 @@ export async function generateCreatorStudioVideo(req, res) {
       speed,
       soundEnabled,
       kling30Quality,
+      seedanceTaskType,
+      wanResolution,
     });
     if (!Number.isFinite(creditsNeeded) || creditsNeeded <= 0) {
       return res.status(400).json({ success: false, message: "Could not calculate credits for this configuration." });
@@ -4609,33 +4717,40 @@ export async function generateCreatorStudioVideo(req, res) {
         prompt: String(prompt || "").trim(),
         duration: Number(durationSeconds) || null,
         inputImageUrl: imageUrl || referenceImageUrl || null,
-        inputVideoUrl: null,
+        inputVideoUrl: inputVideoUrl || null,
         status: "processing",
         creditsCost: creditsNeeded,
-        provider: "kie",
+        provider: lowerFamily === "seedance2" ? "piapi" : "kie",
         providerFamily: lowerFamily,
         providerMode: normalizedMode,
         providerType: normalizedMode,
-        providerModel: `kie-${lowerFamily}-${normalizedMode}`,
+        providerModel: `${lowerFamily === "seedance2" ? "piapi" : "kie"}-${lowerFamily}-${normalizedMode}`,
         parentTaskId: originalTaskId,
         originalGenerationId: originalGenerationId || null,
-        replicateModel: `kie-${lowerFamily}-${normalizedMode}`,
-        extendEligible: lowerFamily === "veo31" && normalizedMode !== "extend",
+        replicateModel: `${lowerFamily === "seedance2" ? "piapi" : "kie"}-${lowerFamily}-${normalizedMode}`,
+        extendEligible: (lowerFamily === "veo31" || lowerFamily === "seedance2") && normalizedMode !== "extend",
         providerRequest: {
           family: lowerFamily,
           mode: normalizedMode,
           imageUrl,
           referenceImageUrl,
           endFrameUrl,
+          thirdImageUrl,
+          inputVideoUrl,
           durationSeconds,
           nFrames,
           size,
+          soraQuality,
+          removeWatermark,
           speed,
           soundEnabled,
           soundPrompt,
           kling30Quality,
           kling30MultiShot,
+          klingElements,
           aspectRatio,
+          seedanceTaskType,
+          wanResolution,
           originalTaskId,
           veoSeeds,
           veoEnableTranslation,
@@ -4654,15 +4769,22 @@ export async function generateCreatorStudioVideo(req, res) {
       imageUrl,
       referenceImageUrl,
       endFrameUrl,
+      thirdImageUrl,
+      inputVideoUrl,
       durationSeconds,
       nFrames,
       size,
+      soraQuality,
+      removeWatermark,
       speed,
       soundEnabled,
       soundPrompt,
       kling30Quality,
       kling30MultiShot,
+      klingElements,
       aspectRatio,
+      seedanceTaskType,
+      wanResolution,
       originalTaskId,
       originalGenerationId,
       veoSeeds,
@@ -4703,4 +4825,68 @@ export async function extendCreatorStudioVideo(req, res) {
   const payload = { ...(req.body || {}), family: "veo31", mode: "extend" };
   req.body = payload;
   return generateCreatorStudioVideo(req, res);
+}
+
+export async function handlePiApiCallback(req, res) {
+  try {
+    const body = req.body || {};
+    const data = body?.data || body;
+    const taskId = data?.task_id || data?.taskId || body?.task_id || body?.taskId || body?.id;
+    if (!taskId) return res.status(200).json({ success: true, ignored: "missing_task_id" });
+
+    const generation = await prisma.generation.findFirst({
+      where: { providerTaskId: String(taskId) },
+      select: { id: true, status: true, creditsRefunded: true },
+    });
+    if (!generation) return res.status(200).json({ success: true, ignored: "generation_not_found" });
+
+    const rawStatus = String(data?.status || body?.status || "").toLowerCase();
+    const outputUrl =
+      data?.output?.video ||
+      data?.output?.video_url ||
+      data?.output?.url ||
+      body?.output?.video ||
+      body?.outputUrl ||
+      null;
+
+    if (rawStatus.includes("completed") || outputUrl) {
+      await prisma.generation.update({
+        where: { id: generation.id },
+        data: {
+          status: "completed",
+          outputUrl: outputUrl || undefined,
+          completedAt: new Date(),
+          providerResponse: body,
+        },
+      });
+      return res.status(200).json({ success: true });
+    }
+
+    if (rawStatus.includes("failed")) {
+      await prisma.generation.update({
+        where: { id: generation.id },
+        data: {
+          status: "failed",
+          errorMessage: getErrorMessageForDb(data?.error?.message || body?.message || "PiAPI task failed"),
+          providerResponse: body,
+        },
+      });
+      if (!generation.creditsRefunded) {
+        await refundGeneration(generation.id).catch(() => {});
+      }
+      return res.status(200).json({ success: true });
+    }
+
+    await prisma.generation.update({
+      where: { id: generation.id },
+      data: {
+        status: "processing",
+        providerResponse: body,
+      },
+    });
+    return res.status(200).json({ success: true });
+  } catch (error) {
+    console.error("❌ PiAPI callback handling failed:", error);
+    return res.status(200).json({ success: true });
+  }
 }
