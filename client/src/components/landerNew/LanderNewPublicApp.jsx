@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { PromoBar } from "../../../../modelclone-landing/src/components/sections/PromoBar";
 import { Navbar } from "../../../../modelclone-landing/src/components/sections/Navbar";
 import { HeroSlider } from "../../../../modelclone-landing/src/components/sections/HeroSlider";
@@ -35,6 +35,8 @@ function mapToStandaloneConfig(config) {
       appName: config?.brand?.appName || STANDALONE_LANDING_CONFIG.brand.appName || "ModelClone",
       logoText: "MC",
       logoUrl: config?.brand?.logoUrl || "/modelclone-logo.svg",
+      loginHref: "/login",
+      signupHref: config?.brand?.ctaHref || "/signup",
     },
     promotionBar: STANDALONE_LANDING_CONFIG.promotionBar,
     hero: {
@@ -76,6 +78,7 @@ function mapToStandaloneConfig(config) {
       title: pricing.heading || "Pricing",
       subtitle: pricing.subtitle || STANDALONE_LANDING_CONFIG.pricing.subtitle,
       billingCycleDefault: pricing.billingCycleDefault || "monthly",
+      signupHref: config?.brand?.ctaHref || "/signup",
       oneTime: {
         name: "Pay As You Go",
         pricePerCredit: Number(
@@ -86,13 +89,22 @@ function mapToStandaloneConfig(config) {
       },
       tiers: pricingTiers.length ? pricingTiers : STANDALONE_LANDING_CONFIG.pricing.tiers,
     },
-    footerCta: STANDALONE_LANDING_CONFIG.footerCta,
+    footerCta: {
+      ...STANDALONE_LANDING_CONFIG.footerCta,
+      ctaHref: config?.brand?.ctaHref || "/signup",
+    },
   };
 }
 
 export default function LanderNewPublicApp({ config }) {
   const data = useMemo(() => mapToStandaloneConfig(config), [config]);
   const { brand, promotionBar, hero, countdown, createToday, topChoice, partners, pricing, footerCta } = data;
+  useEffect(() => {
+    document.body.classList.add("lander-cursor-enabled");
+    return () => {
+      document.body.classList.remove("lander-cursor-enabled");
+    };
+  }, []);
 
   return (
     <div className="page">

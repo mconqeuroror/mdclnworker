@@ -12,6 +12,7 @@ export function PricingSection({ data }) {
   const [billingCycle, setBillingCycle] = useState(data.billingCycleDefault || "monthly");
   const tiers = data.tiers || [];
   const payg = data.oneTime;
+  const signupHref = data.signupHref || "/signup";
 
   return (
     <section className="container pricing-section" id="pricing">
@@ -82,7 +83,7 @@ export function PricingSection({ data }) {
 
               <a
                 className={`btn${tier.popular ? " btn-primary" : " btn-ghost"} pricing-card-cta`}
-                href="#signup"
+                href={signupHref}
               >
                 Get Started
               </a>
@@ -109,7 +110,7 @@ export function PricingSection({ data }) {
               <p className="pricing-card-desc">No subscription required</p>
             </div>
 
-            <a className="btn btn-ghost pricing-payg-btn" href="#signup">Buy Credits</a>
+            <a className="btn btn-ghost pricing-payg-btn" href={signupHref}>Buy Credits</a>
           </div>
         </article>
       </div>

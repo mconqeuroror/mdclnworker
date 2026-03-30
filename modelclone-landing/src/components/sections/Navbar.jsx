@@ -83,10 +83,10 @@ export function Navbar({ brand }) {
         </div>
 
         <div className="nav-auth">
-          <a href="#login" id="login" className="btn btn-ghost">
+          <a href={brand?.loginHref || "/login"} id="login" className="btn btn-ghost">
             Login
           </a>
-          <a href="#signup" id="signup" className="btn btn-primary">
+          <a href={brand?.signupHref || "/signup"} id="signup" className="btn btn-primary">
             Sign up
           </a>
         </div>

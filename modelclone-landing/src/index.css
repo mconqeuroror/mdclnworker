@@ -1651,13 +1651,13 @@ main {
 
 /* ─── Custom Cursor ───────────────────────────────────────────────────────── */
 @media (hover: hover) and (pointer: fine) {
-  body,
-  a,
-  button,
-  input,
-  textarea,
-  select,
-  [role="button"] {
+  body.lander-cursor-enabled,
+  body.lander-cursor-enabled a,
+  body.lander-cursor-enabled button,
+  body.lander-cursor-enabled input,
+  body.lander-cursor-enabled textarea,
+  body.lander-cursor-enabled select,
+  body.lander-cursor-enabled [role="button"] {
     cursor: none !important;
   }
 }
