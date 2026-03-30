@@ -5,7 +5,7 @@ const navLinks = [
   { label: "Image", href: "#image" },
   { label: "Video", href: "#video" },
   { label: "Audio", href: "#audio" },
-  { label: "Pricing", href: "#pricing", bolt: true },
+  { label: "Pricing", href: "#pricing" },
 ];
 
 export function Navbar({ brand }) {
@@ -58,28 +58,13 @@ export function Navbar({ brand }) {
       <nav aria-label="primary navigation" className="container navbar-grid">
         <a href="#" className="brand">
           <span className="brand-mark">
-            <svg
-              className="brand-logo-svg"
-              viewBox="0 0 100 100"
-              xmlns="http://www.w3.org/2000/svg"
-              role="img"
-              aria-label={`${brand.appName} logo`}
-            >
-              <defs>
-                <linearGradient id="mcLogoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="#a855f7" />
-                  <stop offset="100%" stopColor="#3b82f6" />
-                </linearGradient>
-              </defs>
-              <rect width="100" height="100" rx="20" fill="url(#mcLogoGrad)" />
-              <path
-                d="M50 25 L65 45 L75 35 L75 75 L25 75 L25 35 L35 45 Z"
-                fill="white"
-                opacity="0.9"
-              />
-              <circle cx="40" cy="50" r="3" fill="white" />
-              <circle cx="60" cy="50" r="3" fill="white" />
-            </svg>
+            {brand?.logoUrl ? (
+              <img src={brand.logoUrl} alt={`${brand.appName} logo`} className="brand-logo-img" />
+            ) : (
+              <span className="brand-logo-fallback" aria-hidden="true">
+                {(brand?.appName || "MC").slice(0, 2).toUpperCase()}
+              </span>
+            )}
           </span>
           <span>{brand.appName}</span>
         </a>
@@ -92,7 +77,6 @@ export function Navbar({ brand }) {
               className={`nav-link ${activeHref === link.href ? "is-active" : ""}`}
               onClick={() => setActiveHref(link.href)}
             >
-              {link.bolt ? <span className="bolt">⚡</span> : null}
               {link.label}
             </a>
           ))}
