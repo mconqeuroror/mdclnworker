@@ -68,9 +68,9 @@ import {
 } from "../services/video-generation-pricing.js";
 
 const IDENTITY_RECREATE_PROMPT_KEEP_SOURCE_CLOTHES =
-  "Replace the person from figure 1 with the person in figure 2. Keep clothes and accessories and background from figure 1.";
+  "Replace the person from figure 1 with the person in figure 2 while matching the same body position and pose as the person in figure 1. Keep clothes from figure 1. Keep background, pose and lighting from figure 1.";
 const IDENTITY_RECREATE_PROMPT_KEEP_MODEL_CLOTHES =
-  "Replace the person from figure 1 with the person in figure 2. Keep clothes and accessories from figure 2. Keep background from figure 1.";
+  "Replace the person from figure 1 with the person in figure 2 matching the same body position and pose as the person in figure 1. Keep clothes from figure 2. Keep background, pose and lighting from figure 1.";
 
 const PERSISTED_IMAGE_TYPES = new Set([
   "image",
