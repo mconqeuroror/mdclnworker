@@ -45,6 +45,7 @@ import {
   generateCreatorStudio,
   generateCreatorStudioVideo,
   extendCreatorStudioVideo,
+  removeWatermarkCreatorStudioVideo,
   handlePiApiCallback,
 } from "../controllers/generation.controller.js";
 import {
@@ -2004,6 +2005,14 @@ router.post(
   generationLimiter,
   validateGeneration,
   extendCreatorStudioVideo,
+);
+
+router.post(
+  "/generate/creator-studio/video/remove-watermark",
+  authMiddleware,
+  generationLimiter,
+  validateGeneration,
+  removeWatermarkCreatorStudioVideo,
 );
 
 router.post("/piapi/callback", handlePiApiCallback);

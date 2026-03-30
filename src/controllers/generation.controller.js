@@ -4124,6 +4124,7 @@ function normalizeCreatorStudioVideoMode(family, mode) {
     if (normalized === "i2v") return "i2v";
     if (normalized === "edit") return "edit";
     if (normalized === "extend") return "extend";
+    if (normalized === "remove-watermark") return "remove-watermark";
     return "t2v";
   }
   if (fam === "sora2") return normalized === "i2v" ? "i2v" : "t2v";
@@ -4181,7 +4182,9 @@ function estimateCreatorStudioVideoCredits(pricing, payload) {
   }
   if (family === "seedance2") {
     const fast = String(payload.seedanceTaskType || "seedance-2-preview") === "seedance-2-fast-preview";
-    const perSec = mode === "edit"
+    const perSec = mode === "remove-watermark"
+      ? pricing.seedanceRemoveWatermarkPerSec
+      : mode === "edit"
       ? (fast ? pricing.seedance2FastPreviewEditCreditsPerSec : pricing.seedance2PreviewEditCreditsPerSec)
       : (fast ? pricing.seedance2FastPreviewCreditsPerSec : pricing.seedance2PreviewCreditsPerSec);
     return Math.ceil(seconds * (Number(perSec) || 0));
@@ -4540,18 +4543,27 @@ async function processCreatorStudioVideoInBackground({
             })),
       );
     } else if (lowerFamily === "seedance2") {
-      const submit = await requestQueue.enqueue(() =>
-        submitPiApiTask({
-          model: "seedance",
-          task_type: String(seedanceTaskType || "seedance-2-preview"),
-          input: {
+      const taskType = normalizedMode === "remove-watermark"
+        ? "remove-watermark"
+        : String(seedanceTaskType || "seedance-2-preview");
+      const seedanceInput = normalizedMode === "remove-watermark"
+        ? {
+            video_url: String(inputVideoUrl || ""),
+            duration: Number(durationSeconds) || 5,
+          }
+        : {
             prompt: String(finalPrompt || ""),
             duration: Number(durationSeconds) || 5,
             aspect_ratio: String(aspectRatio || "16:9"),
             ...(imageUrl ? { image_urls: [String(imageUrl)] } : {}),
             ...(inputVideoUrl ? { video_urls: [String(inputVideoUrl)] } : {}),
             ...(normalizedMode === "extend" ? { parent_task_id: String(originalTaskId || "") } : {}),
-          },
+          };
+      const submit = await requestQueue.enqueue(() =>
+        submitPiApiTask({
+          model: "seedance",
+          task_type: taskType,
+          input: seedanceInput,
         }),
       );
       const taskId = submit?.data?.data?.task_id || submit?.data?.data?.taskId || submit?.data?.task_id || submit?.data?.taskId;
@@ -4646,7 +4658,7 @@ export async function generateCreatorStudioVideo(req, res) {
       return res.status(400).json({ success: false, message: "Unsupported video family." });
     }
     const normalizedMode = normalizeCreatorStudioVideoMode(lowerFamily, mode);
-    if (!prompt?.trim()) {
+    if (!prompt?.trim() && !(lowerFamily === "seedance2" && normalizedMode === "remove-watermark")) {
       return res.status(400).json({ success: false, message: "A prompt is required." });
     }
     if ((lowerFamily === "sora2" || lowerFamily === "kling26" || lowerFamily === "kling30" || lowerFamily === "seedance2") && normalizedMode === "i2v" && !imageUrl) {
@@ -4680,6 +4692,9 @@ export async function generateCreatorStudioVideo(req, res) {
       }
       if (normalizedMode === "extend" && !originalTaskId) {
         return res.status(400).json({ success: false, message: "Seedance extend requires original task id." });
+      }
+      if (normalizedMode === "remove-watermark" && !inputVideoUrl) {
+        return res.status(400).json({ success: false, message: "Seedance watermark remover requires input video URL." });
       }
     }
 
@@ -4728,7 +4743,8 @@ export async function generateCreatorStudioVideo(req, res) {
         parentTaskId: originalTaskId,
         originalGenerationId: originalGenerationId || null,
         replicateModel: `${lowerFamily === "seedance2" ? "piapi" : "kie"}-${lowerFamily}-${normalizedMode}`,
-        extendEligible: (lowerFamily === "veo31" || lowerFamily === "seedance2") && normalizedMode !== "extend",
+        extendEligible: (lowerFamily === "veo31" && normalizedMode !== "extend")
+          || (lowerFamily === "seedance2" && normalizedMode !== "extend" && normalizedMode !== "remove-watermark"),
         providerRequest: {
           family: lowerFamily,
           mode: normalizedMode,
@@ -4827,6 +4843,48 @@ export async function extendCreatorStudioVideo(req, res) {
   return generateCreatorStudioVideo(req, res);
 }
 
+export async function removeWatermarkCreatorStudioVideo(req, res) {
+  try {
+    const userId = req.user.userId;
+    const sourceGenerationId = String(req.body?.sourceGenerationId || "").trim();
+    if (!sourceGenerationId) {
+      return res.status(400).json({ success: false, message: "sourceGenerationId is required." });
+    }
+
+    const source = await prisma.generation.findFirst({
+      where: {
+        id: sourceGenerationId,
+        userId,
+        type: "creator-studio-video",
+        providerFamily: "seedance2",
+      },
+      select: {
+        id: true,
+        outputUrl: true,
+        duration: true,
+        status: true,
+      },
+    });
+    if (!source || !source.outputUrl || source.status !== "completed") {
+      return res.status(400).json({ success: false, message: "Source Seedance video not found or not completed." });
+    }
+
+    req.body = {
+      ...(req.body || {}),
+      family: "seedance2",
+      mode: "remove-watermark",
+      prompt: "",
+      inputVideoUrl: source.outputUrl,
+      durationSeconds: Math.max(5, Number(source.duration) || 5),
+      originalGenerationId: source.id,
+    };
+    return generateCreatorStudioVideo(req, res);
+  } catch (error) {
+    console.error("❌ removeWatermarkCreatorStudioVideo error:", error);
+    return res.status(500).json({ success: false, message: "Server error", error: error.message });
+  }
+}
+
 export async function handlePiApiCallback(req, res) {
   try {
     const body = req.body || {};
@@ -4834,10 +4892,22 @@ export async function handlePiApiCallback(req, res) {
     const taskId = data?.task_id || data?.taskId || body?.task_id || body?.taskId || body?.id;
     if (!taskId) return res.status(200).json({ success: true, ignored: "missing_task_id" });
 
-    const generation = await prisma.generation.findFirst({
-      where: { providerTaskId: String(taskId) },
-      select: { id: true, status: true, creditsRefunded: true },
-    });
+    const lookupTaskId = String(taskId);
+    const lookupDelays = [0, 150, 400, 900, 1600];
+    let generation = null;
+    for (const delay of lookupDelays) {
+      if (delay > 0) await new Promise((r) => setTimeout(r, delay));
+      generation = await prisma.generation.findFirst({
+        where: {
+          OR: [
+            { providerTaskId: lookupTaskId },
+            { replicateModel: `piapi-task:${lookupTaskId}` },
+          ],
+        },
+        select: { id: true, status: true, creditsRefunded: true },
+      });
+      if (generation) break;
+    }
     if (!generation) return res.status(200).json({ success: true, ignored: "generation_not_found" });
 
     const rawStatus = String(data?.status || body?.status || "").toLowerCase();

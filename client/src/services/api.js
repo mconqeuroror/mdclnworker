@@ -826,6 +826,10 @@ export const creatorStudioAPI = {
     const response = await api.post("/generate/creator-studio/video/extend", payload);
     return response.data;
   },
+  removeWatermarkVideo: async ({ sourceGenerationId }) => {
+    const response = await api.post("/generate/creator-studio/video/remove-watermark", { sourceGenerationId });
+    return response.data;
+  },
   getVideoHistory: async ({ limit = 20, offset = 0 } = {}) => {
     const response = await api.get(`/generations?type=creator-studio-video&limit=${limit}&offset=${offset}`);
     return response.data;

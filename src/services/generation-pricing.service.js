@@ -70,6 +70,7 @@ export const DEFAULT_GENERATION_PRICING = Object.freeze({
   seedance2FastPreviewCreditsPerSec: 32,
   seedance2PreviewEditCreditsPerSec: 100,
   seedance2FastPreviewEditCreditsPerSec: 52,
+  seedanceRemoveWatermarkPerSec: 3.2,
 
   videoPrompt5s: 60,
   videoPrompt10s: 100,

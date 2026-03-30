@@ -257,6 +257,7 @@ const VIDEO_DEFAULT_PRICING = Object.freeze({
   seedance2FastPreviewCreditsPerSec: 32,
   seedance2PreviewEditCreditsPerSec: 100,
   seedance2FastPreviewEditCreditsPerSec: 52,
+  seedanceRemoveWatermarkPerSec: 3.2,
 });
 
 function toPrice(source, key) {
@@ -1457,6 +1458,32 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
     }
   };
 
+  const handleSeedanceRemoveWatermark = async (item) => {
+    if (!item?.id) return;
+    const baseDuration = Math.max(5, Number(item.duration) || 5);
+    const estimatedCost = Math.ceil(toPrice(generationPricing, "seedanceRemoveWatermarkPerSec") * baseDuration);
+    setIsVideoGenerating(true);
+    try {
+      const data = await creatorStudioAPI.removeWatermarkVideo({ sourceGenerationId: item.id });
+      if (!data?.success || !data?.generation?.id) {
+        throw new Error(data?.message || "Failed to start watermark removal");
+      }
+      toast.success(`Watermark removal started (${estimatedCost} credits).`);
+      pollForCompletion(data.generation.id, {
+        onSuccess: (gen) => {
+          toast.success("Watermark removed.");
+          refreshUser?.();
+          setVideoHistory((prev) => [{ ...gen }, ...prev.filter((g) => g.id !== gen.id)]);
+        },
+        onFailure: (gen) => toast.error(gen.errorMessage || "Watermark removal failed — credits refunded"),
+      });
+    } catch (err) {
+      toast.error(err.response?.data?.message || err.message || "Failed to start watermark removal");
+    } finally {
+      setIsVideoGenerating(false);
+    }
+  };
+
   const COST = resolution === "4K" ? 25 : 20;
   const creditsLeft = user?.credits ?? 0;
   const selectedAspect = ASPECT_RATIOS.find((ar) => ar.value === aspectRatio);
@@ -2323,6 +2350,15 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                           className="mt-2 text-xs px-2.5 py-1.5 rounded-lg bg-white/10 text-slate-200 hover:bg-white/15"
                         >
                           Extend this video
+                        </button>
+                      )}
+                      {item.providerFamily === "seedance2" && item.status === "completed" && item.outputUrl && (
+                        <button
+                          type="button"
+                          onClick={() => handleSeedanceRemoveWatermark(item)}
+                          className="mt-2 ml-2 text-xs px-2.5 py-1.5 rounded-lg bg-violet-600/70 text-white hover:bg-violet-600"
+                        >
+                          Remove watermark
                         </button>
                       )}
                     </div>

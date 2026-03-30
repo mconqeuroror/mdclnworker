@@ -176,6 +176,7 @@ const GENERATION_PRICING_GROUPS = [
       { key: 'seedance2FastPreviewCreditsPerSec', label: 'Seedance 2 fast preview credits / sec' },
       { key: 'seedance2PreviewEditCreditsPerSec', label: 'Seedance 2 preview edit credits / sec' },
       { key: 'seedance2FastPreviewEditCreditsPerSec', label: 'Seedance 2 fast preview edit credits / sec' },
+      { key: 'seedanceRemoveWatermarkPerSec', label: 'Seedance watermark remover credits / sec' },
       { key: 'videoPrompt5s', label: 'Video from prompt — 5s' },
       { key: 'videoPrompt10s', label: 'Video from prompt — 10s' },
       { key: 'videoFaceSwapPerSec', label: 'Video face swap — credits / sec' },
