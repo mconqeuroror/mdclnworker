@@ -65,16 +65,29 @@ export const LANDER_NEW_DEFAULTS = {
     },
     topChoice: {
       heading: "Top Choice",
-      items: [],
+      items: [
+        { id: "nano-banana", title: "Nano Banana Pro", description: "Flagship 4K image generation pipeline" },
+        { id: "motion-control", title: "Motion Control", description: "Expression and movement control up to 30s" },
+        { id: "shots", title: "Shots", description: "Generate nine usable angles from one frame" },
+      ],
     },
     partners: {
       heading: "Partners",
-      logos: [],
+      logos: [
+        { id: "kie", name: "KIE AI", logoUrl: "" },
+        { id: "wavespeed", name: "WaveSpeed", logoUrl: "" },
+        { id: "runpod", name: "RunPod", logoUrl: "" },
+        { id: "stripe", name: "Stripe", logoUrl: "" },
+      ],
     },
     pricing: {
       heading: "Pricing",
       billingCycleDefault: "monthly",
-      tiers: [],
+      tiers: [
+        { id: "starter", name: "Starter", credits: 2900, monthly: 29, annual: 289, pricePerCredit: 0.01, popular: false, bonusCredits: 0 },
+        { id: "pro", name: "Pro", credits: 8900, monthly: 79, annual: 787, pricePerCredit: 0.0089, popular: true, bonusCredits: 1000 },
+        { id: "business", name: "Business", credits: 24900, monthly: 199, annual: 1982, pricePerCredit: 0.008, popular: false, bonusCredits: 5000 },
+      ],
       payAsYouGo: {
         pricePerCredit: 0.012,
         description: "One-time credit top-ups. No subscription required.",
