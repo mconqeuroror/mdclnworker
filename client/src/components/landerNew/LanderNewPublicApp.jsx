@@ -1,4 +1,5 @@
 import { useEffect, useMemo } from "react";
+import { LOCAL_BRANDING } from "../../config/branding";
 import { PromoBar } from "../../../../modelclone-landing/src/components/sections/PromoBar";
 import { Navbar } from "../../../../modelclone-landing/src/components/sections/Navbar";
 import { HeroSlider } from "../../../../modelclone-landing/src/components/sections/HeroSlider";
@@ -61,9 +62,10 @@ function mapToStandaloneConfig(config) {
 
   return {
     brand: {
-      appName:    config?.brand?.appName || STANDALONE_LANDING_CONFIG.brand.appName || "ModelClone",
+      appName:    config?.brand?.appName || LOCAL_BRANDING.appName || "ModelClone",
       logoText:   "MC",
-      logoUrl:    config?.brand?.logoUrl || "/modelclone-logo.svg",
+      // Always fall back to LOCAL_BRANDING so the logo never disappears
+      logoUrl:    config?.brand?.logoUrl || LOCAL_BRANDING.logoUrl || "/logo-512.png",
       loginHref:  "/login",
       signupHref: config?.brand?.ctaHref || "/signup",
     },

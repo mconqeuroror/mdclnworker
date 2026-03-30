@@ -49,21 +49,6 @@ export function HeroSlider({ data }) {
 
   return (
     <section className="container hero-wrap" id="explore">
-      {/* Tab chips — progress bar uses --chip-duration CSS var */}
-      <div className="hero-track">
-        {data.slides.map((s, idx) => (
-          <button
-            key={`${s.eyebrow}-${idx}`}
-            type="button"
-            onClick={() => goTo(idx)}
-            className={`hero-chip ${active === idx ? "is-active" : ""}`}
-            style={active === idx ? { "--chip-duration": `${chipDuration}ms` } : {}}
-          >
-            {s.eyebrow}
-          </button>
-        ))}
-      </div>
-
       {/* Hero panel */}
       <div className="hero-panel" id="image">
         <div className="hero-copy" data-dp-target-id="hero.copy">
