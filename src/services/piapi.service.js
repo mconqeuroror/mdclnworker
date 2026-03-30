@@ -6,18 +6,28 @@ function stripTrailingSlash(value) {
 }
 
 export function getPiApiCallbackUrl() {
+  // Explicit override wins.
   const explicit = process.env.PIAPI_CALLBACK_URL;
   if (explicit && typeof explicit === "string" && explicit.startsWith("http")) {
     return explicit.trim();
   }
+  // Stable custom base URL (set this in Vercel env vars so it never changes between deployments).
   const callbackBase = process.env.CALLBACK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL;
   if (callbackBase) {
     const base = stripTrailingSlash(callbackBase);
     const withProtocol = base.startsWith("http") ? base : `https://${base}`;
     return `${stripTrailingSlash(withProtocol)}/api/piapi/callback`;
   }
+  // VERCEL_PROJECT_PRODUCTION_URL is the stable production alias (e.g. mdcln-testing.vercel.app).
+  // It does NOT change between deployments, unlike VERCEL_URL which is deployment-specific.
+  const productionUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL;
+  if (productionUrl) {
+    return `https://${stripTrailingSlash(productionUrl)}/api/piapi/callback`;
+  }
+  // Last resort: deployment-specific URL (changes every push — avoid relying on this).
   const vercel = process.env.VERCEL_URL;
   if (vercel) {
+    console.warn("[PiAPI] Using deployment-specific VERCEL_URL for callback. Set CALLBACK_BASE_URL to the production alias for reliability.");
     return `https://${stripTrailingSlash(vercel)}/api/piapi/callback`;
   }
   return null;

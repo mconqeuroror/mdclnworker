@@ -4652,7 +4652,7 @@ export async function generateCreatorStudioVideo(req, res) {
     });
     generationId = generation.id;
 
-    processCreatorStudioVideoInBackground({
+    const bgArgs = {
       generationId: generation.id,
       userId,
       family: lowerFamily,
@@ -4682,7 +4682,21 @@ export async function generateCreatorStudioVideo(req, res) {
       veoSeeds,
       veoEnableTranslation,
       veoWatermark,
-    }).catch((err) => console.error("❌ Creator Studio video background error:", err));
+    };
+    // PiAPI (Seedance) tasks: await submission so providerTaskId is persisted before the
+    // HTTP response is sent. This prevents the race where PiAPI's callback arrives before
+    // the background fire-and-forget has written the task ID to the DB.
+    // KIE tasks use onTaskSubmitted() internally to persist the task ID synchronously, so
+    // they are safe to fire-and-forget.
+    if (lowerFamily === "seedance2") {
+      await processCreatorStudioVideoInBackground(bgArgs).catch((err) =>
+        console.error("❌ Creator Studio video background error:", err),
+      );
+    } else {
+      processCreatorStudioVideoInBackground(bgArgs).catch((err) =>
+        console.error("❌ Creator Studio video background error:", err),
+      );
+    }
 
     return res.json({
       success: true,
@@ -4796,6 +4810,7 @@ export async function handlePiApiCallback(req, res) {
       null;
 
     if (rawStatus.includes("completed") || outputUrl) {
+      // Persist immediately with the provider URL, then mirror to durable storage in the background.
       await prisma.generation.update({
         where: { id: generation.id },
         data: {
@@ -4805,6 +4820,28 @@ export async function handlePiApiCallback(req, res) {
           providerResponse: body,
         },
       });
+      // Mirror ephemeral PiAPI URL (img.theapi.app/ephemeral/…) to persistent storage so it
+      // doesn't expire. This runs after the 200 is sent so the response is not delayed.
+      if (outputUrl) {
+        (async () => {
+          try {
+            let persisted = outputUrl;
+            if (isVercelBlobConfigured()) {
+              persisted = await mirrorExternalUrlToPersistentBlob(outputUrl, "generations");
+            } else if (isR2Configured()) {
+              persisted = await mirrorToR2(outputUrl, "generations");
+            }
+            if (persisted && persisted !== outputUrl) {
+              await prisma.generation.update({
+                where: { id: generation.id },
+                data: { outputUrl: persisted },
+              });
+            }
+          } catch (e) {
+            console.warn("⚠️ PiAPI output URL mirror failed:", e?.message);
+          }
+        })();
+      }
       return res.status(200).json({ success: true });
     }
 
