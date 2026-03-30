@@ -828,3 +828,228 @@ textarea:focus-visible {
     padding-right: max(0.75rem, env(safe-area-inset-right));
   }
 }
+
+/* ===== LANDER NEW + VISUAL EDITOR ===== */
+.lander-new-shell {
+  min-height: 100vh;
+  padding: 3rem 1rem 4rem;
+  color: #fff;
+  background:
+    radial-gradient(ellipse 90% 60% at 50% 0%, rgba(139, 92, 246, 0.12), transparent 65%),
+    #07070b;
+}
+
+.lander-new-hero,
+.lander-new-block {
+  max-width: 1100px;
+  margin: 0 auto 1.25rem;
+  padding: 1rem;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(16px);
+}
+
+.lander-new-hero h1 {
+  font-size: clamp(1.8rem, 4vw, 2.8rem);
+  margin-bottom: 0.5rem;
+}
+
+.lander-new-hero p { color: rgba(255, 255, 255, 0.72); max-width: 70ch; }
+
+.lander-new-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-bottom: 1rem;
+}
+
+.lander-new-brand img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+}
+
+.lander-new-hero-cta-row {
+  margin-top: 1rem;
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.lander-new-grid3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.lander-card {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 0.8rem;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.lander-card h3 { margin-bottom: 0.25rem; }
+.lander-card p { color: rgba(255, 255, 255, 0.65); font-size: 0.86rem; }
+
+.lander-new-partners {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  padding-bottom: 0.25rem;
+}
+
+.lander-editable {
+  position: relative;
+  transition: outline-color 120ms ease;
+}
+
+.lander-editable.is-selected {
+  outline: 1px dashed rgba(196, 181, 253, 0.9);
+  outline-offset: 4px;
+}
+
+.lander-drag-handle {
+  position: absolute;
+  top: -10px;
+  right: -10px;
+  z-index: 5;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(15, 15, 18, 0.94);
+  color: #fff;
+  border-radius: 999px;
+  font-size: 10px;
+  padding: 2px 7px;
+  cursor: grab;
+}
+
+.lander-editor-shell {
+  min-height: 100vh;
+  background: #07070b;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+}
+
+.lander-editor-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(10, 10, 14, 0.92);
+  backdrop-filter: blur(10px);
+}
+
+.lander-editor-toolbar-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.lander-editor-toolbar button,
+.lander-editor-bp-btn {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.03);
+  color: #fff;
+  border-radius: 8px;
+  padding: 0.35rem 0.55rem;
+  font-size: 12px;
+}
+
+.lander-editor-bp-btn.is-active {
+  background: rgba(139, 92, 246, 0.2);
+  border-color: rgba(167, 139, 250, 0.6);
+}
+
+.lander-editor-body {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  min-height: 0;
+  flex: 1;
+}
+
+.lander-editor-inspector {
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 0.9rem;
+  background: rgba(9, 9, 12, 0.95);
+  overflow: auto;
+}
+
+.lander-editor-preview {
+  overflow: auto;
+}
+
+.lander-editor-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  margin-bottom: 0.55rem;
+}
+
+.lander-editor-field span {
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 12px;
+}
+
+.lander-editor-field input,
+.lander-editor-field textarea {
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: #fff;
+  padding: 0.5rem;
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.lander-editor-field textarea {
+  min-height: 90px;
+  resize: vertical;
+}
+
+.lander-editor-json {
+  width: 100%;
+  min-height: 240px;
+  resize: vertical;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: #fff;
+  padding: 0.5rem;
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.lander-editor-layout-box {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+}
+
+.lander-editor-field-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+@media (max-width: 1024px) {
+  .lander-new-grid3 {
+    grid-template-columns: 1fr;
+  }
+  .lander-editor-body {
+    grid-template-columns: 1fr;
+  }
+  .lander-editor-inspector {
+    border-right: 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+}

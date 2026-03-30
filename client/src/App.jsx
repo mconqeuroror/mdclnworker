@@ -46,6 +46,8 @@ import FaceRefTestPage from './pages/FaceRefTestPage';
 import NSFWPage from './pages/NSFWPage';
 import FreeCourseFunnelPage from './pages/FreeCourseFunnelPage';
 import ContentReformatterPage from './pages/ContentReformatterPage';
+import LanderNewPage from './pages/LanderNewPage';
+import AdminLanderEditorPage from './pages/AdminLanderEditorPage';
 import SupportChatButton from './components/SupportChatButton';
 import AdminLoginPage from './pages/AdminLoginPage';
 import ProLayout from './pages/Pro/ProLayout';
@@ -501,6 +503,7 @@ function App() {
           <Route path="/sk/vytvor-ai-model" element={<CreateAIModelLandingPageSk />} />
           <Route path="/r/:suffix" element={<ReferralCapturePage />} />
           <Route path="/free-course" element={<FreeCourseFunnelPage />} />
+          <Route path="/lander-new" element={<LanderNewPage />} />
           <Route
             path="/voice-test"
             element={
@@ -554,6 +557,14 @@ function App() {
             element={
               <AdminRoute>
                 <DesignerStudioPage />
+              </AdminRoute>
+            }
+          />
+          <Route
+            path="/admin/lander-editor"
+            element={
+              <AdminRoute>
+                <AdminLanderEditorPage />
               </AdminRoute>
             }
           />

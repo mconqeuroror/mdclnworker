@@ -239,6 +239,8 @@ import referralRoutes from "./referral.routes.js";
 import draftRoutes from "./draft.routes.js";
 import reformatterRoutes from "./reformatter.routes.js";
 import avatarRoutes from "./avatar.routes.js";
+import landerNewRoutes from "./lander-new.routes.js";
+import adminLanderNewRoutes from "./admin-lander-new.routes.js";
 import { sendFrontendErrorAlert } from "../services/email.service.js";
 import rateLimit from "express-rate-limit";
 import { getAppBranding } from "../services/branding.service.js";
@@ -2166,6 +2168,8 @@ router.use("/crypto", nowpaymentsRoutes);
 router.use("/referrals", referralRoutes);
 router.use("/drafts", draftRoutes);
 router.use("/reformatter", reformatterRoutes);
+router.use("/lander-new", landerNewRoutes);
+router.use("/admin/lander-new", authMiddleware, adminMiddleware, adminLanderNewRoutes);
 
 // ============================================
 // REAL AVATARS (HeyGen Photo Avatar IV)

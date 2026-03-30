@@ -1689,6 +1689,10 @@ export default function AdminPage() {
               <Palette className="w-3.5 h-3.5" />
               Designer Studio
             </GhostBtn>
+            <GhostBtn onClick={() => navigate('/admin/lander-editor')}>
+              <Palette className="w-3.5 h-3.5" />
+              Lander Editor
+            </GhostBtn>
             <GhostBtn onClick={() => navigate('/dashboard')}>
               <ArrowLeft className="w-3.5 h-3.5" /> Dashboard
             </GhostBtn>

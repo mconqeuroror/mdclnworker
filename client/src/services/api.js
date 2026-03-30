@@ -702,6 +702,25 @@ export const brandingAPI = {
   },
 };
 
+export const landerNewAPI = {
+  getPublicConfig: async () => {
+    const response = await api.get("/lander-new/config");
+    return response.data;
+  },
+  getAdminConfigBundle: async () => {
+    const response = await api.get("/admin/lander-new/config");
+    return response.data;
+  },
+  saveDraft: async (config) => {
+    const response = await api.put("/admin/lander-new/draft", { config });
+    return response.data;
+  },
+  publish: async () => {
+    const response = await api.post("/admin/lander-new/publish");
+    return response.data;
+  },
+};
+
 export const tutorialsAPI = {
   getCatalog: async () => {
     const response = await api.get("/tutorials/catalog");
