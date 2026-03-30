@@ -511,7 +511,12 @@ class GenerationPollerService {
         const data = kieJson?.data ?? kieJson;
         const state = String(data?.state || "").toLowerCase();
 
-        if (state === "success") {
+        const normState = String(state || "").toLowerCase();
+        const isSuccessState = ["success", "succeeded", "completed", "finished", "done"].includes(normState);
+        const isFailedState = ["fail", "failed", "error", "cancelled", "canceled"].includes(normState);
+        const isRunningState = ["waiting", "queuing", "queued", "generating", "processing", "running", "pending", "submitted", "created", "starting"].includes(normState);
+
+        if (isSuccessState) {
           // Extract output URL
           let outputUrl = null;
           try {
@@ -549,7 +554,7 @@ class GenerationPollerService {
               data: { status: "failed", errorMessage: getErrorMessageForDb("Generation succeeded but returned no output URL"), completedAt: new Date() },
             });
           }
-        } else if (state === "fail") {
+        } else if (isFailedState) {
           const failMsg = data.failMsg || data.failCode || "KIE generation failed";
           await prisma.generation.update({
             where: { id: gen.id },
@@ -558,13 +563,13 @@ class GenerationPollerService {
           // Refund credits
           try { await refundGeneration(gen.id); } catch { /**/ }
           console.log(`[KIE Watchdog] ❌ Marked failed ${gen.id.slice(0, 8)}: ${failMsg}`);
-        } else if (state === "waiting" || state === "queuing" || state === "generating") {
+        } else if (isRunningState) {
           // Still running — only fail if way past max timeout
           const hardTimeout = isVideo ? 75 * 60 * 1000 : 25 * 60 * 1000;
           if (ageMs > hardTimeout) {
             await prisma.generation.update({
               where: { id: gen.id },
-              data: { status: "failed", errorMessage: getErrorMessageForDb(`Task timed out after ${Math.round(ageMs / 60000)} min (state: ${state})`), completedAt: new Date() },
+              data: { status: "failed", errorMessage: getErrorMessageForDb(`Task timed out after ${Math.round(ageMs / 60000)} min (state: ${normState})`), completedAt: new Date() },
             });
             try { await refundGeneration(gen.id); } catch { /**/ }
             console.log(`[KIE Watchdog] ⏱ Hard-timeout ${gen.id.slice(0, 8)} after ${Math.round(ageMs / 60000)} min`);

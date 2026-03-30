@@ -2,10 +2,12 @@ import fs from "fs/promises";
 import path from "path";
 import { LANDER_NEW_DEFAULTS } from "../config/lander-new-defaults.js";
 import { getAppBranding } from "./branding.service.js";
+import prisma from "../lib/prisma.js";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const PUBLISHED_PATH = path.join(DATA_DIR, "lander-new.published.json");
 const DRAFT_PATH = path.join(DATA_DIR, "lander-new.draft.json");
+const LANDER_NEW_CONFIG_ID = "global";
 
 function deepMerge(base, override) {
   if (Array.isArray(base)) return Array.isArray(override) ? override : base;
@@ -109,6 +111,22 @@ function sanitizeConfig(input) {
   merged.seo.jsonLd.softwareApplication = app;
   merged.brand.logoUrl = sanitizeUrl(merged.brand.logoUrl);
   merged.brand.ctaHref = sanitizeUrl(merged.brand.ctaHref);
+  if (merged.promotionBar && typeof merged.promotionBar === "object") {
+    merged.promotionBar.enabled = Boolean(merged.promotionBar.enabled);
+    merged.promotionBar.message = sanitizeString(merged.promotionBar.message, 240);
+    merged.promotionBar.ctaText = sanitizeString(merged.promotionBar.ctaText, 64);
+    merged.promotionBar.ctaHref = sanitizeUrl(merged.promotionBar.ctaHref);
+  }
+  if (merged.countdown && typeof merged.countdown === "object") {
+    merged.countdown.enabled = Boolean(merged.countdown.enabled);
+    merged.countdown.eyebrow = sanitizeString(merged.countdown.eyebrow, 80);
+    merged.countdown.heading = sanitizeString(merged.countdown.heading, 180);
+    merged.countdown.body = sanitizeString(merged.countdown.body, 500);
+    merged.countdown.ctaText = sanitizeString(merged.countdown.ctaText, 64);
+    merged.countdown.ctaHref = sanitizeUrl(merged.countdown.ctaHref);
+    merged.countdown.targetISO = sanitizeString(merged.countdown.targetISO, 64);
+    merged.countdown.finishedText = sanitizeString(merged.countdown.finishedText, 120);
+  }
   merged.sections.hero.mediaUrl = sanitizeUrl(merged.sections.hero.mediaUrl);
   merged.sections.hero.primaryCtaHref = sanitizeUrl(merged.sections.hero.primaryCtaHref);
   merged.sections.hero.secondaryCtaHref = sanitizeUrl(merged.sections.hero.secondaryCtaHref);
@@ -120,8 +138,46 @@ function sanitizeConfig(input) {
   return merged;
 }
 
+function isMissingLanderConfigSchemaError(err) {
+  if (!err) return false;
+  if (err.code === "P2021" || err.code === "P2022") return true;
+  const msg = String(err.message || "").toLowerCase();
+  return msg.includes("landernewconfig") && (msg.includes("does not exist") || msg.includes("unknown"));
+}
+
+async function readDbConfigRow() {
+  try {
+    return await prisma.landerNewConfig.findUnique({
+      where: { id: LANDER_NEW_CONFIG_ID },
+      select: { published: true, draft: true },
+    });
+  } catch (err) {
+    if (isMissingLanderConfigSchemaError(err)) {
+      return null;
+    }
+    throw err;
+  }
+}
+
+async function writeDbConfigRow({ published, draft }) {
+  return prisma.landerNewConfig.upsert({
+    where: { id: LANDER_NEW_CONFIG_ID },
+    create: {
+      id: LANDER_NEW_CONFIG_ID,
+      published,
+      draft,
+    },
+    update: {
+      published,
+      draft,
+    },
+    select: { published: true, draft: true },
+  });
+}
+
 export async function getPublishedLanderNewConfig() {
-  const stored = await readJsonSafe(PUBLISHED_PATH);
+  const dbRow = await readDbConfigRow();
+  const stored = dbRow?.published ?? await readJsonSafe(PUBLISHED_PATH);
   const normalized = sanitizeConfig(stored || LANDER_NEW_DEFAULTS);
   const branding = await getAppBranding().catch(() => null);
   if (!normalized.brand.logoUrl && branding?.logoUrl) {
@@ -131,31 +187,51 @@ export async function getPublishedLanderNewConfig() {
 }
 
 export async function getAdminLanderNewConfigBundle() {
-  const [publishedRaw, draftRaw] = await Promise.all([
-    readJsonSafe(PUBLISHED_PATH),
-    readJsonSafe(DRAFT_PATH),
-  ]);
+  const dbRow = await readDbConfigRow();
+  const [publishedRaw, draftRaw] = dbRow
+    ? [dbRow.published, dbRow.draft]
+    : await Promise.all([readJsonSafe(PUBLISHED_PATH), readJsonSafe(DRAFT_PATH)]);
   const published = sanitizeConfig(publishedRaw || LANDER_NEW_DEFAULTS);
   const draft = sanitizeConfig(draftRaw || published);
   return { published, draft };
 }
 
 export async function saveDraftLanderNewConfig(nextDraft) {
-  const prev = await readJsonSafe(DRAFT_PATH);
   const sanitized = sanitizeConfig(nextDraft);
+  const dbRow = await readDbConfigRow();
+  const prev = dbRow?.draft ?? await readJsonSafe(DRAFT_PATH);
   const withMeta = withMetadata(sanitized, prev);
-  await writeJson(DRAFT_PATH, withMeta);
+  try {
+    const publishedCurrent = sanitizeConfig(
+      dbRow?.published || await readJsonSafe(PUBLISHED_PATH) || LANDER_NEW_DEFAULTS,
+    );
+    await writeDbConfigRow({
+      published: dbRow?.published || publishedCurrent,
+      draft: withMeta,
+    });
+  } catch (err) {
+    if (!isMissingLanderConfigSchemaError(err)) throw err;
+    await writeJson(DRAFT_PATH, withMeta);
+  }
   return withMeta;
 }
 
 export async function publishLanderNewConfig() {
-  const [draft, published] = await Promise.all([
-    readJsonSafe(DRAFT_PATH),
-    readJsonSafe(PUBLISHED_PATH),
-  ]);
+  const dbRow = await readDbConfigRow();
+  const [draft, published] = dbRow
+    ? [dbRow.draft, dbRow.published]
+    : await Promise.all([readJsonSafe(DRAFT_PATH), readJsonSafe(PUBLISHED_PATH)]);
   const source = sanitizeConfig(draft || published || LANDER_NEW_DEFAULTS);
   const withMeta = withMetadata(source, published);
-  await writeJson(PUBLISHED_PATH, withMeta);
+  try {
+    await writeDbConfigRow({
+      published: withMeta,
+      draft: withMeta,
+    });
+  } catch (err) {
+    if (!isMissingLanderConfigSchemaError(err)) throw err;
+    await writeJson(PUBLISHED_PATH, withMeta);
+  }
   return withMeta;
 }
 

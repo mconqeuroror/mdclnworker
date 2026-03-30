@@ -72,11 +72,10 @@ function mapToStandaloneConfig(config) {
 
     promotionBar: {
       ...STANDALONE_LANDING_CONFIG.promotionBar,
-      ...(config?.promotionBar?.message ? {
-        message: config.promotionBar.message,
-        ctaText: config.promotionBar.ctaText ?? STANDALONE_LANDING_CONFIG.promotionBar.ctaText,
-        ctaHref: config.promotionBar.ctaHref ?? STANDALONE_LANDING_CONFIG.promotionBar.ctaHref,
-      } : {}),
+      enabled: config?.promotionBar?.enabled ?? STANDALONE_LANDING_CONFIG.promotionBar.enabled,
+      message: config?.promotionBar?.message ?? STANDALONE_LANDING_CONFIG.promotionBar.message,
+      ctaText: config?.promotionBar?.ctaText ?? STANDALONE_LANDING_CONFIG.promotionBar.ctaText,
+      ctaHref: config?.promotionBar?.ctaHref ?? STANDALONE_LANDING_CONFIG.promotionBar.ctaHref,
     },
 
     hero: {
@@ -86,13 +85,14 @@ function mapToStandaloneConfig(config) {
 
     countdown: {
       ...STANDALONE_LANDING_CONFIG.countdown,
-      ...(config?.countdown?.heading ? {
-        heading:   config.countdown.heading,
-        body:      config.countdown.body      ?? STANDALONE_LANDING_CONFIG.countdown.body,
-        ctaText:   config.countdown.ctaText   ?? STANDALONE_LANDING_CONFIG.countdown.ctaText,
-        ctaHref:   config.countdown.ctaHref   ?? STANDALONE_LANDING_CONFIG.countdown.ctaHref,
-        targetISO: config.countdown.targetISO ?? STANDALONE_LANDING_CONFIG.countdown.targetISO,
-      } : {}),
+      enabled: config?.countdown?.enabled ?? STANDALONE_LANDING_CONFIG.countdown.enabled,
+      eyebrow: config?.countdown?.eyebrow ?? STANDALONE_LANDING_CONFIG.countdown.eyebrow,
+      finishedText: config?.countdown?.finishedText ?? STANDALONE_LANDING_CONFIG.countdown.finishedText,
+      heading:   config?.countdown?.heading   ?? STANDALONE_LANDING_CONFIG.countdown.heading,
+      body:      config?.countdown?.body      ?? STANDALONE_LANDING_CONFIG.countdown.body,
+      ctaText:   config?.countdown?.ctaText   ?? STANDALONE_LANDING_CONFIG.countdown.ctaText,
+      ctaHref:   config?.countdown?.ctaHref   ?? STANDALONE_LANDING_CONFIG.countdown.ctaHref,
+      targetISO: config?.countdown?.targetISO ?? STANDALONE_LANDING_CONFIG.countdown.targetISO,
     },
 
     createToday: {
@@ -156,8 +156,8 @@ export default function LanderNewPublicApp({ config, noCursor = false, editMode 
     <div className={`page${editMode ? " edit-mode" : ""}`}>
       <div className="legacy-grid-bg" aria-hidden="true" />
       {!noCursor && <CustomCursor />}
+      {promotionBar.enabled && <PromoBar data={promotionBar} />}
       <div className="site-header-shell">
-        {promotionBar.enabled && <PromoBar data={promotionBar} />}
         <Navbar brand={brand} />
       </div>
 

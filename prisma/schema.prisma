@@ -623,6 +623,14 @@ model AppBranding {
   updatedAt          DateTime @updatedAt
 }
 
+model LanderNewConfig {
+  id        String   @id @default("global")
+  published Json
+  draft     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 /// Per-slot tutorial videos (Vercel Blob URL persisted after admin upload)
 model TutorialSlotVideo {
   slotKey   String   @id

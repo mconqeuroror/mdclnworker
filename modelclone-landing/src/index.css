@@ -162,6 +162,7 @@ p  { margin: 0; }
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 0.6rem;
 }
 
 .promotion-text {
@@ -176,6 +177,19 @@ p  { margin: 0; }
   color: rgba(255, 255, 255, 0.94);
   text-shadow: 0 1px 8px rgba(0, 0, 0, 0.35);
   padding: 0;
+}
+
+.promotion-cta {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+  padding: 0.2rem 0.5rem;
+  line-height: 1.1;
+  white-space: nowrap;
 }
 
 /* ─── Navbar ──────────────────────────────────────────────────────────────── */
@@ -714,6 +728,22 @@ main {
   flex-shrink: 0;
 }
 
+.countdown-finished-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 11rem;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 12px;
+  padding: 0.8rem 1rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.05);
+}
+
 .time-chip {
   width: 4.5rem;
   min-width: 4.5rem;
@@ -1115,6 +1145,9 @@ main {
   height: 13%;
   background: rgba(0, 0, 0, 0.38);
   z-index: 2;
+}
+.choice-preview-bars {
+  display: none;
 }
 .choice-preview-bars::before { top: 0; }
 .choice-preview-bars::after { bottom: 0; }
@@ -1796,11 +1829,25 @@ main {
 
 @media (max-width: 640px) {
   .promotion-wrap { height: auto; position: static; }
-  .promotion-inner { padding: 0.5rem 0; justify-content: center; }
+  .promotion-inner {
+    padding: 0.42rem 0;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 0.3rem 0.45rem;
+  }
   .promotion-text {
-    padding: 0;
+    padding: 0 0.2rem;
     text-align: center;
-    font-size: 0.66rem;
+    font-size: 0.62rem;
+    line-height: 1.35;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    max-width: 100%;
+  }
+  .promotion-cta {
+    font-size: 0.6rem;
+    padding: 0.16rem 0.4rem;
   }
 
   .countdown-banner {
@@ -1865,6 +1912,17 @@ main {
 [data-dp-target-id][data-dp-selected="true"] {
   outline: 2px solid rgba(251, 191, 36, 0.85) !important;
   outline-offset: 2px;
+}
+
+.ale-checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.ale-checkbox {
+  width: 0.9rem;
+  height: 0.9rem;
 }
 
 /* In edit-mode suppress IntersectionObserver-driven opacity: 0 states

@@ -21,6 +21,7 @@ export const LANDER_EDITOR_SCHEMA = [
     label: "Announcement Bar",
     group: "Brand",
     fields: [
+      { key: "promotionBar.enabled", type: "checkbox", label: "Visible" },
       { key: "promotionBar.message", type: "text", label: "Message" },
       { key: "promotionBar.ctaText", type: "text", label: "CTA Label (optional)" },
       { key: "promotionBar.ctaHref", type: "url",  label: "CTA URL (optional)" },
@@ -33,11 +34,14 @@ export const LANDER_EDITOR_SCHEMA = [
     label: "Countdown Banner",
     group: "Brand",
     fields: [
+      { key: "countdown.enabled",   type: "checkbox", label: "Visible" },
+      { key: "countdown.eyebrow",   type: "text",     label: "Eyebrow"              },
       { key: "countdown.heading",   type: "text",     label: "Heading"              },
       { key: "countdown.body",      type: "textarea", label: "Body text"            },
       { key: "countdown.ctaText",   type: "text",     label: "CTA Label"            },
       { key: "countdown.ctaHref",   type: "url",      label: "CTA URL"              },
       { key: "countdown.targetISO", type: "text",     label: "Target date (ISO 8601, e.g. 2026-05-01T23:59:59Z)" },
+      { key: "countdown.finishedText", type: "text",  label: "Text when countdown finishes" },
     ],
   },
 

@@ -13,6 +13,7 @@ function getCountdown(targetISO) {
 
 export function CountdownBanner({ data }) {
   const [time, setTime] = useState(() => getCountdown(data.targetISO));
+  const isFinished = time.days === 0 && time.hours === 0 && time.minutes === 0 && time.seconds === 0;
 
   useEffect(() => {
     const t = setInterval(() => setTime(getCountdown(data.targetISO)), 1000);
@@ -32,17 +33,23 @@ export function CountdownBanner({ data }) {
   return (
     <section className="container" data-dp-target-id="countdown">
       <a className="countdown-banner" href={data.ctaHref}>
-        <div className="countdown-timer">
-          {units.map((u) => (
-            <div className="time-chip" key={u.label}>
-              <strong>{String(u.value).padStart(2, "0")}</strong>
-              <span>{u.label}</span>
-            </div>
-          ))}
-        </div>
+        {!isFinished ? (
+          <div className="countdown-timer">
+            {units.map((u) => (
+              <div className="time-chip" key={u.label}>
+                <strong>{String(u.value).padStart(2, "0")}</strong>
+                <span>{u.label}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="countdown-finished-chip">
+            {data.finishedText || "Offer ended"}
+          </div>
+        )}
 
         <div className="countdown-copy">
-          <p className="eyebrow">Anniversary Sale</p>
+          <p className="eyebrow">{data.eyebrow || "Anniversary Sale"}</p>
           <h2>{data.heading}</h2>
           <p className="muted">{data.body}</p>
         </div>

@@ -59,6 +59,20 @@ const IC = {
 function FieldRow({ field, config, onChange, onUpload }) {
   const value = getNestedByPath(config, field.key) ?? "";
 
+  if (field.type === "checkbox") {
+    return (
+      <label className="ale-checkbox-row">
+        <input
+          type="checkbox"
+          checked={Boolean(value)}
+          onChange={e => onChange(field.key, e.target.checked)}
+          className="ale-checkbox"
+        />
+        <span className="text-[0.7rem] text-gray-300">{field.label}</span>
+      </label>
+    );
+  }
+
   if (field.type === "textarea") {
     return (
       <label className="block">

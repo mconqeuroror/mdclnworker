@@ -60,11 +60,13 @@ export const LANDER_NEW_DEFAULTS = {
 
   countdown: {
     enabled: true,
+    eyebrow: "Anniversary Sale",
     targetISO: "2026-05-01T23:59:59Z",
     heading: "Anniversary Release Window — 65% OFF Unlimited Nano Banana Pro",
     body: "Limited access pricing for creators building with high output volume this month.",
     ctaText: "Claim Discount",
     ctaHref: "#pricing",
+    finishedText: "Offer ended",
   },
 
   sections: {

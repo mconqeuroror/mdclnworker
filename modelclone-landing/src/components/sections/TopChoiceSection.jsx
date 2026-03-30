@@ -9,7 +9,6 @@ function ChoicePreview({ mediaType = "video", title, imageUrl }) {
   }
   return (
     <div className={`choice-preview ${mediaType}`}>
-      <div className="choice-preview-bars" />
       <div className="choice-preview-glow" />
       <div className="choice-preview-noise" />
       <div className="choice-preview-title">{title}</div>

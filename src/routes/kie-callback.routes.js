@@ -244,9 +244,14 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
       return;
     }
 
-    const isSuccess = state === "success" || code === 200;
+    const normalizedState = String(state || "").toLowerCase();
+    const successStates = new Set(["success", "succeeded", "completed", "finished", "done"]);
+    const failedStates = new Set(["fail", "failed", "error", "canceled", "cancelled"]);
+    const nonTerminalStates = new Set(["waiting", "queued", "queuing", "processing", "generating", "running", "pending", "submitted", "created", "starting"]);
+    const isTerminalSuccess = successStates.has(normalizedState);
+    const isTerminalFailure = failedStates.has(normalizedState);
     let outputUrl = null;
-    if (isSuccess) {
+    if (isTerminalSuccess || code === 200) {
       outputUrl =
         parseResultJsonAndGetUrl(resultJson)
         || (resultUrls[0] && typeof resultUrls[0] === "string" && resultUrls[0].startsWith("http") ? resultUrls[0] : null)
@@ -285,6 +290,13 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
       if (!outputUrl) {
         console.warn("[KIE Callback] success but no outputUrl — taskId=%s dataKeys=%s resultJsonLen=%s", taskId?.slice(0, 12), Object.keys(data || {}).join(","), typeof resultJson === "string" ? resultJson.length : (resultJson ? "obj" : "null"));
       }
+    }
+    const isSuccess = isTerminalSuccess || (!normalizedState && !!outputUrl);
+    const isFailure = isTerminalFailure || (normalizedState === "fail");
+
+    if (!isSuccess && !isFailure && nonTerminalStates.has(normalizedState)) {
+      console.log("[KIE Callback] Non-terminal update taskId=%s state=%s", taskId.slice(0, 12), normalizedState);
+      return ack();
     }
 
     // ── Model-photo generation with dedicated KieTask correlation ───────────────
@@ -327,7 +339,7 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
         });
       };
 
-      if (!isSuccess) {
+      if (isFailure) {
         const reason = [failCode, failMsg].filter(Boolean).join(" — ") || msg || "KIE task failed";
         await markKieTaskFailed(taskId, reason);
         await failModel(reason);
@@ -614,7 +626,7 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
         await markKieTaskFailed(taskId, "Callback success but no output URL");
         console.warn("[KIE Callback] Success but no URL for %s", gen.id.slice(0, 8));
       }
-    } else {
+      } else if (isFailure) {
       const errorText = [failCode, failMsg].filter(Boolean).join(" — ") || msg || "Generation failed";
       if (failCode || failMsg) console.log("[KIE Callback] failCode=%s failMsg=%s", failCode, failMsg);
       await prisma.generation.update({
@@ -624,6 +636,9 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
       try { await refundGeneration(gen.id); } catch {}
       await markKieTaskFailed(taskId, errorText);
       console.log("[KIE Callback] ❌ %s failed: %s", gen.id.slice(0, 8), errorText);
+      } else {
+        // Non-terminal callback update: keep generation in processing.
+        console.log("[KIE Callback] Waiting for terminal state taskId=%s state=%s", taskId.slice(0, 12), normalizedState || "unknown");
     }
   } catch (err) {
     console.error("[KIE Callback] Unhandled error:", err?.message || err);
