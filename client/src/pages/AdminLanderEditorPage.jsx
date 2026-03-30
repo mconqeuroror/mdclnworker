@@ -6,6 +6,9 @@ import { SCHEMA_GROUPS, LANDER_EDITOR_SCHEMA } from "../landerNew/schema";
 import { deepMerge, getByPath, setByPath } from "../landerNew/utils";
 import LanderNewPublicApp from "../components/landerNew/LanderNewPublicApp";
 
+// build fast lookup: data-ale-id → schema entry
+const SCHEMA_BY_ALE_ID = Object.fromEntries(LANDER_EDITOR_SCHEMA.map((s) => [s.id, s]));
+
 const AUTOSAVE_MS = 1200;
 
 // ─── utility ──────────────────────────────────────────────────────────────────
@@ -116,7 +119,7 @@ function FieldRow({ field, config, onChange, onUpload }) {
 function SchemaSection({ schema, config, onChange, onUpload, activeId, onActivate }) {
   const isOpen = activeId === schema.id;
   return (
-    <div className={`ale-schema-item ${isOpen ? "is-open" : ""}`}>
+    <div id={`ale-sec-${schema.id}`} className={`ale-schema-item ${isOpen ? "is-open" : ""}`}>
       <button
         type="button"
         className="ale-schema-header"
@@ -155,6 +158,7 @@ export default function AdminLanderEditorPage() {
   const [showPreview, setShowPreview] = useState(true);
   const [history, setHistory]         = useState([]);
   const [future, setFuture]           = useState([]);
+  const [selectedAleId, setSelectedAleId] = useState(null);
   const autosaveRef = useRef(null);
 
   // load draft on mount
@@ -246,6 +250,62 @@ export default function AdminLanderEditorPage() {
     return () => clearTimeout(autosaveRef.current);
   }, [config, isDirty, saveDraft]);
 
+  // inject highlight styles while editor is mounted
+  useEffect(() => {
+    const tag = document.createElement("style");
+    tag.id = "ale-highlight-css";
+    tag.textContent = `
+      .ale-preview-inner [data-ale-id] { cursor: pointer !important; position: relative; }
+      .ale-preview-inner [data-ale-id]:hover { outline: 2px dashed rgba(139,92,246,0.55) !important; outline-offset: 3px; }
+    `;
+    document.head.appendChild(tag);
+    return () => tag.remove();
+  }, []);
+
+  // keep selected-ring in sync
+  useEffect(() => {
+    const tag = document.getElementById("ale-selected-css");
+    if (tag) tag.remove();
+    if (!selectedAleId) return;
+    const s = document.createElement("style");
+    s.id = "ale-selected-css";
+    s.textContent = `
+      .ale-preview-inner [data-ale-id="${selectedAleId}"] {
+        outline: 2px solid rgb(139,92,246) !important;
+        outline-offset: 3px;
+        box-shadow: 0 0 0 5px rgba(139,92,246,0.18) !important;
+      }
+    `;
+    document.head.appendChild(s);
+    return () => s.remove();
+  }, [selectedAleId]);
+
+  const handlePreviewClick = useCallback((e) => {
+    // walk up the DOM tree to find the nearest data-ale-id
+    let node = e.target;
+    let aleId = null;
+    while (node && node !== e.currentTarget) {
+      aleId = node.dataset?.aleId;
+      if (aleId) break;
+      node = node.parentElement;
+    }
+    if (!aleId) return;
+    e.stopPropagation();
+
+    const entry = SCHEMA_BY_ALE_ID[aleId];
+    if (!entry) return;
+
+    setSelectedAleId(aleId);
+    setActiveGroup(entry.group);
+    setActiveId(entry.id);
+
+    // scroll the sidebar item into view after React re-renders
+    requestAnimationFrame(() => {
+      const el = document.getElementById(`ale-sec-${entry.id}`);
+      el?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    });
+  }, []);
+
   const groupedSchema = useMemo(() =>
     LANDER_EDITOR_SCHEMA.filter((s) => s.group === activeGroup),
   [activeGroup]);
@@ -310,7 +370,7 @@ export default function AdminLanderEditorPage() {
                 key={g}
                 type="button"
                 className={`ale-group-tab ${activeGroup === g ? "is-active" : ""}`}
-                onClick={() => { setActiveGroup(g); setActiveId(null); }}
+                onClick={() => { setActiveGroup(g); setActiveId(null); setSelectedAleId(null); }}
               >
                 {g}
               </button>
@@ -340,7 +400,8 @@ export default function AdminLanderEditorPage() {
               Live Preview — <a href="/lander-new" target="_blank" rel="noopener" className="ale-preview-link">open in new tab ↗</a>
             </div>
             <div className="ale-preview-scroll">
-              <div className="ale-preview-inner">
+              {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+              <div className="ale-preview-inner" onClick={handlePreviewClick}>
                 <LanderNewPublicApp config={config} noCursor />
               </div>
             </div>

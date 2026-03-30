@@ -15,10 +15,11 @@ function ChoicePreview({ mediaType = "video", title }) {
 
 export function TopChoiceSection({ data }) {
   const loopItems = [...data.items, ...data.items];
+  const origLen = data.items.length;
 
   return (
     <section className="container top-choice-wrap" id="top-choice">
-      <header className="top-choice-header">
+      <header className="top-choice-header" data-ale-id="topChoice.heading">
         <h2>{data.title}</h2>
         <p className="muted">{data.subtitle}</p>
       </header>
@@ -29,7 +30,8 @@ export function TopChoiceSection({ data }) {
             <article
               key={`${item.title}-${idx}`}
               className="choice-card"
-              style={{ animationDelay: `${(idx % data.items.length) * 55}ms` }}
+              style={{ animationDelay: `${(idx % origLen) * 55}ms` }}
+              {...(idx < origLen ? { "data-ale-id": `topChoice.item.${idx}` } : {})}
             >
               <span className="pill">Top Choice</span>
               <ChoicePreview mediaType={item.mediaType ?? "video"} title={item.title} />

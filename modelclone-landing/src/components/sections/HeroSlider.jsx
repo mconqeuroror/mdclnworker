@@ -60,13 +60,13 @@ export function HeroSlider({ data }) {
 
       {/* Hero panel */}
       <div className="hero-panel" id="image">
-        <div className="hero-copy">
+        <div className="hero-copy" data-ale-id="hero.copy">
           <p className="eyebrow">{slide.eyebrow}</p>
           <h1>{slide.title}</h1>
           <p className="muted">{slide.description}</p>
         </div>
 
-        <div className="hero-media" id="video">
+        <div className="hero-media" id="video" data-ale-id="hero.media">
           {slide.mediaUrl ? (
             slide.mediaType === "video" ? (
               <video src={slide.mediaUrl} autoPlay muted loop playsInline />
