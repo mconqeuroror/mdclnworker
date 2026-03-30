@@ -55,10 +55,6 @@ import { getUserFriendlyGenerationError } from "../utils/generationErrorMessages
 import { buildAppearancePrefix } from "../utils/appearancePrompt.js";
 import { getErrorMessageForDb } from "../lib/userError.js";
 import { getGenerationPricing } from "../services/generation-pricing.service.js";
-import {
-  IDENTITY_RECREATE_MODEL_CLOTHES,
-  IDENTITY_RECREATE_REFERENCE_CLOTHES,
-} from "../constants/identityRecreationPrompts.js";
 import { persistKieGenerationCorrelation } from "../utils/kieTaskCorrelation.js";
 import {
   RECREATE_ENGINE,
@@ -70,6 +66,11 @@ import {
   estimateRecreateCredits,
   getRecreateCreditsPerSecond,
 } from "../services/video-generation-pricing.js";
+
+const IDENTITY_RECREATE_PROMPT_KEEP_SOURCE_CLOTHES =
+  "Replace the person from figure 1 with the person in figure 2. Keep clothes and accessories and background from figure 1.";
+const IDENTITY_RECREATE_PROMPT_KEEP_MODEL_CLOTHES =
+  "Replace the person from figure 1 with the person in figure 2. Keep clothes and accessories from figure 2. Keep background from figure 1.";
 
 const PERSISTED_IMAGE_TYPES = new Set([
   "image",
@@ -228,7 +229,6 @@ export async function generateImageWithIdentity(req, res) {
   try {
     const {
       modelId,
-      identityImages,
       targetImage,
       aspectRatio,
       size,
@@ -259,17 +259,6 @@ export async function generateImageWithIdentity(req, res) {
       });
     }
 
-    if (
-      !identityImages ||
-      !Array.isArray(identityImages) ||
-      identityImages.length !== 3
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "Need exactly 3 identity images (array of URLs)",
-      });
-    }
-
     if (!targetImage) {
       return res.status(400).json({
         success: false,
@@ -277,15 +266,22 @@ export async function generateImageWithIdentity(req, res) {
       });
     }
 
-    const identityCheck = validateImageUrls(identityImages);
-    if (!identityCheck.valid) {
-      return res.status(400).json({ success: false, message: identityCheck.message });
+    const modelFigure2 = String(modelOwnership.photo3Url || "").trim();
+    if (!modelFigure2) {
+      return res.status(400).json({
+        success: false,
+        message: "Model photo 3 is required for identity recreation.",
+      });
     }
     const targetCheck = validateImageUrl(targetImage);
     if (!targetCheck.valid) {
       return res.status(400).json({ success: false, message: targetCheck.message });
     }
-    const seedreamInputsCheck = await validateSeedreamEditImages([...identityImages, targetImage], "wavespeed");
+    const modelFigure2Check = validateImageUrl(modelFigure2);
+    if (!modelFigure2Check.valid) {
+      return res.status(400).json({ success: false, message: modelFigure2Check.message });
+    }
+    const seedreamInputsCheck = await validateSeedreamEditImages([targetImage, modelFigure2], "wavespeed");
     if (!seedreamInputsCheck.valid) {
       return res.status(400).json({ success: false, message: seedreamInputsCheck.message });
     }
@@ -306,16 +302,12 @@ export async function generateImageWithIdentity(req, res) {
       });
     }
 
-    // Identity: "model" = outfit from image 3; "reference" = outfit + scene styling from image 4 + optional user edit
-    let customPrompt;
-    if (clothesMode === "reference") {
-      customPrompt =
-        IDENTITY_RECREATE_REFERENCE_CLOTHES +
-        (prompt && prompt.trim() ? ` Additional direction: ${prompt.trim()}` : "");
-    } else {
-      // "model" or legacy "random" — keep model clothes from image 3, no user prompt
-      customPrompt = IDENTITY_RECREATE_MODEL_CLOTHES;
-    }
+    // Figure mapping for identity recreate:
+    // figure 1 = user input image (targetImage), figure 2 = model photo #3
+    const basePrompt = clothesMode === "reference"
+      ? IDENTITY_RECREATE_PROMPT_KEEP_SOURCE_CLOTHES
+      : IDENTITY_RECREATE_PROMPT_KEEP_MODEL_CLOTHES;
+    const customPrompt = basePrompt + (prompt && prompt.trim() ? ` Additional direction: ${prompt.trim()}` : "");
 
     const startTime = Date.now();
     console.log(
@@ -348,7 +340,7 @@ export async function generateImageWithIdentity(req, res) {
           modelId,
           type: "image-identity",
           prompt: customPrompt,
-          inputImageUrl: JSON.stringify({ identityImages, targetImage }),
+          inputImageUrl: JSON.stringify({ figure1: targetImage, figure2: modelFigure2 }),
           status: "processing",
           creditsCost: 10,
           replicateModel: "wavespeed-seedream-v4.5-edit",
@@ -374,10 +366,10 @@ export async function generateImageWithIdentity(req, res) {
       const startTime = Date.now();
 
       // Ensure identity images and target are accessible to the provider before processing
-      const [kieIdentityImages, kieTargetImage] = await Promise.all([
-        Promise.all(identityImages.map((u, i) => ensureKieAccessibleUrl(u, `identity-${i+1}`))),
-        ensureKieAccessibleUrl(targetImage, "target-image"),
-      ]).catch(() => [identityImages, targetImage]);
+      const [kieFigure1, kieFigure2] = await Promise.all([
+        ensureKieAccessibleUrl(targetImage, "figure-1-input-image"),
+        ensureKieAccessibleUrl(modelFigure2, "figure-2-model-photo3"),
+      ]).catch(() => [targetImage, modelFigure2]);
 
       try {
         for (const { gen: generation, index } of generationRecords) {
@@ -386,7 +378,7 @@ export async function generateImageWithIdentity(req, res) {
             console.log(`Queue: ${queueStats.active}/${queueStats.maxConcurrent} active, ${queueStats.queued} queued`);
 
             const result = await requestQueue.enqueue(async () => {
-              return await generateImageWithIdentityWaveSpeed(kieIdentityImages, kieTargetImage, {
+              return await generateImageWithIdentityWaveSpeed([kieFigure1], kieFigure2, {
                 size,
                 customImagePrompt: customPrompt,
                 onTaskCreated: async (taskId) => {
@@ -2108,17 +2100,13 @@ async function processQuickVideoInBackground(
 
     // STEP 2: Upload all inputs to Blob so KIE can fetch immediately; then submit image
     console.log("\n📍 Uploading inputs to Blob for KIE...");
-    const identityImages = [model.photo1Url, model.photo2Url, model.photo3Url];
-
-    const missingPhotos = identityImages.filter(url => !url || !url.startsWith('http'));
-    if (missingPhotos.length > 0) {
-      throw new Error(`Model is missing ${missingPhotos.length} photo(s). Please update the model photos before generating a video.`);
+    const modelFigure2 = String(model.photo3Url || "");
+    if (!modelFigure2 || !modelFigure2.startsWith("http")) {
+      throw new Error("Model photo 3 is required for identity recreation.");
     }
 
-    const [kieIdentityImgs, kieFrameUrl, kieReferenceVideoUrl] = await Promise.all([
-      Promise.all(
-        identityImages.map((u, i) => ensureKieAccessibleUrl(u, `model-photo-${i+1}`))
-      ).catch(() => identityImages),
+    const [kieModelFigure2, kieFrameUrl, kieReferenceVideoUrl] = await Promise.all([
+      ensureKieAccessibleUrl(modelFigure2, "model-photo-3").catch(() => modelFigure2),
       ensureKieAccessibleUrl(frameResult.frameUrl, "frame").catch(() => frameResult.frameUrl),
       (async () => {
         const preprocessed = await preprocessReferenceVideoForKling(referenceVideoUrl).catch(() => referenceVideoUrl);
@@ -2128,9 +2116,9 @@ async function processQuickVideoInBackground(
 
     console.log("\n📍 STEP 2/3: Submitting image to WaveSpeed (inputs already on Blob)...");
     const imageResult = await requestQueue.enqueue(async () => {
-      return await generateImageWithIdentityWaveSpeed(kieIdentityImgs, kieFrameUrl, {
+      return await generateImageWithIdentityWaveSpeed([kieFrameUrl], kieModelFigure2, {
         aspectRatio: "9:16",
-        customImagePrompt: IDENTITY_RECREATE_MODEL_CLOTHES,
+        customImagePrompt: IDENTITY_RECREATE_PROMPT_KEEP_SOURCE_CLOTHES,
         onTaskCreated: async (taskId) => {
           await prisma.generation.update({
             where: { id: generationId },
