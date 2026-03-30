@@ -7,7 +7,7 @@ import { promisify } from "util";
 import { isR2Configured, getR2PresignedPutForKey } from "../utils/r2.js";
 import { isVercelBlobConfigured, uploadBufferToBlobOrR2 } from "../utils/kieUpload.js";
 import { getFfmpegPathSync } from "../utils/ffmpeg-path.js";
-import { postTranscodeJobToWorker } from "./ffmpeg-worker-client.js";
+import { postTranscodeJobToWorker, postFramesJobToWorker } from "./ffmpeg-worker-client.js";
 
 /** On Vercel /var/task is read-only; use /tmp. Else use cwd/temp. */
 function getWritableTempDir() {
@@ -20,7 +20,9 @@ function getWritableTempDir() {
 let ffmpegPathSet = false;
 function ensureFfmpegPath() {
   if (!ffmpegPathSet) {
-    ffmpeg.setFfmpegPath(getFfmpegPathSync());
+    const ffmpegPath = getFfmpegPathSync();
+    ffmpeg.setFfmpegPath(ffmpegPath);
+    ffmpeg.setFfprobePath(getFfprobePathSync(ffmpegPath));
     ffmpegPathSet = true;
   }
 }
@@ -75,6 +77,7 @@ async function uploadFrameToR2(filePath) {
 }
 
 async function getVideoDuration(videoPath) {
+  ensureFfmpegPath();
   return new Promise((resolve, reject) => {
     ffmpeg.ffprobe(videoPath, (err, metadata) => {
       if (err) return reject(err);
@@ -101,12 +104,58 @@ async function extractSingleFrame(videoPath, timestamp, outputPath) {
 }
 
 async function extractFramesFromVideo(videoUrl, options = {}) {
-  ensureFfmpegPath();
   const {
     numFrames = 10,
     customTimestamps = null
   } = options;
 
+  // Frame extraction always routes through the external ffmpeg worker (EasyPanel).
+  // Vercel bundles exclude ffmpeg/ffprobe to stay under 250 MB so local execution
+  // is not reliable — the worker has a real ffmpeg install via apt.
+  if (!isR2Configured()) {
+    return { success: false, error: "R2 must be configured for frame extraction" };
+  }
+
+  // Distribute across an assumed 30s window when no specific timestamps are given.
+  // The worker skips frames whose timestamp exceeds the actual video length.
+  const timestamps = customTimestamps
+    ? customTimestamps
+    : Array.from({ length: numFrames }, (_, i) =>
+        parseFloat((0.5 + (i * 29.5 / Math.max(numFrames - 1, 1))).toFixed(2)),
+      );
+
+  try {
+    const putSpecs = await Promise.all(
+      timestamps.map(async () => {
+        const key = `frames/${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`;
+        return getR2PresignedPutForKey(key, "image/jpeg", 3600);
+      }),
+    );
+
+    const result = await postFramesJobToWorker({
+      inputUrl: videoUrl,
+      timestamps,
+      outputPutUrls: putSpecs.map((s) => ({ putUrl: s.uploadUrl, publicUrl: s.publicUrl })),
+    });
+
+    if (!result.ok || !Array.isArray(result.frameUrls)) {
+      throw new Error(result.error || result.message || "Worker frame extraction failed");
+    }
+
+    const frames = result.frameUrls
+      .map((url, i) => (url ? { id: i + 1, timestamp: timestamps[i], url, quality: "high" } : null))
+      .filter(Boolean);
+
+    if (frames.length === 0) throw new Error("Worker returned no frames");
+    console.log(`✅ Worker extracted ${frames.length} frame(s) from video`);
+    return { success: true, frames, videoDuration: null };
+  } catch (error) {
+    console.error("❌ Frame extraction error:", error);
+    return { success: false, error: error.message };
+  }
+
+  // ── dead code kept for local dev reference only ──────────────────────────
+  // eslint-disable-next-line no-unreachable
   const tempDir = getWritableTempDir();
   const videoFileName = `video_${Date.now()}.mp4`;
   const videoPath = path.join(tempDir, videoFileName);

@@ -364,6 +364,71 @@ app.post("/transcode", requireAuth, async (req, res) => {
   }
 });
 
+/**
+ * POST /frames
+ * Extract one or more frames from a video at specific timestamps.
+ *
+ * Body: {
+ *   inputUrl: string,
+ *   timestamps: number[],
+ *   outputPutUrls: [{ putUrl: string, publicUrl: string }]
+ * }
+ * Returns: { ok: true, frameUrls: string[] }
+ */
+app.post("/frames", requireAuth, async (req, res) => {
+  const { inputUrl, timestamps, outputPutUrls } = req.body || {};
+
+  if (!inputUrl || !Array.isArray(timestamps) || timestamps.length === 0 || !Array.isArray(outputPutUrls)) {
+    return res.status(400).json({ ok: false, error: "Bad request", message: "inputUrl, timestamps[], and outputPutUrls[] are required" });
+  }
+  if (timestamps.length !== outputPutUrls.length) {
+    return res.status(400).json({ ok: false, error: "Bad request", message: "timestamps and outputPutUrls must have the same length" });
+  }
+
+  const { execFile } = await import("child_process");
+  const { promisify: prom } = await import("util");
+  const execFileAsync = prom(execFile);
+
+  const tempDir = path.join(os.tmpdir(), `frames-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  fs.mkdirSync(tempDir, { recursive: true });
+  let inputPath = null;
+
+  try {
+    inputPath = await downloadToFile(inputUrl);
+    const moved = path.join(tempDir, path.basename(inputPath));
+    fs.renameSync(inputPath, moved);
+    inputPath = moved;
+
+    const ffmpegBin = process.env.FFMPEG_PATH || "ffmpeg";
+    const frameUrls = [];
+
+    for (let i = 0; i < timestamps.length; i++) {
+      const t = Math.max(0, Number(timestamps[i]) || 0);
+      const framePath = path.join(tempDir, `frame_${i}_${Date.now()}.jpg`);
+      const args = [
+        "-y",
+        "-ss", String(t),
+        "-i", inputPath,
+        "-frames:v", "1",
+        "-q:v", "2",
+        "-vf", "scale=-2:1080",
+        framePath,
+      ];
+      await execFileAsync(ffmpegBin, args, { timeout: 60_000 });
+      await uploadToPutUrl(outputPutUrls[i].putUrl, framePath, "image/jpeg");
+      frameUrls.push(outputPutUrls[i].publicUrl);
+      try { fs.unlinkSync(framePath); } catch (_) {}
+    }
+
+    res.json({ ok: true, frameUrls });
+  } catch (e) {
+    console.error("[frames] error:", e?.message || e);
+    res.status(500).json({ ok: false, error: e?.message || String(e) });
+  } finally {
+    try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (_) {}
+  }
+});
+
 app.get("/health", async (_req, res) => {
   try {
     await checkFfmpegAvailable();
@@ -380,6 +445,7 @@ app.get("/", (_req, res) => {
       "GET /health",
       "POST /job (X-API-Key required; optional callbackUrl, callbackSecret, jobRef)",
       "POST /transcode (X-API-Key required; inputUrl + vfFilter/audioOptions + outputPutUrl)",
+      "POST /frames (X-API-Key required; inputUrl + timestamps[] + outputPutUrls[])",
     ],
   });
 });

@@ -313,7 +313,7 @@ function Chip({ active, onClick, children }) {
     <button
       onClick={onClick}
       type="button"
-      className="px-3 py-2.5 min-h-[44px] md:min-h-0 md:px-2.5 md:py-1 rounded-xl md:rounded-lg text-xs md:text-[11px] font-semibold whitespace-nowrap transition-all select-none inline-flex items-center justify-center"
+      className="px-3 py-2.5 min-h-[44px] md:min-h-0 md:px-2.5 md:py-1.5 rounded-xl md:rounded-lg text-xs md:text-[11px] font-semibold whitespace-nowrap transition-all select-none inline-flex items-center justify-center"
       style={active ? {
         background: "rgba(139,92,246,0.28)",
         color: "#e9d5ff",
@@ -321,7 +321,7 @@ function Chip({ active, onClick, children }) {
         boxShadow: "0 0 8px 1px rgba(139,92,246,0.25)",
       } : {
         color: "rgba(148,163,184,1)",
-        border: "1px solid transparent",
+        border: "1px solid rgba(255,255,255,0.18)",
       }}
     >
       {children}
@@ -331,17 +331,19 @@ function Chip({ active, onClick, children }) {
 
 function ToggleGroup({ value, onChange, options, className = "" }) {
   return (
-    <div className={`inline-flex rounded-xl border border-white/15 bg-black/40 p-1 ${className}`}>
-      {options.map((option, idx) => {
+    <div className={`flex flex-wrap gap-1 ${className}`}>
+      {options.map((option) => {
         const isActive = value === option.value;
         return (
           <button
             key={option.value}
             type="button"
             onClick={() => onChange(option.value)}
-            className={`min-h-[38px] px-3 text-xs font-semibold transition ${
-              idx === 0 ? "rounded-l-lg" : idx === options.length - 1 ? "rounded-r-lg" : ""
-            } ${isActive ? "bg-violet-600 text-white" : "text-slate-300 hover:bg-white/10"}`}
+            className={`min-h-[34px] px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+              isActive
+                ? "bg-violet-600 text-white shadow-[0_0_8px_rgba(139,92,246,0.4)]"
+                : "bg-white/5 border border-white/15 text-slate-300 hover:bg-white/10 hover:border-white/25"
+            }`}
           >
             {option.label}
           </button>
@@ -422,29 +424,38 @@ function MediaUploadField({ label, value, onUploaded, accept = "image/*", previe
           setIsDragging(false);
           uploadOne(e.dataTransfer?.files?.[0]);
         }}
-        className={`w-full rounded-xl border border-dashed px-3 py-3 text-left transition ${
-          isDragging ? "border-violet-400 bg-violet-500/10" : "border-white/20 bg-black/30"
-        }`}
+        className={`w-full rounded-xl border border-dashed transition-all flex items-center justify-center overflow-hidden ${
+          isDragging ? "border-violet-400 bg-violet-500/10" : "border-white/20 bg-black/30 hover:border-white/35 hover:bg-white/[0.04]"
+        } ${value ? "h-20" : "h-[72px]"}`}
       >
         {value ? (
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 w-full px-3">
             {preview === "video" ? (
-              <div className="w-12 h-12 rounded-lg border border-white/20 bg-black/60 flex items-center justify-center">
+              <div className="w-12 h-12 rounded-lg border border-white/20 bg-black/60 flex items-center justify-center flex-shrink-0">
                 <Video className="w-5 h-5 text-slate-300" />
               </div>
             ) : (
-              <img src={value} alt="" className="w-12 h-12 rounded-lg object-cover border border-white/20" />
+              <img src={value} alt="" className="w-12 h-12 rounded-lg object-cover border border-white/20 flex-shrink-0" />
             )}
-            <div className="min-w-0 flex-1">
-              <p className="text-xs text-slate-300 truncate">Uploaded</p>
-              <p className="text-[11px] text-slate-500 truncate">{value}</p>
+            <div className="min-w-0 flex-1 text-left">
+              <p className="text-xs text-slate-300 truncate font-medium">Uploaded</p>
+              <p className="text-[10px] text-slate-500 truncate mt-0.5">{value.split("/").pop()}</p>
             </div>
-            <span className="text-[11px] text-slate-400">Replace</span>
+            <span className="text-[11px] text-slate-400 flex-shrink-0">Replace</span>
           </div>
         ) : (
-          <p className="text-xs text-slate-400">
-            {isUploading ? "Uploading..." : "Drag and drop or click to upload"}
-          </p>
+          <div className="flex flex-col items-center justify-center gap-1.5 px-4">
+            {isUploading ? (
+              <Loader2 className="w-5 h-5 text-slate-400 animate-spin" />
+            ) : (
+              <div className="w-7 h-7 rounded-lg border border-white/20 bg-white/[0.06] flex items-center justify-center">
+                <Plus className="w-4 h-4 text-slate-300" />
+              </div>
+            )}
+            <span className="text-[11px] text-slate-500 text-center leading-tight">
+              {isUploading ? "Uploading…" : "Click or drag to upload"}
+            </span>
+          </div>
         )}
       </button>
     </div>
@@ -1275,6 +1286,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
   const [soundPrompt, setSoundPrompt] = useState("");
   const [kling30Quality, setKling30Quality] = useState("std");
   const [kling30MultiShot, setKling30MultiShot] = useState(false);
+  const [kling30Shots, setKling30Shots] = useState([{ prompt: "", duration: 5 }]);
   const [klingElements, setKlingElements] = useState([]);
   const [klingElementName, setKlingElementName] = useState("");
   const [klingElementDescription, setKlingElementDescription] = useState("");
@@ -1427,6 +1439,9 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
         soundPrompt: soundPrompt.trim(),
         kling30Quality,
         kling30MultiShot,
+        kling30Shots: kling30MultiShot
+          ? kling30Shots.filter((s) => s.prompt.trim()).map((s) => ({ prompt: s.prompt.trim(), duration: s.duration }))
+          : undefined,
         klingElements: normalizedKlingElements,
         aspectRatio: videoAspectRatio,
         seedanceTaskType,
@@ -2058,7 +2073,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
               </div>
 
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                {videoFamily !== "sora2" && videoFamily !== "kling26" && videoFamily !== "veo31" && (
+                {videoFamily !== "sora2" && videoFamily !== "kling26" && videoFamily !== "veo31" && videoFamily !== "kling30" && (
                   <div className="rounded-xl border border-white/10 p-3 col-span-2 md:col-span-4">
                     <div className="flex items-center justify-between mb-2">
                       <label className="block text-xs text-slate-400">Duration</label>
@@ -2114,44 +2129,121 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                 )}
                 {videoFamily === "kling30" && (
                   <>
+                    {/* 1. Quality mode */}
                     <div className="rounded-xl border border-white/10 p-3">
-                      <label className="block text-xs text-slate-400 mb-2">Mode</label>
+                      <label className="block text-xs text-slate-400 mb-2">Quality</label>
                       <ToggleGroup value={kling30Quality} onChange={setKling30Quality} options={[{ value: "std", label: "Standard" }, { value: "pro", label: "Pro" }]} />
                     </div>
-                    <div className="rounded-xl border border-white/10 p-3 flex items-center justify-between">
-                      <span className="text-xs text-slate-300 flex items-center gap-1.5">
-                        Multi-shot
-                        <span title="Create multiple shots of the same video (up to 5 shots). Total duration of all shots cannot exceed 15 seconds.">
-                          <Info className="w-3.5 h-3.5 text-slate-400" />
-                        </span>
-                      </span>
-                      <button type="button" onClick={() => setKling30MultiShot((v) => !v)} className={`px-3 py-1.5 rounded-lg text-xs ${kling30MultiShot ? "bg-violet-600 text-white" : "bg-white/10 text-slate-300"}`}>
-                        {kling30MultiShot ? "On" : "Off"}
-                      </button>
-                    </div>
-                    <div className="rounded-xl border border-white/10 p-3 col-span-2">
+
+                    {/* 2. Aspect Ratio */}
+                    <div className="rounded-xl border border-white/10 p-3 col-span-1 md:col-span-2">
                       <label className="block text-xs text-slate-400 mb-2">Aspect Ratio</label>
-                      <ToggleGroup value={videoAspectRatio} onChange={setVideoAspectRatio} options={[{ value: "16:9", label: "16:9" }, { value: "9:16", label: "9:16" }, { value: "1:1", label: "1:1" }]} />
+                      <ToggleGroup value={videoAspectRatio} onChange={setVideoAspectRatio} options={[{ value: "16:9", label: "16:9" }, { value: "9:16", label: "9:16" }, { value: "1:1", label: "1:1" }, { value: "4:3", label: "4:3" }, { value: "3:4", label: "3:4" }]} />
                     </div>
-                    <div className="rounded-xl border border-white/10 p-3 col-span-2 md:col-span-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <label className="block text-xs text-slate-400">Duration</label>
-                        <span className="text-xs text-slate-300">{videoDuration}s</span>
+
+                    {/* 3. Duration — single slider (only shown in single-shot mode) */}
+                    {!kling30MultiShot && (
+                      <div className="rounded-xl border border-white/10 p-3 col-span-2 md:col-span-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <label className="block text-xs text-slate-400">Duration</label>
+                          <span className="text-xs font-medium text-white">{videoDuration}s</span>
+                        </div>
+                        <input type="range" min={3} max={15} step={1} value={videoDuration} onChange={(e) => setVideoDuration(Number(e.target.value))} className="w-full accent-violet-500" />
+                        <div className="mt-1 flex justify-between text-[10px] text-slate-500">
+                          <span>3s</span>
+                          <span>15s</span>
+                        </div>
                       </div>
-                      <input type="range" min={3} max={15} step={1} value={videoDuration} onChange={(e) => setVideoDuration(Number(e.target.value))} className="w-full accent-violet-500" />
+                    )}
+
+                    {/* 4. Multi-shot toggle + shot editor */}
+                    <div className="rounded-xl border border-white/10 p-3 col-span-2 md:col-span-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-slate-300 flex items-center gap-1.5 font-medium">
+                          Multi-shot
+                          <span title="Generate multiple sequential shots in one request. Up to 5 shots; total duration ≤ 15s.">
+                            <Info className="w-3.5 h-3.5 text-slate-400 cursor-help" />
+                          </span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setKling30MultiShot((v) => !v)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${kling30MultiShot ? "bg-violet-600 text-white" : "bg-white/10 text-slate-300 hover:bg-white/15"}`}
+                        >
+                          {kling30MultiShot ? "On" : "Off"}
+                        </button>
+                      </div>
+
+                      {kling30MultiShot && (
+                        <div className="space-y-2 pt-1">
+                          <div className="flex items-center justify-between">
+                            <p className="text-[11px] text-slate-500">
+                              {kling30Shots.length} shot{kling30Shots.length !== 1 ? "s" : ""} ·{" "}
+                              {kling30Shots.reduce((sum, s) => sum + s.duration, 0)}s total (max 15s)
+                            </p>
+                            {kling30Shots.length < 5 && (
+                              <button
+                                type="button"
+                                onClick={() => setKling30Shots((prev) => [...prev, { prompt: "", duration: 3 }])}
+                                className="flex items-center gap-1 text-[11px] text-violet-400 hover:text-violet-300 transition-colors"
+                              >
+                                <Plus className="w-3 h-3" /> Add shot
+                              </button>
+                            )}
+                          </div>
+                          {kling30Shots.map((shot, idx) => (
+                            <div key={idx} className="rounded-lg border border-white/10 bg-black/30 p-3 space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] font-semibold text-slate-300">Shot {idx + 1}</span>
+                                {kling30Shots.length > 1 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setKling30Shots((prev) => prev.filter((_, i) => i !== idx))}
+                                    className="text-slate-500 hover:text-red-400 transition-colors"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </div>
+                              <textarea
+                                value={shot.prompt}
+                                onChange={(e) => setKling30Shots((prev) => prev.map((s, i) => i === idx ? { ...s, prompt: e.target.value } : s))}
+                                placeholder={`Describe shot ${idx + 1} — motion, camera, scene changes…`}
+                                rows={2}
+                                className="w-full rounded-lg border border-white/10 bg-black/40 px-2.5 py-1.5 text-xs text-white resize-none outline-none placeholder:text-slate-600"
+                              />
+                              <div className="flex items-center gap-3">
+                                <label className="text-[11px] text-slate-500 whitespace-nowrap">Duration</label>
+                                <input
+                                  type="range"
+                                  min={3}
+                                  max={Math.min(10, 15 - kling30Shots.filter((_, i) => i !== idx).reduce((s, sh) => s + sh.duration, 0))}
+                                  step={1}
+                                  value={shot.duration}
+                                  onChange={(e) => setKling30Shots((prev) => prev.map((s, i) => i === idx ? { ...s, duration: Number(e.target.value) } : s))}
+                                  className="flex-1 accent-violet-500"
+                                />
+                                <span className="text-xs text-white font-medium w-6 text-right">{shot.duration}s</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
+
+                    {/* 5. Elements (reference subjects) */}
                     <div className="rounded-xl border border-white/10 p-3 col-span-2 md:col-span-4 space-y-2">
                       <div className="flex items-center justify-between">
-                        <span className="text-xs text-slate-300">Elements</span>
-                        <span className="text-[11px] text-slate-500">Up to 3 elements (2-4 images each)</span>
+                        <span className="text-xs text-slate-300 font-medium">Elements</span>
+                        <span className="text-[11px] text-slate-500">Up to 3 elements · 2–4 images each</span>
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                        <input value={klingElementName} onChange={(e) => setKlingElementName(e.target.value)} placeholder="Element name (used as @name)" className="rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm text-white outline-none" />
-                        <input value={klingElementDescription} onChange={(e) => setKlingElementDescription(e.target.value)} placeholder="Description" className="rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm text-white outline-none" />
+                        <input value={klingElementName} onChange={(e) => setKlingElementName(e.target.value)} placeholder="Element name (referenced as @name in prompt)" className="rounded-lg border border-white/10 bg-black/40 px-2.5 py-1.5 text-xs text-white outline-none placeholder:text-slate-600" />
+                        <input value={klingElementDescription} onChange={(e) => setKlingElementDescription(e.target.value)} placeholder="Description of this element" className="rounded-lg border border-white/10 bg-black/40 px-2.5 py-1.5 text-xs text-white outline-none placeholder:text-slate-600" />
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                         {klingElementMediaUrls.map((url, idx) => (
-                          <MediaUploadField key={idx} label={`Element image ${idx + 1}`} value={url} onUploaded={(newUrl) => setKlingElementMediaUrls((prev) => prev.map((v, i) => (i === idx ? newUrl : v)))} />
+                          <MediaUploadField key={idx} label={`Image ${idx + 1}${idx < 2 ? " *" : " (opt)"}`} value={url} onUploaded={(newUrl) => setKlingElementMediaUrls((prev) => prev.map((v, i) => (i === idx ? newUrl : v)))} />
                         ))}
                       </div>
                       <button
@@ -2159,7 +2251,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                         onClick={() => {
                           const media = klingElementMediaUrls.filter(Boolean);
                           if (!klingElementName.trim() || !klingElementDescription.trim() || media.length < 2) {
-                            toast.error("Element needs name, description, and at least 2 images.");
+                            toast.error("Element needs a name, description, and at least 2 images.");
                             return;
                           }
                           setKlingElements((prev) => [
@@ -2170,17 +2262,17 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                           setKlingElementDescription("");
                           setKlingElementMediaUrls(["", "", "", ""]);
                         }}
-                        className="px-3 py-2 rounded-lg text-xs bg-violet-600 text-white"
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-violet-600 hover:bg-violet-500 text-white transition-colors"
                       >
-                        Add element
+                        <Plus className="w-3.5 h-3.5" /> Add element
                       </button>
                       {klingElements.length > 0 && (
                         <div className="space-y-1">
                           {klingElements.map((element, idx) => (
-                            <div key={`${element.name}-${idx}`} className="text-xs text-slate-300 flex items-center justify-between rounded-lg bg-black/40 px-2 py-1.5">
-                              <span>@{element.name} · {element.description} · {element.element_input_urls.length} images</span>
-                              <button type="button" className="text-slate-400 hover:text-white" onClick={() => setKlingElements((prev) => prev.filter((_, i) => i !== idx))}>
-                                Remove
+                            <div key={`${element.name}-${idx}`} className="text-xs text-slate-300 flex items-center justify-between rounded-lg bg-black/40 px-2.5 py-2">
+                              <span className="truncate mr-3">@{element.name} · {element.description} · {element.element_input_urls.length} images</span>
+                              <button type="button" className="text-slate-500 hover:text-red-400 transition-colors flex-shrink-0" onClick={() => setKlingElements((prev) => prev.filter((_, i) => i !== idx))}>
+                                <X className="w-3.5 h-3.5" />
                               </button>
                             </div>
                           ))}
@@ -2298,13 +2390,13 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                 </div>
               )}
 
-              <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <p className="text-xs text-slate-400">{formatCopy(copy.creditsAvailable, { credits: creditsLeft })}</p>
                 <button
                   type="button"
                   onClick={handleGenerateVideo}
                   disabled={isVideoGenerating}
-                  className="min-h-[46px] px-5 rounded-xl text-sm font-semibold bg-gradient-to-r from-violet-600 to-indigo-600 disabled:opacity-40 text-white flex items-center gap-2"
+                  className="w-full sm:w-auto min-h-[46px] px-5 rounded-xl text-sm font-semibold bg-gradient-to-r from-violet-600 to-indigo-600 disabled:opacity-40 text-white flex items-center justify-center gap-2"
                 >
                   {isVideoGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Video className="w-4 h-4" />}
                   <span className="inline-flex items-center gap-1.5">

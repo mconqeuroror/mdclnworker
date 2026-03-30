@@ -58,3 +58,16 @@ export async function postRepurposeJobToWorker(body) {
 export async function postTranscodeJobToWorker(body) {
   return postToWorker("transcode", body);
 }
+
+/**
+ * POST /frames to external ffmpeg worker — extract video frames at specific timestamps.
+ * @param {object}   body
+ * @param {string}   body.inputUrl        - Publicly accessible video URL
+ * @param {number[]} body.timestamps      - Seconds at which to extract each frame
+ * @param {{ putUrl: string, publicUrl: string }[]} body.outputPutUrls
+ *   - One presigned R2 PUT URL per timestamp; worker uploads each JPEG then returns publicUrls
+ * @returns {{ ok: boolean, frameUrls: string[] }}
+ */
+export async function postFramesJobToWorker(body) {
+  return postToWorker("frames", body);
+}
