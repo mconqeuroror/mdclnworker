@@ -138,12 +138,46 @@ function mapToStandaloneConfig(config) {
       ...STANDALONE_LANDING_CONFIG.footerCta,
       ctaHref: config?.brand?.ctaHref || "/signup",
     },
+    styles: {
+      buttonPrimaryBackground: config?.styles?.buttonPrimaryBackground || "",
+      buttonPrimaryText: config?.styles?.buttonPrimaryText || "",
+      buttonPrimaryBorder: config?.styles?.buttonPrimaryBorder || "",
+      buttonGhostText: config?.styles?.buttonGhostText || "",
+      buttonGhostBorder: config?.styles?.buttonGhostBorder || "",
+      buttonGhostBackground: config?.styles?.buttonGhostBackground || "",
+    },
+    layout: {
+      spacers: {
+        beforeHero: Number(config?.layout?.spacers?.beforeHero ?? 0) || 0,
+        beforeCountdown: Number(config?.layout?.spacers?.beforeCountdown ?? 0) || 0,
+        beforeCreateToday: Number(config?.layout?.spacers?.beforeCreateToday ?? 0) || 0,
+        beforeTopChoice: Number(config?.layout?.spacers?.beforeTopChoice ?? 0) || 0,
+        beforePartners: Number(config?.layout?.spacers?.beforePartners ?? 0) || 0,
+        beforePricing: Number(config?.layout?.spacers?.beforePricing ?? 0) || 0,
+        beforeFooter: Number(config?.layout?.spacers?.beforeFooter ?? 0) || 0,
+      },
+    },
   };
 }
 
 export default function LanderNewPublicApp({ config, noCursor = false, editMode = false }) {
   const data = useMemo(() => mapToStandaloneConfig(config), [config]);
-  const { brand, promotionBar, hero, countdown, createToday, topChoice, partners, pricing, footerCta } = data;
+  const { brand, promotionBar, hero, countdown, createToday, topChoice, partners, pricing, footerCta, styles, layout } = data;
+  const spacers = layout?.spacers || {};
+  const clampSpacer = (value) => Math.max(0, Math.min(600, Number(value) || 0));
+  const renderSpacer = (value, targetId) => {
+    const px = clampSpacer(value);
+    if (px <= 0) return null;
+    return <div data-dp-target-id={targetId} style={{ height: `${px}px` }} aria-hidden="true" />;
+  };
+  const rootStyle = {
+    "--dp-btn-primary-bg": styles?.buttonPrimaryBackground || undefined,
+    "--dp-btn-primary-text": styles?.buttonPrimaryText || undefined,
+    "--dp-btn-primary-border": styles?.buttonPrimaryBorder || undefined,
+    "--dp-btn-ghost-text": styles?.buttonGhostText || undefined,
+    "--dp-btn-ghost-border": styles?.buttonGhostBorder || undefined,
+    "--dp-btn-ghost-bg": styles?.buttonGhostBackground || undefined,
+  };
   useEffect(() => {
     if (noCursor) return undefined;
     document.body.classList.add("lander-cursor-enabled");
@@ -153,7 +187,7 @@ export default function LanderNewPublicApp({ config, noCursor = false, editMode 
   }, [noCursor]);
 
   return (
-    <div className={`page${editMode ? " edit-mode" : ""}`}>
+    <div className={`page${editMode ? " edit-mode" : ""}`} style={rootStyle}>
       <div className="legacy-grid-bg" aria-hidden="true" />
       {!noCursor && <CustomCursor />}
       {promotionBar.enabled && <PromoBar data={promotionBar} />}
@@ -162,18 +196,25 @@ export default function LanderNewPublicApp({ config, noCursor = false, editMode 
       </div>
 
       <main id="main">
+        {renderSpacer(spacers.beforeHero, "layout.spacer.beforeHero")}
         {hero.enabled && <HeroSlider data={hero} />}
+        {renderSpacer(spacers.beforeCountdown, "layout.spacer.beforeCountdown")}
         {countdown.enabled && <CountdownBanner data={countdown} />}
+        {renderSpacer(spacers.beforeCreateToday, "layout.spacer.beforeCreateToday")}
         {createToday.enabled && <CreateTodaySection data={createToday} />}
+        {renderSpacer(spacers.beforeTopChoice, "layout.spacer.beforeTopChoice")}
         {topChoice.enabled && <TopChoiceSection data={topChoice} />}
+        {renderSpacer(spacers.beforePartners, "layout.spacer.beforePartners")}
         {partners.enabled && <PartnersSection data={partners} />}
+        {renderSpacer(spacers.beforePricing, "layout.spacer.beforePricing")}
         {pricing.enabled && <PricingSection data={pricing} />}
       </main>
 
+      {renderSpacer(spacers.beforeFooter, "layout.spacer.beforeFooter")}
       <footer className="site-footer">
         <div className="container footer-inner">
           <p>{footerCta.text}</p>
-          <a href={footerCta.ctaHref} className="btn btn-primary">
+          <a href={footerCta.ctaHref} className="btn btn-primary" data-dp-target-id="footer.cta">
             {footerCta.ctaText}
           </a>
         </div>

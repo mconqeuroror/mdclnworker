@@ -4,7 +4,7 @@ export function PromoBar({ data }) {
       <div className="container promotion-inner">
         <p className="promotion-text">{data.message}</p>
         {data.ctaText && data.ctaHref && (
-          <a href={data.ctaHref} className="promotion-cta">{data.ctaText}</a>
+          <a href={data.ctaHref} className="promotion-cta" data-dp-target-id="promo.button">{data.ctaText}</a>
         )}
       </div>
     </header>

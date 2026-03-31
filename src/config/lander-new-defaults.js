@@ -94,7 +94,24 @@ export const LANDER_NEW_DEFAULTS = {
       },
     },
   },
-  layout: {},
-  styles: {},
+  layout: {
+    spacers: {
+      beforeHero: 0,
+      beforeCountdown: 0,
+      beforeCreateToday: 0,
+      beforeTopChoice: 0,
+      beforePartners: 0,
+      beforePricing: 0,
+      beforeFooter: 0,
+    },
+  },
+  styles: {
+    buttonPrimaryBackground: "",
+    buttonPrimaryText: "",
+    buttonPrimaryBorder: "",
+    buttonGhostText: "",
+    buttonGhostBorder: "",
+    buttonGhostBackground: "",
+  },
 };
 

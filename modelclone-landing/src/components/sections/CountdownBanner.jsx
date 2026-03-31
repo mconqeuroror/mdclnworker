@@ -54,7 +54,7 @@ export function CountdownBanner({ data }) {
           <p className="muted">{data.body}</p>
         </div>
 
-        <span className="btn btn-primary">{data.ctaText}</span>
+        <span className="btn btn-primary" data-dp-target-id="countdown.button">{data.ctaText}</span>
       </a>
     </section>
   );

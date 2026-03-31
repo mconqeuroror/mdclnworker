@@ -85,6 +85,7 @@ export function PricingSection({ data }) {
               <a
                 className={`btn${tier.popular ? " btn-primary" : " btn-ghost"} pricing-card-cta`}
                 href={signupHref}
+                data-dp-target-id={`pricing.tier.${tierIdx}.button`}
               >
                 Get Started
               </a>
@@ -111,7 +112,7 @@ export function PricingSection({ data }) {
               <p className="pricing-card-desc">No subscription required</p>
             </div>
 
-            <a className="btn btn-ghost pricing-payg-btn" href={signupHref}>Buy Credits</a>
+            <a className="btn btn-ghost pricing-payg-btn" href={signupHref} data-dp-target-id="pricing.payg.button">Buy Credits</a>
           </div>
         </article>
       </div>

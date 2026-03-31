@@ -363,9 +363,9 @@ p  { margin: 0; }
 
 /* Violet primary — the real ModelClone brand color */
 .btn-primary {
-  color: #fff;
-  border-color: rgba(196, 181, 253, 0.30);
-  background: linear-gradient(135deg, var(--violet-deep) 0%, var(--violet) 65%, var(--violet-soft) 100%);
+  color: var(--dp-btn-primary-text, #fff);
+  border-color: var(--dp-btn-primary-border, rgba(196, 181, 253, 0.30));
+  background: var(--dp-btn-primary-bg, linear-gradient(135deg, var(--violet-deep) 0%, var(--violet) 65%, var(--violet-soft) 100%));
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.20),
     0 6px 18px rgba(124, 58, 237, 0.38);
@@ -396,13 +396,14 @@ p  { margin: 0; }
 .btn-primary:active { transform: translateY(0); }
 
 .btn-ghost {
-  color: rgba(255, 255, 255, 0.94);
-  border-color: var(--border);
+  color: var(--dp-btn-ghost-text, rgba(255, 255, 255, 0.94));
+  border-color: var(--dp-btn-ghost-border, var(--border));
+  background: var(--dp-btn-ghost-bg, transparent);
 }
 .btn-ghost:hover {
-  color: #ffffff;
-  border-color: var(--border-bright);
-  background: var(--surface);
+  color: var(--dp-btn-ghost-text, #ffffff);
+  border-color: var(--dp-btn-ghost-border, var(--border-bright));
+  background: var(--dp-btn-ghost-bg, var(--surface));
 }
 
 /* ─── Main ────────────────────────────────────────────────────────────────── */

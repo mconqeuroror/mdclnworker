@@ -83,10 +83,10 @@ export function Navbar({ brand }) {
         </div>
 
         <div className="nav-auth">
-          <a href={brand?.loginHref || "/login"} id="login" className="btn btn-ghost">
+          <a href={brand?.loginHref || "/login"} id="login" className="btn btn-ghost" data-dp-target-id="brand.button.login">
             Login
           </a>
-          <a href={brand?.signupHref || "/signup"} id="signup" className="btn btn-primary">
+          <a href={brand?.signupHref || "/signup"} id="signup" className="btn btn-primary" data-dp-target-id="brand.button.signup">
             Sign up
           </a>
         </div>

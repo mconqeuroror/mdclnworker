@@ -15,6 +15,20 @@ export const LANDER_EDITOR_SCHEMA = [
     ],
   },
 
+  {
+    id: "buttons.palette",
+    label: "Buttons – Colors",
+    group: "Brand",
+    fields: [
+      { key: "styles.buttonPrimaryBackground", type: "text", label: "Primary background (CSS color)" },
+      { key: "styles.buttonPrimaryText",       type: "text", label: "Primary text (CSS color)" },
+      { key: "styles.buttonPrimaryBorder",     type: "text", label: "Primary border (CSS color)" },
+      { key: "styles.buttonGhostText",         type: "text", label: "Ghost text (CSS color)" },
+      { key: "styles.buttonGhostBorder",       type: "text", label: "Ghost border (CSS color)" },
+      { key: "styles.buttonGhostBackground",   type: "text", label: "Ghost background (CSS color)" },
+    ],
+  },
+
   // ── Announcement Bar ─────────────────────────────────────────────────────
   {
     id: "promo",
@@ -141,6 +155,21 @@ export const LANDER_EDITOR_SCHEMA = [
     fields: [
       { key: "sections.pricing.payAsYouGo.pricePerCredit", type: "number",   label: "Price per credit ($)" },
       { key: "sections.pricing.payAsYouGo.description",    type: "textarea", label: "Description"           },
+    ],
+  },
+
+  {
+    id: "layout.spacers",
+    label: "Layout – Spacers",
+    group: "Layout",
+    fields: [
+      { key: "layout.spacers.beforeHero",       type: "number", label: "Space before Hero (px)" },
+      { key: "layout.spacers.beforeCountdown",  type: "number", label: "Space before Countdown (px)" },
+      { key: "layout.spacers.beforeCreateToday",type: "number", label: "Space before Create Today (px)" },
+      { key: "layout.spacers.beforeTopChoice",  type: "number", label: "Space before Top Choice (px)" },
+      { key: "layout.spacers.beforePartners",   type: "number", label: "Space before Partners (px)" },
+      { key: "layout.spacers.beforePricing",    type: "number", label: "Space before Pricing (px)" },
+      { key: "layout.spacers.beforeFooter",     type: "number", label: "Space before Footer (px)" },
     ],
   },
 

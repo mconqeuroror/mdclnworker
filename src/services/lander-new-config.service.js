@@ -68,6 +68,12 @@ function sanitizeUrl(value) {
   }
 }
 
+function sanitizeNonNegativeNumber(value, max = 10000) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(max, n));
+}
+
 function sanitizeConfig(input) {
   const merged = deepMerge(LANDER_NEW_DEFAULTS, input || {});
   merged.seo.title = sanitizeString(merged.seo.title, 140);
@@ -135,6 +141,28 @@ function sanitizeConfig(input) {
     name: sanitizeString(item?.name, 80),
     logoUrl: sanitizeUrl(item?.logoUrl),
   }));
+  const spacers = merged?.layout?.spacers || {};
+  merged.layout = {
+    ...(merged.layout || {}),
+    spacers: {
+      beforeHero: sanitizeNonNegativeNumber(spacers.beforeHero, 600),
+      beforeCountdown: sanitizeNonNegativeNumber(spacers.beforeCountdown, 600),
+      beforeCreateToday: sanitizeNonNegativeNumber(spacers.beforeCreateToday, 600),
+      beforeTopChoice: sanitizeNonNegativeNumber(spacers.beforeTopChoice, 600),
+      beforePartners: sanitizeNonNegativeNumber(spacers.beforePartners, 600),
+      beforePricing: sanitizeNonNegativeNumber(spacers.beforePricing, 600),
+      beforeFooter: sanitizeNonNegativeNumber(spacers.beforeFooter, 600),
+    },
+  };
+  merged.styles = {
+    ...(merged.styles || {}),
+    buttonPrimaryBackground: sanitizeString(merged?.styles?.buttonPrimaryBackground, 120),
+    buttonPrimaryText: sanitizeString(merged?.styles?.buttonPrimaryText, 120),
+    buttonPrimaryBorder: sanitizeString(merged?.styles?.buttonPrimaryBorder, 120),
+    buttonGhostText: sanitizeString(merged?.styles?.buttonGhostText, 120),
+    buttonGhostBorder: sanitizeString(merged?.styles?.buttonGhostBorder, 120),
+    buttonGhostBackground: sanitizeString(merged?.styles?.buttonGhostBackground, 120),
+  };
   return merged;
 }
 
