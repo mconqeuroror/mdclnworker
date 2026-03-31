@@ -3820,6 +3820,8 @@ function PromptImageContent({ onGenerationUpdate, models, selectedModel, setSele
     }
   };
 
+  const nsfwEnabled = !hideRestrictedModes && useNsfw;
+
   return (
     <>
       <div className="mb-6">

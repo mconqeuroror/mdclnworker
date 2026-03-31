@@ -411,7 +411,7 @@ export default function AppSidebar({
       </div>
 
       {/* Main Navigation */}
-      <nav className="flex-1 px-3 overflow-y-auto">
+      <nav className="flex-1 px-3 overflow-y-auto scrollbar-hide">
         <AnimatePresence>
           {!visuallyCollapsed && (
             <motion.p
