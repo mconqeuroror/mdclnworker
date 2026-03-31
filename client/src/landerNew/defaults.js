@@ -138,6 +138,7 @@ export const LANDER_NEW_DEFAULTS = {
   },
   layout: {
     spacers: {
+      beforeHeader: 0,
       beforeHero: 0,
       beforeCountdown: 0,
       beforeCreateToday: 0,

@@ -148,6 +148,7 @@ function mapToStandaloneConfig(config) {
     },
     layout: {
       spacers: {
+        beforeHeader: Number(config?.layout?.spacers?.beforeHeader ?? 0) || 0,
         beforeHero: Number(config?.layout?.spacers?.beforeHero ?? 0) || 0,
         beforeCountdown: Number(config?.layout?.spacers?.beforeCountdown ?? 0) || 0,
         beforeCreateToday: Number(config?.layout?.spacers?.beforeCreateToday ?? 0) || 0,
@@ -191,6 +192,7 @@ export default function LanderNewPublicApp({ config, noCursor = false, editMode 
       <div className="legacy-grid-bg" aria-hidden="true" />
       {!noCursor && <CustomCursor />}
       {promotionBar.enabled && <PromoBar data={promotionBar} />}
+      {promotionBar.enabled && renderSpacer(spacers.beforeHeader, "layout.spacer.beforeHeader")}
       <div className="site-header-shell">
         <Navbar brand={brand} />
       </div>

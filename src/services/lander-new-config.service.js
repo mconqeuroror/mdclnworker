@@ -145,6 +145,7 @@ function sanitizeConfig(input) {
   merged.layout = {
     ...(merged.layout || {}),
     spacers: {
+      beforeHeader: sanitizeNonNegativeNumber(spacers.beforeHeader, 600),
       beforeHero: sanitizeNonNegativeNumber(spacers.beforeHero, 600),
       beforeCountdown: sanitizeNonNegativeNumber(spacers.beforeCountdown, 600),
       beforeCreateToday: sanitizeNonNegativeNumber(spacers.beforeCreateToday, 600),

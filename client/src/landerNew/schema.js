@@ -163,6 +163,7 @@ export const LANDER_EDITOR_SCHEMA = [
     label: "Layout – Spacers",
     group: "Layout",
     fields: [
+      { key: "layout.spacers.beforeHeader",     type: "number", label: "Space between Announcement and Header (px)" },
       { key: "layout.spacers.beforeHero",       type: "number", label: "Space before Hero (px)" },
       { key: "layout.spacers.beforeCountdown",  type: "number", label: "Space before Countdown (px)" },
       { key: "layout.spacers.beforeCreateToday",type: "number", label: "Space before Create Today (px)" },
