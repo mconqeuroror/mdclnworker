@@ -390,7 +390,9 @@ export async function generateImageWithIdentity(req, res) {
             console.log(`Queue: ${queueStats.active}/${queueStats.maxConcurrent} active, ${queueStats.queued} queued`);
 
             const result = await requestQueue.enqueue(async () => {
-              return await generateImageWithIdentityWaveSpeed([kieFigure1], kieFigure2, {
+              // Figure mapping: identity source is figure 2 (model photo #3),
+              // composition/pose source is figure 1 (user uploaded edit photo).
+              return await generateImageWithIdentityWaveSpeed([kieFigure2], kieFigure1, {
                 size,
                 customImagePrompt: customPrompt,
                 onTaskCreated: async (taskId) => {
