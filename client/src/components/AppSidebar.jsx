@@ -142,12 +142,36 @@ export default function AppSidebar({
   const setCollapsed = setCollapsedProp || setLocalCollapsed;
   /** Desktop: expand visually while pinned collapsed (rail + hover) */
   const [desktopHovered, setDesktopHovered] = useState(false);
+  const [canHoverExpand, setCanHoverExpand] = useState(false);
   const visuallyCollapsed = collapsed && !desktopHovered;
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [locale, setLocale] = useState(getCurrentLocale);
   const copy = SIDEBAR_COPY[locale] || SIDEBAR_COPY.en;
   const collapsedRow = visuallyCollapsed ? "justify-center px-0 gap-0 min-h-[44px]" : "";
   const collapsedProfileRow = visuallyCollapsed ? "justify-center px-0 gap-0 min-h-[48px]" : "";
+
+  useEffect(() => {
+    const computeCanHoverExpand = () => {
+      if (typeof window === "undefined") return false;
+      const desktopHoverCapable = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+      const isLargeDesktopViewport = window.innerWidth >= 1200;
+      const hasTouchPoints = Number(navigator?.maxTouchPoints || 0) > 0;
+      return desktopHoverCapable && isLargeDesktopViewport && !hasTouchPoints;
+    };
+
+    const update = () => {
+      const allowed = computeCanHoverExpand();
+      setCanHoverExpand(allowed);
+      if (!allowed) {
+        setDesktopHovered(false);
+        onDesktopHoverChange?.(false);
+      }
+    };
+
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, [onDesktopHoverChange]);
 
   useEffect(() => {
     if (!collapsed) {
@@ -157,12 +181,13 @@ export default function AppSidebar({
   }, [collapsed, onDesktopHoverChange]);
 
   const handleAsidePointerEnter = () => {
-    if (!collapsed) return;
+    if (!collapsed || !canHoverExpand) return;
     setDesktopHovered(true);
     onDesktopHoverChange?.(true);
   };
 
   const handleAsidePointerLeave = () => {
+    if (!canHoverExpand) return;
     setDesktopHovered(false);
     onDesktopHoverChange?.(false);
   };
