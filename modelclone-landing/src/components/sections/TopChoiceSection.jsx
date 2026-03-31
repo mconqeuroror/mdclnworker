@@ -11,7 +11,6 @@ function ChoicePreview({ mediaType = "video", title, imageUrl }) {
     <div className={`choice-preview ${mediaType}`}>
       <div className="choice-preview-glow" />
       <div className="choice-preview-noise" />
-      <div className="choice-preview-title">{title}</div>
       <div className="choice-preview-ui">
         <span className="choice-dot" />
         <span className="choice-line" />
@@ -40,7 +39,6 @@ export function TopChoiceSection({ data }) {
               style={{ animationDelay: `${(idx % origLen) * 55}ms` }}
               {...(idx < origLen ? { "data-dp-target-id": `topChoice.item.${idx}` } : {})}
             >
-              <span className="pill">Top Choice</span>
               <ChoicePreview
                 mediaType={item.mediaType ?? "video"}
                 title={item.title}

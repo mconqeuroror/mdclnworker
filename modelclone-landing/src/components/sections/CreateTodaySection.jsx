@@ -29,13 +29,6 @@ function ToolCard({ item, isFeatured, slot }) {
         ) : (
           <>
             <div className="cinematic-thumb-noise" />
-            <div className="cinematic-thumb-ui">
-              <span>{item.mediaType}</span>
-              <span>{isFeatured ? "Live" : "Queued"}</span>
-            </div>
-            <div className={`cinematic-thumb-playline ${isFeatured ? "is-active" : ""}`}>
-              <span />
-            </div>
           </>
         )}
       </div>

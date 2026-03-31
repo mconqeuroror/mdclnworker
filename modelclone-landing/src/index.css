@@ -247,9 +247,6 @@ p  { margin: 0; }
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  box-shadow:
-    0 0 0 1px rgba(139, 92, 246, 0.45),
-    0 4px 12px rgba(124, 58, 237, 0.38);
 }
 
 .brand-logo-svg {
