@@ -484,8 +484,6 @@ function GalleryImagePicker({ modelId, selectedImage, onSelect, accentColor = "p
     );
   }
 
-  const nsfwEnabled = !hideRestrictedModes && useNsfw;
-
   return (
     <div>
       <div className="grid grid-cols-4 gap-1.5">
