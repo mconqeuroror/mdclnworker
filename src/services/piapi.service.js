@@ -1,8 +1,25 @@
-const PIAPI_BASE_URL = process.env.PIAPI_BASE_URL || "https://api.piapi.ai/api/v1";
 const PIAPI_API_KEY = process.env.PIAPI_API_KEY;
 
 function stripTrailingSlash(value) {
   return String(value || "").replace(/\/+$/, "");
+}
+
+/**
+ * PiAPI docs show "base URL" as https://api.piapi.ai but tasks are POSTed to …/api/v1/task.
+ * If PIAPI_BASE_URL is set to the host only (common copy-paste), requests hit /task and return 404.
+ */
+function resolvePiApiBaseUrl() {
+  let raw = (process.env.PIAPI_BASE_URL || "https://api.piapi.ai/api/v1").trim();
+  if (!raw) raw = "https://api.piapi.ai/api/v1";
+  let base = stripTrailingSlash(raw);
+  // Full endpoint was pasted into the env by mistake
+  if (/\/task$/i.test(base)) {
+    base = stripTrailingSlash(base.replace(/\/task$/i, ""));
+  }
+  if (!/\/api\/v\d+(\/|$)/i.test(base)) {
+    base = `${base}/api/v1`;
+  }
+  return stripTrailingSlash(base);
 }
 
 export function getPiApiCallbackUrl() {
@@ -70,10 +87,14 @@ export async function submitPiApiTask(taskPayload, { endpoint = "/task" } = {}) 
     callback_url: callbackUrl,
   };
 
-  const response = await fetch(`${stripTrailingSlash(PIAPI_BASE_URL)}${endpoint}`, {
+  const baseUrl = resolvePiApiBaseUrl();
+  const url = `${baseUrl}${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
+  const response = await fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      // PiAPI unified API expects X-API-Key (see piapi.ai/docs/quickstart).
+      "X-API-Key": PIAPI_API_KEY,
       Authorization: `Bearer ${PIAPI_API_KEY}`,
     },
     body: JSON.stringify(payload),
@@ -88,7 +109,10 @@ export async function submitPiApiTask(taskPayload, { endpoint = "/task" } = {}) 
     // Keep raw text in error path below.
   }
   if (!response.ok) {
-    throw new Error(`PiAPI submit failed (${response.status}): ${(json?.message || text || "Unknown error").slice(0, 300)}`);
+    const hint = response.status === 404
+      ? ` (POST ${url} — check PIAPI_BASE_URL includes /api/v1, e.g. https://api.piapi.ai/api/v1)`
+      : "";
+    throw new Error(`PiAPI submit failed (${response.status}): ${(json?.message || text || "Unknown error").slice(0, 300)}${hint}`);
   }
   return {
     callbackUrl,
