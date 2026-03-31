@@ -108,6 +108,10 @@ function isMissingVoiceStudioTableError(error) {
   );
 }
 
+function isPrismaRecordNotFound(error) {
+  return error?.code === "P2025";
+}
+
 /**
  * Create a new saved model
  */
@@ -444,6 +448,13 @@ export async function deleteModel(req, res) {
       message: `Model "${model.name}" deleted successfully`,
     });
   } catch (error) {
+    if (isPrismaRecordNotFound(error)) {
+      // Idempotent delete: if another request already deleted it, treat as success.
+      return res.json({
+        success: true,
+        message: "Model already deleted",
+      });
+    }
     console.error("Delete model error:", error);
     res.status(500).json({ success: false, message: "Server error" });
   }

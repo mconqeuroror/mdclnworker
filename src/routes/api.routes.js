@@ -103,6 +103,7 @@ import {
   getAppearance,
   generateNsfwVideoFromImage,
   extendNsfwVideo,
+  recoverStuckNsfwGenerations,
 } from "../controllers/nsfw.controller.js";
 import multer from "multer";
 import { handleUpload } from "@vercel/blob/client";
@@ -1589,6 +1590,8 @@ function parseAnalyzeLooksResponse(rawContent) {
 router.post("/generate/analyze-looks", authMiddleware, async (req, res) => {
   let creditDeducted = false;
   let ANALYZE_CREDIT_COST = 0;
+  const URL_CHECK_TIMEOUT_MS = 12_000;
+  const AI_TIMEOUT_MS = 70_000;
 
   try {
     const pricing = await getGenerationPricing();
@@ -1625,14 +1628,20 @@ router.post("/generate/analyze-looks", authMiddleware, async (req, res) => {
         if (parsed.protocol !== "https:") continue;
         const host = parsed.hostname.toLowerCase();
         if (host === "localhost" || host.startsWith("127.") || host.startsWith("10.") || host.startsWith("192.168.") || host === "0.0.0.0") continue;
-        const head = await fetch(url, { method: "HEAD" });
+        const head = await fetch(url, {
+          method: "HEAD",
+          signal: AbortSignal.timeout(URL_CHECK_TIMEOUT_MS),
+        });
         const size = parseInt(head.headers.get("content-length") || "0", 10);
         if (size > 20 * 1024 * 1024) {
           console.warn(`⚠️ Skipping oversized image (${(size / 1024 / 1024).toFixed(1)}MB): ${url.substring(0, 80)}`);
           continue;
         }
         if (size === 0 && !head.headers.get("content-length")) {
-          const probe = await fetch(url, { headers: { Range: "bytes=0-20971519" } });
+          const probe = await fetch(url, {
+            headers: { Range: "bytes=0-20971519" },
+            signal: AbortSignal.timeout(URL_CHECK_TIMEOUT_MS),
+          });
           const buf = await probe.arrayBuffer();
           if (buf.byteLength > 20 * 1024 * 1024) {
             console.warn(`⚠️ Skipping oversized image (probe ${(buf.byteLength / 1024 / 1024).toFixed(1)}MB): ${url.substring(0, 80)}`);
@@ -1696,6 +1705,7 @@ Rules:
         "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
       },
       body: JSON.stringify(requestBody),
+      signal: AbortSignal.timeout(AI_TIMEOUT_MS),
     });
 
     if (!aiResponse.ok) {
@@ -1750,6 +1760,11 @@ Rules:
 
   } catch (error) {
     console.error("Analyze looks error:", error.message);
+    const timeoutLike =
+      String(error?.name || "").toLowerCase() === "timeouterror" ||
+      String(error?.message || "").toLowerCase().includes("timed out") ||
+      String(error?.message || "").toLowerCase().includes("timeout") ||
+      String(error?.message || "").toLowerCase().includes("aborted");
     if (creditDeducted) {
       try {
         const { refundCredits } = await import("../services/credit.service.js");
@@ -1758,7 +1773,12 @@ Rules:
         console.error("Failed to refund analyze-looks credit:", refundErr.message);
       }
     }
-    res.status(500).json({ success: false, message: "Failed to analyze looks. Your credit has been refunded." });
+    res.status(timeoutLike ? 504 : 500).json({
+      success: false,
+      message: timeoutLike
+        ? "Analyze looks timed out. Please retry with fewer/smaller images. Your credit has been refunded."
+        : "Failed to analyze looks. Your credit has been refunded.",
+    });
   }
 });
 
@@ -2086,6 +2106,12 @@ router.get("/cron/kie-recovery", async (req, res) => {
   }
   if (!isVercelCron && process.env.CRON_SECRET && secret !== process.env.CRON_SECRET) {
     return res.status(401).json({ error: "Unauthorized" });
+  }
+  // Also recover stuck NSFW image/video jobs in serverless deployments where in-memory pollers are ephemeral.
+  try {
+    await recoverStuckNsfwGenerations({ startContinuous: false });
+  } catch (error) {
+    console.error("[cron/kie-recovery] NSFW recovery failed:", error?.message || error);
   }
   return cleanupStuckGenerations(req, res);
 });

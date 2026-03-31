@@ -1219,29 +1219,15 @@ main {
 }
 
 .choice-preview-ui {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 78%;
-  bottom: 0.62rem;
-  display: flex;
-  align-items: center;
-  gap: 0.38rem;
+  display: none !important;
 }
 
 .choice-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: rgba(255,255,255,0.80);
-  flex-shrink: 0;
+  display: none !important;
 }
 
 .choice-line {
-  flex: 1;
-  height: 2px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, rgba(255,255,255,0.82), rgba(255,255,255,0.10));
+  display: none !important;
 }
 
 .choice-card h3 {

@@ -4861,8 +4861,8 @@ async function pollProcessingNsfwGenerations() {
   try {
     const processingGens = await prisma.generation.findMany({
       where: {
-        status: { in: ['processing', 'pending'] },
-        type: 'nsfw',
+        status: { in: ['queued', 'processing', 'pending'] },
+        type: { in: ['nsfw', 'nsfw-video', 'nsfw-video-extend'] },
         createdAt: { gt: new Date(Date.now() - 24 * 60 * 60 * 1000) },
       },
       orderBy: { createdAt: 'asc' },
@@ -4900,15 +4900,39 @@ async function pollSingleNsfwGeneration(gen) {
     return;
   }
 
-  const requestId = inputData?.comfyuiPromptId || inputData?.runcomfyRequestId;
+  const replicate = typeof gen.replicateModel === "string" ? gen.replicateModel.trim() : "";
+  const replicateLooksLikeTaskId =
+    replicate &&
+    !replicate.startsWith("kie-") &&
+    !replicate.startsWith("wavespeed-") &&
+    !replicate.startsWith("piapi-") &&
+    !replicate.startsWith("comfyui-");
+
+  const requestId =
+    inputData?.comfyuiPromptId ||
+    inputData?.runcomfyRequestId ||
+    (replicateLooksLikeTaskId ? replicate : null);
+
   if (!requestId) {
     const age = Date.now() - new Date(gen.createdAt).getTime();
-    if (age > 20 * 60 * 1000) {
+    // queued jobs are expected to be promoted quickly by background submitter; if not, fail+refund.
+    const queuedTimeoutMs = 10 * 60 * 1000;
+    const processingTimeoutMs = 20 * 60 * 1000;
+    const timeoutMs = gen.status === "queued" ? queuedTimeoutMs : processingTimeoutMs;
+    if (age > timeoutMs) {
       try {
         await refundGeneration(gen.id);
         await prisma.generation.update({
           where: { id: gen.id },
-          data: { status: 'failed', errorMessage: getErrorMessageForDb('No ComfyUI prompt ID found'), completedAt: new Date() },
+          data: {
+            status: 'failed',
+            errorMessage: getErrorMessageForDb(
+              gen.status === "queued"
+                ? "Generation queue submission stalled before provider task creation"
+                : "No provider request ID found",
+            ),
+            completedAt: new Date(),
+          },
         });
         console.log(`  ⚠️ ${gen.id.substring(0,8)} - no requestId, refunded & failed`);
       } catch (e) {
@@ -4973,9 +4997,11 @@ function startNsfwPoller() {
   nsfwPollerInterval = setInterval(pollProcessingNsfwGenerations, 30000);
 }
 
-async function recoverStuckNsfwGenerations() {
+async function recoverStuckNsfwGenerations({ startContinuous = true } = {}) {
   await pollProcessingNsfwGenerations();
-  startNsfwPoller();
+  if (startContinuous) {
+    startNsfwPoller();
+  }
 }
 
 export async function saveAppearance(req, res) {

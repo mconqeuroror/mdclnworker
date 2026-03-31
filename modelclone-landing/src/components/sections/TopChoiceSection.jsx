@@ -11,10 +11,6 @@ function ChoicePreview({ mediaType = "video", title, imageUrl }) {
     <div className={`choice-preview ${mediaType}`}>
       <div className="choice-preview-glow" />
       <div className="choice-preview-noise" />
-      <div className="choice-preview-ui">
-        <span className="choice-dot" />
-        <span className="choice-line" />
-      </div>
     </div>
   );
 }
