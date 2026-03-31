@@ -4027,6 +4027,17 @@ function buildKlingPromptWithSound(prompt, soundEnabled, soundPrompt) {
   return `${base}, sound prompt: ${sound}`;
 }
 
+function extractKlingElementRefs(promptText) {
+  const refs = new Set();
+  const text = String(promptText || "");
+  const matches = text.matchAll(/@([a-zA-Z0-9_-]+)/g);
+  for (const match of matches) {
+    const token = String(match?.[1] || "").trim().toLowerCase();
+    if (token) refs.add(token);
+  }
+  return refs;
+}
+
 function estimateCreatorStudioVideoCredits(pricing, payload) {
   const family = String(payload.family || "").toLowerCase();
   const mode = normalizeCreatorStudioVideoMode(family, payload.mode);
@@ -4612,6 +4623,21 @@ export async function generateCreatorStudioVideo(req, res) {
       }
       if (!["16:9", "9:16", "1:1"].includes(String(aspectRatio || ""))) {
         return res.status(400).json({ success: false, message: "Kling 3.0 aspect ratio must be one of 16:9, 9:16, 1:1." });
+      }
+      const promptRefs = extractKlingElementRefs(prompt);
+      if (promptRefs.size > 0) {
+        const providedElementNames = new Set(
+          (Array.isArray(klingElements) ? klingElements : [])
+            .map((item) => String(item?.name || "").trim().toLowerCase())
+            .filter(Boolean),
+        );
+        const missingRefs = [...promptRefs].filter((name) => !providedElementNames.has(name));
+        if (missingRefs.length > 0) {
+          return res.status(400).json({
+            success: false,
+            message: `Kling prompt references @${missingRefs.join(", @")} but matching kling_elements were not provided. Remove the @token(s) or add those element names.`,
+          });
+        }
       }
     }
     if (lowerFamily === "veo31") {
