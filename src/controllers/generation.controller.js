@@ -68,9 +68,18 @@ import {
 } from "../services/video-generation-pricing.js";
 
 const IDENTITY_RECREATE_PROMPT_KEEP_MODEL_CLOTHES =
-  "Replace the person from figure 1 with the person in figure 2 matching the same body position and pose as the person in figure 1. Keep face, clothes, accessories and identity from figure 2. Keep background, pose and lighting from figure 1. Figure 1 is the uploaded photo for edit. Figure 2 is the selected model photo #3 (full body).";
+  "Figure 1 is the source photo. Figure 2 is the replacement person (full body). " +
+  "Replace the person in figure 1 entirely with the person from figure 2. " +
+  "Match the exact body pose and position from figure 1. " +
+  "Keep all clothes, accessories, face, hair, hands, skin and full identity from figure 2. " +
+  "Keep background and lighting from figure 1. Do not retain any part of the original person from figure 1.";
 const IDENTITY_RECREATE_PROMPT_KEEP_SOURCE_CLOTHES =
-  "Replace the person from figure 1 with the person in figure 2 matching the same body position and pose as the person in figure 1. Keep clothes and accessories from figure 1. Keep face, hair and identity from figure 2. Keep background, pose and lighting from figure 1. Figure 1 is the uploaded photo for edit. Figure 2 is the selected model photo #3 (full body).";
+  "Figure 1 is the source photo. Figure 2 is the replacement person (full body). " +
+  "Replace the person in figure 1 with the person from figure 2, keeping the exact pose and position from figure 1. " +
+  "Keep all clothing and accessories from figure 1 exactly as they appear. " +
+  "All exposed skin must belong to the person in figure 2 — including face, neck, hands, arms, legs and any other visible body parts. " +
+  "Skin tone, hand appearance and facial features must all match figure 2 consistently. " +
+  "Keep background and lighting from figure 1. Do not retain any skin or body parts from the original person in figure 1.";
 
 const PERSISTED_IMAGE_TYPES = new Set([
   "image",
