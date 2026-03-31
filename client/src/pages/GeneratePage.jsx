@@ -3559,6 +3559,7 @@ function PromptImageContent({ onGenerationUpdate, models, selectedModel, setSele
   const [enhancing, setEnhancing] = useState(false);
   const [useCustomPrompt, setUseCustomPrompt] = useState(false); // Toggle for custom vs AI-enhanced
   const [useNsfw, setUseNsfw] = useState(false); // SFW (Nano Banana) vs NSFW (Seedream v4.5)
+  const isNsfwMode = !hideRestrictedModes && useNsfw;
 
   // Draft: persist prompt text, nsfw toggle, custom prompt toggle across navigation
   const { draft: promptDraft, isLoading: promptDraftLoading, saveDraft: savePromptDraft, saveDraftNow: savePromptDraftNow, clearDraft: clearPromptDraft } = useDraft("prompt-image");
@@ -3658,8 +3659,7 @@ function PromptImageContent({ onGenerationUpdate, models, selectedModel, setSele
     setEnhancing(true);
 
     // Map current UI state to backend mode
-    const nsfwEnabled = !hideRestrictedModes && useNsfw;
-    const mode = nsfwEnabled ? "nsfw" : "casual";
+    const mode = isNsfwMode ? "nsfw" : "casual";
 
     // Pass model look variables so Grok knows what the subject looks like
     const currentModel = models?.find(m => m.id === selectedModel);
@@ -3697,9 +3697,9 @@ function PromptImageContent({ onGenerationUpdate, models, selectedModel, setSele
       if (response.data.success) {
         const enhanced = response.data.enhancedPrompt;
         // Persist to draft immediately (no debounce) so navigating away doesn't lose it
-        await savePromptDraftNow({ prompt: enhanced, useNsfw: nsfwEnabled, useCustomPrompt }, []);
+        await savePromptDraftNow({ prompt: enhanced, useNsfw: isNsfwMode, useCustomPrompt }, []);
         setPrompt(enhanced);
-        const modeLabel = nsfwEnabled ? "Spicy" : "Casual";
+        const modeLabel = isNsfwMode ? "Spicy" : "Casual";
         const enhanceCost = 10;
         toast.success(`Prompt enhanced! ${modeLabel} mode · ${enhanceCost} 🪙 used`);
         // Refresh credits so balance updates immediately
@@ -3749,8 +3749,7 @@ function PromptImageContent({ onGenerationUpdate, models, selectedModel, setSele
 
     // Derive settings from NSFW toggle
     // SFW → pg13 + amateur, NSFW → sexy + amateur
-    const nsfwEnabled = !hideRestrictedModes && useNsfw;
-    const effectiveRating = nsfwEnabled ? "sexy" : "pg13";
+    const effectiveRating = isNsfwMode ? "sexy" : "pg13";
     const effectiveStyle = "amateur";
 
     try {
@@ -3760,7 +3759,7 @@ function PromptImageContent({ onGenerationUpdate, models, selectedModel, setSele
         quantity: 1,
         style: effectiveStyle,
         contentRating: effectiveRating,
-        useNsfw: nsfwEnabled, // true = Seedream v4.5, false = Nano Banana
+        useNsfw: isNsfwMode, // true = Seedream v4.5, false = Nano Banana
         useCustomPrompt, // true = raw prompt without AI enhancement/prefixes
       });
 
@@ -3820,8 +3819,6 @@ function PromptImageContent({ onGenerationUpdate, models, selectedModel, setSele
     }
   };
 
-  const nsfwEnabled = !hideRestrictedModes && useNsfw;
-
   return (
     <>
       <div className="mb-6">
@@ -3836,28 +3833,28 @@ function PromptImageContent({ onGenerationUpdate, models, selectedModel, setSele
               data-testid="button-mode-sfw"
               className="relative p-3 rounded-xl text-left group"
               style={{
-                background: !nsfwEnabled 
+                background: !isNsfwMode 
                   ? 'rgba(139, 92, 246, 0.14)'
                   : 'rgba(20,20,30,0.45)',
-                border: !nsfwEnabled
+                border: !isNsfwMode
                   ? '1px solid rgba(255, 255, 255, 0.16)'
                   : '1px solid rgba(255,255,255,0.1)',
                 boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.04)',
               }}
             >
-              {!nsfwEnabled && (
+              {!isNsfwMode && (
                 <div className="absolute top-0 left-0 w-20 h-20 pointer-events-none" style={PURPLE_CORNER_GLOW_STYLE} />
               )}
-              {!nsfwEnabled && (
+              {!isNsfwMode && (
                 <div className="absolute left-0 top-2 bottom-2 w-1 rounded-full bg-gradient-to-b from-white/90 to-white/45" />
               )}
               <div className="relative flex items-center gap-2">
                 <div className={`w-4 h-4 rounded-full flex items-center justify-center transition-all ${
-                  !nsfwEnabled 
+                  !isNsfwMode 
                     ? 'bg-white' 
                     : 'border-2 border-white/20'
                 }`}>
-                  {!nsfwEnabled && <Check className="w-2.5 h-2.5 text-black" />}
+                  {!isNsfwMode && <Check className="w-2.5 h-2.5 text-black" />}
                 </div>
                 <span className="font-medium text-sm text-slate-200">Casual</span>
               </div>
@@ -3877,28 +3874,28 @@ function PromptImageContent({ onGenerationUpdate, models, selectedModel, setSele
                 data-testid="button-mode-nsfw"
                 className="relative p-3 rounded-xl text-left group"
                 style={{
-                  background: nsfwEnabled 
+                  background: isNsfwMode 
                     ? 'rgba(139, 92, 246, 0.14)'
                     : 'rgba(20,20,30,0.45)',
-                  border: nsfwEnabled
+                  border: isNsfwMode
                     ? '1px solid rgba(255, 255, 255, 0.16)'
                     : '1px solid rgba(255,255,255,0.1)',
                   boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.04)',
                 }}
               >
-                {nsfwEnabled && (
+                {isNsfwMode && (
                   <div className="absolute top-0 left-0 w-20 h-20 pointer-events-none" style={PURPLE_CORNER_GLOW_STYLE} />
                 )}
-                {nsfwEnabled && (
+                {isNsfwMode && (
                   <div className="absolute left-0 top-2 bottom-2 w-1 rounded-full bg-gradient-to-b from-white/90 to-white/45" />
                 )}
                 <div className="relative flex items-center gap-2">
                   <div className={`w-4 h-4 rounded-full flex items-center justify-center transition-all ${
-                    nsfwEnabled 
+                    isNsfwMode 
                       ? 'bg-white' 
                       : 'border-2 border-white/20'
                   }`}>
-                    {nsfwEnabled && <Check className="w-2.5 h-2.5 text-black" />}
+                    {isNsfwMode && <Check className="w-2.5 h-2.5 text-black" />}
                   </div>
                   <span className="font-medium text-sm text-slate-200">Sexy</span>
                 </div>
@@ -4036,7 +4033,7 @@ function PromptImageContent({ onGenerationUpdate, models, selectedModel, setSele
               </span>
             </div>
             <div className="text-xs text-gray-400">
-              {nsfwEnabled ? (
+              {isNsfwMode ? (
                 <p>
                   <span className="text-pink-400 font-medium">Sexy Mode</span> — Designed for sexy and sensual content. More freedom with revealing poses and outfits.
                 </p>
@@ -4049,14 +4046,14 @@ function PromptImageContent({ onGenerationUpdate, models, selectedModel, setSele
           </div>
         )}
 
-        {credits < (nsfwEnabled ? 10 : 20) ? (
+        {credits < (isNsfwMode ? 10 : 20) ? (
           <button
             onClick={() => setShowCreditsModal(true)}
             className="w-full py-3.5 rounded-xl font-semibold flex items-center justify-center gap-2 transition-all bg-white text-black hover:bg-white/90"
             data-testid="button-get-credits-prompt"
           >
             <CreditCard className="w-4 h-4" />
-            Get Credits <span className="inline-flex items-center gap-0.5 text-red-500">({nsfwEnabled ? 10 : 20} <Coins className="w-3.5 h-3.5" />)</span>
+            Get Credits <span className="inline-flex items-center gap-0.5 text-red-500">({isNsfwMode ? 10 : 20} <Coins className="w-3.5 h-3.5" />)</span>
           </button>
         ) : (
           <button
@@ -4073,7 +4070,7 @@ function PromptImageContent({ onGenerationUpdate, models, selectedModel, setSele
             ) : (
               <>
                 <Zap className="w-4 h-4 text-white" />
-                Generate <span className="inline-flex items-center gap-0.5 text-yellow-400">{nsfwEnabled ? 10 : 20} <Coins className="w-3.5 h-3.5" /></span>
+                Generate <span className="inline-flex items-center gap-0.5 text-yellow-400">{isNsfwMode ? 10 : 20} <Coins className="w-3.5 h-3.5" /></span>
               </>
             )}
           </button>
