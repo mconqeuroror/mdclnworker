@@ -154,9 +154,8 @@ export default function AppSidebar({
     const computeCanHoverExpand = () => {
       if (typeof window === "undefined") return false;
       const desktopHoverCapable = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
-      const isLargeDesktopViewport = window.innerWidth >= 1200;
-      const hasTouchPoints = Number(navigator?.maxTouchPoints || 0) > 0;
-      return desktopHoverCapable && isLargeDesktopViewport && !hasTouchPoints;
+      const isLargeDesktopViewport = window.innerWidth >= 1024;
+      return desktopHoverCapable && isLargeDesktopViewport;
     };
 
     const update = () => {
