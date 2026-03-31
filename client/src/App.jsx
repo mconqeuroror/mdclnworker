@@ -133,27 +133,34 @@ function safeLocalStorageRemove(key) {
 function LoraPromoBanner() {
   const copy = APP_COPY[resolveLocale()] || APP_COPY.en;
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const user = useAuthStore((state) => state.user);
   const [visible, setVisible] = useState(false);
+
+  const userPromoDismissKey = user?.id ? `loraPromo_dismissed_${user.id}` : null;
 
   useEffect(() => {
     if (!isAuthenticated) return;
     // Only show on /dashboard
     if (!window.location.pathname.startsWith("/dashboard")) return;
-    const dismissed = safeLocalStorageGet("loraPromo_dismissed");
+    const dismissedLegacy = safeLocalStorageGet("loraPromo_dismissed");
+    const dismissedPerUser = userPromoDismissKey ? safeLocalStorageGet(userPromoDismissKey) : null;
+    const dismissed = dismissedLegacy === "true" || dismissedPerUser === "true";
     if (!dismissed) {
       const timer = setTimeout(() => setVisible(true), 1500);
       return () => clearTimeout(timer);
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, userPromoDismissKey]);
 
   // Both X and "Don't show again" persist the dismissal
   const handleDismiss = () => {
     safeLocalStorageSet("loraPromo_dismissed", "true");
+    if (userPromoDismissKey) safeLocalStorageSet(userPromoDismissKey, "true");
     setVisible(false);
   };
 
   const handleDontShowAgain = () => {
     safeLocalStorageSet("loraPromo_dismissed", "true");
+    if (userPromoDismissKey) safeLocalStorageSet(userPromoDismissKey, "true");
     setVisible(false);
   };
 

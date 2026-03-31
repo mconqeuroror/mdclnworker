@@ -54,9 +54,7 @@ export default function SupportChatButton() {
   const subscriptionStatus = String(user?.subscriptionStatus || "").toLowerCase();
   const hasSupportAccess =
     subscriptionStatus === "active" ||
-    subscriptionStatus === "trialing" ||
-    Boolean(user?.premiumFeaturesUnlocked) ||
-    user?.role === "admin";
+    subscriptionStatus === "trialing";
 
   const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   useEffect(() => scrollToBottom(), [messages]);
@@ -201,8 +199,6 @@ export default function SupportChatButton() {
   const removeAttachment = (index) => setAttachments((a) => a.filter((_, i) => i !== index));
   const canEndChat = !!sessionId && !!sessionStartedAt && clockNow - sessionStartedAt >= 60_000;
 
-  // Do not hard-hide by local subscriptionStatus because stale mobile state
-  // can incorrectly hide chat for valid subscribers. Backend still enforces access.
   // Keep this return after all hooks to preserve stable hook order across auth changes.
   if (!isAuthenticated || !hasSupportAccess) return null;
 
