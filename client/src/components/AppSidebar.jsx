@@ -35,15 +35,22 @@ import { hasPremiumAccess } from "../utils/premiumAccess";
 
 const LOCALE_STORAGE_KEY = "app_locale";
 const SUPPORTED_LOCALES = ["en", "ru"];
-const getUserSpendMetric = (user) => {
-  const raw =
-    user?.spent ??
-    user?.totalSpent ??
-    user?.totalSpentCents ??
-    user?.totalCreditsUsed ??
-    0;
-  const value = Number(raw);
-  return Number.isFinite(value) ? value : 0;
+const hasRestrictedFeatureAccess = (user) => {
+  if (!user) return false;
+  if (user?.role === "admin") return true;
+  const sub = String(user?.subscriptionStatus || "").toLowerCase();
+  if (sub === "active" || sub === "trialing" || sub === "trial") return true;
+  if (Boolean(user?.premiumFeaturesUnlocked)) return true;
+  if (user?.stripeSubscriptionId || user?.stripeCustomerId) return true;
+
+  const paidSignals = [
+    user?.spent,
+    user?.totalSpent,
+    user?.totalSpentCents,
+    user?.totalCreditsUsed,
+    user?.purchasedCredits,
+  ];
+  return paidSignals.some((v) => Number(v) > 0);
 };
 const SIDEBAR_COPY = {
   en: {
@@ -136,7 +143,7 @@ export default function AppSidebar({
   const hideRestrictedTabs =
     typeof hideRestrictedTabsProp === "boolean"
       ? hideRestrictedTabsProp
-      : getUserSpendMetric(user) <= 0;
+      : !hasRestrictedFeatureAccess(user);
   const [localCollapsed, setLocalCollapsed] = useState(true);
   const collapsed = typeof collapsedProp === "boolean" ? collapsedProp : localCollapsed;
   const setCollapsed = setCollapsedProp || setLocalCollapsed;

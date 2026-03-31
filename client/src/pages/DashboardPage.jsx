@@ -59,15 +59,22 @@ import AppSidebar from "../components/AppSidebar";
 import { useBranding } from "../hooks/useBranding";
 
 const LOCALE_STORAGE_KEY = "app_locale";
-const getUserSpendMetric = (user) => {
-  const raw =
-    user?.spent ??
-    user?.totalSpent ??
-    user?.totalSpentCents ??
-    user?.totalCreditsUsed ??
-    0;
-  const value = Number(raw);
-  return Number.isFinite(value) ? value : 0;
+const hasRestrictedFeatureAccess = (user) => {
+  if (!user) return false;
+  if (user?.role === "admin") return true;
+  const sub = String(user?.subscriptionStatus || "").toLowerCase();
+  if (sub === "active" || sub === "trialing" || sub === "trial") return true;
+  if (Boolean(user?.premiumFeaturesUnlocked)) return true;
+  if (user?.stripeSubscriptionId || user?.stripeCustomerId) return true;
+
+  const paidSignals = [
+    user?.spent,
+    user?.totalSpent,
+    user?.totalSpentCents,
+    user?.totalCreditsUsed,
+    user?.purchasedCredits,
+  ];
+  return paidSignals.some((v) => Number(v) > 0);
 };
 
 const COPY = {
@@ -290,7 +297,7 @@ export default function DashboardPage() {
   const branding = useBranding();
   const navigate = useNavigate();
   const canAccessPremiumTabs = hasPremiumAccess(user);
-  const hideRestrictedTabs = getUserSpendMetric(user) <= 0;
+  const hideRestrictedTabs = !hasRestrictedFeatureAccess(user);
   const premiumTabs = ["course", "repurposer", "reelfinder", "voice-studio"];
 
   const [activeTab, setActiveTab] = useState("home");

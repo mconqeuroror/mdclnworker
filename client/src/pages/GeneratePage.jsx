@@ -412,15 +412,21 @@ function getGenerateCopy() {
   return GENERATE_COPY[locale] || GENERATE_COPY.en;
 }
 
-function getUserSpendMetric(user) {
-  const raw =
-    user?.spent ??
-    user?.totalSpent ??
-    user?.totalSpentCents ??
-    user?.totalCreditsUsed ??
-    0;
-  const value = Number(raw);
-  return Number.isFinite(value) ? value : 0;
+function hasRestrictedFeatureAccess(user) {
+  if (!user) return false;
+  if (user?.role === "admin") return true;
+  const sub = String(user?.subscriptionStatus || "").toLowerCase();
+  if (sub === "active" || sub === "trialing" || sub === "trial") return true;
+  if (Boolean(user?.premiumFeaturesUnlocked)) return true;
+  if (user?.stripeSubscriptionId || user?.stripeCustomerId) return true;
+  const paidSignals = [
+    user?.spent,
+    user?.totalSpent,
+    user?.totalSpentCents,
+    user?.totalCreditsUsed,
+    user?.purchasedCredits,
+  ];
+  return paidSignals.some((v) => Number(v) > 0);
 }
 
 // Gallery Image Picker - lets user pick from previously generated images
@@ -953,7 +959,7 @@ function ImageGeneration() {
   const copy = getGenerateCopy();
   const { user, updateCredits, refreshUserCredits } = useAuthStore();
   const credits = user?.credits ?? 0;
-  const hideRestrictedModes = getUserSpendMetric(user) <= 0;
+  const hideRestrictedModes = !hasRestrictedFeatureAccess(user);
 
   // HYBRID: useGenerations for history, local state for LivePreviewPanel
   // Use "all-images" to get all image types for finding latest across all modes
@@ -3536,7 +3542,7 @@ function PromptImageContent({ onGenerationUpdate, models, selectedModel, setSele
   const copy = getGenerateCopy();
   const { user, refreshUserCredits } = useAuthStore();
   const credits = user?.credits ?? 0;
-  const hideRestrictedModes = getUserSpendMetric(user) <= 0;
+  const hideRestrictedModes = !hasRestrictedFeatureAccess(user);
 
   // SIMPLE: Local state for active generation - no complex cache sync
   const { activeGeneration, isGenerating, startGeneration, pollForCompletion, setFailed } = useActiveGeneration();
