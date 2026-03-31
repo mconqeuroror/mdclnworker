@@ -67,22 +67,25 @@ import {
 } from "../services/video-generation-pricing.js";
 
 const IDENTITY_RECREATE_PROMPT_KEEP_MODEL_CLOTHES =
-  "Figure 1 is the first input image (source photo). Figure 2 is the second input image (replacement person, full body). " +
-  "Replace the person in figure 1 entirely with the person from figure 2. " +
-  "Match the exact body pose and position from figure 1. " +
-  "Keep all clothes, accessories, face, hair, hands, skin and full identity from figure 2. " +
-  "Hands and fingers must come from figure 2 only; do not copy hand shape, skin, or fingers from figure 1. " +
-  "Do not blend identities; output a single consistent person from figure 2. " +
-  "Keep background and lighting from figure 1. Do not retain any part of the original person from figure 1.";
+  "Image 1 is a close-up selfie of the replacement person (primary face reference). " +
+  "Image 2 is a portrait of the same replacement person (secondary face reference). " +
+  "Image 3 is a full-body photo of the same replacement person (body type and outfit reference). " +
+  "Image 4 is the source photo to edit (pose, background, camera, and lighting reference). " +
+  "Replace the person in image 4 entirely with the person from images 1, 2, and 3. " +
+  "Keep pose, body position, framing, background, and lighting from image 4 exactly. " +
+  "Keep face identity from images 1 and 2. Keep body type, outfit, and accessories from image 3. " +
+  "Hands, skin tone, and all visible body parts must match the replacement person from images 1-3 only. " +
+  "Do not retain any face, skin, hands, or body parts from the original person in image 4.";
 const IDENTITY_RECREATE_PROMPT_KEEP_SOURCE_CLOTHES =
-  "Figure 1 is the first input image (source photo). Figure 2 is the second input image (replacement person, full body). " +
-  "Replace the person in figure 1 with the person from figure 2, keeping the exact pose and position from figure 1. " +
-  "Keep all clothing and accessories from figure 1 exactly as they appear. " +
-  "All exposed skin must belong to the person in figure 2 — including face, neck, hands, arms, legs and any other visible body parts. " +
-  "Skin tone, hand appearance and facial features must all match figure 2 consistently. " +
-  "Hands and fingers must be from figure 2 only with no blending from figure 1. " +
-  "Do not blend identities; output a single consistent person from figure 2. " +
-  "Keep background and lighting from figure 1. Do not retain any skin or body parts from the original person in figure 1.";
+  "Image 1 is a close-up selfie of the replacement person (primary face reference). " +
+  "Image 2 is a portrait of the same replacement person (secondary face reference). " +
+  "Image 3 is a full-body photo of the same replacement person (body type reference). " +
+  "Image 4 is the source photo to edit (pose, background, camera, lighting, clothes, and accessories reference). " +
+  "Replace the person in image 4 with the person from images 1, 2, and 3 while preserving the exact pose and position from image 4. " +
+  "Keep all clothing and accessories from image 4 exactly as they appear. " +
+  "All exposed skin must belong to the replacement person from images 1-3, including face, neck, hands, arms, legs, and any visible body parts. " +
+  "Face identity must match images 1 and 2. Body and skin consistency must match image 3. " +
+  "Do not retain any face, skin, hands, or body parts from the original person in image 4.";
 
 const PERSISTED_IMAGE_TYPES = new Set([
   "image",
@@ -278,22 +281,35 @@ export async function generateImageWithIdentity(req, res) {
       });
     }
 
-    const modelFigure2 = String(modelOwnership.photo3Url || "").trim();
-    if (!modelFigure2) {
+    const modelPhoto1 = String(modelOwnership.photo1Url || "").trim();
+    const modelPhoto2 = String(modelOwnership.photo2Url || "").trim();
+    const modelPhoto3 = String(modelOwnership.photo3Url || "").trim();
+    if (!modelPhoto1 || !modelPhoto2 || !modelPhoto3) {
       return res.status(400).json({
         success: false,
-        message: "Model photo 3 is required for identity recreation.",
+        message: "Model photos 1, 2, and 3 are required for identity recreation.",
       });
     }
     const targetCheck = validateImageUrl(targetImage);
     if (!targetCheck.valid) {
       return res.status(400).json({ success: false, message: targetCheck.message });
     }
-    const modelFigure2Check = validateImageUrl(modelFigure2);
-    if (!modelFigure2Check.valid) {
-      return res.status(400).json({ success: false, message: modelFigure2Check.message });
+    const modelPhoto1Check = validateImageUrl(modelPhoto1);
+    if (!modelPhoto1Check.valid) {
+      return res.status(400).json({ success: false, message: modelPhoto1Check.message });
     }
-    const seedreamInputsCheck = await validateSeedreamEditImages([targetImage, modelFigure2], "wavespeed");
+    const modelPhoto2Check = validateImageUrl(modelPhoto2);
+    if (!modelPhoto2Check.valid) {
+      return res.status(400).json({ success: false, message: modelPhoto2Check.message });
+    }
+    const modelPhoto3Check = validateImageUrl(modelPhoto3);
+    if (!modelPhoto3Check.valid) {
+      return res.status(400).json({ success: false, message: modelPhoto3Check.message });
+    }
+    const seedreamInputsCheck = await validateSeedreamEditImages(
+      [modelPhoto1, modelPhoto2, modelPhoto3, targetImage],
+      "wavespeed",
+    );
     if (!seedreamInputsCheck.valid) {
       return res.status(400).json({ success: false, message: seedreamInputsCheck.message });
     }
@@ -352,7 +368,12 @@ export async function generateImageWithIdentity(req, res) {
           modelId,
           type: "image-identity",
           prompt: customPrompt,
-          inputImageUrl: JSON.stringify({ figure1: targetImage, figure2: modelFigure2 }),
+          inputImageUrl: JSON.stringify({
+            image1FaceSelfie: modelPhoto1,
+            image2FacePortrait: modelPhoto2,
+            image3FullBody: modelPhoto3,
+            image4SourceToEdit: targetImage,
+          }),
           status: "processing",
           creditsCost: 10,
           replicateModel: "wavespeed-seedream-v4.5-edit",
@@ -378,10 +399,12 @@ export async function generateImageWithIdentity(req, res) {
       const startTime = Date.now();
 
       // Ensure identity images and target are accessible to the provider before processing
-      const [kieFigure1, kieFigure2] = await Promise.all([
+      const [kieModelPhoto1, kieModelPhoto2, kieModelPhoto3, kieTargetImage] = await Promise.all([
+        ensureKieAccessibleUrl(modelPhoto1, "identity-photo-1-selfie").catch(() => modelPhoto1),
+        ensureKieAccessibleUrl(modelPhoto2, "identity-photo-2-portrait").catch(() => modelPhoto2),
+        ensureKieAccessibleUrl(modelPhoto3, "identity-photo-3-fullbody").catch(() => modelPhoto3),
         ensureKieAccessibleUrl(targetImage, "figure-1-input-image"),
-        ensureKieAccessibleUrl(modelFigure2, "figure-2-model-photo3"),
-      ]).catch(() => [targetImage, modelFigure2]);
+      ]).catch(() => [modelPhoto1, modelPhoto2, modelPhoto3, targetImage]);
 
       try {
         for (const { gen: generation, index } of generationRecords) {
@@ -390,10 +413,12 @@ export async function generateImageWithIdentity(req, res) {
             console.log(`Queue: ${queueStats.active}/${queueStats.maxConcurrent} active, ${queueStats.queued} queued`);
 
             const result = await requestQueue.enqueue(async () => {
-              // Figure mapping in provider input order:
-              // image 1 / figure 1 = user uploaded edit photo (pose/background source)
-              // image 2 / figure 2 = model photo #3 (identity source)
-              return await generateImageWithIdentityWaveSpeed([kieFigure1], kieFigure2, {
+              // Provider image order:
+              // 1 = selfie face ref, 2 = portrait face ref, 3 = full-body ref, 4 = source edit image.
+              return await generateImageWithIdentityWaveSpeed(
+                [kieModelPhoto1, kieModelPhoto2, kieModelPhoto3],
+                kieTargetImage,
+                {
                 size,
                 customImagePrompt: customPrompt,
                 onTaskCreated: async (taskId) => {
@@ -402,7 +427,8 @@ export async function generateImageWithIdentity(req, res) {
                     data: { replicateModel: `wavespeed-seedream:${taskId}` },
                   });
                 },
-              });
+                },
+              );
             });
 
             if (result.success && result.deferred && result.taskId) {
