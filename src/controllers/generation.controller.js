@@ -2925,6 +2925,13 @@ export async function generatePromptBasedImage(req, res) {
       });
     }
 
+    const providerInputCheck = useSeedream
+      ? await validateSeedreamEditImages(identityImages, "wavespeed")
+      : await validateNanoBananaInputImages(identityImages);
+    if (!providerInputCheck.valid) {
+      return res.status(400).json({ success: false, message: providerInputCheck.message });
+    }
+
     await deductCredits(userId, creditsNeeded);
     creditsDeducted = creditsNeeded;
     console.log(`💳 Deducted ${creditsNeeded} credits upfront`);
@@ -2940,12 +2947,6 @@ export async function generatePromptBasedImage(req, res) {
       ? `Using reference images ${requiredReferenceCount === 2 ? "1 and 2" : "1, 2, and 3"} as identity reference for the person's face and features. Create a photo of this exact same person: ${prompt.trim()}. Keep the exact same face, facial features, hair color, eye color from the reference images. High quality, photorealistic.`
       : buildGenerationPrompt(prompt, style, contentRating, requiredReferenceCount);
     const finalPrompt = (appearancePrefix || "") + basePrompt;
-    const providerInputCheck = useSeedream
-      ? await validateSeedreamEditImages(identityImages, "wavespeed")
-      : await validateNanoBananaInputImages(identityImages);
-    if (!providerInputCheck.valid) {
-      return res.status(400).json({ success: false, message: providerInputCheck.message });
-    }
 
     const aiModel = useSeedream ? "wavespeed-seedream-v4.5-edit" : "kie-nano-banana-pro";
     console.log(`\n${useSeedream ? "🌙" : "🍌"} PROMPT-BASED GENERATION (${useSeedream ? "WaveSpeed Seedream 4.5 Edit" : "KIE Nano Banana Pro"})`);
