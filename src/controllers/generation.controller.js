@@ -20,7 +20,6 @@ import {
   generateImageWithSeedreamWaveSpeed,
 } from "../services/wavespeed.service.js";
 import {
-  extractFrameFromVideo,
   extractFramesFromVideo,
   generateVariations,
   preprocessReferenceVideoForKling,
@@ -72,6 +71,8 @@ const IDENTITY_RECREATE_PROMPT_KEEP_MODEL_CLOTHES =
   "Replace the person in figure 1 entirely with the person from figure 2. " +
   "Match the exact body pose and position from figure 1. " +
   "Keep all clothes, accessories, face, hair, hands, skin and full identity from figure 2. " +
+  "Hands and fingers must come from figure 2 only; do not copy hand shape, skin, or fingers from figure 1. " +
+  "Do not blend identities; output a single consistent person from figure 2. " +
   "Keep background and lighting from figure 1. Do not retain any part of the original person from figure 1.";
 const IDENTITY_RECREATE_PROMPT_KEEP_SOURCE_CLOTHES =
   "Figure 1 is the source photo. Figure 2 is the replacement person (full body). " +
@@ -79,6 +80,8 @@ const IDENTITY_RECREATE_PROMPT_KEEP_SOURCE_CLOTHES =
   "Keep all clothing and accessories from figure 1 exactly as they appear. " +
   "All exposed skin must belong to the person in figure 2 — including face, neck, hands, arms, legs and any other visible body parts. " +
   "Skin tone, hand appearance and facial features must all match figure 2 consistently. " +
+  "Hands and fingers must be from figure 2 only with no blending from figure 1. " +
+  "Do not blend identities; output a single consistent person from figure 2. " +
   "Keep background and lighting from figure 1. Do not retain any skin or body parts from the original person in figure 1.";
 
 const PERSISTED_IMAGE_TYPES = new Set([
@@ -601,54 +604,16 @@ async function processVideoMotionInBackground(
   try {
     console.log(`\n🔄 Starting video motion generation for ${generationId}`);
     console.log(`🔊 Keep audio from video: ${keepAudio}`);
-    console.log("\n📍 STEP 1/3: Extracting first frame from reference video...");
-    const frameResult = await extractFrameFromVideo(referenceVideoUrl, 1);
-    if (!frameResult.success || !frameResult.frameUrl) {
-      throw new Error(`Frame extraction failed: ${frameResult.error || "Unknown error"}`);
-    }
-
-    const [kieFigure1Frame, kieFigure2Identity, kieReferenceVideoUrl] = await Promise.all([
-      ensureKieAccessibleUrl(frameResult.frameUrl, "figure-1-frame").catch(() => frameResult.frameUrl),
-      ensureKieAccessibleUrl(identityInputImageUrl, "figure-2-identity-image").catch(() => identityInputImageUrl),
+    console.log("📍 Using user-provided first frame (no automatic identity transform)");
+    const [kieImageUrl, kieReferenceVideoUrl] = await Promise.all([
+      ensureKieAccessibleUrl(identityInputImageUrl, "user provided start frame").catch(() => identityInputImageUrl),
       (async () => {
         const preprocessed = await preprocessReferenceVideoForKling(referenceVideoUrl).catch(() => referenceVideoUrl);
         return ensureKieAccessibleUrl(preprocessed, "reference video");
       })(),
     ]);
 
-    console.log("\n📍 STEP 2/3: Recreating first frame identity (source outfit mode)...");
-    const imageResult = await requestQueue.enqueue(() =>
-      generateImageWithIdentityWaveSpeed([kieFigure1Frame], kieFigure2Identity, {
-        customImagePrompt: IDENTITY_RECREATE_PROMPT_KEEP_SOURCE_CLOTHES,
-        onTaskCreated: async (taskId) => {
-          await prisma.generation.update({
-            where: { id: generationId },
-            data: {
-              pipelinePayload: {
-                kind: "complete_recreation",
-                imageTaskId: taskId,
-                originalVideoUrl: referenceVideoUrl,
-                originalVideoUrlKie: kieReferenceVideoUrl,
-                videoPrompt: prompt || "",
-                recreateEngine: normalizeRecreateEngine(recreateEngine),
-                wanResolution: normalizeWanResolution(wanResolution),
-                ultra: !!ultra,
-              },
-            },
-          });
-        },
-      }),
-    );
-    if (imageResult.success && imageResult.deferred) {
-      console.log("⏳ Identity image submitted; waiting for WaveSpeed callback continuation.");
-      return;
-    }
-    if (!imageResult.success || !imageResult.outputUrl) {
-      throw new Error(`Identity recreation failed: ${imageResult.error || "Unknown error"}`);
-    }
-
-    console.log("\n📍 STEP 3/3: Submitting final recreate video task...");
-    const kieImageUrl = await ensureKieAccessibleUrl(imageResult.outputUrl, "generated image");
+    console.log("\n📍 Submitting final recreate video task...");
     const videoResult = await requestQueue.enqueue(() =>
       submitRecreateVideoTask({
         imageUrl: kieImageUrl,
@@ -2068,17 +2033,12 @@ export async function completeVideoGeneration(req, res) {
 
 /**
  * SIMPLIFIED VIDEO GENERATION - One-step TikTok/Reel format
- * Takes model + video, generates directly in 720p 9:16 format
- * No frame extraction, no variations - just direct generation
+ * Takes user-provided identity-swapped first frame + video and generates directly.
  * Pricing: 20 credits flat
  */
 /**
  * Background processing for Quick Video Generation
- * Implements the correct 2-step workflow:
- * 1. Extract frame from video
- * 2. Generate image with model's identity
- * 3. Generate video with that image
- * 4. Use generated image as thumbnail
+ * Uses user-provided first frame directly (no automatic identity recreation).
  */
 async function processQuickVideoInBackground(
   generationId,
@@ -2097,80 +2057,28 @@ async function processQuickVideoInBackground(
         : (ultra ? "motion-pro-plus" : "motion-classic");
     console.log(`\n🔄 Starting background processing for generation ${generationId} [${tierLabel}]`);
 
-    // STEP 1: Extract first frame from reference video
-    console.log("\n📍 STEP 1/3: Extracting frame from reference video...");
-    const frameResult = await extractFrameFromVideo(referenceVideoUrl, 1);
-
-    if (!frameResult.success || !frameResult.frameUrl) {
-      throw new Error(
-        `Frame extraction failed: ${frameResult.error || "Unknown error"}`,
-      );
-    }
-
-    console.log(`✅ Frame extracted: ${frameResult.frameUrl}`);
-
-    // STEP 2: Upload all inputs to Blob so provider can fetch immediately; then submit identity recreate image
-    console.log("\n📍 Uploading inputs to Blob for KIE...");
+    // No automatic identity/frame transform: use user-provided swapped frame directly.
+    console.log("\n📍 Using user-provided first frame (no automatic identity transform)...");
     const figure2Identity = String(identityImageUrl || "");
     if (!figure2Identity || !figure2Identity.startsWith("http")) {
       throw new Error("Identity input image is required for recreate.");
     }
 
-    const [kieFigure2, kieFrameUrl, kieReferenceVideoUrl] = await Promise.all([
+    const [kieFigure2, kieReferenceVideoUrl] = await Promise.all([
       ensureKieAccessibleUrl(figure2Identity, "figure-2-identity-image").catch(() => figure2Identity),
-      ensureKieAccessibleUrl(frameResult.frameUrl, "frame").catch(() => frameResult.frameUrl),
       (async () => {
         const preprocessed = await preprocessReferenceVideoForKling(referenceVideoUrl).catch(() => referenceVideoUrl);
         return ensureKieAccessibleUrl(preprocessed, "reference video");
       })(),
     ]);
 
-    console.log("\n📍 STEP 2/3: Submitting image to WaveSpeed (inputs already on Blob)...");
-    const imageResult = await requestQueue.enqueue(async () => {
-      return await generateImageWithIdentityWaveSpeed([kieFrameUrl], kieFigure2, {
-        aspectRatio: "9:16",
-        customImagePrompt: IDENTITY_RECREATE_PROMPT_KEEP_SOURCE_CLOTHES,
-        onTaskCreated: async (taskId) => {
-          await prisma.generation.update({
-            where: { id: generationId },
-            data: {
-              pipelinePayload: {
-                kind: "quick_video",
-                imageTaskId: taskId,
-                referenceVideoUrl,
-                referenceVideoUrlKie: kieReferenceVideoUrl,
-                userId,
-                creditsNeeded,
-                ultra,
-                recreateEngine: normalizeRecreateEngine(recreateEngine),
-                wanResolution: normalizeWanResolution(wanResolution),
-              },
-            },
-          });
-        },
-      });
-    });
-
-    if (imageResult.success && imageResult.deferred) {
-      console.log("\n✅ Image task submitted [%s]; video will be sent to KIE when WaveSpeed callback fires", tierLabel);
-      return;
-    }
-
-    if (!imageResult.success || !imageResult.outputUrl) {
-      throw new Error(
-        `Image generation failed: ${imageResult.error || "Unknown error"}`,
-      );
-    }
-
-    console.log(`✅ Image generated: ${imageResult.outputUrl}`);
-
-    // STEP 3: Generate video using the generated image + reference video (sync path when no callback)
-    console.log("\n📍 STEP 3/3: Generating final video...");
+    // Submit recreate video using the user-provided starting frame.
+    console.log("\n📍 Generating final video...");
     const kieVideoUrl4 = kieReferenceVideoUrl || await ensureKieAccessibleUrl(
       (await preprocessReferenceVideoForKling(referenceVideoUrl).catch(() => referenceVideoUrl)),
       "reference video"
     );
-    const kieImageUrl4 = await ensureKieAccessibleUrl(imageResult.outputUrl, "generated image");
+    const kieImageUrl4 = await ensureKieAccessibleUrl(kieFigure2, "user provided start frame");
     const videoResult = await requestQueue.enqueue(async () =>
       submitRecreateVideoTask({
         imageUrl: kieImageUrl4,
@@ -2207,13 +2115,13 @@ async function processQuickVideoInBackground(
         data: {
           status: "completed",
           outputUrl: videoResult.outputUrl,
-          inputImageUrl: imageResult.outputUrl,
+          inputImageUrl: kieFigure2,
           completedAt: new Date(),
         },
       });
 
       console.log("\n✅ QUICK VIDEO GENERATION COMPLETE!");
-      console.log(`🖼️  Generated Image (thumbnail): ${imageResult.outputUrl}`);
+      console.log(`🖼️  Start Frame Used: ${kieFigure2}`);
       console.log(`🎥 Generated Video: ${videoResult.outputUrl}\n`);
     } else {
       throw new Error(
@@ -2320,7 +2228,7 @@ export async function generateVideoDirectly(req, res) {
       });
     }
 
-    console.log("\n🎬 QUICK VIDEO (2-step): identity image + source video → identity on first frame → KIE");
+    console.log("\n🎬 QUICK VIDEO: user start frame + source video → KIE recreate");
     console.log(`🧷 Identity image: ${identityInputImage}`);
     console.log(`🎥 Video: ${referenceVideoUrl}`);
     console.log(`💰 Credits: ${creditsNeeded}`);
