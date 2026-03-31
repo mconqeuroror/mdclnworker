@@ -3929,6 +3929,68 @@ const CREATOR_STUDIO_ASPECT_RATIOS = [
 const CREATOR_STUDIO_RESOLUTIONS = ["1K", "2K", "4K"];
 const CREATOR_STUDIO_MODELS = ["nano-banana-pro"];
 const CREATOR_STUDIO_VIDEO_FAMILIES = ["sora2", "kling26", "kling30", "veo31", "wan22", "seedance2"];
+const CREATOR_STUDIO_VIDEO_ALLOWED_MODES = Object.freeze({
+  sora2: ["t2v", "i2v"],
+  kling26: ["t2v", "i2v"],
+  kling30: ["t2v", "i2v"],
+  veo31: ["ref2v", "t2v", "i2v", "extend"],
+  wan22: ["move", "replace"],
+  seedance2: ["t2v", "i2v", "edit", "extend", "remove-watermark"],
+});
+
+function validateCreatorStudioVideoDuration(family, mode, value) {
+  const duration = Number(value);
+  if (!Number.isFinite(duration)) {
+    return { valid: false, message: "Duration must be a number." };
+  }
+  if (!Number.isInteger(duration)) {
+    return { valid: false, message: "Duration must be a whole number of seconds." };
+  }
+
+  if (family === "kling26") {
+    if (![5, 10].includes(duration)) {
+      return { valid: false, message: "Kling 2.6 duration must be 5 or 10 seconds." };
+    }
+    return { valid: true, duration };
+  }
+  if (family === "kling30") {
+    if (duration < 3 || duration > 15) {
+      return { valid: false, message: "Kling 3.0 duration must be between 3 and 15 seconds." };
+    }
+    return { valid: true, duration };
+  }
+  if (family === "veo31") {
+    if (duration !== 8) {
+      return { valid: false, message: "Veo 3.1 currently supports only 8-second generations." };
+    }
+    return { valid: true, duration };
+  }
+  if (family === "wan22") {
+    if (duration !== 5) {
+      return { valid: false, message: "WAN 2.2 currently supports only 5-second generations." };
+    }
+    return { valid: true, duration };
+  }
+  if (family === "seedance2") {
+    if (mode === "edit") {
+      if (duration !== 5) {
+        return { valid: false, message: "Seedance edit currently supports only 5-second output." };
+      }
+      return { valid: true, duration };
+    }
+    if (mode === "remove-watermark") {
+      if (duration < 1 || duration > 600) {
+        return { valid: false, message: "Seedance watermark removal duration must be between 1 and 600 seconds." };
+      }
+      return { valid: true, duration };
+    }
+    if (![5, 10, 15].includes(duration)) {
+      return { valid: false, message: "Seedance duration must be 5, 10, or 15 seconds." };
+    }
+    return { valid: true, duration };
+  }
+  return { valid: true, duration };
+}
 
 function normalizeCreatorStudioVideoMode(family, mode) {
   const fam = String(family || "").toLowerCase();
@@ -4480,21 +4542,92 @@ export async function generateCreatorStudioVideo(req, res) {
     if (!CREATOR_STUDIO_VIDEO_FAMILIES.includes(lowerFamily)) {
       return res.status(400).json({ success: false, message: "Unsupported video family." });
     }
-    const normalizedMode = normalizeCreatorStudioVideoMode(lowerFamily, mode);
+    const requestedMode = String(mode || "").toLowerCase().trim();
+    const allowedModes = CREATOR_STUDIO_VIDEO_ALLOWED_MODES[lowerFamily] || [];
+    if (!allowedModes.includes(requestedMode)) {
+      return res.status(400).json({
+        success: false,
+        message: `Unsupported mode "${mode}" for ${lowerFamily}. Allowed: ${allowedModes.join(", ")}.`,
+      });
+    }
+    const normalizedMode = normalizeCreatorStudioVideoMode(lowerFamily, requestedMode);
+    const durationValidation = validateCreatorStudioVideoDuration(lowerFamily, normalizedMode, durationSeconds);
+    if (!durationValidation.valid) {
+      return res.status(400).json({ success: false, message: durationValidation.message });
+    }
+    const normalizedDurationSeconds = durationValidation.duration;
+
     if (!prompt?.trim() && !(lowerFamily === "seedance2" && normalizedMode === "remove-watermark")) {
       return res.status(400).json({ success: false, message: "A prompt is required." });
     }
-    if ((lowerFamily === "sora2" || lowerFamily === "kling26" || lowerFamily === "kling30" || lowerFamily === "seedance2") && normalizedMode === "i2v" && !imageUrl) {
+    const normalizedImageUrl = String(imageUrl || "").trim();
+    const normalizedReferenceImageUrl = String(referenceImageUrl || "").trim();
+    const normalizedEndFrameUrl = String(endFrameUrl || "").trim();
+    const normalizedThirdImageUrl = String(thirdImageUrl || "").trim();
+    const normalizedInputVideoUrl = String(inputVideoUrl || "").trim();
+
+    if (normalizedImageUrl) {
+      const imageCheck = validateImageUrl(normalizedImageUrl);
+      if (!imageCheck.valid) return res.status(400).json({ success: false, message: `imageUrl: ${imageCheck.message}` });
+    }
+    if (normalizedReferenceImageUrl) {
+      const imageCheck = validateImageUrl(normalizedReferenceImageUrl);
+      if (!imageCheck.valid) return res.status(400).json({ success: false, message: `referenceImageUrl: ${imageCheck.message}` });
+    }
+    if (normalizedEndFrameUrl) {
+      const imageCheck = validateImageUrl(normalizedEndFrameUrl);
+      if (!imageCheck.valid) return res.status(400).json({ success: false, message: `endFrameUrl: ${imageCheck.message}` });
+    }
+    if (normalizedThirdImageUrl) {
+      const imageCheck = validateImageUrl(normalizedThirdImageUrl);
+      if (!imageCheck.valid) return res.status(400).json({ success: false, message: `thirdImageUrl: ${imageCheck.message}` });
+    }
+    if (normalizedInputVideoUrl) {
+      const videoCheck = validateVideoUrl(normalizedInputVideoUrl);
+      if (!videoCheck.valid) return res.status(400).json({ success: false, message: `inputVideoUrl: ${videoCheck.message}` });
+    }
+
+    if ((lowerFamily === "sora2" || lowerFamily === "kling26" || lowerFamily === "kling30" || lowerFamily === "seedance2") && normalizedMode === "i2v" && !normalizedImageUrl) {
       return res.status(400).json({ success: false, message: "Image URL is required for image-to-video mode." });
     }
+    if (lowerFamily === "sora2") {
+      if (!["10", "15"].includes(String(nFrames || ""))) {
+        return res.status(400).json({ success: false, message: "Sora nFrames must be 10 or 15." });
+      }
+      if (!["standard", "high"].includes(String(size || "").toLowerCase())) {
+        return res.status(400).json({ success: false, message: "Sora size must be standard or high." });
+      }
+      if (!["portrait", "landscape"].includes(String(aspectRatio || "").toLowerCase())) {
+        return res.status(400).json({ success: false, message: "Sora aspect ratio must be portrait or landscape." });
+      }
+    }
+    if (lowerFamily === "kling26") {
+      if (normalizedMode === "t2v" && !["16:9", "9:16", "1:1"].includes(String(aspectRatio || ""))) {
+        return res.status(400).json({ success: false, message: "Kling 2.6 aspect ratio must be one of 16:9, 9:16, 1:1." });
+      }
+    }
+    if (lowerFamily === "kling30") {
+      if (!["std", "pro"].includes(String(kling30Quality || "").toLowerCase())) {
+        return res.status(400).json({ success: false, message: "Kling 3.0 quality must be std or pro." });
+      }
+      if (!["16:9", "9:16", "1:1"].includes(String(aspectRatio || ""))) {
+        return res.status(400).json({ success: false, message: "Kling 3.0 aspect ratio must be one of 16:9, 9:16, 1:1." });
+      }
+    }
     if (lowerFamily === "veo31") {
-      if (normalizedMode === "ref2v" && !referenceImageUrl && !imageUrl) {
+      if (!["fast", "quality"].includes(String(speed || "").toLowerCase())) {
+        return res.status(400).json({ success: false, message: "Veo speed must be fast or quality." });
+      }
+      if (!["Auto", "16:9", "9:16"].includes(String(aspectRatio || ""))) {
+        return res.status(400).json({ success: false, message: "Veo aspect ratio must be Auto, 16:9, or 9:16." });
+      }
+      if (normalizedMode === "ref2v" && !normalizedReferenceImageUrl && !normalizedImageUrl) {
         return res.status(400).json({ success: false, message: "Reference image is required for Veo reference mode." });
       }
       if (normalizedMode === "ref2v" && String(speed || "fast").toLowerCase() !== "fast") {
         return res.status(400).json({ success: false, message: "Veo REFERENCE_2_VIDEO currently supports only fast mode (veo3_fast)." });
       }
-      if (normalizedMode === "i2v" && !imageUrl) {
+      if (normalizedMode === "i2v" && !normalizedImageUrl) {
         return res.status(400).json({ success: false, message: "Start frame image is required for Veo i2v." });
       }
       if (normalizedMode === "extend" && !originalTaskId) {
@@ -4502,7 +4635,10 @@ export async function generateCreatorStudioVideo(req, res) {
       }
     }
     if (lowerFamily === "wan22") {
-      if (!inputVideoUrl || !imageUrl) {
+      if (!["480p", "580p", "720p"].includes(String(wanResolution || ""))) {
+        return res.status(400).json({ success: false, message: "WAN resolution must be 480p, 580p, or 720p." });
+      }
+      if (!normalizedInputVideoUrl || !normalizedImageUrl) {
         return res.status(400).json({ success: false, message: "WAN mode requires both input video and image." });
       }
     }
@@ -4510,14 +4646,17 @@ export async function generateCreatorStudioVideo(req, res) {
       if (!["seedance-2-preview", "seedance-2-fast-preview"].includes(String(seedanceTaskType))) {
         return res.status(400).json({ success: false, message: "Invalid Seedance task type." });
       }
-      if (normalizedMode === "edit" && !inputVideoUrl) {
+      if (normalizedMode === "edit" && !normalizedInputVideoUrl) {
         return res.status(400).json({ success: false, message: "Seedance video edit requires input video." });
       }
       if (normalizedMode === "extend" && !originalTaskId) {
         return res.status(400).json({ success: false, message: "Seedance extend requires original task id." });
       }
-      if (normalizedMode === "remove-watermark" && !inputVideoUrl) {
+      if (normalizedMode === "remove-watermark" && !normalizedInputVideoUrl) {
         return res.status(400).json({ success: false, message: "Seedance watermark remover requires input video URL." });
+      }
+      if (!["16:9", "9:16", "4:3", "3:4"].includes(String(aspectRatio || ""))) {
+        return res.status(400).json({ success: false, message: "Seedance aspect ratio must be one of 16:9, 9:16, 4:3, 3:4." });
       }
     }
 
@@ -4525,7 +4664,7 @@ export async function generateCreatorStudioVideo(req, res) {
     const creditsNeeded = estimateCreatorStudioVideoCredits(pricing, {
       family: lowerFamily,
       mode: normalizedMode,
-      durationSeconds,
+      durationSeconds: normalizedDurationSeconds,
       nFrames,
       size,
       speed,
@@ -4553,9 +4692,9 @@ export async function generateCreatorStudioVideo(req, res) {
         userId,
         type: "creator-studio-video",
         prompt: String(prompt || "").trim(),
-        duration: Number(durationSeconds) || null,
-        inputImageUrl: imageUrl || referenceImageUrl || null,
-        inputVideoUrl: inputVideoUrl || null,
+        duration: Number(normalizedDurationSeconds) || null,
+        inputImageUrl: normalizedImageUrl || normalizedReferenceImageUrl || null,
+        inputVideoUrl: normalizedInputVideoUrl || null,
         status: "processing",
         creditsCost: creditsNeeded,
         provider: lowerFamily === "seedance2" ? "piapi" : "kie",
@@ -4571,12 +4710,12 @@ export async function generateCreatorStudioVideo(req, res) {
         providerRequest: {
           family: lowerFamily,
           mode: normalizedMode,
-          imageUrl,
-          referenceImageUrl,
-          endFrameUrl,
-          thirdImageUrl,
-          inputVideoUrl,
-          durationSeconds,
+          imageUrl: normalizedImageUrl,
+          referenceImageUrl: normalizedReferenceImageUrl,
+          endFrameUrl: normalizedEndFrameUrl,
+          thirdImageUrl: normalizedThirdImageUrl,
+          inputVideoUrl: normalizedInputVideoUrl,
+          durationSeconds: normalizedDurationSeconds,
           nFrames,
           size,
           soraQuality,
@@ -4605,12 +4744,12 @@ export async function generateCreatorStudioVideo(req, res) {
       family: lowerFamily,
       mode: normalizedMode,
       prompt: String(prompt || "").trim(),
-      imageUrl,
-      referenceImageUrl,
-      endFrameUrl,
-      thirdImageUrl,
-      inputVideoUrl,
-      durationSeconds,
+      imageUrl: normalizedImageUrl,
+      referenceImageUrl: normalizedReferenceImageUrl,
+      endFrameUrl: normalizedEndFrameUrl,
+      thirdImageUrl: normalizedThirdImageUrl,
+      inputVideoUrl: normalizedInputVideoUrl,
+      durationSeconds: normalizedDurationSeconds,
       nFrames,
       size,
       soraQuality,

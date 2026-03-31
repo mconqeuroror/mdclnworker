@@ -2138,7 +2138,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                     {/* 2. Aspect Ratio */}
                     <div className="rounded-xl border border-white/10 p-3 col-span-1 md:col-span-2">
                       <label className="block text-xs text-slate-400 mb-2">Aspect Ratio</label>
-                      <ToggleGroup value={videoAspectRatio} onChange={setVideoAspectRatio} options={[{ value: "16:9", label: "16:9" }, { value: "9:16", label: "9:16" }, { value: "1:1", label: "1:1" }, { value: "4:3", label: "4:3" }, { value: "3:4", label: "3:4" }]} />
+                      <ToggleGroup value={videoAspectRatio} onChange={setVideoAspectRatio} options={[{ value: "16:9", label: "16:9" }, { value: "9:16", label: "9:16" }, { value: "1:1", label: "1:1" }]} />
                     </div>
 
                     {/* 3. Duration — single slider (only shown in single-shot mode) */}
