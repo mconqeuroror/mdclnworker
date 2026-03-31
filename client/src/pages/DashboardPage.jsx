@@ -59,6 +59,16 @@ import AppSidebar from "../components/AppSidebar";
 import { useBranding } from "../hooks/useBranding";
 
 const LOCALE_STORAGE_KEY = "app_locale";
+const getUserSpendMetric = (user) => {
+  const raw =
+    user?.spent ??
+    user?.totalSpent ??
+    user?.totalSpentCents ??
+    user?.totalCreditsUsed ??
+    0;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : 0;
+};
 
 const COPY = {
   en: {
@@ -67,8 +77,8 @@ const COPY = {
     toastProcessVerificationFailed: "Failed to process payment verification",
     toastLoggedOut: "Logged out successfully",
     mobileNavDashboard: "Dashboard",
-    mobileNavModels: "Models",
-    mobileNavGenerate: "Generate",
+    mobileNavModels: "My Avatars",
+    mobileNavGenerate: "Create with Avatar",
     mobileNavCreatorStudio: "Creator Studio",
     mobileNavVoiceStudio: "Voice Studio",
     mobileNavReformatter: "Reformatter",
@@ -128,15 +138,15 @@ const COPY = {
     statsImages: "Images",
     statsVideos: "Videos",
     statsThisMonth: "this month",
-    mainCreateModelTitle: "Create AI Model",
+    mainCreateModelTitle: "Create AI Avatar",
     mainCreateModelBody: "Set name, attributes & upload 3 photos",
-    mainUploadRealTitle: "Upload Real Model",
+    mainUploadRealTitle: "Clone a Real Avatar",
     mainUploadRealBody: "Upload photos of a real person",
     tutorialTitle: "Quick Tutorial",
     recentCreations: "Recent Creations",
     viewAll: "View All",
     quickActionsTitle: "Quick Actions",
-    quickCreateModelTitle: "Create a Model",
+    quickCreateModelTitle: "Create Avatar",
     quickCreateModelBody: "Upload 3 photos to train your model",
     quickGetStarted: "Get Started",
     quickStartEarningTitle: "Start Earning",
@@ -155,8 +165,8 @@ const COPY = {
     toastProcessVerificationFailed: "Не удалось обработать подтверждение платежа",
     toastLoggedOut: "Вы успешно вышли из системы",
     mobileNavDashboard: "Панель управления",
-    mobileNavModels: "Модели",
-    mobileNavGenerate: "Создать",
+    mobileNavModels: "Мои аватары",
+    mobileNavGenerate: "Создать с аватаром",
     mobileNavCreatorStudio: "Студия автора",
     mobileNavVoiceStudio: "Голосовая студия",
     mobileNavReformatter: "Рефоматер",
@@ -225,7 +235,7 @@ const COPY = {
     recentCreations: "Последние работы",
     viewAll: "Смотреть все",
     quickActionsTitle: "Быстрые действия",
-    quickCreateModelTitle: "Создать модель",
+    quickCreateModelTitle: "Создать аватар",
     quickCreateModelBody: "Загрузите 3 фото для обучения модели",
     quickGetStarted: "Начать",
     quickStartEarningTitle: "Начать зарабатывать",
@@ -280,6 +290,7 @@ export default function DashboardPage() {
   const branding = useBranding();
   const navigate = useNavigate();
   const canAccessPremiumTabs = hasPremiumAccess(user);
+  const hideRestrictedTabs = getUserSpendMetric(user) <= 0;
   const premiumTabs = ["course", "repurposer", "reelfinder", "voice-studio"];
 
   const [activeTab, setActiveTab] = useState("home");
@@ -359,6 +370,13 @@ export default function DashboardPage() {
     }
   }, [activeTab, canAccessPremiumTabs]);
 
+  useEffect(() => {
+    if (!hideRestrictedTabs) return;
+    if (activeTab === "nsfw" || activeTab === "course") {
+      setActiveTab("home");
+    }
+  }, [activeTab, hideRestrictedTabs]);
+
   const loadUserProfile = async () => {
     await refreshUserCredits();
     return useAuthStore.getState().user;
@@ -429,6 +447,10 @@ export default function DashboardPage() {
   };
 
   const handleTabChange = (tabId) => {
+    if (hideRestrictedTabs && (tabId === "nsfw" || tabId === "course")) {
+      setActiveTab("home");
+      return;
+    }
     if (premiumTabs.includes(tabId) && !canAccessPremiumTabs) {
       setShowPremiumGate(true);
       return;
@@ -450,8 +472,8 @@ export default function DashboardPage() {
     { id: 'reformatter', label: copy.mobileNavReformatter, icon: FileType2 },
     { id: 'history', label: copy.mobileNavHistory, icon: Clock },
     { id: 'settings', label: copy.mobileNavSettings, icon: SettingsIcon },
-    { id: 'course', label: copy.mobileNavCourses, icon: BookOpen, premium: true },
-    { id: 'nsfw', label: copy.mobileNavNsfw, icon: Flame },
+    ...(hideRestrictedTabs ? [] : [{ id: 'course', label: copy.mobileNavCourses, icon: BookOpen, premium: true }]),
+    ...(hideRestrictedTabs ? [] : [{ id: 'nsfw', label: copy.mobileNavNsfw, icon: Flame }]),
     { id: 'repurposer', label: copy.mobileNavPhotoVideoRepurposer, icon: Shuffle, premium: true },
     { id: 'reelfinder', label: copy.mobileNavReelFinder, icon: TrendingUp, premium: true },
   ];
@@ -464,6 +486,7 @@ export default function DashboardPage() {
           activeTab={activeTab}
           setActiveTab={handleTabChange}
           user={user}
+          hideRestrictedTabs={hideRestrictedTabs}
           onLogout={handleLogout}
           onOpenCredits={() => setShowAddCredits(true)}
           onOpenEarn={() => setShowEarnModal(true)}
@@ -715,19 +738,21 @@ export default function DashboardPage() {
         }}
         aria-label="Primary navigation"
       >
-        <button
-          type="button"
-          onClick={() => handleTabChange("nsfw")}
-          className={`flex flex-1 flex-col items-center justify-center gap-0.5 rounded-xl py-1.5 max-w-[5.5rem] transition-colors active:scale-[0.97] ${
-            activeTab === "nsfw" ? "text-rose-400" : "text-slate-500 hover:text-slate-300"
-          }`}
-          aria-label={copy.mobileNavNsfw}
-          aria-current={activeTab === "nsfw" ? "page" : undefined}
-          data-testid="mobile-tab-nsfw"
-        >
-          <Flame className={`w-6 h-6 ${activeTab === "nsfw" ? "drop-shadow-[0_0_10px_rgba(251,113,133,0.45)]" : ""}`} />
-          <span className="text-[10px] font-semibold tracking-wide">{copy.mobileNavNsfw}</span>
-        </button>
+        {!hideRestrictedTabs && (
+          <button
+            type="button"
+            onClick={() => handleTabChange("nsfw")}
+            className={`flex flex-1 flex-col items-center justify-center gap-0.5 rounded-xl py-1.5 max-w-[5.5rem] transition-colors active:scale-[0.97] ${
+              activeTab === "nsfw" ? "text-rose-400" : "text-slate-500 hover:text-slate-300"
+            }`}
+            aria-label={copy.mobileNavNsfw}
+            aria-current={activeTab === "nsfw" ? "page" : undefined}
+            data-testid="mobile-tab-nsfw"
+          >
+            <Flame className={`w-6 h-6 ${activeTab === "nsfw" ? "drop-shadow-[0_0_10px_rgba(251,113,133,0.45)]" : ""}`} />
+            <span className="text-[10px] font-semibold tracking-wide">{copy.mobileNavNsfw}</span>
+          </button>
+        )}
 
         <button
           type="button"
@@ -773,8 +798,8 @@ export default function DashboardPage() {
         {activeTab === "reformatter" && <ContentReformatterPage />}
           {activeTab === "history" && <HistoryPage />}
           {activeTab === "settings" && <SettingsPage />}
-          {activeTab === "nsfw" && <NSFWPage embedded sidebarCollapsed={sidebarNarrow} setDashboardTab={(tab, videoId) => { setActiveTab(tab); if (videoId) setCourseVideoId(videoId); }} />}
-          {activeTab === "course" && <CoursePage setActiveTab={setActiveTab} onOpenCredits={() => setShowAddCredits(true)} initialVideoId={courseVideoId} onVideoIdConsumed={() => setCourseVideoId(null)} />}
+          {!hideRestrictedTabs && activeTab === "nsfw" && <NSFWPage embedded sidebarCollapsed={sidebarNarrow} setDashboardTab={(tab, videoId) => { setActiveTab(tab); if (videoId) setCourseVideoId(videoId); }} />}
+          {!hideRestrictedTabs && activeTab === "course" && <CoursePage setActiveTab={setActiveTab} onOpenCredits={() => setShowAddCredits(true)} initialVideoId={courseVideoId} onVideoIdConsumed={() => setCourseVideoId(null)} />}
           {activeTab === "jobs" && <JobBoardPage />}
           {activeTab === "repurposer" && <VideoRepurposerPage embedded />}
           {activeTab === "reelfinder" && <ViralReelFinderPage embedded sidebarCollapsed={sidebarNarrow} onUpgrade={() => setActiveTab("settings")} />}
@@ -1281,6 +1306,51 @@ function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, 
             <p className="text-[9px] text-slate-500 mt-0.5 uppercase tracking-wide">{copy.statsThisMonth}</p>
           </div>
         </div>
+      </div>
+
+      {/* Content Creation Buttons */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+        <button
+          onClick={() => { setActiveTab("creator-studio"); }}
+          className="group relative rounded-xl p-5 text-left transition-all hover:scale-[1.02] overflow-hidden"
+          style={{
+            background: 'rgba(255,255,255,0.05)',
+            border: '1px solid rgba(255,255,255,0.12)',
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)',
+          }}
+        >
+          <div className="absolute top-0 right-0 w-32 h-32 pointer-events-none rounded-xl" style={{ background: 'radial-gradient(circle at 100% 0%, rgba(255,255,255,0.06) 0%, transparent 70%)' }} />
+          <div className="relative flex items-center gap-4">
+            <div className="flex-1">
+              <h3 className="text-lg font-bold text-white mb-1">Create Content</h3>
+              <p className="text-slate-400 text-sm">Use our creator studio to create cinema grade content.</p>
+            </div>
+            <div className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 border border-white/20">
+              <Wand2 className="w-6 h-6 text-white" />
+            </div>
+          </div>
+        </button>
+
+        <button
+          onClick={() => { setActiveTab("generate"); }}
+          className="group relative rounded-xl p-5 text-left transition-all hover:scale-[1.02] overflow-hidden"
+          style={{
+            background: 'rgba(255,255,255,0.05)',
+            border: '1px solid rgba(255,255,255,0.12)',
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)',
+          }}
+        >
+          <div className="absolute top-0 right-0 w-32 h-32 pointer-events-none rounded-xl" style={{ background: 'radial-gradient(circle at 100% 0%, rgba(255,255,255,0.06) 0%, transparent 70%)' }} />
+          <div className="relative flex items-center gap-4">
+            <div className="flex-1">
+              <h3 className="text-lg font-bold text-white mb-1">Create Content with Avatar</h3>
+              <p className="text-slate-400 text-sm">Create personalised content with your AI avatar.</p>
+            </div>
+            <div className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 border border-white/20">
+              <User className="w-6 h-6 text-white" />
+            </div>
+          </div>
+        </button>
       </div>
 
       {/* Main Action Buttons */}

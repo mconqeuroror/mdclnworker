@@ -35,11 +35,21 @@ import { hasPremiumAccess } from "../utils/premiumAccess";
 
 const LOCALE_STORAGE_KEY = "app_locale";
 const SUPPORTED_LOCALES = ["en", "ru"];
+const getUserSpendMetric = (user) => {
+  const raw =
+    user?.spent ??
+    user?.totalSpent ??
+    user?.totalSpentCents ??
+    user?.totalCreditsUsed ??
+    0;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : 0;
+};
 const SIDEBAR_COPY = {
   en: {
     dashboard: "Dashboard",
-    myModels: "My Models",
-    generate: "Generate",
+    myModels: "My Avatars",
+    generate: "Create with Avatar",
     creatorStudio: "Creator Studio",
     voiceStudio: "Voice Studio",
     reformatter: "Reformatter",
@@ -65,8 +75,8 @@ const SIDEBAR_COPY = {
   },
   ru: {
     dashboard: "Панель",
-    myModels: "Мои модели",
-    generate: "Создать",
+    myModels: "Мои аватары",
+    generate: "Создать с аватаром",
     creatorStudio: "Студия автора",
     voiceStudio: "Голосовая студия",
     reformatter: "Конвертер",
@@ -110,6 +120,7 @@ export default function AppSidebar({
   activeTab,
   setActiveTab,
   user,
+  hideRestrictedTabs: hideRestrictedTabsProp,
   onLogout,
   onOpenCredits,
   onOpenEarn,
@@ -122,6 +133,10 @@ export default function AppSidebar({
   const location = useLocation();
   const branding = useBranding();
   const canAccessPremium = hasPremiumAccess(user);
+  const hideRestrictedTabs =
+    typeof hideRestrictedTabsProp === "boolean"
+      ? hideRestrictedTabsProp
+      : getUserSpendMetric(user) <= 0;
   const [localCollapsed, setLocalCollapsed] = useState(true);
   const collapsed = typeof collapsedProp === "boolean" ? collapsedProp : localCollapsed;
   const setCollapsed = setCollapsedProp || setLocalCollapsed;
@@ -182,6 +197,10 @@ export default function AppSidebar({
     { id: "repurposer", label: copy.repurposer, icon: Shuffle, premium: true },
     { id: "reelfinder", label: copy.reelFinder, icon: SiInstagram, premium: true },
   ];
+  const visibleMainNavItems = mainNavItems.filter((item) => {
+    if (!hideRestrictedTabs) return true;
+    return item.id !== "nsfw" && item.id !== "course";
+  });
 
   const promoItems = [
     {
@@ -407,7 +426,7 @@ export default function AppSidebar({
         </AnimatePresence>
 
         <div className="space-y-1">
-          {mainNavItems.map((item) => (
+          {visibleMainNavItems.map((item) => (
             <button
               key={item.id}
               onClick={() => {
