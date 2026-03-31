@@ -4997,7 +4997,7 @@ function startNsfwPoller() {
   nsfwPollerInterval = setInterval(pollProcessingNsfwGenerations, 30000);
 }
 
-async function recoverStuckNsfwGenerations({ startContinuous = true } = {}) {
+export async function recoverStuckNsfwGenerations({ startContinuous = true } = {}) {
   await pollProcessingNsfwGenerations();
   if (startContinuous) {
     startNsfwPoller();
