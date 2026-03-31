@@ -67,7 +67,7 @@ import {
 } from "../services/video-generation-pricing.js";
 
 const IDENTITY_RECREATE_PROMPT_KEEP_MODEL_CLOTHES =
-  "Figure 1 is the source photo. Figure 2 is the replacement person (full body). " +
+  "Figure 1 is the first input image (source photo). Figure 2 is the second input image (replacement person, full body). " +
   "Replace the person in figure 1 entirely with the person from figure 2. " +
   "Match the exact body pose and position from figure 1. " +
   "Keep all clothes, accessories, face, hair, hands, skin and full identity from figure 2. " +
@@ -75,7 +75,7 @@ const IDENTITY_RECREATE_PROMPT_KEEP_MODEL_CLOTHES =
   "Do not blend identities; output a single consistent person from figure 2. " +
   "Keep background and lighting from figure 1. Do not retain any part of the original person from figure 1.";
 const IDENTITY_RECREATE_PROMPT_KEEP_SOURCE_CLOTHES =
-  "Figure 1 is the source photo. Figure 2 is the replacement person (full body). " +
+  "Figure 1 is the first input image (source photo). Figure 2 is the second input image (replacement person, full body). " +
   "Replace the person in figure 1 with the person from figure 2, keeping the exact pose and position from figure 1. " +
   "Keep all clothing and accessories from figure 1 exactly as they appear. " +
   "All exposed skin must belong to the person in figure 2 — including face, neck, hands, arms, legs and any other visible body parts. " +
@@ -390,9 +390,10 @@ export async function generateImageWithIdentity(req, res) {
             console.log(`Queue: ${queueStats.active}/${queueStats.maxConcurrent} active, ${queueStats.queued} queued`);
 
             const result = await requestQueue.enqueue(async () => {
-              // Figure mapping: identity source is figure 2 (model photo #3),
-              // composition/pose source is figure 1 (user uploaded edit photo).
-              return await generateImageWithIdentityWaveSpeed([kieFigure2], kieFigure1, {
+              // Figure mapping in provider input order:
+              // image 1 / figure 1 = user uploaded edit photo (pose/background source)
+              // image 2 / figure 2 = model photo #3 (identity source)
+              return await generateImageWithIdentityWaveSpeed([kieFigure1], kieFigure2, {
                 size,
                 customImagePrompt: customPrompt,
                 onTaskCreated: async (taskId) => {
