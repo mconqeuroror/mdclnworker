@@ -76,6 +76,12 @@ function formatMb(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(bytes % (1024 * 1024) === 0 ? 0 : 1)}MB`;
 }
 
+function isGenericOctetStream(contentType) {
+  if (!contentType) return false;
+  const ct = String(contentType).toLowerCase();
+  return ct === "application/octet-stream" || ct === "binary/octet-stream";
+}
+
 async function inspectRemoteFile(url) {
   // Some storage backends are slow to respond to HEAD.
   // Retry + increase timeouts to avoid aborting validation during KIE submissions.
@@ -166,7 +172,7 @@ async function validateRemoteMedia(url, rules) {
     meta.contentType &&
     allowedMimeTypes &&
     !allowedMimeTypes.has(meta.contentType) &&
-    !meta.contentType.startsWith("application/octet-stream")
+    !isGenericOctetStream(meta.contentType)
   ) {
     return {
       valid: false,
@@ -346,7 +352,7 @@ export async function validateContentType(url, type = "image") {
   try {
     const response = await fetch(url, { method: "HEAD", signal: AbortSignal.timeout(5000) });
     const contentType = (response.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
-    if (contentType && !supported.has(contentType) && !contentType.startsWith("application/octet-stream")) {
+    if (contentType && !supported.has(contentType) && !isGenericOctetStream(contentType)) {
       return {
         valid: false,
         message: `Unsupported ${type} format (${contentType}). Please upload a ${friendlyList} file.`,
