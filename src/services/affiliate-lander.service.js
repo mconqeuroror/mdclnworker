@@ -2,7 +2,7 @@ import { randomUUID } from "crypto";
 import prisma from "../lib/prisma.js";
 import { getAppBranding } from "./branding.service.js";
 
-const BLOCK_TYPES = new Set(["heading", "subheading", "video", "button"]);
+const BLOCK_TYPES = new Set(["heading", "subheading", "video", "button", "spacer"]);
 const MAX_BLOCKS = 32;
 const SUFFIX_RE = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
 
@@ -74,14 +74,26 @@ function newBlockId() {
   return `blk_${randomUUID().replace(/-/g, "")}`;
 }
 
+function sanitizeAlign(raw) {
+  const a = String(raw || "left").toLowerCase();
+  if (a === "center" || a === "right") return a;
+  return "left";
+}
+
+function clampSpacerHeight(raw) {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return 32;
+  return Math.max(0, Math.min(600, Math.round(n)));
+}
+
 export function defaultAffiliateLanderConfig(suffix, baseUrl) {
   const root = `${String(baseUrl || "https://modelclone.app").replace(/\/$/, "")}/aff/${suffix}`;
   return {
     blocks: [
-      { id: newBlockId(), type: "heading", text: "Your headline" },
-      { id: newBlockId(), type: "subheading", text: "Supporting line goes here." },
-      { id: newBlockId(), type: "video", videoUrl: "", posterUrl: "" },
-      { id: newBlockId(), type: "button", label: "Get started", href: "/signup" },
+      { id: newBlockId(), type: "heading", text: "Your headline", align: "left" },
+      { id: newBlockId(), type: "subheading", text: "Supporting line goes here.", align: "left" },
+      { id: newBlockId(), type: "video", videoUrl: "", posterUrl: "", align: "left" },
+      { id: newBlockId(), type: "button", label: "Get started", href: "/signup", align: "left" },
     ],
     spatialOverrides: {},
     styleOverrides: {},
@@ -124,10 +136,10 @@ function sanitizeBlock(raw, usedIds) {
   const type = sanitizeString(raw.type, 24).toLowerCase();
   if (!BLOCK_TYPES.has(type)) return null;
   if (type === "heading") {
-    return { id, type, text: sanitizeString(raw.text, 600) };
+    return { id, type, text: sanitizeString(raw.text, 600), align: sanitizeAlign(raw.align) };
   }
   if (type === "subheading") {
-    return { id, type, text: sanitizeString(raw.text, 4000) };
+    return { id, type, text: sanitizeString(raw.text, 4000), align: sanitizeAlign(raw.align) };
   }
   if (type === "video") {
     return {
@@ -135,6 +147,7 @@ function sanitizeBlock(raw, usedIds) {
       type,
       videoUrl: sanitizeUrl(raw.videoUrl),
       posterUrl: sanitizeUrl(raw.posterUrl),
+      align: sanitizeAlign(raw.align),
     };
   }
   if (type === "button") {
@@ -143,7 +156,11 @@ function sanitizeBlock(raw, usedIds) {
       type,
       label: sanitizeString(raw.label, 200),
       href: sanitizeUrl(raw.href) || "/signup",
+      align: sanitizeAlign(raw.align),
     };
+  }
+  if (type === "spacer") {
+    return { id, type, heightPx: clampSpacerHeight(raw.heightPx) };
   }
   return null;
 }

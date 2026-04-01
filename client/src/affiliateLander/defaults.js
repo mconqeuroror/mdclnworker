@@ -43,13 +43,21 @@ export const AFFILIATE_BLOCK_TYPES = [
   { type: "subheading", label: "Subheading" },
   { type: "video", label: "Video" },
   { type: "button", label: "Button" },
+  { type: "spacer", label: "Spacer" },
 ];
 
 export function emptyBlock(type) {
   const id = newAffiliateBlockId();
-  if (type === "heading") return { id, type, text: "New heading" };
-  if (type === "subheading") return { id, type, text: "New subheading" };
-  if (type === "video") return { id, type, videoUrl: "", posterUrl: "" };
-  if (type === "button") return { id, type, label: "Button", href: "/signup" };
-  return { id, type: "heading", text: "" };
+  if (type === "heading") return { id, type, text: "New heading", align: "left" };
+  if (type === "subheading") return { id, type, text: "New subheading", align: "left" };
+  if (type === "video") return { id, type, videoUrl: "", posterUrl: "", align: "left" };
+  if (type === "button") return { id, type, label: "Button", href: "/signup", align: "left" };
+  if (type === "spacer") return { id, type, heightPx: 32 };
+  return { id, type: "heading", text: "", align: "left" };
+}
+
+export function blockAlignOrDefault(block) {
+  const a = block?.align;
+  if (a === "center" || a === "right") return a;
+  return "left";
 }

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { affiliateLanderAdminAPI, uploadFile } from "../services/api";
-import { AFFILIATE_LANDER_DEFAULTS, AFFILIATE_BLOCK_TYPES, emptyBlock } from "../affiliateLander/defaults";
+import { AFFILIATE_LANDER_DEFAULTS, AFFILIATE_BLOCK_TYPES, emptyBlock, blockAlignOrDefault } from "../affiliateLander/defaults";
 import { deepMerge, getByPath, setByPath } from "../landerNew/utils";
 import {
   mergeSpatialPatch,
@@ -175,7 +175,27 @@ function blockLabel(b) {
   if (b.type === "subheading") return `Subheading — ${(b.text || "").slice(0, 28) || "…"}`;
   if (b.type === "video") return b.videoUrl ? "Video" : "Video (placeholder)";
   if (b.type === "button") return `Button — ${b.label || "…"}`;
+  if (b.type === "spacer") return `Spacer — ${Number(b.heightPx) || 0}px`;
   return b.type;
+}
+
+function AlignmentField({ block, updateBlock }) {
+  if (block.type === "spacer") return null;
+  const v = blockAlignOrDefault(block);
+  return (
+    <label className="block">
+      <span className="text-[0.65rem] text-gray-400">Alignment</span>
+      <select
+        className="ale-input mt-0.5 text-xs"
+        value={v}
+        onChange={(e) => updateBlock(block.id, { align: e.target.value })}
+      >
+        <option value="left">Left</option>
+        <option value="center">Center</option>
+        <option value="right">Right</option>
+      </select>
+    </label>
+  );
 }
 
 export default function AdminAffiliateLanderEditorPage() {
@@ -618,28 +638,35 @@ export default function AdminAffiliateLanderEditorPage() {
             {openBlockId === b.id && (
               <div className="px-3 pb-3 space-y-2 border-t border-white/6 pt-2">
                 {b.type === "heading" && (
-                  <label className="block">
-                    <span className="text-[0.65rem] text-gray-400">Heading text</span>
-                    <input
-                      className="ale-input mt-0.5"
-                      value={b.text || ""}
-                      onChange={(e) => updateBlock(b.id, { text: e.target.value })}
-                    />
-                  </label>
+                  <>
+                    <AlignmentField block={b} updateBlock={updateBlock} />
+                    <label className="block">
+                      <span className="text-[0.65rem] text-gray-400">Heading text</span>
+                      <input
+                        className="ale-input mt-0.5"
+                        value={b.text || ""}
+                        onChange={(e) => updateBlock(b.id, { text: e.target.value })}
+                      />
+                    </label>
+                  </>
                 )}
                 {b.type === "subheading" && (
-                  <label className="block">
-                    <span className="text-[0.65rem] text-gray-400">Subheading</span>
-                    <textarea
-                      rows={3}
-                      className="ale-input ale-textarea mt-0.5"
-                      value={b.text || ""}
-                      onChange={(e) => updateBlock(b.id, { text: e.target.value })}
-                    />
-                  </label>
+                  <>
+                    <AlignmentField block={b} updateBlock={updateBlock} />
+                    <label className="block">
+                      <span className="text-[0.65rem] text-gray-400">Subheading</span>
+                      <textarea
+                        rows={3}
+                        className="ale-input ale-textarea mt-0.5"
+                        value={b.text || ""}
+                        onChange={(e) => updateBlock(b.id, { text: e.target.value })}
+                      />
+                    </label>
+                  </>
                 )}
                 {b.type === "video" && (
                   <>
+                    <AlignmentField block={b} updateBlock={updateBlock} />
                     <label className="block">
                       <span className="text-[0.65rem] text-gray-400">Video URL</span>
                       <div className="ale-url-row mt-0.5">
@@ -699,6 +726,7 @@ export default function AdminAffiliateLanderEditorPage() {
                 )}
                 {b.type === "button" && (
                   <>
+                    <AlignmentField block={b} updateBlock={updateBlock} />
                     <label className="block">
                       <span className="text-[0.65rem] text-gray-400">Label</span>
                       <input
@@ -717,6 +745,22 @@ export default function AdminAffiliateLanderEditorPage() {
                       />
                     </label>
                   </>
+                )}
+                {b.type === "spacer" && (
+                  <label className="block">
+                    <span className="text-[0.65rem] text-gray-400">Height (px, max 600)</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={600}
+                      className="ale-input mt-0.5"
+                      value={Number(b.heightPx) || 0}
+                      onChange={(e) => {
+                        const n = Math.max(0, Math.min(600, Math.round(Number(e.target.value) || 0)));
+                        updateBlock(b.id, { heightPx: n });
+                      }}
+                    />
+                  </label>
                 )}
               </div>
             )}
