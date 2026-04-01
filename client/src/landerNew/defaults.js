@@ -91,11 +91,11 @@ export const LANDER_NEW_DEFAULTS = {
       heading: "Top Choice",
       subtitle: "High-utility tools used in daily production",
       items: [
-        { id: "nano-banana",    title: "Nano Banana Pro",    description: "Flagship 4K image generation pipeline",        imageUrl: "" },
-        { id: "motion-control", title: "Motion Control",     description: "Expression and movement control up to 30s",    imageUrl: "" },
-        { id: "pro-skin",       title: "Pro Skin Enhancer",  description: "Natural skin detail with preserved texture",   imageUrl: "" },
-        { id: "shots",          title: "Shots",              description: "Generate nine usable angles from one frame",   imageUrl: "" },
-        { id: "pro-angles",     title: "Pro Angles 2.0",     description: "Fast viewpoint synthesis for coverage",        imageUrl: "" },
+        { id: "nano-banana",    title: "Nano Banana Pro",    description: "Flagship 4K image generation pipeline",        mediaType: "video", mediaUrl: "", imageUrl: "" },
+        { id: "motion-control", title: "Motion Control",     description: "Expression and movement control up to 30s",    mediaType: "video", mediaUrl: "", imageUrl: "" },
+        { id: "pro-skin",       title: "Pro Skin Enhancer",  description: "Natural skin detail with preserved texture",   mediaType: "video", mediaUrl: "", imageUrl: "" },
+        { id: "shots",          title: "Shots",              description: "Generate nine usable angles from one frame",   mediaType: "video", mediaUrl: "", imageUrl: "" },
+        { id: "pro-angles",     title: "Pro Angles 2.0",     description: "Fast viewpoint synthesis for coverage",        mediaType: "video", mediaUrl: "", imageUrl: "" },
       ],
     },
 

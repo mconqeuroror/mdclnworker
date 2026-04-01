@@ -1,14 +1,26 @@
-function ChoicePreview({ mediaType = "video", title, imageUrl }) {
-  if (imageUrl) {
+function ChoicePreview({ mediaType = "video", title, mediaUrl }) {
+  const resolvedType = mediaType === "image" ? "image" : "video";
+  if (mediaUrl) {
     return (
-      <div className={`choice-preview ${mediaType} has-media`}>
-        <img src={imageUrl} alt={title} className="choice-preview-media" />
+      <div className={`choice-preview ${resolvedType} has-media`}>
+        {resolvedType === "video" ? (
+          <video
+            src={mediaUrl}
+            className="choice-preview-media"
+            autoPlay
+            muted
+            loop
+            playsInline
+          />
+        ) : (
+          <img src={mediaUrl} alt={title} className="choice-preview-media" />
+        )}
         <div className="choice-preview-noise" />
       </div>
     );
   }
   return (
-    <div className={`choice-preview ${mediaType}`}>
+    <div className={`choice-preview ${resolvedType}`}>
       <div className="choice-preview-glow" />
       <div className="choice-preview-noise" />
     </div>
@@ -36,9 +48,9 @@ export function TopChoiceSection({ data }) {
               {...(idx < origLen ? { "data-dp-target-id": `topChoice.item.${idx}` } : {})}
             >
               <ChoicePreview
-                mediaType={item.mediaType ?? "video"}
+                mediaType={item.mediaType || "video"}
                 title={item.title}
-                imageUrl={item.imageUrl || ""}
+                mediaUrl={item.mediaUrl || item.imageUrl || ""}
               />
               <h3>{item.title}</h3>
               <p className="muted" style={{ fontSize: "0.82rem" }}>{item.description}</p>

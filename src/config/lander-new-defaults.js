@@ -66,9 +66,9 @@ export const LANDER_NEW_DEFAULTS = {
     topChoice: {
       heading: "Top Choice",
       items: [
-        { id: "nano-banana", title: "Nano Banana Pro", description: "Flagship 4K image generation pipeline" },
-        { id: "motion-control", title: "Motion Control", description: "Expression and movement control up to 30s" },
-        { id: "shots", title: "Shots", description: "Generate nine usable angles from one frame" },
+        { id: "nano-banana", title: "Nano Banana Pro", description: "Flagship 4K image generation pipeline", mediaType: "video", mediaUrl: "", imageUrl: "" },
+        { id: "motion-control", title: "Motion Control", description: "Expression and movement control up to 30s", mediaType: "video", mediaUrl: "", imageUrl: "" },
+        { id: "shots", title: "Shots", description: "Generate nine usable angles from one frame", mediaType: "video", mediaUrl: "", imageUrl: "" },
       ],
     },
     partners: {

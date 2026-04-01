@@ -141,6 +141,15 @@ function sanitizeConfig(input) {
     name: sanitizeString(item?.name, 80),
     logoUrl: sanitizeUrl(item?.logoUrl),
   }));
+  merged.sections.topChoice.items = (merged.sections.topChoice.items || []).map((item) => ({
+    ...item,
+    title: sanitizeString(item?.title, 120),
+    description: sanitizeString(item?.description, 240),
+    mediaType: String(item?.mediaType || "").toLowerCase() === "image" ? "image" : "video",
+    mediaUrl: sanitizeUrl(item?.mediaUrl || item?.imageUrl),
+    // Keep legacy key populated so older renderers keep working.
+    imageUrl: sanitizeUrl(item?.imageUrl || item?.mediaUrl),
+  }));
   const spacers = merged?.layout?.spacers || {};
   merged.layout = {
     ...(merged.layout || {}),

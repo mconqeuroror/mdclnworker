@@ -107,7 +107,9 @@ function mapToStandaloneConfig(config) {
       items: (topChoice.items?.length ? topChoice.items : STANDALONE_LANDING_CONFIG.topChoice.items)
         .map((item, idx) => ({
           ...item,
-          // imageUrl from admin config overlays standalone default
+          mediaType: item.mediaType || STANDALONE_LANDING_CONFIG.topChoice.items?.[idx]?.mediaType || "video",
+          // Preserve legacy imageUrl support while using the new mediaUrl field.
+          mediaUrl: item.mediaUrl || item.imageUrl || STANDALONE_LANDING_CONFIG.topChoice.items?.[idx]?.mediaUrl || "",
           imageUrl: item.imageUrl || "",
         })),
     },
