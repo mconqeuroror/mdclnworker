@@ -1,5 +1,19 @@
+function inferPreviewType(mediaType, mediaUrl) {
+  const explicit = String(mediaType || "").toLowerCase().trim();
+  const lowerUrl = String(mediaUrl || "").toLowerCase();
+  const looksLikeImage = /\.(png|jpe?g|webp|gif|avif|svg)(\?|#|$)/.test(lowerUrl);
+  const looksLikeVideo = /\.(mp4|webm|mov|m4v|ogv)(\?|#|$)/.test(lowerUrl);
+
+  // Backward compatibility: older configs often kept mediaType as "video"
+  // while providing only image URLs through imageUrl/mediaUrl.
+  if (looksLikeImage) return "image";
+  if (looksLikeVideo) return "video";
+  if (explicit === "image" || explicit === "video") return explicit;
+  return "video";
+}
+
 function ChoicePreview({ mediaType = "video", title, mediaUrl }) {
-  const resolvedType = mediaType === "image" ? "image" : "video";
+  const resolvedType = inferPreviewType(mediaType, mediaUrl);
   if (mediaUrl) {
     return (
       <div className={`choice-preview ${resolvedType} has-media`}>
