@@ -146,9 +146,9 @@ function sanitizeConfig(input) {
     title: sanitizeString(item?.title, 120),
     description: sanitizeString(item?.description, 240),
     mediaType: String(item?.mediaType || "").toLowerCase() === "image" ? "image" : "video",
-    imageUrl: sanitizeUrl(item?.imageUrl || item?.mediaUrl || ""),
-    videoUrl: sanitizeUrl(item?.videoUrl || item?.mediaUrl || ""),
-    mediaUrl: sanitizeUrl(item?.mediaUrl || item?.videoUrl || item?.imageUrl),
+    imageUrl: sanitizeUrl(item?.imageUrl || ""),
+    videoUrl: sanitizeUrl(item?.videoUrl || ""),
+    mediaUrl: sanitizeUrl(item?.mediaUrl || item?.videoUrl || item?.imageUrl || ""),
   }));
   const spacers = merged?.layout?.spacers || {};
   merged.layout = {

@@ -12,16 +12,13 @@ function inferPreviewType(mediaType, mediaUrl) {
   return "video";
 }
 
-function resolvePreviewUrl(item, resolvedType) {
-  if (resolvedType === "image") {
-    return item.imageUrl || item.mediaUrl || item.videoUrl || "";
-  }
-  return item.videoUrl || item.mediaUrl || item.imageUrl || "";
+function resolvePreviewUrl(item) {
+  return item.mediaUrl || item.videoUrl || item.imageUrl || "";
 }
 
 function ChoicePreview({ item }) {
-  const resolvedType = inferPreviewType(item.mediaType, item.videoUrl || item.imageUrl || item.mediaUrl || "");
-  const previewUrl = resolvePreviewUrl(item, resolvedType);
+  const previewUrl = resolvePreviewUrl(item);
+  const resolvedType = inferPreviewType(item.mediaType, previewUrl);
   if (previewUrl) {
     return (
       <div className={`choice-preview ${resolvedType} has-media`}>

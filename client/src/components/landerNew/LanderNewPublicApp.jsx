@@ -116,15 +116,19 @@ function mapToStandaloneConfig(config) {
       items: (topChoice.items?.length ? topChoice.items : STANDALONE_LANDING_CONFIG.topChoice.items)
         .map((item, idx) => ({
           ...item,
-          imageUrl: item.imageUrl || STANDALONE_LANDING_CONFIG.topChoice.items?.[idx]?.imageUrl || "",
-          videoUrl: item.videoUrl || STANDALONE_LANDING_CONFIG.topChoice.items?.[idx]?.videoUrl || "",
-          // Preserve legacy mediaUrl support
-          mediaUrl: item.mediaUrl || STANDALONE_LANDING_CONFIG.topChoice.items?.[idx]?.mediaUrl || "",
+          mediaUrl:
+            item.mediaUrl
+            || item.videoUrl
+            || item.imageUrl
+            || STANDALONE_LANDING_CONFIG.topChoice.items?.[idx]?.mediaUrl
+            || STANDALONE_LANDING_CONFIG.topChoice.items?.[idx]?.videoUrl
+            || STANDALONE_LANDING_CONFIG.topChoice.items?.[idx]?.imageUrl
+            || "",
           mediaType: inferTopChoiceMediaType(
             item.mediaType || STANDALONE_LANDING_CONFIG.topChoice.items?.[idx]?.mediaType,
-            item.videoUrl
+            item.mediaUrl
+              || item.videoUrl
               || item.imageUrl
-              || item.mediaUrl
               || STANDALONE_LANDING_CONFIG.topChoice.items?.[idx]?.videoUrl
               || STANDALONE_LANDING_CONFIG.topChoice.items?.[idx]?.imageUrl
               || STANDALONE_LANDING_CONFIG.topChoice.items?.[idx]?.mediaUrl
