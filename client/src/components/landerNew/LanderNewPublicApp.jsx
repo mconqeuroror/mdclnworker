@@ -40,6 +40,15 @@ function mergeCards(adminCards, standaloneCards) {
   });
 }
 
+function inferTopChoiceMediaType(mediaType, mediaUrl) {
+  const explicit = String(mediaType || "").toLowerCase().trim();
+  if (explicit === "image" || explicit === "video") return explicit;
+  const lowerUrl = String(mediaUrl || "").toLowerCase();
+  if (/\.(png|jpe?g|webp|gif|avif|svg)(\?|#|$)/.test(lowerUrl)) return "image";
+  if (/\.(mp4|webm|mov|m4v)(\?|#|$)/.test(lowerUrl)) return "video";
+  return "video";
+}
+
 function mapToStandaloneConfig(config) {
   const hero        = config?.sections?.hero        || {};
   const createToday = config?.sections?.createToday || {};
@@ -107,10 +116,20 @@ function mapToStandaloneConfig(config) {
       items: (topChoice.items?.length ? topChoice.items : STANDALONE_LANDING_CONFIG.topChoice.items)
         .map((item, idx) => ({
           ...item,
-          mediaType: item.mediaType || STANDALONE_LANDING_CONFIG.topChoice.items?.[idx]?.mediaType || "video",
-          // Preserve legacy imageUrl support while using the new mediaUrl field.
-          mediaUrl: item.mediaUrl || item.imageUrl || STANDALONE_LANDING_CONFIG.topChoice.items?.[idx]?.mediaUrl || "",
-          imageUrl: item.imageUrl || "",
+          imageUrl: item.imageUrl || STANDALONE_LANDING_CONFIG.topChoice.items?.[idx]?.imageUrl || "",
+          videoUrl: item.videoUrl || STANDALONE_LANDING_CONFIG.topChoice.items?.[idx]?.videoUrl || "",
+          // Preserve legacy mediaUrl support
+          mediaUrl: item.mediaUrl || STANDALONE_LANDING_CONFIG.topChoice.items?.[idx]?.mediaUrl || "",
+          mediaType: inferTopChoiceMediaType(
+            item.mediaType || STANDALONE_LANDING_CONFIG.topChoice.items?.[idx]?.mediaType,
+            item.videoUrl
+              || item.imageUrl
+              || item.mediaUrl
+              || STANDALONE_LANDING_CONFIG.topChoice.items?.[idx]?.videoUrl
+              || STANDALONE_LANDING_CONFIG.topChoice.items?.[idx]?.imageUrl
+              || STANDALONE_LANDING_CONFIG.topChoice.items?.[idx]?.mediaUrl
+              || "",
+          ),
         })),
     },
 

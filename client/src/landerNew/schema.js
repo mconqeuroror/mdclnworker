@@ -104,7 +104,8 @@ export const LANDER_EDITOR_SCHEMA = [
     fields: [
       { key: `sections.topChoice.items[${i}].title`,       type: "text",     label: "Title"       },
       { key: `sections.topChoice.items[${i}].description`, type: "textarea", label: "Description" },
-      { key: `sections.topChoice.items[${i}].mediaUrl`,    type: "url",      label: "Preview media URL (image or video)" },
+      { key: `sections.topChoice.items[${i}].imageUrl`,    type: "url",      label: "Preview image URL" },
+      { key: `sections.topChoice.items[${i}].videoUrl`,    type: "url",      label: "Preview video URL" },
       { key: `sections.topChoice.items[${i}].mediaType`,   type: "text",     label: "Preview media type (video | image)" },
     ],
   })),

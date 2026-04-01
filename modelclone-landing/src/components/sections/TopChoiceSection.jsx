@@ -12,14 +12,22 @@ function inferPreviewType(mediaType, mediaUrl) {
   return "video";
 }
 
-function ChoicePreview({ mediaType = "video", title, mediaUrl }) {
-  const resolvedType = inferPreviewType(mediaType, mediaUrl);
-  if (mediaUrl) {
+function resolvePreviewUrl(item, resolvedType) {
+  if (resolvedType === "image") {
+    return item.imageUrl || item.mediaUrl || item.videoUrl || "";
+  }
+  return item.videoUrl || item.mediaUrl || item.imageUrl || "";
+}
+
+function ChoicePreview({ item }) {
+  const resolvedType = inferPreviewType(item.mediaType, item.videoUrl || item.imageUrl || item.mediaUrl || "");
+  const previewUrl = resolvePreviewUrl(item, resolvedType);
+  if (previewUrl) {
     return (
       <div className={`choice-preview ${resolvedType} has-media`}>
         {resolvedType === "video" ? (
           <video
-            src={mediaUrl}
+            src={previewUrl}
             className="choice-preview-media"
             autoPlay
             muted
@@ -27,7 +35,7 @@ function ChoicePreview({ mediaType = "video", title, mediaUrl }) {
             playsInline
           />
         ) : (
-          <img src={mediaUrl} alt={title} className="choice-preview-media" />
+          <img src={previewUrl} alt={item.title} className="choice-preview-media" />
         )}
         <div className="choice-preview-noise" />
       </div>
@@ -61,11 +69,7 @@ export function TopChoiceSection({ data }) {
               style={{ animationDelay: `${(idx % origLen) * 55}ms` }}
               {...(idx < origLen ? { "data-dp-target-id": `topChoice.item.${idx}` } : {})}
             >
-              <ChoicePreview
-                mediaType={item.mediaType || "video"}
-                title={item.title}
-                mediaUrl={item.mediaUrl || item.imageUrl || ""}
-              />
+              <ChoicePreview item={item} />
               <h3>{item.title}</h3>
               <p className="muted" style={{ fontSize: "0.82rem" }}>{item.description}</p>
               <a className="choice-link" href="#explore">Explore tool</a>
