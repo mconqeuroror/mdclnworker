@@ -39,6 +39,7 @@ import {
   isVercelBlobConfigured,
   mirrorExternalUrlToPersistentBlob,
 } from "../utils/kieUpload.js";
+import { enqueueGenerationBlobRemirror } from "../services/blob-remirror-queue.service.js";
 import { deleteStoredMediaFromOutputField } from "../utils/storageDelete.js";
 import {
   validateImageUrl,
@@ -162,15 +163,14 @@ async function submitRecreateVideoTask({
   });
 }
 
-/** Prefer Vercel Blob for completed image outputs; fall back to R2 when Blob fails or is off. */
+/** Persist completed image outputs to Vercel Blob when available. */
 async function ensureGenerationOutputPersisted(generation) {
   if (!generation || generation.status !== "completed") return generation;
   if (!PERSISTED_IMAGE_TYPES.has(generation.type)) return generation;
   if (!generation.outputUrl || typeof generation.outputUrl !== "string") return generation;
 
   const useBlob = isVercelBlobConfigured();
-  const useR2 = isR2Configured();
-  if (!useBlob && !useR2) return generation;
+  if (!useBlob && !isR2Configured()) return generation;
 
   const raw = generation.outputUrl.trim();
   if (!raw) return generation;
@@ -182,8 +182,14 @@ async function ensureGenerationOutputPersisted(generation) {
       try {
         return await mirrorExternalUrlToPersistentBlob(url, "generations");
       } catch (e) {
-        console.warn(`⚠️ Blob persist failed (${e?.message}) — ${useR2 ? "falling back to R2" : "keeping provider URL"}`);
-        if (useR2) return await mirrorToR2(url, "generations");
+        console.warn(`⚠️ Blob persist failed (${e?.message}) — keeping provider URL`);
+        void enqueueGenerationBlobRemirror({
+          generationId: generation.id,
+          userId: generation.userId || null,
+          sourceUrl: url,
+          contentTypeHint: "image/png",
+          reason: "self-heal-blob-persist-failed",
+        }).catch(() => {});
         return url;
       }
     }
@@ -1261,12 +1267,10 @@ export async function getGenerationById(req, res) {
       return res.status(404).json({ success: false, message: "Generation not found" });
     }
 
-    let resolvedGeneration = generation;
-    try {
-      resolvedGeneration = await ensureGenerationOutputPersisted(generation);
-    } catch (healError) {
+    const resolvedGeneration = generation;
+    void ensureGenerationOutputPersisted(generation).catch((healError) => {
       console.warn(`⚠️ Failed to self-heal generation ${generation.id} output URL:`, healError.message);
-    }
+    });
 
     res.json({ success: true, generation: resolvedGeneration });
   } catch (error) {
@@ -1335,21 +1339,11 @@ export async function getGenerations(req, res) {
       },
     });
 
-    const HEAL_BATCH_SIZE = 5;
-    const healedGenerations = [];
-    for (let i = 0; i < generations.length; i += HEAL_BATCH_SIZE) {
-      const batch = generations.slice(i, i + HEAL_BATCH_SIZE);
-      const healed = await Promise.all(
-        batch.map(async (generation) => {
-          try {
-            return await ensureGenerationOutputPersisted(generation);
-          } catch (healError) {
-            console.warn(`⚠️ Failed to self-heal generation ${generation.id} output URL:`, healError.message);
-            return generation;
-          }
-        })
-      );
-      healedGenerations.push(...healed);
+    const healedGenerations = generations;
+    for (const generation of generations) {
+      void ensureGenerationOutputPersisted(generation).catch((healError) => {
+        console.warn(`⚠️ Failed to self-heal generation ${generation.id} output URL:`, healError.message);
+      });
     }
 
     const shouldIncludeTotal = includeTotal !== "false";
@@ -3979,8 +3973,8 @@ function validateCreatorStudioVideoDuration(family, mode, value) {
       return { valid: true, duration };
     }
     if (mode === "remove-watermark") {
-      if (duration < 1 || duration > 600) {
-        return { valid: false, message: "Seedance watermark removal duration must be between 1 and 600 seconds." };
+      if (duration < 5 || duration > 600) {
+        return { valid: false, message: "Seedance watermark removal duration must be between 5 and 600 seconds." };
       }
       return { valid: true, duration };
     }
@@ -4083,7 +4077,13 @@ function estimateCreatorStudioVideoCredits(pricing, payload) {
       : mode === "edit"
       ? (fast ? pricing.seedance2FastPreviewEditCreditsPerSec : pricing.seedance2PreviewEditCreditsPerSec)
       : (fast ? pricing.seedance2FastPreviewCreditsPerSec : pricing.seedance2PreviewCreditsPerSec);
-    return Math.ceil(seconds * (Number(perSec) || 0));
+    const baseCost = Math.ceil(seconds * (Number(perSec) || 0));
+    if (mode !== "remove-watermark" && payload.removeWatermark === true) {
+      const watermarkSeconds = Math.max(5, seconds);
+      const watermarkCost = Math.ceil(watermarkSeconds * (Number(pricing.seedanceRemoveWatermarkPerSec) || 0));
+      return baseCost + watermarkCost;
+    }
+    return baseCost;
   }
   return 0;
 }
@@ -4693,6 +4693,7 @@ export async function generateCreatorStudioVideo(req, res) {
       durationSeconds: normalizedDurationSeconds,
       nFrames,
       size,
+      removeWatermark,
       speed,
       soundEnabled,
       kling30Quality,
@@ -4849,26 +4850,47 @@ export async function removeWatermarkCreatorStudioVideo(req, res) {
   try {
     const userId = req.user.userId;
     const sourceGenerationId = String(req.body?.sourceGenerationId || "").trim();
-    if (!sourceGenerationId) {
-      return res.status(400).json({ success: false, message: "sourceGenerationId is required." });
-    }
+    const directInputVideoUrl = String(req.body?.inputVideoUrl || "").trim();
+    const requestedDuration = Number(req.body?.durationSeconds);
+    const hasDirectDuration = Number.isFinite(requestedDuration) && requestedDuration > 0;
 
-    const source = await prisma.generation.findFirst({
-      where: {
-        id: sourceGenerationId,
-        userId,
-        type: "creator-studio-video",
-        providerFamily: "seedance2",
-      },
-      select: {
-        id: true,
-        outputUrl: true,
-        duration: true,
-        status: true,
-      },
-    });
-    if (!source || !source.outputUrl || source.status !== "completed") {
-      return res.status(400).json({ success: false, message: "Source Seedance video not found or not completed." });
+    let inputVideoUrl = directInputVideoUrl;
+    let durationSeconds = hasDirectDuration ? requestedDuration : null;
+    let originalGenerationId = null;
+
+    if (sourceGenerationId) {
+      const source = await prisma.generation.findFirst({
+        where: {
+          id: sourceGenerationId,
+          userId,
+          type: "creator-studio-video",
+          providerFamily: "seedance2",
+        },
+        select: {
+          id: true,
+          outputUrl: true,
+          duration: true,
+          status: true,
+        },
+      });
+      if (!source || !source.outputUrl || source.status !== "completed") {
+        return res.status(400).json({ success: false, message: "Source Seedance video not found or not completed." });
+      }
+      inputVideoUrl = source.outputUrl;
+      durationSeconds = Math.max(5, Number(source.duration) || 5);
+      originalGenerationId = source.id;
+    } else {
+      if (!inputVideoUrl) {
+        return res.status(400).json({ success: false, message: "Provide sourceGenerationId or inputVideoUrl." });
+      }
+      const videoCheck = validateVideoUrl(inputVideoUrl);
+      if (!videoCheck.valid) {
+        return res.status(400).json({ success: false, message: `inputVideoUrl: ${videoCheck.message}` });
+      }
+      if (!hasDirectDuration) {
+        return res.status(400).json({ success: false, message: "durationSeconds is required when using inputVideoUrl directly." });
+      }
+      durationSeconds = Math.max(5, Math.floor(requestedDuration));
     }
 
     req.body = {
@@ -4876,9 +4898,9 @@ export async function removeWatermarkCreatorStudioVideo(req, res) {
       family: "seedance2",
       mode: "remove-watermark",
       prompt: "",
-      inputVideoUrl: source.outputUrl,
-      durationSeconds: Math.max(5, Number(source.duration) || 5),
-      originalGenerationId: source.id,
+      inputVideoUrl,
+      durationSeconds,
+      originalGenerationId: originalGenerationId || req.body?.originalGenerationId || null,
     };
     return generateCreatorStudioVideo(req, res);
   } catch (error) {
@@ -4906,11 +4928,23 @@ export async function handlePiApiCallback(req, res) {
             { replicateModel: `piapi-task:${lookupTaskId}` },
           ],
         },
-        select: { id: true, status: true, creditsRefunded: true },
+        select: {
+          id: true,
+          status: true,
+          creditsRefunded: true,
+          duration: true,
+          providerFamily: true,
+          providerMode: true,
+          providerTaskId: true,
+          providerRequest: true,
+        },
       });
       if (generation) break;
     }
     if (!generation) return res.status(200).json({ success: true, ignored: "generation_not_found" });
+    if (generation.providerTaskId && String(generation.providerTaskId) !== lookupTaskId) {
+      return res.status(200).json({ success: true, ignored: "stale_callback" });
+    }
 
     const rawStatus = String(data?.status || body?.status || "").toLowerCase();
     const outputUrl =
@@ -4922,6 +4956,72 @@ export async function handlePiApiCallback(req, res) {
       null;
 
     if (rawStatus.includes("completed") || outputUrl) {
+      const providerRequest =
+        generation.providerRequest && typeof generation.providerRequest === "object"
+          ? generation.providerRequest
+          : {};
+      const shouldChainSeedanceWatermark =
+        String(generation.providerFamily || "").toLowerCase() === "seedance2"
+        && String(generation.providerMode || "").toLowerCase() !== "remove-watermark"
+        && providerRequest.removeWatermark === true
+        && !!outputUrl;
+
+      if (shouldChainSeedanceWatermark) {
+        try {
+          const removerDuration = Math.max(5, Number(generation.duration) || 5);
+          const submit = await submitPiApiTask({
+            model: "seedance",
+            task_type: "remove-watermark",
+            input: {
+              video_url: String(outputUrl || ""),
+              duration: removerDuration,
+            },
+          });
+          const removerTaskId =
+            submit?.data?.data?.task_id
+            || submit?.data?.data?.taskId
+            || submit?.data?.task_id
+            || submit?.data?.taskId
+            || null;
+          if (!removerTaskId) {
+            throw new Error("Seedance watermark-remover submit did not return task id.");
+          }
+
+          await prisma.generation.update({
+            where: { id: generation.id },
+            data: {
+              status: "processing",
+              provider: "piapi",
+              replicateModel: `piapi-task:${removerTaskId}`,
+              providerTaskId: removerTaskId,
+              providerMode: "remove-watermark",
+              providerType: "remove-watermark",
+              providerModel: "piapi-seedance2-remove-watermark",
+              providerRequest: {
+                ...(providerRequest || {}),
+                watermarkSourceTaskId: lookupTaskId,
+                watermarkSourceVideoUrl: outputUrl,
+              },
+              providerResponse: submit?.data || body,
+            },
+          });
+          return res.status(200).json({ success: true, chained: "seedance_remove_watermark" });
+        } catch (chainErr) {
+          await prisma.generation.update({
+            where: { id: generation.id },
+            data: {
+              status: "failed",
+              errorMessage: getErrorMessageForDb(chainErr?.message || "Seedance watermark-remover chaining failed"),
+              providerResponse: body,
+            },
+          });
+          if (!generation.creditsRefunded) {
+            await refundGeneration(generation.id).catch(() => {});
+          }
+          return res.status(200).json({ success: true, failed: "seedance_remove_watermark_chain" });
+        }
+      }
+
       // Persist immediately with the provider URL, then mirror to durable storage in the background.
       await prisma.generation.update({
         where: { id: generation.id },
@@ -4951,6 +5051,12 @@ export async function handlePiApiCallback(req, res) {
             }
           } catch (e) {
             console.warn("⚠️ PiAPI output URL mirror failed:", e?.message);
+            void enqueueGenerationBlobRemirror({
+              generationId: generation.id,
+              sourceUrl: outputUrl,
+              contentTypeHint: "video/mp4",
+              reason: "piapi-callback-mirror-failed",
+            }).catch(() => {});
           }
         })();
       }

@@ -1292,6 +1292,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
   const [klingElementDescription, setKlingElementDescription] = useState("");
   const [klingElementMediaUrls, setKlingElementMediaUrls] = useState(["", "", "", ""]);
   const [seedanceTaskType, setSeedanceTaskType] = useState("seedance-2-preview");
+  const [seedanceAutoRemoveWatermark, setSeedanceAutoRemoveWatermark] = useState(false);
   const [wanResolution, setWanResolution] = useState("580p");
   const [isVideoGenerating, setIsVideoGenerating] = useState(false);
   const [extendSourceId, setExtendSourceId] = useState("");
@@ -1433,7 +1434,10 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
         nFrames: videoNFrames,
         size: videoSize,
         soraQuality,
-        removeWatermark: soraRemoveWatermark,
+        removeWatermark:
+          videoFamily === "sora2"
+            ? soraRemoveWatermark
+            : (videoFamily === "seedance2" ? seedanceAutoRemoveWatermark : false),
         speed: videoSpeed,
         soundEnabled,
         soundPrompt: soundPrompt.trim(),
@@ -1473,20 +1477,24 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
     }
   };
 
-  const handleSeedanceRemoveWatermark = async (item) => {
+  const handleSeedanceRemoveWatermark = async (item, { manualTrigger = true } = {}) => {
     if (!item?.id) return;
     const baseDuration = Math.max(5, Number(item.duration) || 5);
     const estimatedCost = Math.ceil(toPrice(generationPricing, "seedanceRemoveWatermarkPerSec") * baseDuration);
-    setIsVideoGenerating(true);
+    if (manualTrigger) setIsVideoGenerating(true);
     try {
       const data = await creatorStudioAPI.removeWatermarkVideo({ sourceGenerationId: item.id });
       if (!data?.success || !data?.generation?.id) {
         throw new Error(data?.message || "Failed to start watermark removal");
       }
-      toast.success(`Watermark removal started (${estimatedCost} credits).`);
+      toast.success(
+        manualTrigger
+          ? `Watermark removal started (${estimatedCost} credits).`
+          : `Auto watermark removal started (${estimatedCost} credits).`,
+      );
       pollForCompletion(data.generation.id, {
         onSuccess: (gen) => {
-          toast.success("Watermark removed.");
+          toast.success(manualTrigger ? "Watermark removed." : "Auto watermark removal completed.");
           refreshUser?.();
           setVideoHistory((prev) => [{ ...gen }, ...prev.filter((g) => g.id !== gen.id)]);
         },
@@ -1495,7 +1503,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
     } catch (err) {
       toast.error(err.response?.data?.message || err.message || "Failed to start watermark removal");
     } finally {
-      setIsVideoGenerating(false);
+      if (manualTrigger) setIsVideoGenerating(false);
     }
   };
 
@@ -1585,10 +1593,19 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
         ? (fast ? "seedance2FastPreviewEditCreditsPerSec" : "seedance2PreviewEditCreditsPerSec")
         : (fast ? "seedance2FastPreviewCreditsPerSec" : "seedance2PreviewCreditsPerSec");
       const perSec = toPrice(generationPricing, key);
-      return { cost: Math.ceil(perSec * duration), details: `${perSec}/sec (${fast ? "Fast" : "Quality"})` };
+      const baseCost = Math.ceil(perSec * duration);
+      if (seedanceAutoRemoveWatermark && videoMode !== "remove-watermark") {
+        const wmPerSec = toPrice(generationPricing, "seedanceRemoveWatermarkPerSec");
+        const wmCost = Math.ceil(wmPerSec * Math.max(5, duration));
+        return {
+          cost: baseCost + wmCost,
+          details: `${perSec}/sec + auto RM ${wmPerSec}/sec (${fast ? "Fast" : "Quality"})`,
+        };
+      }
+      return { cost: baseCost, details: `${perSec}/sec (${fast ? "Fast" : "Quality"})` };
     }
     return { cost: 0, details: "Pricing unavailable" };
-  }, [durationConfig.min, generationPricing, kling30Quality, seedanceTaskType, soundEnabled, videoDuration, videoFamily, videoMode, videoNFrames, videoSize, videoSpeed, wanResolution]);
+  }, [durationConfig.min, generationPricing, kling30Quality, seedanceAutoRemoveWatermark, seedanceTaskType, soundEnabled, videoDuration, videoFamily, videoMode, videoNFrames, videoSize, videoSpeed, wanResolution]);
 
   return (
     <div
@@ -2115,7 +2132,10 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                     </div>
                     <div className="rounded-xl border border-white/10 p-3 col-span-2 md:col-span-4">
                       <div className="flex items-center justify-between">
-                        <span className="text-xs text-slate-300">Remove watermark</span>
+                        <div>
+                          <span className="text-xs text-slate-300">Remove watermark</span>
+                          <p className="text-[11px] text-slate-500 mt-1">Runs watermark remover after Sora generation completes.</p>
+                        </div>
                         <button
                           type="button"
                           onClick={() => setSoraRemoveWatermark((v) => !v)}
@@ -2356,6 +2376,23 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                       <label className="block text-xs text-slate-400 mb-2">Model Variant</label>
                       <ToggleGroup value={seedanceTaskType} onChange={setSeedanceTaskType} options={[{ value: "seedance-2-preview", label: "Quality" }, { value: "seedance-2-fast-preview", label: "Fast" }]} />
                     </div>
+                    {videoMode !== "remove-watermark" && (
+                      <div className="rounded-xl border border-white/10 p-3 col-span-2">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-xs text-slate-300">Auto remove watermark</p>
+                            <p className="text-[11px] text-slate-500 mt-1">Runs a second Seedance pass after completion.</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setSeedanceAutoRemoveWatermark((v) => !v)}
+                            className={`px-3 py-1.5 rounded-lg text-xs ${seedanceAutoRemoveWatermark ? "bg-violet-600 text-white" : "bg-white/10 text-slate-300"}`}
+                          >
+                            {seedanceAutoRemoveWatermark ? "On" : "Off"}
+                          </button>
+                        </div>
+                      </div>
+                    )}
                     {(videoMode === "t2v" || videoMode === "i2v") && (
                       <div className="rounded-xl border border-white/10 p-3 col-span-2">
                         <label className="block text-xs text-slate-400 mb-2">Aspect Ratio</label>
