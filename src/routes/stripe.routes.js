@@ -482,7 +482,6 @@ router.post('/create-checkout-session', authMiddleware, async (req, res) => {
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
       client_reference_id: safeReferralId || undefined,
-      payment_method_types: ['card'],
       line_items: [
         {
           price_data: {
@@ -612,7 +611,6 @@ router.post('/create-onetime-checkout', authMiddleware, async (req, res) => {
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
       client_reference_id: safeReferralId || undefined,
-      payment_method_types: ['card'],
       line_items: [
         {
           price_data: {
@@ -983,7 +981,6 @@ router.post('/create-embedded-subscription', authMiddleware, async (req, res) =>
       payment_behavior: 'default_incomplete',
       payment_settings: {
         save_default_payment_method: 'on_subscription',
-        payment_method_types: ['card', 'link'],
       },
       metadata: subscriptionMetadata,
       ...(firstCycleCoupon ? { discounts: [{ coupon: firstCycleCoupon.id }] } : {}),
@@ -1715,7 +1712,6 @@ router.post('/create-special-offer-checkout', authMiddleware, async (req, res) =
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
       client_reference_id: safeReferralId || undefined,
-      payment_method_types: ['card'],
       line_items: [
         {
           price_data: {

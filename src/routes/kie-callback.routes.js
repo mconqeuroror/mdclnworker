@@ -12,7 +12,9 @@ import { enqueueCleanupOldGenerations } from "../controllers/generation.controll
 import { deleteBlobAfterKie, mirrorProviderOutputUrl } from "../utils/kieUpload.js";
 import { runPipelineContinuation } from "../services/kie-pipeline-continuation.service.js";
 import { getErrorMessageForDb } from "../lib/userError.js";
-import { generateImageWithNanoBananaKie } from "../services/kie.service.js";
+import { generateImageWithNanoBananaKie, getKieCallbackUrl } from "../services/kie.service.js";
+import { enqueueGenerationBlobRemirror } from "../services/blob-remirror-queue.service.js";
+import { persistKieGenerationCorrelation } from "../utils/kieTaskCorrelation.js";
 
 const router = express.Router();
 const WEBHOOK_HMAC_KEY = process.env.WEBHOOK_HMAC_KEY;
@@ -25,6 +27,60 @@ function setCorsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", CORS_ORIGIN);
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+}
+
+async function submitSoraWatermarkRemoverTask(videoUrl) {
+  if (!KIE_API_KEY) {
+    throw new Error("KIE API key is missing; cannot run Sora watermark remover.");
+  }
+  const callbackUrl = getKieCallbackUrl();
+  if (!callbackUrl) {
+    throw new Error("KIE callback URL is missing; cannot run Sora watermark remover.");
+  }
+  const normalizedVideoUrl = String(videoUrl || "").trim();
+  if (!normalizedVideoUrl) {
+    throw new Error("Sora watermark remover requires a source video URL.");
+  }
+
+  const response = await fetch(`${KIE_API_URL}/jobs/createTask`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${KIE_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: "sora-watermark-remover",
+      callBackUrl: callbackUrl,
+      input: {
+        video_url: normalizedVideoUrl,
+        upload_method: "s3",
+      },
+    }),
+    signal: AbortSignal.timeout(20_000),
+  });
+
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+
+  if (!response.ok || (payload?.code && payload.code !== 200)) {
+    const detail = payload?.msg || payload?.message || `${response.status} ${response.statusText}`;
+    throw new Error(`Sora watermark remover submit failed: ${detail}`);
+  }
+
+  const taskId =
+    payload?.data?.taskId
+    || payload?.data?.task_id
+    || payload?.taskId
+    || payload?.task_id
+    || null;
+  if (!taskId) {
+    throw new Error("Sora watermark remover submit succeeded but no taskId was returned.");
+  }
+  return taskId;
 }
 
 async function upsertKieTask(taskId, entityType, entityId, step, userId, payload = null) {
@@ -491,6 +547,14 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
     if (pipelineGen) {
       if (isSuccess && outputUrl) {
         const finalUrl = await mirrorProviderOutputUrl(outputUrl, "image/png");
+        if (finalUrl === outputUrl) {
+          void enqueueGenerationBlobRemirror({
+            generationId: pipelineGen.id,
+            sourceUrl: outputUrl,
+            contentTypeHint: "image/png",
+            reason: "kie-pipeline-mirror-deferred",
+          }).catch(() => {});
+        }
         await runPipelineContinuation(taskId, finalUrl);
         console.log("[KIE Callback] Paired pipeline gen %s to taskId %s", pipelineGen.id.slice(0, 8), taskId.slice(0, 12));
       } else {
@@ -513,6 +577,10 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
       status: true,
       type: true,
       isTrial: true,
+      providerFamily: true,
+      providerMode: true,
+      providerTaskId: true,
+      providerRequest: true,
     };
 
     // Retry: KIE may callback before Prisma commits task correlation (kie-task: / kieTask row).
@@ -571,11 +639,94 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
       console.log("[KIE Callback] Generation %s already completed, ack", gen.id);
       return ack();
     }
+    if (gen.providerTaskId && String(gen.providerTaskId) !== String(taskId)) {
+      console.log(
+        "[KIE Callback] Stale callback ignored for gen %s: taskId=%s current=%s",
+        gen.id.slice(0, 8),
+        String(taskId).slice(0, 12),
+        String(gen.providerTaskId).slice(0, 12),
+      );
+      return ack();
+    }
 
     if (isSuccess) {
       if (outputUrl) {
+        const providerRequest =
+          gen.providerRequest && typeof gen.providerRequest === "object"
+            ? gen.providerRequest
+            : {};
+        const wantsSoraWatermarkRemoval = providerRequest.removeWatermark === true;
+        const isCreatorStudioSora =
+          gen.type === "creator-studio-video"
+          && String(gen.providerFamily || "").toLowerCase() === "sora2";
+        const isPrimarySoraCallback =
+          String(gen.providerTaskId || "") === String(taskId)
+          && String(gen.providerMode || "") !== "remove-watermark";
+
+        if (isCreatorStudioSora && wantsSoraWatermarkRemoval && isPrimarySoraCallback) {
+          try {
+            await markKieTaskCompleted(taskId, outputUrl);
+            const wmTaskId = await submitSoraWatermarkRemoverTask(outputUrl);
+            await persistKieGenerationCorrelation({
+              taskId: wmTaskId,
+              generationId: gen.id,
+              userId: gen.userId || null,
+              kind: "creator-studio-video",
+              extraGenerationData: {
+                provider: "kie",
+                providerTaskId: wmTaskId,
+                providerFamily: "sora2",
+                providerMode: "remove-watermark",
+                providerType: "remove-watermark",
+                providerModel: "kie-sora2-remove-watermark",
+                providerRequest: {
+                  ...providerRequest,
+                  watermarkSourceTaskId: taskId,
+                  watermarkSourceVideoUrl: outputUrl,
+                },
+              },
+            });
+            await prisma.generation.update({
+              where: { id: gen.id },
+              data: {
+                status: "processing",
+                providerTaskId: wmTaskId,
+                providerMode: "remove-watermark",
+                providerType: "remove-watermark",
+                providerModel: "kie-sora2-remove-watermark",
+              },
+            });
+            console.log(
+              "[KIE Callback] Sora watermark-remover chained: gen=%s sourceTask=%s wmTask=%s",
+              gen.id.slice(0, 8),
+              taskId.slice(0, 12),
+              String(wmTaskId).slice(0, 12),
+            );
+            return ack();
+          } catch (chainErr) {
+            const errorText = getErrorMessageForDb(chainErr?.message || "Failed to submit Sora watermark remover task");
+            await prisma.generation.update({
+              where: { id: gen.id },
+              data: { status: "failed", errorMessage: errorText, completedAt: new Date(), pipelinePayload: null },
+            });
+            try { await refundGeneration(gen.id); } catch {}
+            await markKieTaskFailed(taskId, errorText);
+            console.error("[KIE Callback] Failed chaining Sora watermark remover for %s: %s", gen.id.slice(0, 8), errorText);
+            return ack();
+          }
+        }
+
         const isVideoType = ["video", "prompt-video", "recreate-video", "talking-head", "nsfw-video", "nsfw-video-extend", "creator-studio-video"].includes(gen.type);
         const finalUrl = await mirrorProviderOutputUrl(outputUrl, isVideoType ? "video/mp4" : "image/png");
+        if (finalUrl === outputUrl) {
+          void enqueueGenerationBlobRemirror({
+            generationId: gen.id,
+            userId: gen.userId || null,
+            sourceUrl: outputUrl,
+            contentTypeHint: isVideoType ? "video/mp4" : "image/png",
+            reason: "kie-callback-mirror-deferred",
+          }).catch(() => {});
+        }
         await prisma.generation.update({
           where: { id: gen.id },
           data: { status: "completed", outputUrl: finalUrl, completedAt: new Date(), pipelinePayload: null },

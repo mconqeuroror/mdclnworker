@@ -966,7 +966,6 @@ async function generateVideoWithSora2ProKieInternal(options = {}) {
     aspect_ratio: options.aspectRatio === "portrait" ? "portrait" : "landscape",
     n_frames: nFrames === "15" ? "15" : "10",
     size,
-    remove_watermark: options.removeWatermark === true,
     upload_method: "s3",
   };
   if (mode === "i2v") {
