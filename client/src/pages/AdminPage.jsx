@@ -160,6 +160,7 @@ const GENERATION_PRICING_GROUPS = [
       { key: 'sora2Standard15Frames', label: 'Sora 2 Pro — standard 15 frames' },
       { key: 'sora2High10Frames', label: 'Sora 2 Pro — high 10 frames' },
       { key: 'sora2High15Frames', label: 'Sora 2 Pro — high 15 frames' },
+      { key: 'sora2WatermarkRemoverPerSec', label: 'Sora 2 — KIE watermark remover credits / sec (chained job)' },
       { key: 'kling30StdNoSoundPerSec', label: 'Kling 3.0 std (no sound) credits / sec' },
       { key: 'kling30StdSoundPerSec', label: 'Kling 3.0 std (with sound) credits / sec' },
       { key: 'kling30ProNoSoundPerSec', label: 'Kling 3.0 pro (no sound) credits / sec' },

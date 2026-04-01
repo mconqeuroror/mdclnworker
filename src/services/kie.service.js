@@ -128,6 +128,53 @@ async function waitForRateSlot(label) {
 // ─── API calls ────────────────────────────────────────────────────────────────
 
 /**
+ * Wan 2.2 animate-move / animate-replace accept only these input keys (KIE OpenAPI).
+ * Strips extras like `duration` that break or confuse the API.
+ */
+function sanitizeWan22AnimateInput(rawInput, label) {
+  const video_url =
+    typeof rawInput.video_url === "string"
+      ? rawInput.video_url.trim()
+      : String(rawInput.video_url || "").trim();
+  const image_url =
+    typeof rawInput.image_url === "string"
+      ? rawInput.image_url.trim()
+      : String(rawInput.image_url || "").trim();
+  if (!video_url.startsWith("http") || !image_url.startsWith("http")) {
+    throw new Error(
+      `[KIE] Invalid Wan animate payload for ${label}: video_url and image_url must be non-empty http(s) URLs`,
+    );
+  }
+  return {
+    video_url,
+    image_url,
+    resolution: normalizeWanResolution(rawInput.resolution),
+    nsfw_checker: rawInput.nsfw_checker === true,
+  };
+}
+
+/** KIE OpenAPI: video_url required, maxLength 500; upload_method s3 | oss */
+function sanitizeSoraWatermarkRemoverInput(rawInput, label) {
+  const video_url =
+    typeof rawInput.video_url === "string"
+      ? rawInput.video_url.trim()
+      : String(rawInput.video_url || "").trim();
+  if (!video_url.startsWith("http")) {
+    throw new Error(
+      `[KIE] Invalid Sora watermark remover payload for ${label}: video_url must be a non-empty http(s) URL`,
+    );
+  }
+  if (video_url.length > 500) {
+    throw new Error(
+      `[KIE] Sora watermark remover video_url exceeds 500 characters (KIE API limit) for ${label}`,
+    );
+  }
+  const um = String(rawInput.upload_method ?? "s3").trim().toLowerCase();
+  const upload_method = um === "oss" ? "oss" : "s3";
+  return { video_url, upload_method };
+}
+
+/**
  * Motion-control: use documented wire format:
  *   { model, callBackUrl, input: { ... } }
  */
@@ -218,6 +265,13 @@ function normalizeKieCreateRequestBody(rawBody, label) {
     }
 
     body.input = next;
+  } else if (
+    model === KIE_VIDEO_MODEL_CATALOG.recreate.wan22AnimateMove.model ||
+    model === KIE_VIDEO_MODEL_CATALOG.recreate.wan22AnimateReplace.model
+  ) {
+    body.input = sanitizeWan22AnimateInput(input, label);
+  } else if (model === KIE_VIDEO_MODEL_CATALOG.sora2Pro.soraWatermarkRemoverModel) {
+    body.input = sanitizeSoraWatermarkRemoverInput(input, label);
   } else {
     body.input = input;
   }
@@ -878,7 +932,7 @@ async function generateVideoWithWanAnimateReplaceKieInternal(imageUrl, videoUrl,
   }
 
   const requestBody = {
-    model: "wan/2-2-animate-replace",
+    model: KIE_VIDEO_MODEL_CATALOG.recreate.wan22AnimateReplace.model,
     callBackUrl: callbackUrl,
     input: {
       video_url: vid,
@@ -950,6 +1004,11 @@ async function generateVideoWithKling26KieInternal(imageUrl, prompt, options = {
   return result;
 }
 
+/**
+ * Sora 2 Pro createTask only (i2v / t2v). Watermark removal is a separate KIE model
+ * (`sora-watermark-remover`) chained after success in kie-callback when
+ * generation.providerRequest.removeWatermark is true — do not pass remove_watermark here.
+ */
 async function generateVideoWithSora2ProKieInternal(options = {}) {
   const mode = options.mode === "i2v" ? "i2v" : "t2v";
   const model = mode === "i2v"
@@ -1135,6 +1194,29 @@ export function generateVideoWithWanAnimateReplaceKie(...args) {
 }
 export function generateVideoWithSora2ProKie(...args) {
   return enqueueKieJob(() => generateVideoWithSora2ProKieInternal(...args));
+}
+
+/**
+ * Chained after Sora 2 Pro completes: POST createTask with model `sora-watermark-remover`.
+ * Callback handler completes the generation when this task finishes.
+ */
+export async function submitSoraWatermarkRemoverTask(videoUrl) {
+  if (!KIE_API_KEY) {
+    throw new Error("KIE API key is missing; cannot run Sora watermark remover.");
+  }
+  const callbackUrl = getKieCallbackUrl();
+  if (!callbackUrl) {
+    throw new Error("KIE callback URL is missing; cannot run Sora watermark remover.");
+  }
+  const model = KIE_VIDEO_MODEL_CATALOG.sora2Pro.soraWatermarkRemoverModel;
+  return kieCreateTask(
+    {
+      model,
+      callBackUrl: callbackUrl,
+      input: { video_url: String(videoUrl || "").trim(), upload_method: "s3" },
+    },
+    "sora-watermark-remover",
+  );
 }
 export function generateVideoWithKlingTextKie(...args) {
   return enqueueKieJob(() => generateVideoWithKlingTextKieInternal(...args));

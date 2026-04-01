@@ -4042,8 +4042,16 @@ function estimateCreatorStudioVideoCredits(pricing, payload) {
   if (family === "sora2") {
     const nFrames = String(payload.nFrames || "10") === "15" ? "15" : "10";
     const size = String(payload.size || "standard").toLowerCase() === "high" ? "high" : "standard";
-    if (size === "high") return nFrames === "15" ? pricing.sora2High15Frames : pricing.sora2High10Frames;
-    return nFrames === "15" ? pricing.sora2Standard15Frames : pricing.sora2Standard10Frames;
+    let base =
+      size === "high"
+        ? (nFrames === "15" ? pricing.sora2High15Frames : pricing.sora2High10Frames)
+        : (nFrames === "15" ? pricing.sora2Standard15Frames : pricing.sora2Standard10Frames);
+    if (payload.removeWatermark === true) {
+      const wmSeconds = nFrames === "15" ? 15 : 10;
+      const wmPerSec = Number(pricing.sora2WatermarkRemoverPerSec) || 0;
+      base += Math.ceil(wmSeconds * wmPerSec);
+    }
+    return base;
   }
   if (family === "kling26") {
     const bucket = seconds >= 10 ? "10s" : "5s";
@@ -4285,7 +4293,6 @@ async function processCreatorStudioVideoInBackground({
   nFrames,
   size,
   soraQuality,
-  removeWatermark,
   speed,
   soundEnabled,
   soundPrompt,
@@ -4337,7 +4344,6 @@ async function processCreatorStudioVideoInBackground({
           size: String(size || "standard"),
           quality: String(soraQuality || "standard"),
           aspectRatio: String(aspectRatio || "landscape"),
-          removeWatermark: removeWatermark === true,
           onTaskSubmitted,
         }),
       );
@@ -4780,7 +4786,6 @@ export async function generateCreatorStudioVideo(req, res) {
       nFrames,
       size,
       soraQuality,
-      removeWatermark,
       speed,
       soundEnabled,
       soundPrompt,

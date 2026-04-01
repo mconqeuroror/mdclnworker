@@ -46,6 +46,8 @@ export const KIE_VIDEO_MODEL_CATALOG = Object.freeze({
     imageToVideoModel: "sora-2-pro-image-to-video",
     textToVideoModel: "sora-2-pro-text-to-video",
     storyboardModel: "sora-2-pro-storyboard",
+    /** Chained after Sora output; POST /api/v1/jobs/createTask */
+    soraWatermarkRemoverModel: "sora-watermark-remover",
   },
   klingVideo: {
     family: "kling",

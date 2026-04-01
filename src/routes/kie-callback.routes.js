@@ -12,7 +12,7 @@ import { enqueueCleanupOldGenerations } from "../controllers/generation.controll
 import { deleteBlobAfterKie, mirrorProviderOutputUrl } from "../utils/kieUpload.js";
 import { runPipelineContinuation } from "../services/kie-pipeline-continuation.service.js";
 import { getErrorMessageForDb } from "../lib/userError.js";
-import { generateImageWithNanoBananaKie, getKieCallbackUrl } from "../services/kie.service.js";
+import { generateImageWithNanoBananaKie, submitSoraWatermarkRemoverTask } from "../services/kie.service.js";
 import { enqueueGenerationBlobRemirror } from "../services/blob-remirror-queue.service.js";
 import { persistKieGenerationCorrelation } from "../utils/kieTaskCorrelation.js";
 
@@ -27,60 +27,6 @@ function setCorsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", CORS_ORIGIN);
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-}
-
-async function submitSoraWatermarkRemoverTask(videoUrl) {
-  if (!KIE_API_KEY) {
-    throw new Error("KIE API key is missing; cannot run Sora watermark remover.");
-  }
-  const callbackUrl = getKieCallbackUrl();
-  if (!callbackUrl) {
-    throw new Error("KIE callback URL is missing; cannot run Sora watermark remover.");
-  }
-  const normalizedVideoUrl = String(videoUrl || "").trim();
-  if (!normalizedVideoUrl) {
-    throw new Error("Sora watermark remover requires a source video URL.");
-  }
-
-  const response = await fetch(`${KIE_API_URL}/jobs/createTask`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${KIE_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: "sora-watermark-remover",
-      callBackUrl: callbackUrl,
-      input: {
-        video_url: normalizedVideoUrl,
-        upload_method: "s3",
-      },
-    }),
-    signal: AbortSignal.timeout(20_000),
-  });
-
-  let payload = null;
-  try {
-    payload = await response.json();
-  } catch {
-    payload = null;
-  }
-
-  if (!response.ok || (payload?.code && payload.code !== 200)) {
-    const detail = payload?.msg || payload?.message || `${response.status} ${response.statusText}`;
-    throw new Error(`Sora watermark remover submit failed: ${detail}`);
-  }
-
-  const taskId =
-    payload?.data?.taskId
-    || payload?.data?.task_id
-    || payload?.taskId
-    || payload?.task_id
-    || null;
-  if (!taskId) {
-    throw new Error("Sora watermark remover submit succeeded but no taskId was returned.");
-  }
-  return taskId;
 }
 
 async function upsertKieTask(taskId, entityType, entityId, step, userId, payload = null) {
@@ -666,7 +612,16 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
         if (isCreatorStudioSora && wantsSoraWatermarkRemoval && isPrimarySoraCallback) {
           try {
             await markKieTaskCompleted(taskId, outputUrl);
-            const wmTaskId = await submitSoraWatermarkRemoverTask(outputUrl);
+            let videoUrlForRemover = outputUrl;
+            if (typeof videoUrlForRemover === "string" && videoUrlForRemover.length > 500) {
+              videoUrlForRemover = await mirrorProviderOutputUrl(outputUrl, "video/mp4");
+              if (typeof videoUrlForRemover === "string" && videoUrlForRemover.length > 500) {
+                throw new Error(
+                  "Sora video URL exceeds 500 characters after mirror; cannot call sora-watermark-remover (KIE API limit).",
+                );
+              }
+            }
+            const wmTaskId = await submitSoraWatermarkRemoverTask(videoUrlForRemover);
             await persistKieGenerationCorrelation({
               taskId: wmTaskId,
               generationId: gen.id,

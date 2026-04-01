@@ -54,6 +54,8 @@ export const DEFAULT_GENERATION_PRICING = Object.freeze({
   sora2High15Frames: 1260,
   sora2Storyboard10s: 150,
   sora2Storyboard15To25s: 270,
+  /** KIE sora-watermark-remover — ~$0.016/s at current credit policy (same basis as Seedance WM). */
+  sora2WatermarkRemoverPerSec: 6.4,
 
   // Kling generation (non-motion)
   kling30StdNoSoundPerSec: 14,
@@ -70,7 +72,8 @@ export const DEFAULT_GENERATION_PRICING = Object.freeze({
   seedance2FastPreviewCreditsPerSec: 32,
   seedance2PreviewEditCreditsPerSec: 100,
   seedance2FastPreviewEditCreditsPerSec: 52,
-  seedanceRemoveWatermarkPerSec: 3.2,
+  // Seedance remove-watermark priced at $0.016/s (credits policy conversion).
+  seedanceRemoveWatermarkPerSec: 6.4,
 
   videoPrompt5s: 60,
   videoPrompt10s: 100,

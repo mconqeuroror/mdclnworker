@@ -234,6 +234,7 @@ const VIDEO_DEFAULT_PRICING = Object.freeze({
   sora2Standard15Frames: 540,
   sora2High10Frames: 660,
   sora2High15Frames: 1260,
+  sora2WatermarkRemoverPerSec: 6.4,
   kling30StdNoSoundPerSec: 14,
   kling30StdSoundPerSec: 20,
   kling30ProNoSoundPerSec: 18,
@@ -1547,10 +1548,20 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
   const videoPricingInfo = useMemo(() => {
     const duration = Number(videoDuration) || durationConfig.min;
     if (videoFamily === "sora2") {
-      const cost = videoSize === "high"
-        ? (videoNFrames === "15" ? toPrice(generationPricing, "sora2High15Frames") : toPrice(generationPricing, "sora2High10Frames"))
-        : (videoNFrames === "15" ? toPrice(generationPricing, "sora2Standard15Frames") : toPrice(generationPricing, "sora2Standard10Frames"));
-      return { cost, details: `Per generation (${videoNFrames}s · ${videoSize})` };
+      const base =
+        videoSize === "high"
+          ? (videoNFrames === "15" ? toPrice(generationPricing, "sora2High15Frames") : toPrice(generationPricing, "sora2High10Frames"))
+          : (videoNFrames === "15" ? toPrice(generationPricing, "sora2Standard15Frames") : toPrice(generationPricing, "sora2Standard10Frames"));
+      if (soraRemoveWatermark) {
+        const wmSec = videoNFrames === "15" ? 15 : 10;
+        const wmPerSec = toPrice(generationPricing, "sora2WatermarkRemoverPerSec");
+        const wmCost = Math.ceil(wmSec * wmPerSec);
+        return {
+          cost: base + wmCost,
+          details: `Sora ${videoNFrames}s · ${videoSize} + watermark remover ${wmPerSec}/s × ${wmSec}s`,
+        };
+      }
+      return { cost: base, details: `Per generation (${videoNFrames}s · ${videoSize})` };
     }
     if (videoFamily === "kling26") {
       const bucket = duration >= 10 ? "10s" : "5s";
@@ -1605,7 +1616,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
       return { cost: baseCost, details: `${perSec}/sec (${fast ? "Fast" : "Quality"})` };
     }
     return { cost: 0, details: "Pricing unavailable" };
-  }, [durationConfig.min, generationPricing, kling30Quality, seedanceAutoRemoveWatermark, seedanceTaskType, soundEnabled, videoDuration, videoFamily, videoMode, videoNFrames, videoSize, videoSpeed, wanResolution]);
+  }, [durationConfig.min, generationPricing, kling30Quality, soraRemoveWatermark, seedanceAutoRemoveWatermark, seedanceTaskType, soundEnabled, videoDuration, videoFamily, videoMode, videoNFrames, videoSize, videoSpeed, wanResolution]);
 
   return (
     <div
