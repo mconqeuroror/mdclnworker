@@ -13,6 +13,7 @@ import { pollModelUntilReady } from '../utils/modelStatusPolling';
 const stripePublicKey = import.meta.env.MODE === 'production'
   ? import.meta.env.VITE_STRIPE_PUBLIC_KEY
   : (import.meta.env.VITE_STRIPE_TEST_PUBLIC_KEY || import.meta.env.VITE_STRIPE_PUBLIC_KEY);
+const stripeMerchantCountry = String(import.meta.env.VITE_STRIPE_MERCHANT_COUNTRY || 'US').toUpperCase();
 
 console.log('Stripe mode:', import.meta.env.MODE, 'Using key:', stripePublicKey?.substring(0, 12) + '...');
 
@@ -161,7 +162,7 @@ function CheckoutForm({ item, itemType, onSuccess, onClose, paymentMethod, onSwi
         : `${displayCredits} Credits`;
 
     const pr = stripe.paymentRequest({
-      country: 'US',
+      country: stripeMerchantCountry,
       currency: 'usd',
       total: {
         label,
@@ -873,7 +874,7 @@ function CheckoutForm({ item, itemType, onSuccess, onClose, paymentMethod, onSwi
           {walletCheckComplete && !canMakePayment && (
             <div className="py-4 px-4 rounded-xl bg-white/5 border border-white/10 text-center">
               <p className="text-sm text-slate-300">Apple Pay / Google Pay not available in this browser.</p>
-              <p className="text-xs text-slate-500 mt-1">Use <button type="button" onClick={() => onSwitchMethod('card')} className="underline text-slate-400 hover:text-white">Card</button> or try Safari (Apple Pay) / Chrome with a saved payment method.</p>
+              <p className="text-xs text-slate-500 mt-1">Use <button type="button" onClick={() => onSwitchMethod('card')} className="underline text-slate-400 hover:text-white">Card</button> or try Safari (Apple Pay) / Chrome with a saved payment method. Merchant country: {stripeMerchantCountry}.</p>
             </div>
           )}
           {walletCheckComplete && paymentAttempted && !paymentSuccess && (
