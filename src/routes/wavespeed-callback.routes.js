@@ -13,6 +13,7 @@ import { enqueueCleanupOldGenerations } from "../controllers/generation.controll
 import { deleteBlobAfterKie, mirrorProviderOutputUrl } from "../utils/kieUpload.js";
 import { runPipelineContinuation } from "../services/kie-pipeline-continuation.service.js";
 import { getErrorMessageForDb } from "../lib/userError.js";
+import { enqueueGenerationBlobRemirror } from "../services/blob-remirror-queue.service.js";
 
 const router = express.Router();
 const WAVESPEED_WEBHOOK_SECRET = process.env.WAVESPEED_WEBHOOK_SECRET;
@@ -94,6 +95,9 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
       return ack();
     }
 
+    // Acknowledge immediately to avoid webhook retries/timeouts under storage latency.
+    ack();
+
     const isSuccessStatus = ["completed", "succeeded", "success", "finished"].includes(normalizedStatus);
     const isFailedStatus = ["failed", "error", "cancelled", "canceled"].includes(normalizedStatus);
 
@@ -110,6 +114,14 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
       select: { id: true },
     });
     if (pipelineGen && isSuccessStatus && finalUrl) {
+      if (outputUrl && finalUrl === outputUrl) {
+        void enqueueGenerationBlobRemirror({
+          generationId: pipelineGen.id,
+          sourceUrl: outputUrl,
+          contentTypeHint: "image/png",
+          reason: "wavespeed-pipeline-mirror-deferred",
+        }).catch(() => {});
+      }
       await runPipelineContinuation(String(taskId), finalUrl);
       console.log("[WaveSpeed Callback] Paired pipeline gen %s to taskId %s", pipelineGen.id.slice(0, 8), String(taskId).slice(0, 12));
       return ack();
@@ -146,6 +158,15 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
     }
 
     if (isSuccessStatus && finalUrl) {
+      if (outputUrl && finalUrl === outputUrl) {
+        void enqueueGenerationBlobRemirror({
+          generationId: gen.id,
+          userId: gen.userId || null,
+          sourceUrl: outputUrl,
+          contentTypeHint: "image/png",
+          reason: "wavespeed-mirror-deferred",
+        }).catch(() => {});
+      }
       await prisma.generation.update({
         where: { id: gen.id },
         data: { status: "completed", outputUrl: finalUrl, completedAt: new Date() },

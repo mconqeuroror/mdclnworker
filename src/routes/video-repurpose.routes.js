@@ -22,7 +22,7 @@ import {
 } from "../services/video-repurpose.service.js";
 import { authMiddleware } from "../middleware/auth.middleware.js";
 import prisma from "../lib/prisma.js";
-import { uploadToR2, isR2Configured, deleteFromR2, getR2PresignedPutForKey, getPresignedGetUrl } from "../utils/r2.js";
+import { uploadToR2, isR2Configured, deleteFromR2, getR2PresignedPutForKey, getPresignedGetUrl, isBlobOnlyStorageMode } from "../utils/r2.js";
 import { postRepurposeJobToWorker } from "../services/ffmpeg-worker-client.js";
 import { getSafeErrorMessage } from "../utils/safe-error.js";
 import { buildAiRepurposeFilters } from "../services/repurpose-ai-filters.js";
@@ -257,8 +257,10 @@ async function runJob(jobId, videoPath, watermarkPath, outputDir, settings, isIm
 }
 
 async function persistJobToHistory(jobId, userId, outputs, outputDir, settings, isImage) {
-  if (!isR2Configured()) {
-    console.warn("R2 not configured, skipping repurpose history persistence");
+  const useBlob = isVercelBlobConfigured();
+  const useR2 = isR2Configured() && !isBlobOnlyStorageMode();
+  if (!useBlob && !useR2) {
+    console.warn("Storage not configured, skipping repurpose history persistence");
     return;
   }
 
@@ -268,9 +270,10 @@ async function persistJobToHistory(jobId, userId, outputs, outputDir, settings, 
       const filePath = path.join(outputDir, o.fileName);
       if (!fs.existsSync(filePath)) continue;
       const buffer = fs.readFileSync(filePath);
-      const key = `repurpose/${userId}/${jobId}/${o.fileName}`;
       const mimeType = isImage ? "image/jpeg" : "video/mp4";
-      const url = await uploadToR2(buffer, key, mimeType);
+      const url = useBlob
+        ? await uploadBufferToBlob(buffer, o.fileName, mimeType, `content-studio/repurpose/${userId}/${jobId}`)
+        : await uploadToR2(buffer, `repurpose/${userId}/${jobId}/${o.fileName}`, mimeType);
       const stats = fs.statSync(filePath);
       uploadedOutputs.push({ fileName: o.fileName, fileUrl: url, fileSize: stats.size });
     } catch (err) {
@@ -487,6 +490,12 @@ router.use(authMiddleware);
 router.post("/prepare-browser", requireActiveSubscription, express.json(), async (req, res) => {
   const userId = req.user?.id || req.user?.userId;
   try {
+    if (isBlobOnlyStorageMode()) {
+      return res.status(409).json({
+        ok: false,
+        error: "Browser repurpose presigned uploads are disabled in Blob-only mode. Use worker-based repurpose.",
+      });
+    }
     if (!isR2Configured()) {
       return res.status(503).json({ ok: false, error: "Storage not configured. Browser repurpose is unavailable." });
     }

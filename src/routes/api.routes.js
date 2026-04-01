@@ -48,6 +48,7 @@ import {
   removeWatermarkCreatorStudioVideo,
   handlePiApiCallback,
 } from "../controllers/generation.controller.js";
+import { processPendingBlobRemirrorQueue } from "../services/blob-remirror-queue.service.js";
 import {
   createModel,
   getUserModels,
@@ -242,6 +243,8 @@ import reformatterRoutes from "./reformatter.routes.js";
 import avatarRoutes from "./avatar.routes.js";
 import landerNewRoutes from "./lander-new.routes.js";
 import adminLanderNewRoutes from "./admin-lander-new.routes.js";
+import affiliateLanderPublicRoutes from "./affiliate-lander-public.routes.js";
+import adminAffiliateLanderRoutes from "./admin-affiliate-lander.routes.js";
 import { sendFrontendErrorAlert } from "../services/email.service.js";
 import rateLimit from "express-rate-limit";
 import { getAppBranding } from "../services/branding.service.js";
@@ -745,9 +748,15 @@ router.post("/upload/blob", authMiddleware, async (req, res) => {
   }
 });
 
-// Presigned URL for direct browser → R2 upload (bypasses Vercel 4.5MB body limit)
+// Presigned URL for direct browser -> R2 upload (legacy fallback).
 router.post("/upload/presign", authMiddleware, async (req, res) => {
   try {
+    if (isBlobOnlyStorageMode()) {
+      return res.status(409).json({
+        success: false,
+        error: "R2-style presigned upload is disabled in Blob-only mode. Use /api/upload/blob instead.",
+      });
+    }
     if (!isR2Configured()) {
       return res.status(503).json({ success: false, error: "File storage is not configured" });
     }
@@ -2113,6 +2122,14 @@ router.get("/cron/kie-recovery", async (req, res) => {
   } catch (error) {
     console.error("[cron/kie-recovery] NSFW recovery failed:", error?.message || error);
   }
+  try {
+    const stats = await processPendingBlobRemirrorQueue({ limit: 30 });
+    if (stats?.processed) {
+      console.log("[cron/kie-recovery] Blob re-mirror queue:", stats);
+    }
+  } catch (error) {
+    console.error("[cron/kie-recovery] Blob re-mirror queue failed:", error?.message || error);
+  }
   return cleanupStuckGenerations(req, res);
 });
 
@@ -2196,6 +2213,8 @@ router.use("/drafts", draftRoutes);
 router.use("/reformatter", reformatterRoutes);
 router.use("/lander-new", landerNewRoutes);
 router.use("/admin/lander-new", authMiddleware, adminMiddleware, adminLanderNewRoutes);
+router.use("/affiliate-lander", affiliateLanderPublicRoutes);
+router.use("/admin/affiliate-lander", authMiddleware, adminMiddleware, adminAffiliateLanderRoutes);
 
 // ============================================
 // REAL AVATARS (HeyGen Photo Avatar IV)
@@ -2216,7 +2235,7 @@ router.use("/designer-studio", authMiddleware, adminMiddleware, designerStudioRo
 // TEST REPLICATE API (Admin only, hidden)
 // ============================================
 import Replicate from "replicate";
-import { isR2Configured, uploadFileToR2, getR2PresignedUploadUrl } from "../utils/r2.js";
+import { isR2Configured, uploadFileToR2, getR2PresignedUploadUrl, isBlobOnlyStorageMode } from "../utils/r2.js";
 
 router.post(
   "/test-replicate/upload",

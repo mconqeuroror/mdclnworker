@@ -19,6 +19,7 @@ import {
   recordTelemetryEdgeEvent,
   runEndpointHealthChecks,
 } from './services/telemetry.service.js';
+import { processPendingBlobRemirrorQueue } from "./services/blob-remirror-queue.service.js";
 
 dotenv.config();
 
@@ -63,6 +64,8 @@ const TELEMETRY_INFRA_SNAPSHOT_INTERVAL_MS =
   readIntervalMs(process.env.TELEMETRY_INFRA_SNAPSHOT_INTERVAL_MS, 5 * 60 * 1000);
 const ENDPOINT_HEALTHCHECK_INTERVAL_MS =
   readIntervalMs(process.env.ENDPOINT_HEALTHCHECK_INTERVAL_MS, 15 * 60 * 1000);
+const BLOB_REMIRROR_QUEUE_INTERVAL_MS =
+  readIntervalMs(process.env.BLOB_REMIRROR_QUEUE_INTERVAL_MS, 60 * 1000);
 
 // Middleware - strict origin allowlist for production
 const allowedOrigins = new Set(
@@ -587,6 +590,23 @@ if (!process.env.VERCEL) {
     }
   }, STUCK_GENERATIONS_CLEANUP_INTERVAL_MS);
   console.log(`🧹 Periodic stuck-generation cleanup enabled (${Math.round(STUCK_GENERATIONS_CLEANUP_INTERVAL_MS / 1000)}s interval)`);
+
+  let blobRemirrorInProgress = false;
+  setInterval(async () => {
+    if (blobRemirrorInProgress) return;
+    blobRemirrorInProgress = true;
+    try {
+      const stats = await processPendingBlobRemirrorQueue({ limit: 20 });
+      if (stats?.processed) {
+        console.log("📦 Blob re-mirror queue processed:", stats);
+      }
+    } catch (error) {
+      console.error("Blob re-mirror queue failed (non-fatal):", error?.message || error);
+    } finally {
+      blobRemirrorInProgress = false;
+    }
+  }, BLOB_REMIRROR_QUEUE_INTERVAL_MS);
+  console.log(`📦 Blob re-mirror queue enabled (${Math.round(BLOB_REMIRROR_QUEUE_INTERVAL_MS / 1000)}s interval)`);
 
   // Heal stuck "generating" models every 10 min (initial 3-pose creation only).
   // LoRA training has no timeout: we never heal or fail models in loraStatus 'training'.

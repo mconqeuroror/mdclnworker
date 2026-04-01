@@ -1,0 +1,129 @@
+{
+  "exportedAt": "2026-04-01T09:01:29.852Z",
+  "baseUrl": "https://modelclone.app",
+  "includeAuth": false,
+  "storageState": null,
+  "viewport": {
+    "width": 1512,
+    "height": 982
+  },
+  "routesFile": "scripts\\figma-export-routes.json",
+  "exported": [
+    {
+      "path": "/",
+      "label": "home",
+      "url": "https://modelclone.app/",
+      "file": "home/index.html"
+    },
+    {
+      "path": "/landing",
+      "label": "landing",
+      "url": "https://modelclone.app/landing",
+      "file": "landing/index.html"
+    },
+    {
+      "path": "/create-ai-model",
+      "label": "create-ai-model",
+      "url": "https://modelclone.app/create-ai-model",
+      "file": "create-ai-model/index.html"
+    },
+    {
+      "path": "/sk/vytvor-ai-model",
+      "label": "create-ai-model-sk",
+      "url": "https://modelclone.app/sk/vytvor-ai-model",
+      "file": "create-ai-model-sk/index.html"
+    },
+    {
+      "path": "/free-course",
+      "label": "free-course",
+      "url": "https://modelclone.app/free-course",
+      "file": "free-course/index.html"
+    }
+  ],
+  "skipped": [
+    {
+      "path": "/lander-new",
+      "reason": "page.goto: Timeout 120000ms exceeded.\nCall log:\n  - navigating to \"https://modelclone.app/lander-new\", waiting until \"networkidle\"\n"
+    },
+    {
+      "path": "/terms",
+      "reason": "page.goto: net::ERR_INTERNET_DISCONNECTED at https://modelclone.app/terms\nCall log:\n  - navigating to \"https://modelclone.app/terms\", waiting until \"networkidle\"\n"
+    },
+    {
+      "path": "/privacy",
+      "reason": "page.goto: net::ERR_INTERNET_DISCONNECTED at https://modelclone.app/privacy\nCall log:\n  - navigating to \"https://modelclone.app/privacy\", waiting until \"networkidle\"\n"
+    },
+    {
+      "path": "/cookies",
+      "reason": "page.goto: net::ERR_INTERNET_DISCONNECTED at https://modelclone.app/cookies\nCall log:\n  - navigating to \"https://modelclone.app/cookies\", waiting until \"networkidle\"\n"
+    },
+    {
+      "path": "/login",
+      "reason": "page.goto: net::ERR_INTERNET_DISCONNECTED at https://modelclone.app/login\nCall log:\n  - navigating to \"https://modelclone.app/login\", waiting until \"networkidle\"\n"
+    },
+    {
+      "path": "/signup",
+      "reason": "page.goto: net::ERR_INTERNET_DISCONNECTED at https://modelclone.app/signup\nCall log:\n  - navigating to \"https://modelclone.app/signup\", waiting until \"networkidle\"\n"
+    },
+    {
+      "path": "/verify",
+      "reason": "page.goto: net::ERR_INTERNET_DISCONNECTED at https://modelclone.app/verify\nCall log:\n  - navigating to \"https://modelclone.app/verify\", waiting until \"networkidle\"\n"
+    },
+    {
+      "path": "/forgot-password",
+      "reason": "page.goto: net::ERR_INTERNET_DISCONNECTED at https://modelclone.app/forgot-password\nCall log:\n  - navigating to \"https://modelclone.app/forgot-password\", waiting until \"networkidle\"\n"
+    },
+    {
+      "path": "/reset-password",
+      "reason": "page.goto: net::ERR_INTERNET_DISCONNECTED at https://modelclone.app/reset-password\nCall log:\n  - navigating to \"https://modelclone.app/reset-password\", waiting until \"networkidle\"\n"
+    },
+    {
+      "path": "/dashboard",
+      "reason": "requiresAuth=true and --include-auth not set"
+    },
+    {
+      "path": "/nsfw",
+      "reason": "requiresAuth=true and --include-auth not set"
+    },
+    {
+      "path": "/reformatter",
+      "reason": "requiresAuth=true and --include-auth not set"
+    },
+    {
+      "path": "/onboarding",
+      "reason": "requiresAuth=true and --include-auth not set"
+    },
+    {
+      "path": "/pro",
+      "reason": "requiresAuth=true and --include-auth not set"
+    },
+    {
+      "path": "/pro/models",
+      "reason": "requiresAuth=true and --include-auth not set"
+    },
+    {
+      "path": "/pro/nsfw",
+      "reason": "requiresAuth=true and --include-auth not set"
+    },
+    {
+      "path": "/pro/generation",
+      "reason": "requiresAuth=true and --include-auth not set"
+    },
+    {
+      "path": "/admin",
+      "reason": "requiresAuth=true and --include-auth not set"
+    },
+    {
+      "path": "/admin/lander-editor",
+      "reason": "requiresAuth=true and --include-auth not set"
+    },
+    {
+      "path": "/admin/lander-preview-frame",
+      "reason": "page.goto: net::ERR_INTERNET_DISCONNECTED at https://modelclone.app/admin/lander-preview-frame\nCall log:\n  - navigating to \"https://modelclone.app/admin/lander-preview-frame\", waiting until \"networkidle\"\n"
+    },
+    {
+      "path": "/designer-studio",
+      "reason": "requiresAuth=true and --include-auth not set"
+    }
+  ]
+}

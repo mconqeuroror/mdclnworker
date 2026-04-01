@@ -1,0 +1,30 @@
+[
+  { "path": "/", "label": "home", "requiresAuth": false },
+  { "path": "/landing", "label": "landing", "requiresAuth": false },
+  { "path": "/create-ai-model", "label": "create-ai-model", "requiresAuth": false },
+  { "path": "/sk/vytvor-ai-model", "label": "create-ai-model-sk", "requiresAuth": false },
+  { "path": "/free-course", "label": "free-course", "requiresAuth": false },
+  { "path": "/lander-new", "label": "lander-new", "requiresAuth": false },
+  { "path": "/terms", "label": "terms", "requiresAuth": false },
+  { "path": "/privacy", "label": "privacy", "requiresAuth": false },
+  { "path": "/cookies", "label": "cookies", "requiresAuth": false },
+  { "path": "/login", "label": "login", "requiresAuth": false },
+  { "path": "/signup", "label": "signup", "requiresAuth": false },
+  { "path": "/verify", "label": "verify-email", "requiresAuth": false },
+  { "path": "/forgot-password", "label": "forgot-password", "requiresAuth": false },
+  { "path": "/reset-password", "label": "reset-password", "requiresAuth": false },
+
+  { "path": "/dashboard", "label": "dashboard", "requiresAuth": true },
+  { "path": "/nsfw", "label": "nsfw", "requiresAuth": true },
+  { "path": "/reformatter", "label": "reformatter", "requiresAuth": true },
+  { "path": "/onboarding", "label": "onboarding", "requiresAuth": true },
+  { "path": "/pro", "label": "pro-home", "requiresAuth": true },
+  { "path": "/pro/models", "label": "pro-models", "requiresAuth": true },
+  { "path": "/pro/nsfw", "label": "pro-nsfw", "requiresAuth": true },
+  { "path": "/pro/generation", "label": "pro-generation", "requiresAuth": true },
+
+  { "path": "/admin", "label": "admin", "requiresAuth": true },
+  { "path": "/admin/lander-editor", "label": "admin-lander-editor", "requiresAuth": true },
+  { "path": "/admin/lander-preview-frame", "label": "admin-lander-preview-frame", "requiresAuth": false },
+  { "path": "/designer-studio", "label": "designer-studio", "requiresAuth": true }
+]

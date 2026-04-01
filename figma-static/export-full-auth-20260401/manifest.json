@@ -1,0 +1,170 @@
+{
+  "exportedAt": "2026-04-01T09:51:53.919Z",
+  "baseUrl": "https://modelclone.app",
+  "includeAuth": true,
+  "storageState": "scripts/figma-auth-state.json",
+  "viewport": {
+    "width": 1512,
+    "height": 982
+  },
+  "routesFile": "scripts\\figma-export-routes.json",
+  "exported": [
+    {
+      "path": "/",
+      "label": "home",
+      "url": "https://modelclone.app/",
+      "file": "home/index.html"
+    },
+    {
+      "path": "/landing",
+      "label": "landing",
+      "url": "https://modelclone.app/landing",
+      "file": "landing/index.html"
+    },
+    {
+      "path": "/create-ai-model",
+      "label": "create-ai-model",
+      "url": "https://modelclone.app/create-ai-model",
+      "file": "create-ai-model/index.html"
+    },
+    {
+      "path": "/sk/vytvor-ai-model",
+      "label": "create-ai-model-sk",
+      "url": "https://modelclone.app/sk/vytvor-ai-model",
+      "file": "create-ai-model-sk/index.html"
+    },
+    {
+      "path": "/free-course",
+      "label": "free-course",
+      "url": "https://modelclone.app/free-course",
+      "file": "free-course/index.html"
+    },
+    {
+      "path": "/lander-new",
+      "label": "lander-new",
+      "url": "https://modelclone.app/lander-new",
+      "file": "lander-new/index.html"
+    },
+    {
+      "path": "/terms",
+      "label": "terms",
+      "url": "https://modelclone.app/terms",
+      "file": "terms/index.html"
+    },
+    {
+      "path": "/privacy",
+      "label": "privacy",
+      "url": "https://modelclone.app/privacy",
+      "file": "privacy/index.html"
+    },
+    {
+      "path": "/cookies",
+      "label": "cookies",
+      "url": "https://modelclone.app/cookies",
+      "file": "cookies/index.html"
+    },
+    {
+      "path": "/login",
+      "label": "login",
+      "url": "https://modelclone.app/login",
+      "file": "login/index.html"
+    },
+    {
+      "path": "/signup",
+      "label": "signup",
+      "url": "https://modelclone.app/signup",
+      "file": "signup/index.html"
+    },
+    {
+      "path": "/verify",
+      "label": "verify-email",
+      "url": "https://modelclone.app/verify",
+      "file": "verify-email/index.html"
+    },
+    {
+      "path": "/forgot-password",
+      "label": "forgot-password",
+      "url": "https://modelclone.app/forgot-password",
+      "file": "forgot-password/index.html"
+    },
+    {
+      "path": "/reset-password",
+      "label": "reset-password",
+      "url": "https://modelclone.app/reset-password",
+      "file": "reset-password/index.html"
+    },
+    {
+      "path": "/dashboard",
+      "label": "dashboard",
+      "url": "https://modelclone.app/dashboard",
+      "file": "dashboard/index.html"
+    },
+    {
+      "path": "/nsfw",
+      "label": "nsfw",
+      "url": "https://modelclone.app/nsfw",
+      "file": "nsfw/index.html"
+    },
+    {
+      "path": "/reformatter",
+      "label": "reformatter",
+      "url": "https://modelclone.app/reformatter",
+      "file": "reformatter/index.html"
+    },
+    {
+      "path": "/onboarding",
+      "label": "onboarding",
+      "url": "https://modelclone.app/onboarding",
+      "file": "onboarding/index.html"
+    },
+    {
+      "path": "/pro",
+      "label": "pro-home",
+      "url": "https://modelclone.app/pro",
+      "file": "pro-home/index.html"
+    },
+    {
+      "path": "/pro/models",
+      "label": "pro-models",
+      "url": "https://modelclone.app/pro/models",
+      "file": "pro-models/index.html"
+    },
+    {
+      "path": "/pro/nsfw",
+      "label": "pro-nsfw",
+      "url": "https://modelclone.app/pro/nsfw",
+      "file": "pro-nsfw/index.html"
+    },
+    {
+      "path": "/pro/generation",
+      "label": "pro-generation",
+      "url": "https://modelclone.app/pro/generation",
+      "file": "pro-generation/index.html"
+    },
+    {
+      "path": "/admin",
+      "label": "admin",
+      "url": "https://modelclone.app/admin",
+      "file": "admin/index.html"
+    },
+    {
+      "path": "/admin/lander-editor",
+      "label": "admin-lander-editor",
+      "url": "https://modelclone.app/admin/lander-editor",
+      "file": "admin-lander-editor/index.html"
+    },
+    {
+      "path": "/admin/lander-preview-frame",
+      "label": "admin-lander-preview-frame",
+      "url": "https://modelclone.app/admin/lander-preview-frame",
+      "file": "admin-lander-preview-frame/index.html"
+    },
+    {
+      "path": "/designer-studio",
+      "label": "designer-studio",
+      "url": "https://modelclone.app/designer-studio",
+      "file": "designer-studio/index.html"
+    }
+  ],
+  "skipped": []
+}

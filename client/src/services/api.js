@@ -721,6 +721,45 @@ export const landerNewAPI = {
   },
 };
 
+export const affiliateLanderPublicAPI = {
+  getPublished: async (suffix) => {
+    const s = encodeURIComponent(String(suffix || "").trim());
+    const response = await api.get(`/affiliate-lander/${s}/published`);
+    return response.data;
+  },
+};
+
+export const affiliateLanderAdminAPI = {
+  list: async () => {
+    const response = await api.get("/admin/affiliate-lander");
+    return response.data;
+  },
+  create: async (suffix) => {
+    const response = await api.post("/admin/affiliate-lander", { suffix });
+    return response.data;
+  },
+  getConfigBundle: async (suffix) => {
+    const s = encodeURIComponent(String(suffix || "").trim());
+    const response = await api.get(`/admin/affiliate-lander/${s}/config`);
+    return response.data;
+  },
+  saveDraft: async (suffix, config) => {
+    const s = encodeURIComponent(String(suffix || "").trim());
+    const response = await api.put(`/admin/affiliate-lander/${s}/draft`, { config });
+    return response.data;
+  },
+  publish: async (suffix) => {
+    const s = encodeURIComponent(String(suffix || "").trim());
+    const response = await api.post(`/admin/affiliate-lander/${s}/publish`);
+    return response.data;
+  },
+  remove: async (suffix) => {
+    const s = encodeURIComponent(String(suffix || "").trim());
+    const response = await api.delete(`/admin/affiliate-lander/${s}`);
+    return response.data;
+  },
+};
+
 export const tutorialsAPI = {
   getCatalog: async () => {
     const response = await api.get("/tutorials/catalog");

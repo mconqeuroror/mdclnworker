@@ -6,8 +6,25 @@ const R2_ACCESS_KEY_ID = process.env.R2_ACCESS_KEY_ID;
 const R2_SECRET_ACCESS_KEY = process.env.R2_SECRET_ACCESS_KEY;
 const R2_BUCKET_NAME = process.env.R2_BUCKET_NAME;
 const R2_PUBLIC_URL = process.env.R2_PUBLIC_URL;
+const BLOB_TOKEN = process.env.BLOB_READ_WRITE_TOKEN;
+const FORCE_BLOB_ONLY = (process.env.FORCE_BLOB_ONLY_STORAGE || "true").toLowerCase() !== "false";
 
 let s3Client = null;
+
+function isBlobOnlyMode() {
+  return !!(BLOB_TOKEN && FORCE_BLOB_ONLY);
+}
+
+export function isBlobOnlyStorageMode() {
+  return isBlobOnlyMode();
+}
+
+async function uploadBufferToBlobOnly(buffer, folder, extension = "bin", contentType = "application/octet-stream") {
+  const { uploadBufferToBlob } = await import("./kieUpload.js");
+  const safeExt = String(extension || "bin").replace(/[^a-z0-9]/gi, "").toLowerCase() || "bin";
+  const filename = `file.${safeExt}`;
+  return uploadBufferToBlob(buffer, filename, contentType || "application/octet-stream", folder || "uploads");
+}
 
 function getS3Client() {
   if (!s3Client) {
@@ -82,6 +99,10 @@ export async function getR2PresignedPutForKey(key, contentType = "video/mp4", ex
 }
 
 export async function uploadFileToR2(file, folder = "uploads") {
+  if (isBlobOnlyMode()) {
+    const extension = file.originalname?.split(".").pop() || "bin";
+    return uploadBufferToBlobOnly(file.buffer, folder, extension, file.mimetype || "application/octet-stream");
+  }
   const timestamp = Date.now();
   const randomId = Math.random().toString(36).substring(2, 10);
   const extension = file.originalname?.split(".").pop() || "jpg";
@@ -93,6 +114,9 @@ export async function uploadFileToR2(file, folder = "uploads") {
 }
 
 export async function uploadBufferToR2(buffer, folder = "uploads", extension = "jpg", contentType = "image/jpeg") {
+  if (isBlobOnlyMode()) {
+    return uploadBufferToBlobOnly(buffer, folder, extension, contentType);
+  }
   const timestamp = Date.now();
   const randomId = Math.random().toString(36).substring(2, 10);
   const key = `${folder}/${timestamp}_${randomId}.${extension}`;
@@ -222,7 +246,15 @@ export async function getPresignedGetUrl(key, expiresIn = 3600) {
  */
 export async function reMirrorToR2(url, folder = "generations") {
   if (!url || !url.startsWith("http")) return url;
-  const { uploadBufferToBlobOrR2, isVercelBlobConfigured } = await import("./kieUpload.js");
+  const { uploadBufferToBlobOrR2, isVercelBlobConfigured, mirrorExternalUrlToPersistentBlob } = await import("./kieUpload.js");
+  if (isBlobOnlyMode() && isVercelBlobConfigured()) {
+    try {
+      return await mirrorExternalUrlToPersistentBlob(url, folder);
+    } catch (err) {
+      console.warn(`⚠️ Blob-only re-mirror failed: ${err.message} — using original URL`);
+      return url;
+    }
+  }
   if (!isVercelBlobConfigured() && !isR2Configured()) return url;
 
   try {
@@ -279,7 +311,15 @@ export async function reMirrorToR2(url, folder = "generations") {
  * @returns {Promise<string>} - R2 public URL
  */
 export async function mirrorToR2(externalUrl, folder = "models") {
-  const { isVercelBlobConfigured } = await import("./kieUpload.js");
+  const { isVercelBlobConfigured, mirrorExternalUrlToPersistentBlob } = await import("./kieUpload.js");
+  if (isBlobOnlyMode() && isVercelBlobConfigured()) {
+    try {
+      return await mirrorExternalUrlToPersistentBlob(externalUrl, folder);
+    } catch (err) {
+      console.warn(`⚠️ Blob-only mirror failed: ${err.message} — using original URL`);
+      return externalUrl;
+    }
+  }
   if (!isVercelBlobConfigured() && !isR2Configured()) {
     console.warn("⚠️ No blob/R2 storage, returning original URL");
     return externalUrl;

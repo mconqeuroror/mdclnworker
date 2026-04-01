@@ -4,11 +4,11 @@ import {
   Users, Search, Plus, Trash2, DollarSign, Activity, Settings, Shield,
   ChevronDown, ChevronUp, RefreshCw, BarChart3, Palette, Mail, ArrowLeft,
   Copy, Check, AlertTriangle, Zap, Server, Clock, TrendingUp, TrendingDown,
-  ChevronLeft, ChevronRight, X, Send, UserX, Download, Loader2, Wallet,
+  ChevronLeft, ChevronRight, X, Send, UserX, Download, Loader2, Wallet, ExternalLink,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import api, { adminAPI, adminTelemetryAPI, brandingAPI, formatApiError, referralAPI, tutorialsAPI, uploadToCloudinary as uploadFile } from '../services/api';
+import api, { adminAPI, adminTelemetryAPI, affiliateLanderAdminAPI, brandingAPI, formatApiError, referralAPI, tutorialsAPI, uploadToCloudinary as uploadFile } from '../services/api';
 import AddCreditsAdminModal from '../components/AddCreditsAdminModal';
 import EditUserSettingsModal from '../components/EditUserSettingsModal';
 import NsfwOverrideModal from '../components/NsfwOverrideModal';
@@ -512,6 +512,11 @@ export default function AdminPage() {
   const [showBackupPanel, setShowBackupPanel] = useState(false);
   const [showTopSpenders, setShowTopSpenders] = useState(true);
 
+  const [affiliateLanders, setAffiliateLanders] = useState([]);
+  const [affiliateLandersLoading, setAffiliateLandersLoading] = useState(false);
+  const [newAffLanderSuffix, setNewAffLanderSuffix] = useState('');
+  const [creatingAffLander, setCreatingAffLander] = useState(false);
+
   // ── Filter / control state ──────────────────────────────────────────────────
   const [statsPeriod, setStatsPeriod] = useState('week');
   const [statsYear, setStatsYear] = useState(new Date().getFullYear());
@@ -679,6 +684,55 @@ export default function AdminPage() {
     }
   };
 
+  const loadAffiliateLanders = async () => {
+    setAffiliateLandersLoading(true);
+    try {
+      const r = await affiliateLanderAdminAPI.list();
+      if (r?.success) setAffiliateLanders(r.items || []);
+    } catch (e) {
+      toast.error(formatApiError(e, 'Failed to load affiliate landers'));
+    } finally {
+      setAffiliateLandersLoading(false);
+    }
+  };
+
+  const createAffiliateLander = async () => {
+    const raw = newAffLanderSuffix
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9-]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    if (raw.length < 2) {
+      toast.error('Enter a path suffix (e.g. summer-promo)');
+      return;
+    }
+    setCreatingAffLander(true);
+    try {
+      const r = await affiliateLanderAdminAPI.create(raw);
+      if (r?.success && r.suffix) {
+        toast.success('Affiliate lander created');
+        setNewAffLanderSuffix('');
+        await loadAffiliateLanders();
+        navigate(`/admin/affiliate-lander-editor/${encodeURIComponent(r.suffix)}`);
+      }
+    } catch (e) {
+      toast.error(formatApiError(e, 'Could not create lander'));
+    } finally {
+      setCreatingAffLander(false);
+    }
+  };
+
+  const deleteAffiliateLander = async (suf) => {
+    if (!window.confirm(`Delete affiliate lander /aff/${suf}? This cannot be undone.`)) return;
+    try {
+      await affiliateLanderAdminAPI.remove(suf);
+      toast.success('Deleted');
+      loadAffiliateLanders();
+    } catch (e) {
+      toast.error(formatApiError(e, 'Delete failed'));
+    }
+  };
+
   // ── Initial load & period / range sync ─────────────────────────────────────
   useEffect(() => {
     loadUsers('', 1);
@@ -690,6 +744,7 @@ export default function AdminPage() {
     loadTutorialSlots();
     loadBackupHistory();
     loadCampaigns();
+    loadAffiliateLanders();
   }, []);
 
   useEffect(() => {
@@ -1702,6 +1757,93 @@ export default function AdminPage() {
             </GhostBtn>
           </div>
         </div>
+
+        {/* ── Affiliate landers ───────────────────────────────────────────── */}
+        <Section>
+          <SectionHeader
+            title="Affiliate landers"
+            actions={
+              <GhostBtn onClick={() => loadAffiliateLanders()} disabled={affiliateLandersLoading}>
+                <RefreshCw className={`w-3 h-3 ${affiliateLandersLoading ? 'animate-spin' : ''}`} /> Refresh
+              </GhostBtn>
+            }
+          />
+          <p className="text-xs text-gray-500 mb-3">
+            Public URL pattern:{' '}
+            <code className="text-violet-300/90">…/aff/your-suffix</code>
+            . Uses the same breakpoint, drag, and style tools as the main lander editor. Publish from the editor when ready.
+          </p>
+          <div className="flex flex-wrap items-end gap-2 mb-4">
+            <label className="block text-xs text-gray-400 min-w-[200px] flex-1">
+              Path suffix
+              <input
+                type="text"
+                value={newAffLanderSuffix}
+                onChange={(e) => setNewAffLanderSuffix(e.target.value)}
+                placeholder="e.g. partner-name"
+                className="mt-1 w-full rounded-lg border border-white/[0.1] bg-black/50 px-3 py-2 text-sm text-white placeholder:text-gray-600 outline-none focus:border-violet-500/40"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={createAffiliateLander}
+              disabled={creatingAffLander}
+              className="rounded-lg border border-violet-500/40 bg-violet-600/25 px-4 py-2 text-xs font-semibold text-violet-200 hover:bg-violet-600/40 disabled:opacity-50"
+            >
+              {creatingAffLander ? 'Creating…' : 'Create & open editor'}
+            </button>
+          </div>
+          <div className="rounded-xl border border-white/[0.07] overflow-x-auto">
+            <table className="w-full text-left text-xs min-w-[520px]">
+              <thead>
+                <tr className="border-b border-white/[0.07] text-gray-500">
+                  <th className="px-3 py-2 font-medium">Suffix</th>
+                  <th className="px-3 py-2 font-medium">Updated</th>
+                  <th className="px-3 py-2 font-medium text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {!affiliateLanders.length && !affiliateLandersLoading && (
+                  <tr>
+                    <td colSpan={3} className="px-3 py-6 text-center text-gray-600">
+                      No affiliate landers yet.
+                    </td>
+                  </tr>
+                )}
+                {affiliateLanders.map((row) => (
+                  <tr key={row.suffix} className="border-b border-white/[0.05] hover:bg-white/[0.02]">
+                    <td className="px-3 py-2 font-mono text-violet-200/90">/aff/{row.suffix}</td>
+                    <td className="px-3 py-2 text-gray-500">{fmtDate(row.updatedAt)}</td>
+                    <td className="px-3 py-2 text-right whitespace-nowrap">
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/admin/affiliate-lander-editor/${encodeURIComponent(row.suffix)}`)}
+                        className="text-violet-400 hover:text-violet-300 mr-3"
+                      >
+                        Edit
+                      </button>
+                      <a
+                        href={`/aff/${encodeURIComponent(row.suffix)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-0.5 text-gray-400 hover:text-white mr-3"
+                      >
+                        <ExternalLink className="w-3 h-3" /> Live
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => deleteAffiliateLander(row.suffix)}
+                        className="text-red-400/90 hover:text-red-300"
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Section>
 
         {/* ── Platform Performance ─────────────────────────────────────────── */}
         <Section>

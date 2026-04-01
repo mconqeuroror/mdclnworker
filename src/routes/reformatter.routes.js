@@ -3,7 +3,7 @@ import multer from "multer";
 import crypto from "crypto";
 import prisma from "../lib/prisma.js";
 import { authMiddleware } from "../middleware/auth.middleware.js";
-import { isR2Configured, getR2PresignedPutForKey } from "../utils/r2.js";
+import { isR2Configured, getR2PresignedPutForKey, isBlobOnlyStorageMode } from "../utils/r2.js";
 import { convertAndStoreMedia, isConvertibleMedia } from "../services/media-reformatter.service.js";
 import { postRepurposeJobToWorker } from "../services/ffmpeg-worker-client.js";
 import { isVercelBlobConfigured, mirrorToBlob } from "../utils/kieUpload.js";
@@ -57,6 +57,12 @@ async function buildWorkerOutputTarget(userId, jobId, isVideo) {
 /** Browser (ffmpeg.wasm) path: create a converter job and return presigned PUT URL so client can convert in browser and upload result. */
 router.post("/prepare-browser", authMiddleware, express.json(), async (req, res) => {
   try {
+    if (isBlobOnlyStorageMode()) {
+      return res.status(409).json({
+        success: false,
+        message: "Browser conversion presign is disabled in Blob-only mode. Use /api/upload/blob + /reformatter/convert-with-worker.",
+      });
+    }
     if (!isR2Configured()) {
       return res.status(503).json({ success: false, message: "File storage is not configured" });
     }
@@ -133,6 +139,12 @@ router.post("/register-completed", authMiddleware, express.json(), async (req, r
 /** Get presigned PUT URL to upload the **input** file (before conversion). Enables "submit and leave" flow. */
 router.post("/prepare-input", authMiddleware, express.json(), async (req, res) => {
   try {
+    if (isBlobOnlyStorageMode()) {
+      return res.status(409).json({
+        success: false,
+        message: "Input presign is disabled in Blob-only mode. Upload with /api/upload/blob.",
+      });
+    }
     if (!isR2Configured()) {
       return res.status(503).json({ success: false, message: "File storage is not configured" });
     }
@@ -239,7 +251,7 @@ router.post("/convert-with-worker", authMiddleware, express.json(), async (req, 
 /** Start conversion on the server (runs in background so user can leave). Requires FFmpeg on the server. */
 router.post("/convert-background", authMiddleware, express.json(), async (req, res) => {
   try {
-    if (!isR2Configured()) {
+    if (!isVercelBlobConfigured() && !isR2Configured()) {
       return res.status(503).json({ success: false, message: "File storage is not configured" });
     }
     const userId = req.user?.id || req.user?.userId;
@@ -361,7 +373,7 @@ router.get("/history", authMiddleware, async (req, res) => {
 
 router.post("/convert", authMiddleware, upload.single("file"), async (req, res) => {
   try {
-    if (!isR2Configured()) {
+    if (!isVercelBlobConfigured() && !isR2Configured()) {
       return res.status(503).json({
         success: false,
         message: "File storage is not configured",

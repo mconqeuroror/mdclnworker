@@ -18,6 +18,8 @@ import {
 } from "../lib/mirrorRedisCache.js";
 
 const BLOB_TOKEN = process.env.BLOB_READ_WRITE_TOKEN;
+const BLOB_UPLOAD_RETRIES = 3;
+const BLOB_UPLOAD_RETRY_DELAY_MS = 700;
 
 export function isVercelBlobConfigured() {
   return !!BLOB_TOKEN;
@@ -38,18 +40,29 @@ export async function uploadBufferToBlob(buffer, filename, contentType, folder =
   const random = Math.random().toString(36).slice(2, 8);
   const blobPath = `${folder}/${ts}_${random}_${filename}`;
 
-  const blob = await put(blobPath, buffer, {
-    access: "public",
-    contentType,
-    token: BLOB_TOKEN,
-    addRandomSuffix: false,
-    // Long CDN/browser cache; does not delete the blob (Vercel has no storage TTL).
-    cacheControlMaxAge:
-      folder === "kie-relay" ? 3600 : 31536000,
-  });
+  let lastErr;
+  for (let attempt = 1; attempt <= BLOB_UPLOAD_RETRIES; attempt++) {
+    try {
+      const blob = await put(blobPath, buffer, {
+        access: "public",
+        contentType,
+        token: BLOB_TOKEN,
+        addRandomSuffix: false,
+        // Long CDN/browser cache; does not delete the blob (Vercel has no storage TTL).
+        cacheControlMaxAge:
+          folder === "kie-relay" ? 3600 : 31536000,
+      });
+      console.log(`[Blob/KIE relay] Uploaded: ${blob.url.slice(0, 80)}`);
+      return blob.url;
+    } catch (err) {
+      lastErr = err;
+      if (attempt < BLOB_UPLOAD_RETRIES) {
+        await new Promise((r) => setTimeout(r, BLOB_UPLOAD_RETRY_DELAY_MS * attempt));
+      }
+    }
+  }
 
-  console.log(`[Blob/KIE relay] Uploaded: ${blob.url.slice(0, 80)}`);
-  return blob.url;
+  throw lastErr || new Error("Blob upload failed");
 }
 
 /** New uploads: Vercel Blob when configured, else R2 (legacy). */
@@ -372,7 +385,7 @@ export async function ensureKieAccessibleUrl(url, _label = "media") {
   return reMirrorToR2(url, "generations");
 }
 
-const PROVIDER_MIRROR_FETCH_MS = 90_000;
+const PROVIDER_MIRROR_FETCH_MS = 35_000;
 
 function isDurableMirroredUrl(url) {
   if (!url || typeof url !== "string") return false;
@@ -394,9 +407,14 @@ export async function mirrorProviderOutputUrl(outputUrl, contentTypeHint = "imag
   const providerTtlSec = 3600;
 
   async function runFetchOnce() {
-    const maxAttempts = 3;
-    const delayMs = 2500;
+    const maxAttempts = 2;
+    const delayMs = 1200;
+    const startedAt = Date.now();
+    const maxTotalMs = 75_000;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      if (Date.now() - startedAt > maxTotalMs) {
+        break;
+      }
       try {
         const dl = await fetch(outputUrl, { signal: AbortSignal.timeout(PROVIDER_MIRROR_FETCH_MS) });
         if (!dl.ok) throw new Error(`HTTP ${dl.status}`);
@@ -417,10 +435,11 @@ export async function mirrorProviderOutputUrl(outputUrl, contentTypeHint = "imag
                   : ext === "webp" ? "image/webp" : "image/jpeg";
         return await uploadBufferToBlobOrR2(buf, "user-uploads", ext, finalCt);
       } catch (e) {
-        console.warn(`[mirrorProviderOutputUrl] attempt ${attempt}/${maxAttempts} failed: ${e?.message}`);
+        console.log(`[mirrorProviderOutputUrl] attempt ${attempt}/${maxAttempts} failed: ${e?.message}`);
         if (attempt < maxAttempts) await new Promise((r) => setTimeout(r, delayMs));
       }
     }
+    console.warn("[mirrorProviderOutputUrl] persistence retries exhausted; keeping provider URL");
     return outputUrl;
   }
 
@@ -456,7 +475,7 @@ export async function mirrorProviderOutputUrl(outputUrl, contentTypeHint = "imag
   return promise;
 }
 
-const MIRROR_PERSIST_TIMEOUT_MS = 120_000;
+const MIRROR_PERSIST_TIMEOUT_MS = 45_000;
 
 /**
  * Download a public URL and store bytes on Vercel Blob (durable folder, e.g. generations/).
@@ -468,28 +487,40 @@ export async function mirrorExternalUrlToPersistentBlob(sourceUrl, folder = "gen
   if (sourceUrl.includes("vercel-storage.com") || sourceUrl.includes("blob.vercel.app")) {
     return sourceUrl;
   }
-  const res = await fetch(sourceUrl, { signal: AbortSignal.timeout(MIRROR_PERSIST_TIMEOUT_MS) });
-  if (!res.ok) throw new Error(`mirror persist: download HTTP ${res.status}`);
-  const buffer = Buffer.from(await res.arrayBuffer());
-  if (buffer.length === 0) throw new Error("mirror persist: empty body");
-  const ctRaw = res.headers.get("content-type") || "application/octet-stream";
-  const ct = ctRaw.split(";")[0].trim() || "application/octet-stream";
-  const extFromUrl = sourceUrl.match(/\.(png|jpg|jpeg|webp|gif|mp4|webm|mov)(\?|$)/i)?.[1]?.toLowerCase();
-  const ext =
-    extFromUrl
-    || (ct.includes("png") ? "png"
-      : ct.includes("webp") ? "webp"
-        : ct.includes("mp4") ? "mp4"
-          : ct.includes("webm") ? "webm"
-            : ct.includes("quicktime") || ct.includes("mov") ? "mov" : "jpg");
-  const finalCt =
-    ext === "mp4" ? "video/mp4"
-      : ext === "webm" ? "video/webm"
-        : ext === "mov" ? "video/quicktime"
-          : ext === "png" ? "image/png"
-            : ext === "webp" ? "image/webp" : "image/jpeg";
-  const filename = getBlobFilename(sourceUrl, ext);
-  return uploadBufferToBlob(buffer, filename, finalCt, folder);
+  const maxAttempts = 2;
+  let lastErr;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const res = await fetch(sourceUrl, { signal: AbortSignal.timeout(MIRROR_PERSIST_TIMEOUT_MS) });
+      if (!res.ok) throw new Error(`mirror persist: download HTTP ${res.status}`);
+      const buffer = Buffer.from(await res.arrayBuffer());
+      if (buffer.length === 0) throw new Error("mirror persist: empty body");
+      const ctRaw = res.headers.get("content-type") || "application/octet-stream";
+      const ct = ctRaw.split(";")[0].trim() || "application/octet-stream";
+      const extFromUrl = sourceUrl.match(/\.(png|jpg|jpeg|webp|gif|mp4|webm|mov)(\?|$)/i)?.[1]?.toLowerCase();
+      const ext =
+        extFromUrl
+        || (ct.includes("png") ? "png"
+          : ct.includes("webp") ? "webp"
+            : ct.includes("mp4") ? "mp4"
+              : ct.includes("webm") ? "webm"
+                : ct.includes("quicktime") || ct.includes("mov") ? "mov" : "jpg");
+      const finalCt =
+        ext === "mp4" ? "video/mp4"
+          : ext === "webm" ? "video/webm"
+            : ext === "mov" ? "video/quicktime"
+              : ext === "png" ? "image/png"
+                : ext === "webp" ? "image/webp" : "image/jpeg";
+      const filename = getBlobFilename(sourceUrl, ext);
+      return await uploadBufferToBlob(buffer, filename, finalCt, folder);
+    } catch (err) {
+      lastErr = err;
+      if (attempt < maxAttempts) {
+        await new Promise((r) => setTimeout(r, 1000 * attempt));
+      }
+    }
+  }
+  throw lastErr || new Error("mirror persist failed");
 }
 
 /** @deprecated Prefer deleteStoredMediaUrl from storageDelete.js */

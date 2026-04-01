@@ -49,6 +49,9 @@ import ContentReformatterPage from './pages/ContentReformatterPage';
 import LanderNewPage from './pages/LanderNewPage';
 import AdminLanderEditorPage from './pages/AdminLanderEditorPage';
 import AdminLanderPreviewFrame from './pages/AdminLanderPreviewFrame';
+import AdminAffiliateLanderEditorPage from './pages/AdminAffiliateLanderEditorPage';
+import AdminAffiliateLanderPreviewFrame from './pages/AdminAffiliateLanderPreviewFrame';
+import AffiliateLanderPublicPage from './pages/AffiliateLanderPublicPage';
 import SupportChatButton from './components/SupportChatButton';
 import AdminLoginPage from './pages/AdminLoginPage';
 import ProLayout from './pages/Pro/ProLayout';
@@ -514,6 +517,8 @@ function App() {
           <Route path="/lander-new" element={<LanderNewPage />} />
           {/* Preview frame loaded inside editor iframe — must be public (no AdminRoute) */}
           <Route path="/admin/lander-preview-frame" element={<AdminLanderPreviewFrame />} />
+          <Route path="/admin/affiliate-lander-preview-frame" element={<AdminAffiliateLanderPreviewFrame />} />
+          <Route path="/aff/:suffix" element={<AffiliateLanderPublicPage />} />
           <Route
             path="/voice-test"
             element={
@@ -575,6 +580,14 @@ function App() {
             element={
               <AdminRoute>
                 <AdminLanderEditorPage />
+              </AdminRoute>
+            }
+          />
+          <Route
+            path="/admin/affiliate-lander-editor/:suffix"
+            element={
+              <AdminRoute>
+                <AdminAffiliateLanderEditorPage />
               </AdminRoute>
             }
           />

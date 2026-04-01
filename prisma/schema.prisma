@@ -631,6 +631,18 @@ model LanderNewConfig {
   updatedAt DateTime @updatedAt
 }
 
+/// Admin-built affiliate micro-landers at /aff/:suffix (draft + published JSON configs)
+model AffiliateLanderPage {
+  id        String   @id @default(uuid())
+  suffix    String   @unique
+  published Json
+  draft     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([suffix])
+}
+
 /// Per-slot tutorial videos (Vercel Blob URL persisted after admin upload)
 model TutorialSlotVideo {
   slotKey   String   @id

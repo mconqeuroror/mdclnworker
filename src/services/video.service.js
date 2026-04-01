@@ -4,7 +4,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { promisify } from "util";
-import { isR2Configured, getR2PresignedPutForKey } from "../utils/r2.js";
+import { isR2Configured, getR2PresignedPutForKey, isBlobOnlyStorageMode } from "../utils/r2.js";
 import { isVercelBlobConfigured, uploadBufferToBlobOrR2 } from "../utils/kieUpload.js";
 import { getFfmpegPathSync } from "../utils/ffmpeg-path.js";
 import { postTranscodeJobToWorker, postFramesJobToWorker } from "./ffmpeg-worker-client.js";
@@ -112,6 +112,9 @@ async function extractFramesFromVideo(videoUrl, options = {}) {
   // Frame extraction always routes through the external ffmpeg worker (EasyPanel).
   // Vercel bundles exclude ffmpeg/ffprobe to stay under 250 MB so local execution
   // is not reliable — the worker has a real ffmpeg install via apt.
+  if (isBlobOnlyStorageMode()) {
+    return { success: false, error: "Frame extraction worker requires R2 presigned outputs and is disabled in Blob-only mode." };
+  }
   if (!isR2Configured()) {
     return { success: false, error: "R2 must be configured for frame extraction" };
   }
@@ -336,8 +339,8 @@ async function preprocessReferenceVideoForKling(videoUrl) {
     console.log("✅ Reference video already on Vercel Blob — skipping ffmpeg preprocess");
     return videoUrl;
   }
-  if (!isR2Configured()) {
-    console.warn("⚠️ R2 not configured, skipping reference video preprocessing");
+  if (isBlobOnlyStorageMode() || !isR2Configured()) {
+    console.log("ℹ️ Reference video preprocessing skipped (R2 worker output unavailable in Blob-only mode)");
     return videoUrl;
   }
   try {
@@ -365,8 +368,8 @@ async function preprocessReferenceVideoForKling(videoUrl) {
  */
 async function preprocessAudioForTalkingHead(audioBuffer) {
   if (!Buffer.isBuffer(audioBuffer) || audioBuffer.length === 0) return audioBuffer;
-  if (!isR2Configured()) {
-    console.warn("⚠️ R2 not configured, skipping audio preprocessing");
+  if (isBlobOnlyStorageMode() || !isR2Configured()) {
+    console.log("ℹ️ Talking head audio preprocessing skipped (R2 worker output unavailable in Blob-only mode)");
     return audioBuffer;
   }
   try {
