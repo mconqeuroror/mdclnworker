@@ -151,7 +151,7 @@ p  { margin: 0; }
   z-index: 1;
   height: 36px;
   color: rgba(87, 41, 99, 0);
-  background-color: rgba(39, 29, 68, 1);
+  background: linear-gradient(90deg, rgba(200, 171, 255, 1) 0%, rgba(121, 73, 153, 1) 100%);
   backdrop-filter: none;
   border-bottom: 1px solid rgba(255, 255, 255, 0.14);
 }
@@ -395,6 +395,24 @@ p  { margin: 0; }
   opacity: 0.6;
 }
 .btn-primary:active { transform: translateY(0); }
+
+/* Header sign up — preview overrides */
+#signup.btn-primary {
+  background: linear-gradient(90deg, rgba(202, 122, 255, 1) 0%, rgba(121, 73, 153, 1) 100%);
+  border-width: 0;
+  border-style: none;
+  border-color: rgba(255, 255, 255, 0.3);
+  border-image: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    0 0 20px rgba(255, 255, 255, 0.38);
+}
+#signup.btn-primary:hover {
+  border-color: rgba(255, 255, 255, 0.45);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 0 24px rgba(255, 255, 255, 0.48);
+}
 
 .btn-ghost {
   color: var(--dp-btn-ghost-text, rgba(255, 255, 255, 0.94));
@@ -676,7 +694,13 @@ main {
   border-radius: 18px;
   padding: 1.1rem 1.6rem;
   margin-bottom: 1.15rem;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-width: 0;
+  border-style: none;
+  border-color: transparent;
+  border-image: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    0 0 20px rgba(255, 255, 255, 0.2);
   background:
     radial-gradient(ellipse 56% 110% at 0% 60%, rgba(236, 72, 153, 0.34), rgba(236, 72, 153, 0.1) 46%, transparent 72%),
     radial-gradient(ellipse 52% 96% at 100% 48%, rgba(168, 85, 247, 0.24), rgba(168, 85, 247, 0.08) 48%, transparent 76%),
@@ -703,8 +727,10 @@ main {
 }
 
 .countdown-banner:hover {
-  border-color: rgba(255, 255, 255, 0.2);
-  box-shadow: 0 0 40px rgba(139, 92, 246, 0.11);
+  border-color: transparent;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    0 0 26px rgba(255, 255, 255, 0.28);
 }
 
 .countdown-banner::before {
@@ -719,6 +745,10 @@ main {
     rgba(226, 217, 255, 0.52) 62%,
     transparent
   );
+}
+
+.countdown-banner .btn-primary {
+  background: linear-gradient(90deg, rgba(202, 122, 255, 1) 0%, rgba(121, 73, 153, 1) 58%);
 }
 
 .countdown-timer {
@@ -833,6 +863,10 @@ main {
   line-height: 1.02;
   letter-spacing: -0.03em;
   max-width: 11ch;
+}
+
+.create-header .btn-primary {
+  background: linear-gradient(90deg, rgba(121, 73, 153, 1) 0%, rgba(197, 116, 251, 1) 100%);
 }
 
 .create-grid {
@@ -1414,7 +1448,8 @@ main {
 
 .pricing-cycle-btn.is-active {
   color: #fff;
-  background: rgba(255, 255, 255, 0.11);
+  background-color: rgba(133, 119, 177, 1);
+  background-image: linear-gradient(0deg, rgba(121, 73, 153, 1) 0%, rgba(202, 122, 255, 1) 100%);
 }
 
 .pricing-cycle-badge {
@@ -1423,7 +1458,7 @@ main {
   font-weight: 700;
   padding: 0.07rem 0.34rem;
   border-radius: 999px;
-  background: var(--success);
+  background: linear-gradient(0deg, rgba(7, 83, 58, 1) 0%, rgba(16, 185, 129, 1) 100%);
   color: #fff;
   line-height: 1.4;
   letter-spacing: 0.01em;
@@ -1523,7 +1558,7 @@ main {
 
 /* popular variant */
 .pricing-card-glass.is-popular {
-  border-color: rgba(255, 255, 255, 0.36);
+  border-color: rgba(255, 255, 255, 0.65);
   background:
     linear-gradient(160deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.025) 100%),
     rgba(14, 12, 20, 0.92);
@@ -1572,6 +1607,13 @@ main {
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+}
+
+.pricing-card-glass.is-popular .pricing-card-pill {
+  color: rgba(251, 191, 36, 1);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    0 0 20px rgba(255, 255, 255, 0.5);
 }
 
 .pricing-card-crown-badge {
@@ -1659,6 +1701,23 @@ main {
   justify-content: center;
 }
 
+.pricing-card-cta.btn-primary {
+  background: linear-gradient(0deg, rgba(7, 83, 58, 1) 0%, rgba(12, 139, 97, 1) 100%);
+  border-width: 0;
+  border-style: none;
+  border-color: transparent;
+  border-image: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    0 6px 18px rgba(16, 185, 129, 0.32);
+}
+.pricing-card-cta.btn-primary:hover {
+  border-color: transparent;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 12px 28px rgba(16, 185, 129, 0.42);
+}
+
 /* footer perks */
 .pricing-section-perks {
   display: flex;
@@ -1694,6 +1753,23 @@ main {
   border-top: 1px solid var(--border);
   padding: 1.25rem 0;
   margin-top: 0.5rem;
+}
+
+.site-footer .btn-primary {
+  background: linear-gradient(0deg, rgba(121, 73, 153, 1) 0%, rgba(190, 114, 239, 1) 100%);
+  border-width: 0;
+  border-style: none;
+  border-color: transparent;
+  border-image: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    0 6px 18px rgba(190, 114, 239, 0.35);
+}
+.site-footer .btn-primary:hover {
+  border-color: transparent;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 12px 28px rgba(190, 114, 239, 0.48);
 }
 
 /* ─── Custom Cursor ───────────────────────────────────────────────────────── */
