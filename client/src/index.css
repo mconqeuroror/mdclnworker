@@ -1068,7 +1068,7 @@ textarea:focus-visible {
 }
 
 .pricing-cycle-btn.is-active {
-  background: rgba(154, 108, 255, 0.28);
+  background: linear-gradient(0deg, rgba(121, 73, 153, 0.28) 0%, rgba(202, 122, 255, 1) 100%);
   color: #fff;
 }
 
