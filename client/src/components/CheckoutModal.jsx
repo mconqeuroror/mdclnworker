@@ -339,7 +339,8 @@ function CheckoutForm({ item, itemType, onSuccess, onClose, paymentMethod, onSwi
         ? discountValidation.finalAmountCents
         : fullCents;
 
-    pr.update({ total: { label, amount: amountCents } }).catch(() => {
+    // Stripe.js may return undefined from update() (not a Promise) — never chain .catch directly.
+    void Promise.resolve(pr.update?.({ total: { label, amount: amountCents } })).catch(() => {
       // e.g. sheet open or browser rejected update — non-fatal
     });
   }, [paymentRequest, stripe, itemType, item, displayCredits, displayPrice, discountValidation]);
