@@ -20,6 +20,37 @@ const WAVESPEED_WEBHOOK_SECRET = process.env.WAVESPEED_WEBHOOK_SECRET;
 const CORS_ORIGIN = "https://api.wavespeed.ai";
 let warnedMissingWaveSpeedWebhookSecret = false;
 
+const PRISMA_RETRY_ATTEMPTS = 3;
+
+function isTransientPrismaError(e) {
+  const c = e?.code;
+  // P1001/P1017: connection / server unreachable; P2024: pool timeout (common on Neon cold start)
+  if (c === "P1001" || c === "P1017" || c === "P2024") return true;
+  const m = String(e?.message || "").toLowerCase();
+  return (
+    m.includes("can't reach database") ||
+    m.includes("server has closed the connection") ||
+    m.includes("connection closed") ||
+    m.includes("econnreset")
+  );
+}
+
+async function withPrismaRetry(label, fn) {
+  let last;
+  for (let i = 0; i < PRISMA_RETRY_ATTEMPTS; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      last = e;
+      if (!isTransientPrismaError(e) || i === PRISMA_RETRY_ATTEMPTS - 1) throw e;
+      const delayMs = 200 * 2 ** i;
+      console.warn(`[WaveSpeed Callback] ${label} Prisma retry ${i + 1}/${PRISMA_RETRY_ATTEMPTS} in ${delayMs}ms:`, e?.message);
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+  throw last;
+}
+
 function setCorsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", CORS_ORIGIN);
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -109,10 +140,12 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
       : outputUrl;
 
     // Pipeline: image -> video (taskId stored in pipelinePayload.imageTaskId on the video gen)
-    const pipelineGen = await prisma.generation.findFirst({
-      where: { pipelinePayload: { path: ["imageTaskId"], equals: String(taskId) } },
-      select: { id: true },
-    });
+    const pipelineGen = await withPrismaRetry("find pipeline generation", () =>
+      prisma.generation.findFirst({
+        where: { pipelinePayload: { path: ["imageTaskId"], equals: String(taskId) } },
+        select: { id: true },
+      }),
+    );
     if (pipelineGen && isSuccessStatus && finalUrl) {
       if (outputUrl && finalUrl === outputUrl) {
         void enqueueGenerationBlobRemirror({
@@ -122,30 +155,38 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
           reason: "wavespeed-pipeline-mirror-deferred",
         }).catch(() => {});
       }
-      await runPipelineContinuation(String(taskId), finalUrl);
+      await withPrismaRetry("runPipelineContinuation", () =>
+        runPipelineContinuation(String(taskId), finalUrl),
+      );
       console.log("[WaveSpeed Callback] Paired pipeline gen %s to taskId %s", pipelineGen.id.slice(0, 8), String(taskId).slice(0, 12));
       return ack();
     }
     if (pipelineGen && isFailedStatus) {
       const err = errorMsg || "WaveSpeed task failed";
-      await prisma.generation.update({
-        where: { id: pipelineGen.id },
-        data: { status: "failed", errorMessage: getErrorMessageForDb(err), completedAt: new Date(), pipelinePayload: null },
-      });
-      try { await refundGeneration(pipelineGen.id); } catch {}
+      await withPrismaRetry("pipeline generation fail update", () =>
+        prisma.generation.update({
+          where: { id: pipelineGen.id },
+          data: { status: "failed", errorMessage: getErrorMessageForDb(err), completedAt: new Date(), pipelinePayload: null },
+        }),
+      );
+      try {
+        await withPrismaRetry("refundGeneration pipeline", () => refundGeneration(pipelineGen.id));
+      } catch {}
       console.log("[WaveSpeed Callback] pipeline failed %s", pipelineGen.id.slice(0, 8));
       return ack();
     }
 
-    const gen = await prisma.generation.findFirst({
-      where: {
-        OR: [
-          { replicateModel: `wavespeed-seedream:${taskId}` },
-          { replicateModel: String(taskId) }, // nsfw-video / nsfw-video-extend store raw requestId
-        ],
-      },
-      select: { id: true, userId: true, modelId: true, status: true, type: true },
-    });
+    const gen = await withPrismaRetry("find generation by taskId", () =>
+      prisma.generation.findFirst({
+        where: {
+          OR: [
+            { replicateModel: `wavespeed-seedream:${taskId}` },
+            { replicateModel: String(taskId) }, // nsfw-video / nsfw-video-extend store raw requestId
+          ],
+        },
+        select: { id: true, userId: true, modelId: true, status: true, type: true },
+      }),
+    );
 
     if (!gen) {
       console.log("[WaveSpeed Callback] No generation for taskId %s", String(taskId).slice(0, 20));
@@ -167,10 +208,12 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
           reason: "wavespeed-mirror-deferred",
         }).catch(() => {});
       }
-      await prisma.generation.update({
-        where: { id: gen.id },
-        data: { status: "completed", outputUrl: finalUrl, completedAt: new Date() },
-      });
+      await withPrismaRetry("generation complete update", () =>
+        prisma.generation.update({
+          where: { id: gen.id },
+          data: { status: "completed", outputUrl: finalUrl, completedAt: new Date() },
+        }),
+      );
       console.log("[WaveSpeed Callback] Paired gen %s to taskId %s", gen.id.slice(0, 8), String(taskId).slice(0, 12));
       if (gen.userId && gen.modelId) {
         enqueueCleanupOldGenerations(gen.userId, gen.modelId);
@@ -178,10 +221,12 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
       try {
         // Skip deleting input Blobs for types that feed into video (e.g. pipeline image); leave for TTL/cleanup.
         if (gen.type !== "video") {
-          const row = await prisma.generation.findUnique({
-            where: { id: gen.id },
-            select: { inputImageUrl: true, inputVideoUrl: true },
-          });
+          const row = await withPrismaRetry("generation input urls for cleanup", () =>
+            prisma.generation.findUnique({
+              where: { id: gen.id },
+              select: { inputImageUrl: true, inputVideoUrl: true },
+            }),
+          );
           if (row?.inputImageUrl) {
             deleteBlobAfterKie(row.inputImageUrl).catch((err) => {
               console.warn("[WaveSpeed Callback] deleteBlobAfterKie inputImageUrl:", err?.message || err);
@@ -199,11 +244,15 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
       console.log("[WaveSpeed Callback] completed %s", gen.id.slice(0, 8));
     } else if (isFailedStatus) {
       const err = errorMsg || (status === "failed" ? "WaveSpeed task failed" : "Unknown status");
-      await prisma.generation.update({
-        where: { id: gen.id },
-        data: { status: "failed", errorMessage: getErrorMessageForDb(err), completedAt: new Date() },
-      });
-      try { await refundGeneration(gen.id); } catch {}
+      await withPrismaRetry("generation fail update", () =>
+        prisma.generation.update({
+          where: { id: gen.id },
+          data: { status: "failed", errorMessage: getErrorMessageForDb(err), completedAt: new Date() },
+        }),
+      );
+      try {
+        await withPrismaRetry("refundGeneration", () => refundGeneration(gen.id));
+      } catch {}
       console.log("[WaveSpeed Callback] failed %s: %s", gen.id.slice(0, 8), err);
     } else {
       // Ignore non-terminal statuses from webhook and let polling/callback continue.

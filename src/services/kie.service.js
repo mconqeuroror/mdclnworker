@@ -60,23 +60,35 @@ if (!KIE_API_KEY) {
  * Priority: KIE_CALLBACK_URL (full) > CALLBACK_BASE_URL > NEXT_PUBLIC_APP_URL > APP_PUBLIC_URL / PUBLIC_URL / APP_URL > VERCEL_URL.
  */
 export function getKieCallbackUrl() {
+  let resolvedUrl = null;
   const explicit = process.env.KIE_CALLBACK_URL;
-  if (explicit && typeof explicit === "string" && explicit.startsWith("http")) return explicit.trim();
-  const callbackBase = process.env.CALLBACK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL;
-  if (callbackBase) {
-    const base = callbackBase.replace(/\/$/, "").trim();
-    const withProtocol = base.startsWith("http") ? base : `https://${base}`;
-    return `${withProtocol.replace(/\/$/, "")}/api/kie/callback`;
+  if (explicit && typeof explicit === "string" && explicit.startsWith("http")) {
+    resolvedUrl = explicit.trim();
+  } else {
+    const callbackBase = process.env.CALLBACK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL;
+    if (callbackBase) {
+      const base = callbackBase.replace(/\/$/, "").trim();
+      const withProtocol = base.startsWith("http") ? base : `https://${base}`;
+      resolvedUrl = `${withProtocol.replace(/\/$/, "")}/api/kie/callback`;
+    } else {
+      const baseUrl = process.env.APP_PUBLIC_URL || process.env.PUBLIC_URL || process.env.APP_URL;
+      if (baseUrl) {
+        const base = baseUrl.replace(/\/$/, "").replace(/^https?:\/\//, "").split("/")[0];
+        const protocol = baseUrl.trim().toLowerCase().startsWith("http:") ? "http" : "https";
+        resolvedUrl = `${protocol}://${base}/api/kie/callback`;
+      } else {
+        const vercel = process.env.VERCEL_URL;
+        if (vercel) {
+          resolvedUrl = `https://${vercel.replace(/^https?:\/\//, "").split("/")[0]}/api/kie/callback`;
+        }
+      }
+    }
   }
-  const baseUrl = process.env.APP_PUBLIC_URL || process.env.PUBLIC_URL || process.env.APP_URL;
-  if (baseUrl) {
-    const base = baseUrl.replace(/\/$/, "").replace(/^https?:\/\//, "").split("/")[0];
-    const protocol = baseUrl.trim().toLowerCase().startsWith("http:") ? "http" : "https";
-    return `${protocol}://${base}/api/kie/callback`;
+  if (resolvedUrl?.startsWith("http://localhost")) {
+    console.warn("[callback] KIE resolved to localhost — falling back to poll");
+    return null;
   }
-  const vercel = process.env.VERCEL_URL;
-  if (vercel) return `https://${vercel.replace(/^https?:\/\//, "").split("/")[0]}/api/kie/callback`;
-  return null;
+  return resolvedUrl;
 }
 
 // ─── Queue ───────────────────────────────────────────────────────────────────

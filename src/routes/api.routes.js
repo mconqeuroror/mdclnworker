@@ -90,7 +90,9 @@ import {
   generateNudesPack,
   generateNsfwPrompt,
   planNsfwGeneration,
+  getNsfwPlanGenerationJobStatus,
   autoSelectChips,
+  getNsfwAutoSelectJobStatus,
   generateAdvancedNsfw,
   testFaceRefGeneration,
   testFaceRefStatus,
@@ -565,7 +567,9 @@ router.post("/nsfw/generate", authMiddleware, generationLimiter, generateNsfwIma
 router.post("/nsfw/nudes-pack", authMiddleware, generationLimiter, generateNudesPack);
 router.post("/nsfw/generate-prompt", authMiddleware, generationLimiter, generateNsfwPrompt);
 router.post("/nsfw/plan-generation", authMiddleware, generationLimiter, planNsfwGeneration);
+router.get("/nsfw/plan-generation/status/:jobId", authMiddleware, getNsfwPlanGenerationJobStatus);
 router.post("/nsfw/auto-select", authMiddleware, generationLimiter, autoSelectChips);
+router.get("/nsfw/auto-select/status/:jobId", authMiddleware, getNsfwAutoSelectJobStatus);
 router.post("/nsfw/generate-advanced", authMiddleware, generationLimiter, generateAdvancedNsfw);
 router.post("/nsfw/test-face-ref", authMiddleware, generationLimiter, testFaceRefGeneration);
 router.get("/nsfw/test-face-ref-status/:requestId", authMiddleware, testFaceRefStatus);
@@ -1617,17 +1621,11 @@ router.post("/generate/analyze-looks", authMiddleware, async (req, res) => {
       select: { onboardingCompleted: true },
     });
     const allowFreeOnboarding = !!freeForOnboarding && user && user.onboardingCompleted === false;
-    if (!allowFreeOnboarding) {
-      const balances = await checkAndExpireCredits(req.user.userId);
-      if (getTotalCredits(balances) < ANALYZE_CREDIT_COST) {
-        return res.status(403).json({ success: false, message: "Not enough credits. Auto-detect costs 10 credits." });
-      }
-      await deductCredits(req.user.userId, ANALYZE_CREDIT_COST);
-      creditDeducted = true;
-    }
 
     const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
-    if (!OPENROUTER_API_KEY) throw new Error("AI service not configured");
+    if (!OPENROUTER_API_KEY) {
+      return res.status(503).json({ success: false, message: "AI service not configured" });
+    }
 
     const validUrls = imageUrls.slice(0, 3);
     const checkedUrls = [];
@@ -1663,7 +1661,20 @@ router.post("/generate/analyze-looks", authMiddleware, async (req, res) => {
       }
     }
     if (checkedUrls.length === 0) {
-      throw new Error("All provided images are too large or invalid for analysis (max 20MB each)");
+      return res.status(400).json({
+        success: false,
+        message:
+          "No usable images: each must be a public https URL under 20MB. Check size and that the link returns the image (not a login page).",
+      });
+    }
+
+    if (!allowFreeOnboarding) {
+      const balances = await checkAndExpireCredits(req.user.userId);
+      if (getTotalCredits(balances) < ANALYZE_CREDIT_COST) {
+        return res.status(403).json({ success: false, message: "Not enough credits. Auto-detect costs 10 credits." });
+      }
+      await deductCredits(req.user.userId, ANALYZE_CREDIT_COST);
+      creditDeducted = true;
     }
 
     const imageBlocks = checkedUrls.map(url => ({

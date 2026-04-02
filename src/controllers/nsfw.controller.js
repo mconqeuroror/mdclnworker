@@ -4151,6 +4151,66 @@ RULES:
   return constrained;
 }
 
+/** Returns true only if this invocation won pending→processing (at most one winner per job). */
+async function tryClaimNsfwAutoSelectJob(jobId) {
+  const r = await prisma.nsfwAutoSelectJob.updateMany({
+    where: { id: jobId, status: "pending" },
+    data: { status: "processing" },
+  });
+  return r.count === 1;
+}
+
+/** Run Grok + persist result. Caller must have successfully claimed (status is processing). */
+async function executeNsfwAutoSelectJobWork(jobId) {
+  const row = await prisma.nsfwAutoSelectJob.findUnique({
+    where: { id: jobId },
+    select: { userId: true, modelId: true, description: true },
+  });
+  if (!row) {
+    await prisma.nsfwAutoSelectJob.updateMany({
+      where: { id: jobId, status: "processing" },
+      data: {
+        status: "failed",
+        errorMessage: getErrorMessageForDb("Auto-select job missing"),
+        completedAt: new Date(),
+      },
+    });
+    return;
+  }
+
+  try {
+    const selections = await runNsfwAutoSelectSelections(row.userId, row.modelId, row.description);
+    await prisma.nsfwAutoSelectJob.update({
+      where: { id: jobId },
+      data: {
+        status: "completed",
+        selections,
+        completedAt: new Date(),
+        errorMessage: null,
+      },
+    });
+  } catch (e) {
+    const raw = e?.message || "Auto-select failed";
+    let httpMessage = raw;
+    if (raw === "Model not found") httpMessage = raw;
+    else if (raw === "AI not configured" || raw === "AI auto-select failed") httpMessage = raw;
+    await prisma.nsfwAutoSelectJob.update({
+      where: { id: jobId },
+      data: {
+        status: "failed",
+        errorMessage: getErrorMessageForDb(String(httpMessage).slice(0, 500)),
+        completedAt: new Date(),
+      },
+    });
+  }
+}
+
+/** waitUntil path: claim then run work (losers no-op). */
+async function processNsfwAutoSelectJob(jobId) {
+  if (!(await tryClaimNsfwAutoSelectJob(jobId))) return;
+  await executeNsfwAutoSelectJobWork(jobId);
+}
+
 export async function autoSelectChips(req, res) {
   try {
     const { description, modelId } = req.body;
@@ -4164,26 +4224,185 @@ export async function autoSelectChips(req, res) {
       return res.status(400).json({ success: false, message: "Model ID is required" });
     }
 
-    const constrained = await runNsfwAutoSelectSelections(userId, modelId, description);
-    res.json({ success: true, selections: constrained });
+    const modelExists = await prisma.savedModel.findFirst({
+      where: { id: modelId, userId },
+      select: { id: true },
+    });
+    if (!modelExists) {
+      return res.status(404).json({ success: false, message: "Model not found" });
+    }
+
+    const job = await prisma.nsfwAutoSelectJob.create({
+      data: {
+        userId,
+        modelId,
+        description: description.trim().slice(0, 500),
+        status: "pending",
+      },
+    });
+
+    const runBg = () => processNsfwAutoSelectJob(job.id);
+    try {
+      const { waitUntil } = await import("@vercel/functions");
+      waitUntil(runBg());
+    } catch (e) {
+      console.warn("NSFW auto-select: waitUntil unavailable, relying on status polling:", e?.message);
+      void runBg();
+    }
+
+    return res.status(202).json({
+      success: true,
+      jobId: job.id,
+      status: "pending",
+    });
   } catch (error) {
     console.error("Auto-select error:", error);
     const msg = error?.message || "Failed to auto-select";
-    if (msg === "Model not found") {
-      return res.status(404).json({ success: false, message: msg });
-    }
-    if (msg === "AI not configured") {
-      return res.status(500).json({ success: false, message: msg });
-    }
     res.status(500).json({ success: false, message: msg });
   }
 }
 
+export async function getNsfwAutoSelectJobStatus(req, res) {
+  try {
+    const userId = req.user.userId;
+    const { jobId } = req.params;
+    if (!jobId || typeof jobId !== "string") {
+      return res.status(400).json({ success: false, message: "Job ID required" });
+    }
+
+    let job = await prisma.nsfwAutoSelectJob.findFirst({
+      where: { id: jobId, userId },
+    });
+    if (!job) {
+      return res.status(404).json({ success: false, message: "Job not found" });
+    }
+
+    if (job.status === "pending") {
+      const claimed = await tryClaimNsfwAutoSelectJob(jobId);
+      if (claimed) {
+        await executeNsfwAutoSelectJobWork(jobId);
+      }
+      job = await prisma.nsfwAutoSelectJob.findUnique({ where: { id: jobId } });
+    }
+
+    if (job.status === "completed") {
+      return res.json({
+        success: true,
+        status: "completed",
+        selections: job.selections && typeof job.selections === "object" ? job.selections : {},
+      });
+    }
+    if (job.status === "failed") {
+      return res.json({
+        success: false,
+        status: "failed",
+        message: job.errorMessage || "Auto-select failed",
+      });
+    }
+
+    return res.json({ success: true, status: "processing" });
+  } catch (error) {
+    console.error("getNsfwAutoSelectJobStatus error:", error);
+    res.status(500).json({ success: false, message: "Failed to load job status" });
+  }
+}
+
 // ============================================
-// PLAN: auto-select chips + generate prompt in one step (simple flow)
-// POST /api/nsfw/plan-generation
-// Body: { modelId, userRequest }
+// PLAN: auto-select chips + generate prompt (async 202 + poll, like NsfwAutoSelectJob)
+// POST /api/nsfw/plan-generation → 202 { jobId }
+// GET  /api/nsfw/plan-generation/status/:jobId
 // ============================================
+
+async function tryClaimNsfwPlanGenerationJob(jobId) {
+  const r = await prisma.nsfwPlanGenerationJob.updateMany({
+    where: { id: jobId, status: "pending" },
+    data: { status: "processing" },
+  });
+  return r.count === 1;
+}
+
+async function executeNsfwPlanGenerationJobWork(jobId) {
+  const row = await prisma.nsfwPlanGenerationJob.findUnique({
+    where: { id: jobId },
+    select: { userId: true, modelId: true, userRequest: true },
+  });
+  if (!row) {
+    await prisma.nsfwPlanGenerationJob.updateMany({
+      where: { id: jobId, status: "processing" },
+      data: {
+        status: "failed",
+        errorMessage: getErrorMessageForDb("Plan job missing"),
+        completedAt: new Date(),
+      },
+    });
+    return;
+  }
+
+  const desc = row.userRequest;
+  try {
+    const model = await prisma.savedModel.findFirst({
+      where: { id: row.modelId, userId: row.userId },
+    });
+    if (!model) {
+      await prisma.nsfwPlanGenerationJob.update({
+        where: { id: jobId },
+        data: {
+          status: "failed",
+          errorMessage: getErrorMessageForDb("Model not found"),
+          completedAt: new Date(),
+        },
+      });
+      return;
+    }
+
+    const selections = await runNsfwAutoSelectSelections(row.userId, row.modelId, desc);
+    const attrsStr = Object.values(selections).filter(Boolean).join(", ");
+    const prompt = await runNsfwPromptGenerationForModel(model, desc, selections, attrsStr);
+
+    if (isNsfwPromptLogicalConflict(prompt)) {
+      await prisma.nsfwPlanGenerationJob.update({
+        where: { id: jobId },
+        data: {
+          status: "failed",
+          errorMessage: getErrorMessageForDb(humanizeNsfwPromptConflict(prompt)),
+          selections,
+          completedAt: new Date(),
+        },
+      });
+      return;
+    }
+
+    await prisma.nsfwPlanGenerationJob.update({
+      where: { id: jobId },
+      data: {
+        status: "completed",
+        selections,
+        prompt,
+        errorMessage: null,
+        completedAt: new Date(),
+      },
+    });
+  } catch (e) {
+    const raw = e?.message || "Failed to plan generation";
+    let httpMessage = raw;
+    if (raw === "Model not found") httpMessage = raw;
+    else if (raw === "AI not configured" || raw === "AI auto-select failed") httpMessage = raw;
+    await prisma.nsfwPlanGenerationJob.update({
+      where: { id: jobId },
+      data: {
+        status: "failed",
+        errorMessage: getErrorMessageForDb(String(httpMessage).slice(0, 500)),
+        completedAt: new Date(),
+      },
+    });
+  }
+}
+
+async function processNsfwPlanGenerationJob(jobId) {
+  if (!(await tryClaimNsfwPlanGenerationJob(jobId))) return;
+  await executeNsfwPlanGenerationJobWork(jobId);
+}
+
 export async function planNsfwGeneration(req, res) {
   try {
     const userId = req.user.userId;
@@ -4196,41 +4415,90 @@ export async function planNsfwGeneration(req, res) {
       });
     }
 
-    const desc = userRequest.trim().slice(0, 500);
-
-    const model = await prisma.savedModel.findFirst({
+    const modelExists = await prisma.savedModel.findFirst({
       where: { id: modelId, userId },
+      select: { id: true },
     });
-    if (!model) {
+    if (!modelExists) {
       return res.status(404).json({ success: false, message: "Model not found" });
     }
 
-    const selections = await runNsfwAutoSelectSelections(userId, modelId, desc);
-    const attrsStr = Object.values(selections).filter(Boolean).join(", ");
-    const prompt = await runNsfwPromptGenerationForModel(model, desc, selections, attrsStr);
+    const job = await prisma.nsfwPlanGenerationJob.create({
+      data: {
+        userId,
+        modelId,
+        userRequest: userRequest.trim().slice(0, 500),
+        status: "pending",
+      },
+    });
 
-    if (isNsfwPromptLogicalConflict(prompt)) {
-      return res.status(400).json({
-        success: false,
-        message: humanizeNsfwPromptConflict(prompt),
-        selections,
-        sceneDescription: desc,
-      });
+    const runBg = () => processNsfwPlanGenerationJob(job.id);
+    try {
+      const { waitUntil } = await import("@vercel/functions");
+      waitUntil(runBg());
+    } catch (e) {
+      console.warn("NSFW plan-generation: waitUntil unavailable, relying on status polling:", e?.message);
+      void runBg();
     }
 
-    res.json({
+    return res.status(202).json({
       success: true,
-      selections,
-      prompt,
-      sceneDescription: desc,
+      jobId: job.id,
+      status: "pending",
     });
   } catch (error) {
     console.error("planNsfwGeneration error:", error);
     const msg = error?.message || "Failed to plan generation";
-    if (msg === "Model not found") {
-      return res.status(404).json({ success: false, message: msg });
-    }
     res.status(500).json({ success: false, message: msg });
+  }
+}
+
+export async function getNsfwPlanGenerationJobStatus(req, res) {
+  try {
+    const userId = req.user.userId;
+    const { jobId } = req.params;
+    if (!jobId || typeof jobId !== "string") {
+      return res.status(400).json({ success: false, message: "Job ID required" });
+    }
+
+    let job = await prisma.nsfwPlanGenerationJob.findFirst({
+      where: { id: jobId, userId },
+    });
+    if (!job) {
+      return res.status(404).json({ success: false, message: "Job not found" });
+    }
+
+    if (job.status === "pending") {
+      const claimed = await tryClaimNsfwPlanGenerationJob(jobId);
+      if (claimed) {
+        await executeNsfwPlanGenerationJobWork(jobId);
+      }
+      job = await prisma.nsfwPlanGenerationJob.findUnique({ where: { id: jobId } });
+    }
+
+    if (job.status === "completed") {
+      return res.json({
+        success: true,
+        status: "completed",
+        selections: job.selections && typeof job.selections === "object" ? job.selections : {},
+        prompt: job.prompt || "",
+        sceneDescription: job.userRequest,
+      });
+    }
+    if (job.status === "failed") {
+      return res.json({
+        success: false,
+        status: "failed",
+        message: job.errorMessage || "Plan failed",
+        selections: job.selections && typeof job.selections === "object" ? job.selections : {},
+        sceneDescription: job.userRequest,
+      });
+    }
+
+    return res.json({ success: true, status: "processing" });
+  } catch (error) {
+    console.error("getNsfwPlanGenerationJobStatus error:", error);
+    res.status(500).json({ success: false, message: "Failed to load job status" });
   }
 }
 
@@ -4326,7 +4594,7 @@ export async function testFaceRefStatus(req, res) {
 }
 
 // ============================================
-// Advanced NSFW Generation (unchanged)
+// Advanced NSFW — responds immediately; Seedream/KIE submit runs in background (avoids 504 when WS polls inline).
 // ============================================
 export async function generateAdvancedNsfw(req, res) {
   let creditsDeducted = 0;
@@ -4410,123 +4678,156 @@ export async function generateAdvancedNsfw(req, res) {
 
     console.log("Using identity images:", identityImages.length);
 
-    let result;
     // Normalize WaveSpeed-style "1024x1024" to kie.ai aspect ratio "1:1"
     const kieAspectRatio = aspectRatio === "1024x1024" ? "1:1" : aspectRatio;
 
-    if (model === "seedream") {
-      console.log("Using Seedream 4.5 Edit via WaveSpeed");
-      result = await generateImageWithSeedreamWaveSpeed(identityImages, prompt, {
-        aspectRatio: kieAspectRatio,
-        onTaskCreated: async (taskId) => {
-          await prisma.generation.update({
-            where: { id: generationId },
-            data: { replicateModel: `wavespeed-seedream:${taskId}` },
-          });
-        },
-      });
-    } else {
-      console.log("Using Nano Banana Pro via kie.ai");
-      result = await generateImageWithNanoBananaKie(identityImages, prompt, {
-        aspectRatio: kieAspectRatio,
-        resolution: "2K",
-        onTaskCreated: async (taskId) => {
-          await prisma.generation.update({
-            where: { id: generationId },
-            data: { replicateModel: `kie-task:${taskId}` },
-          });
-          await prisma.kieTask.upsert({
-            where: { taskId },
-            update: {
-              entityType: "generation",
-              entityId: generationId,
-              step: "final",
-              userId,
-              status: "processing",
-              payload: { type: "nsfw" },
-              errorMessage: null,
-              outputUrl: null,
-              completedAt: null,
-            },
-            create: {
-              taskId,
-              provider: "kie",
-              entityType: "generation",
-              entityId: generationId,
-              step: "final",
-              userId,
-              status: "processing",
-              payload: { type: "nsfw" },
-            },
-          });
-        },
-      });
-    }
-
-    if (result?.success && result?.deferred && result?.taskId) {
-      await prisma.generation.update({
-        where: { id: generationId },
-        data: {
-          replicateModel:
-            model === "seedream"
-              ? `wavespeed-seedream:${result.taskId}`
-              : `kie-task:${result.taskId}`,
-        },
-      });
-      if (model !== "seedream") {
-        await prisma.kieTask.upsert({
-          where: { taskId: result.taskId },
-          update: {
-            entityType: "generation",
-            entityId: generationId,
-            step: "final",
-            userId,
-            status: "processing",
-            payload: { type: "nsfw" },
-            errorMessage: null,
-            outputUrl: null,
-            completedAt: null,
-          },
-          create: {
-            taskId: result.taskId,
-            provider: "kie",
-            entityType: "generation",
-            entityId: generationId,
-            step: "final",
-            userId,
-            status: "processing",
-            payload: { type: "nsfw" },
-          },
-        });
-      }
-      return res.json({
-        success: true,
-        generation: { id: generationId, status: "processing" },
-        creditsUsed: creditCost,
-        message: "Generation started; result will appear when ready.",
-      });
-    }
-
-    if (!result?.success || !result?.outputUrl) {
-      throw new Error(result?.error || "Generation failed - no output URL");
-    }
-
-    await prisma.generation.update({
-      where: { id: generationId },
-      data: { status: "completed", outputUrl: result.outputUrl, completedAt: new Date() },
-    });
-
-    console.log("Advanced NSFW generation completed:", result.outputUrl);
-
-    return res.json({
+    // Immediate response (mirrors POST /generate/advanced-image): WaveSpeed submit + optional waitForResult run in IIFE below.
+    res.json({
       success: true,
-      generation: {
-        id: generationId,
-        outputUrl: result.outputUrl,
-        status: "completed",
-      },
+      deferred: true,
+      generationId,
+      generation: { id: generationId, status: "processing" },
       creditsUsed: creditCost,
+      message: "Generation started; result will appear when ready.",
     });
+
+    void (async () => {
+      const { getUserFriendlyGenerationError } = await import("../utils/generationErrorMessages.js");
+      try {
+        let result;
+        if (model === "seedream") {
+          console.log("Using Seedream 4.5 Edit via WaveSpeed (background)");
+          result = await generateImageWithSeedreamWaveSpeed(identityImages, prompt, {
+            aspectRatio: kieAspectRatio,
+            onTaskCreated: async (taskId) => {
+              await prisma.generation.update({
+                where: { id: generationId },
+                data: { replicateModel: `wavespeed-seedream:${taskId}` },
+              });
+            },
+          });
+        } else {
+          console.log("Using Nano Banana Pro via kie.ai (background)");
+          result = await generateImageWithNanoBananaKie(identityImages, prompt, {
+            aspectRatio: kieAspectRatio,
+            resolution: "2K",
+            onTaskCreated: async (taskId) => {
+              await prisma.generation.update({
+                where: { id: generationId },
+                data: { replicateModel: `kie-task:${taskId}` },
+              });
+              await prisma.kieTask.upsert({
+                where: { taskId },
+                update: {
+                  entityType: "generation",
+                  entityId: generationId,
+                  step: "final",
+                  userId,
+                  status: "processing",
+                  payload: { type: "nsfw" },
+                  errorMessage: null,
+                  outputUrl: null,
+                  completedAt: null,
+                },
+                create: {
+                  taskId,
+                  provider: "kie",
+                  entityType: "generation",
+                  entityId: generationId,
+                  step: "final",
+                  userId,
+                  status: "processing",
+                  payload: { type: "nsfw" },
+                },
+              });
+            },
+          });
+        }
+
+        if (result?.success && result?.deferred && result?.taskId) {
+          await prisma.generation.update({
+            where: { id: generationId },
+            data: {
+              replicateModel:
+                model === "seedream"
+                  ? `wavespeed-seedream:${result.taskId}`
+                  : `kie-task:${result.taskId}`,
+            },
+          });
+          if (model !== "seedream") {
+            await prisma.kieTask.upsert({
+              where: { taskId: result.taskId },
+              update: {
+                entityType: "generation",
+                entityId: generationId,
+                step: "final",
+                userId,
+                status: "processing",
+                payload: { type: "nsfw" },
+                errorMessage: null,
+                outputUrl: null,
+                completedAt: null,
+              },
+              create: {
+                taskId: result.taskId,
+                provider: "kie",
+                entityType: "generation",
+                entityId: generationId,
+                step: "final",
+                userId,
+                status: "processing",
+                payload: { type: "nsfw" },
+              },
+            });
+          }
+          return;
+        }
+
+        if (result?.success && result?.outputUrl) {
+          await prisma.generation.update({
+            where: { id: generationId },
+            data: { status: "completed", outputUrl: result.outputUrl, completedAt: new Date() },
+          });
+          console.log("Advanced NSFW generation completed:", result.outputUrl);
+          return;
+        }
+
+        const errMsg = result?.error || "Generation failed - no output URL";
+        const friendlyMessage = getUserFriendlyGenerationError(errMsg);
+        await refundGeneration(generationId).catch(() => {});
+        await prisma.generation
+          .update({
+            where: { id: generationId },
+            data: {
+              status: "failed",
+              errorMessage: getErrorMessageForDb(friendlyMessage),
+              completedAt: new Date(),
+            },
+          })
+          .catch(() => {});
+        console.error("❌ Advanced NSFW generation failed:", errMsg);
+      } catch (error) {
+        console.error("❌ Advanced NSFW background error:", error?.message || error);
+        const friendlyMessage = getUserFriendlyGenerationError(error?.message || String(error));
+        try {
+          await refundGeneration(generationId);
+        } catch (refundError) {
+          console.error("Refund error:", refundError.message);
+        }
+        try {
+          await prisma.generation.update({
+            where: { id: generationId },
+            data: {
+              status: "failed",
+              errorMessage: getErrorMessageForDb(friendlyMessage),
+              completedAt: new Date(),
+            },
+          });
+        } catch (dbErr) {
+          console.error("⚠️ Failed to update NSFW generation to failed:", dbErr.message);
+        }
+      }
+    })();
   } catch (error) {
     console.error("❌ Advanced NSFW generation error:", error.message);
 
@@ -4554,10 +4855,12 @@ export async function generateAdvancedNsfw(req, res) {
       }
     }
 
-    return res.status(500).json({
-      success: false,
-      message: "Generation failed",
-    });
+    if (!res.headersSent) {
+      return res.status(500).json({
+        success: false,
+        message: "Generation failed",
+      });
+    }
   }
 }
 

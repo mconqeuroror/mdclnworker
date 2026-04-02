@@ -4464,12 +4464,41 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
       return;
     }
     setIsPlanning(true);
+    const POLL_MS = 2500;
+    const MAX_POLLS = 100;
     try {
       const response = await api.post("/nsfw/plan-generation", {
         modelId: selectedModel,
         userRequest: desc,
       });
-      if (response.data.success && response.data.prompt) {
+
+      const applyPlanResult = (apiData) => {
+        if (apiData?.status === "completed" && apiData?.prompt) {
+          setChipSelections(applyChipConstraints(apiData.selections || {}, lockedAppearance));
+          setGeneratedPrompt(apiData.prompt);
+          setSimplePlanReady(true);
+          toast.success(copy.toastSceneReady);
+          return true;
+        }
+        if (apiData?.status === "failed") {
+          if (apiData.selections && typeof apiData.selections === "object") {
+            setChipSelections(applyChipConstraints(apiData.selections, lockedAppearance));
+          }
+          toast.error(apiData?.message || "Plan failed");
+          return true;
+        }
+        return false;
+      };
+
+      if (response.status === 202 && response.data?.jobId) {
+        const { jobId } = response.data;
+        for (let i = 0; i < MAX_POLLS; i += 1) {
+          await new Promise((r) => setTimeout(r, POLL_MS));
+          const st = await api.get(`/nsfw/plan-generation/status/${jobId}`);
+          if (applyPlanResult(st.data)) return;
+        }
+        toast.error("Plan timed out. Please try again.");
+      } else if (response.data?.success && response.data?.prompt) {
         setChipSelections(applyChipConstraints(response.data.selections || {}, lockedAppearance));
         setGeneratedPrompt(response.data.prompt);
         setSimplePlanReady(true);
@@ -4533,31 +4562,66 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
       return;
     }
     setIsAutoSelecting(true);
+    const POLL_MS = 2500;
+    const MAX_POLLS = 100;
+
+    const applySelections = (selections) => {
+      if (!selections || typeof selections !== "object") return;
+      setChipSelections((prev) => {
+        const updated = { ...prev };
+        for (const [key, value] of Object.entries(selections)) {
+          if (!lockedAppearance[key]) {
+            updated[key] = value;
+          }
+        }
+        return applyChipConstraints(updated, lockedAppearance);
+      });
+      setGeneratedPrompt("");
+      const count = Object.keys(selections).length;
+      toast.success(`AI selected ${count} matching options`);
+    };
+
     try {
       const response = await api.post("/nsfw/auto-select", {
         description: desc,
         modelId: selectedModel,
       });
 
-      if (response.data.success && response.data.selections) {
-        setChipSelections(prev => {
-          const updated = { ...prev };
-          for (const [key, value] of Object.entries(response.data.selections)) {
-            if (!lockedAppearance[key]) {
-              updated[key] = value;
-            }
+      let selections = null;
+
+      if (response.status === 202 && response.data?.jobId) {
+        const { jobId } = response.data;
+        for (let i = 0; i < MAX_POLLS; i += 1) {
+          await new Promise((r) => setTimeout(r, POLL_MS));
+          const st = await api.get(`/nsfw/auto-select/status/${jobId}`);
+          const apiData = st.data;
+          if (apiData?.status === "completed" && apiData?.selections) {
+            selections = apiData.selections;
+            break;
           }
-          return applyChipConstraints(updated, lockedAppearance);
-        });
-        setGeneratedPrompt("");
-        const count = Object.keys(response.data.selections).length;
-        toast.success(`AI selected ${count} matching options`);
+          if (apiData?.status === "failed") {
+            toast.error(apiData?.message || "Auto-select failed");
+            return;
+          }
+        }
+        if (!selections) {
+          toast.error("Auto-select timed out. Please try again.");
+          return;
+        }
+        applySelections(selections);
+      } else if (response.data?.success && response.data?.selections) {
+        applySelections(response.data.selections);
       } else {
-        toast.error(response.data.message || "Auto-select failed");
+        toast.error(response.data?.message || "Auto-select failed");
       }
     } catch (error) {
       console.error("Auto-select error:", error);
-      toast.error(error.response?.data?.message || "Auto-select failed");
+      const api = error.response?.data;
+      const msg =
+        (typeof api?.message === "string" && api.message) ||
+        (typeof api?.error === "string" && api.error) ||
+        "Auto-select failed";
+      toast.error(msg);
     } finally {
       setIsAutoSelecting(false);
     }

@@ -74,8 +74,47 @@ model User {
   avatarVideos                  AvatarVideo[]
   referredBy                    User?                   @relation("UserReferrals", fields: [referredByUserId], references: [id])
   referrals                     User[]                  @relation("UserReferrals")
+  nsfwAutoSelectJobs            NsfwAutoSelectJob[]
+  nsfwPlanGenerationJobs        NsfwPlanGenerationJob[]
 
   @@index([referredByUserId])
+}
+
+/// Async NSFW chip auto-select (Grok). POST returns 202 + jobId; client polls GET .../status/:jobId.
+model NsfwAutoSelectJob {
+  id           String    @id @default(uuid())
+  userId       String
+  modelId      String
+  description  String
+  status       String    @default("pending")
+  selections   Json?
+  errorMessage String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  completedAt  DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+/// Async NSFW simple-flow plan (chips + prompt). POST returns 202 + jobId; GET .../plan-generation/status/:jobId.
+model NsfwPlanGenerationJob {
+  id           String    @id @default(uuid())
+  userId       String
+  modelId      String
+  userRequest  String
+  status       String    @default("pending")
+  selections   Json?
+  prompt       String?
+  errorMessage String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  completedAt  DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
 }
 
 model CreditTransaction {

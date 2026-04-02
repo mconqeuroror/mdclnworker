@@ -477,7 +477,12 @@ export default function GenerateAIModelForm({ name, onSuccess, onCancel, onNeedC
         toast.error(copy.toastDetectFail);
       }
     } catch (err) {
-      toast.error(err.response?.data?.message || copy.toastDetectError);
+      const api = err.response?.data;
+      const msg =
+        (typeof api?.message === "string" && api.message) ||
+        (typeof api?.error === "string" && api.error) ||
+        copy.toastDetectError;
+      toast.error(msg);
     } finally {
       setFromPhotosDetecting(false);
     }

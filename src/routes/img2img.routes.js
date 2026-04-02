@@ -24,6 +24,7 @@ import {
   submitDescribeJob,
   extractCaptionFromRunpodOutput,
   getRunpodJobStatus,
+  isRunpodJobIdValidationError,
   parseRunpodHandlerOutput,
   normalizeRunpodStatusResponse,
   classifyRunpodDescribePhase,
@@ -114,7 +115,40 @@ setInterval(async () => {
       const runpodJobId = meta.runpodJobId;
       if (!runpodJobId) continue;
 
-      const rp = await getRunpodJobStatus(runpodJobId);
+      let rp;
+      try {
+        rp = await getRunpodJobStatus(runpodJobId);
+      } catch (e) {
+        if (isRunpodJobIdValidationError(e)) {
+          await prisma.generation.update({
+            where: { id: gen.id },
+            data: {
+              status: "failed",
+              errorMessage: getErrorMessageForDb("Invalid RunPod job id"),
+              completedAt: new Date(),
+            },
+          });
+          if (!gen.creditsRefunded) {
+            await refundGeneration(gen.id);
+            await prisma.creditTransaction.create({
+              data: {
+                userId: gen.userId,
+                amount: gen.creditsCost,
+                type: "refund",
+                description: "img2img refund (sweeper): invalid RunPod job id",
+              },
+            });
+          }
+          jobs.set(gen.id, {
+            status: "failed",
+            userId: gen.userId,
+            error: "Invalid RunPod job id",
+            completedAt: Date.now(),
+          });
+          continue;
+        }
+        throw e;
+      }
       const rpStatus = rp.status;
 
       if (rpStatus === "COMPLETED") {
@@ -295,6 +329,9 @@ router.get("/describe-status/:id", authMiddleware, async (req, res) => {
     try {
       rpStatus = await getRunpodJobStatus(runpodJobId, { useImageAnalysisEndpoint: true });
     } catch (pollErr) {
+      if (isRunpodJobIdValidationError(pollErr)) {
+        return failDescribeStuck("Invalid analysis job id — please try Analyze again");
+      }
       console.warn(`[describe-status] RunPod poll error for ${runpodJobId}:`, pollErr.message);
       if (describeAgeMs() > DESCRIBE_STUCK_MS_WITH_RUNPOD) {
         return failDescribeStuck("Could not reach analysis service — timed out");
@@ -706,6 +743,30 @@ router.get("/status/:jobId", authMiddleware, async (req, res) => {
 
     return res.json({ jobId, status: rpStatus === "IN_QUEUE" ? "pending" : "processing" });
   } catch (e) {
+    if (isRunpodJobIdValidationError(e)) {
+      const errMsg = "Invalid RunPod job id — generation cannot complete";
+      await prisma.generation.update({
+        where: { id: jobId },
+        data: {
+          status: "failed",
+          errorMessage: getErrorMessageForDb(errMsg),
+          completedAt: new Date(),
+        },
+      });
+      if (!gen.creditsRefunded) {
+        await refundGeneration(jobId);
+        await prisma.creditTransaction.create({
+          data: {
+            userId,
+            amount: gen.creditsCost,
+            type: "refund",
+            description: "img2img refund: invalid RunPod job id",
+          },
+        });
+      }
+      jobs.set(jobId, { status: "failed", userId, error: errMsg, completedAt: Date.now() });
+      return res.json({ jobId, status: "failed", error: errMsg });
+    }
     console.warn("img2img status recovery error:", e?.message || e);
     return res.json({ jobId, status: "processing" });
   }

@@ -229,7 +229,11 @@ export default function ModelsPage({ sidebarCollapsed = false, openVoiceStudioFo
         toast.error(response.data.message || copy.detectionFailed);
       }
     } catch (error) {
-      const msg = error.response?.data?.message || copy.detectLooksFailed;
+      const api = error.response?.data;
+      const msg =
+        (typeof api?.message === "string" && api.message) ||
+        (typeof api?.error === "string" && api.error) ||
+        copy.detectLooksFailed;
       toast.error(msg);
     } finally {
       setAutoDetectingLooks(false);

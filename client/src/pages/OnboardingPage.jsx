@@ -679,7 +679,11 @@ export default function OnboardingPage() {
         toast.error(response.data.message || copy.toastDetectionFailed);
       }
     } catch (error) {
-      const msg = error.response?.data?.message || copy.toastDetectLooksFailed;
+      const api = error.response?.data;
+      const msg =
+        (typeof api?.message === "string" && api.message) ||
+        (typeof api?.error === "string" && api.error) ||
+        copy.toastDetectLooksFailed;
       toast.error(msg);
     } finally {
       setAutoDetecting(false);

@@ -783,6 +783,15 @@ function ModelSelector({ models, selectedModel, onSelect, accentColor = "purple"
 
 import toast from "react-hot-toast";
 import api, { generationAPI, pricingAPI, uploadFile } from "../services/api";
+import {
+  KLING_I2V,
+  KLING_MOTION,
+  validateKlingMotionDuration,
+  validateKlingStartFrameDimensions,
+  validateLocalFileMaxBytes,
+  validatePromptVideoDuration,
+  WAN_RECREATE_MOTION,
+} from "../utils/kieVideoClientValidation";
 import FileUpload from "../components/FileUpload";
 import { useAuthStore } from "../store";
 import { sound } from "../utils/sounds";
@@ -2117,6 +2126,8 @@ function VideoGeneration() {
   });
   const [playingPreview, setPlayingPreview] = useState(null);
   const audioRef = useRef(null);
+  /** Last file uploaded for prompt-video (gallery URLs have no File — size skip). */
+  const promptVideoUploadFileRef = useRef(null);
   const [talkingHeadText, setTalkingHeadText] = useState("");
   const [talkingHeadGenerating, setTalkingHeadGenerating] = useState(false);
   const [voices, setVoices] = useState([]);
@@ -2136,6 +2147,12 @@ function VideoGeneration() {
   const [recreateUltraMode, setRecreateUltraMode] = useState(false); // Kling 3.0 motion-control 1080p (vs default 2.6)
   const [recreateEngine, setRecreateEngine] = useState("kling");
   const [wanResolution, setWanResolution] = useState("580p");
+
+  const formatMotionDurationLabel = (sec) => {
+    if (!Number.isFinite(sec) || sec <= 0) return "0";
+    const t = Math.round(sec * 10) / 10;
+    return Number.isInteger(t) ? String(t) : t.toFixed(1);
+  };
 
   const { data: generationPricingData } = useQuery({
     queryKey: ["generation-pricing-generate-page"],
@@ -2352,11 +2369,20 @@ function VideoGeneration() {
 
   // Prompt Video handlers
   const handlePromptVideoImageUpload = (uploadedFile) => {
+    promptVideoUploadFileRef.current = uploadedFile?.file || null;
+    if (uploadedFile?.file) {
+      const sz = validateLocalFileMaxBytes(uploadedFile.file, KLING_I2V.imageMaxBytes, "Image");
+      if (!sz.ok) {
+        toast.error(sz.message);
+        return;
+      }
+    }
     setPromptVideoImage(uploadedFile.url);
     setGalleryPromptImage(null);
   };
 
   const handleGalleryPromptSelect = (url) => {
+    promptVideoUploadFileRef.current = null;
     setGalleryPromptImage(url);
     setPromptVideoImage(url);
   };
@@ -2369,6 +2395,27 @@ function VideoGeneration() {
 
     if (!promptVideoPrompt.trim()) {
       toast.error(copy.videoToastPromptRequired);
+      return;
+    }
+
+    const durCheck = validatePromptVideoDuration(promptVideoDuration);
+    if (!durCheck.ok) {
+      toast.error(durCheck.message);
+      return;
+    }
+
+    const file = promptVideoUploadFileRef.current;
+    if (file) {
+      const sz = validateLocalFileMaxBytes(file, KLING_I2V.imageMaxBytes, "Image");
+      if (!sz.ok) {
+        toast.error(sz.message);
+        return;
+      }
+    }
+
+    const dim = await validateKlingStartFrameDimensions(promptVideoImage);
+    if (!dim.ok) {
+      toast.error(dim.message);
       return;
     }
 
@@ -2390,6 +2437,7 @@ function VideoGeneration() {
           addOptimisticGeneration(response.data.generation);
         }
         toast.success("Video started! Check Live Preview.");
+        promptVideoUploadFileRef.current = null;
         setPromptVideoImage(null);
         setPromptVideoPrompt("");
         setPromptVideoDuration(5);
@@ -2426,8 +2474,8 @@ function VideoGeneration() {
 
     video.onloadedmetadata = () => {
       window.URL.revokeObjectURL(video.src);
-      const duration = Math.ceil(video.duration);
-      setReferenceVideoDuration(duration);
+      const duration = video.duration;
+      setReferenceVideoDuration(Number.isFinite(duration) ? duration : 0);
       console.log("✅ Reference video duration:", duration, "seconds");
     };
 
@@ -2661,13 +2709,48 @@ function VideoGeneration() {
       return;
     }
 
+    const motionLimits = recreateEngine === "wan" ? WAN_RECREATE_MOTION : KLING_MOTION;
+    const refFile = referenceVideo?.file;
+    const refVidBytes = validateLocalFileMaxBytes(refFile, motionLimits.videoMaxBytes, "Reference video");
+    if (!refVidBytes.ok) {
+      toast.error(refVidBytes.message);
+      return;
+    }
+
+    if (recreateEngine === "kling") {
+      const motionDur = validateKlingMotionDuration(referenceVideoDuration);
+      if (!motionDur.ok) {
+        toast.error(motionDur.message);
+        return;
+      }
+    }
+
+    const startImgBytes = validateLocalFileMaxBytes(
+      videoStartingImage?.file,
+      motionLimits.imageMaxBytes,
+      "Starting image",
+    );
+    if (!startImgBytes.ok) {
+      toast.error(startImgBytes.message);
+      return;
+    }
+
+    if (recreateEngine === "kling") {
+      const dim = await validateKlingStartFrameDimensions(videoStartingImage.url);
+      if (!dim.ok) {
+        toast.error(dim.message);
+        return;
+      }
+    }
+
     const perSec = recreateEngine === "wan"
       ? (wanRecreatePerSecByResolution[wanResolution] ?? VIDEO_RECREATE_WAN_580_PER_SEC)
       : (recreateUltraMode ? recreateUltraPerSec : recreateClassicPerSec);
     const creditsNeeded = Math.ceil(referenceVideoDuration * perSec);
+    const durLabel = formatMotionDurationLabel(referenceVideoDuration);
     if (credits < creditsNeeded) {
       toast.error(
-        `Need ${creditsNeeded} 🪙 for ${referenceVideoDuration}s video. You have ${credits} 🪙.`,
+        `Need ${creditsNeeded} 🪙 for ${durLabel}s video. You have ${credits} 🪙.`,
       );
       return;
     }
@@ -2932,7 +3015,7 @@ function VideoGeneration() {
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <span className="px-2 py-0.5 text-[10px] font-medium rounded-full" style={{ background: 'rgba(34,197,94,0.15)', color: '#22C55E' }}>
                   <span className="inline-flex items-center gap-0.5">
-                    {referenceVideoDuration}s = {Math.ceil(referenceVideoDuration * recreateCreditsPerSec)} <Coins className="w-2.5 h-2.5" />
+                    {formatMotionDurationLabel(referenceVideoDuration)}s = {Math.ceil(referenceVideoDuration * recreateCreditsPerSec)} <Coins className="w-2.5 h-2.5" />
                   </span>
                 </span>
                 <span className="px-1.5 py-0.5 text-[8px] font-bold rounded-full tracking-wide" style={{ background: 'linear-gradient(135deg, rgba(34,197,94,0.25), rgba(22,163,74,0.15))', border: '1px solid rgba(34,197,94,0.4)', color: '#4ade80' }}>

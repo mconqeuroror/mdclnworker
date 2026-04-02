@@ -44,17 +44,25 @@ if (!WAVESPEED_API_KEY) {
 
 /** WaveSpeed webhook URL: same base as KIE callback, path /api/wavespeed/callback. Set CALLBACK_BASE_URL (or KIE envs) once; both use it. */
 export function getWaveSpeedCallbackUrl() {
+  let resolvedUrl = null;
   const explicit = process.env.WAVESPEED_CALLBACK_URL;
-  if (explicit && typeof explicit === "string" && explicit.startsWith("http")) return explicit.trim();
-  const kieUrl = getKieCallbackUrl();
-  if (kieUrl) {
-    try {
-      const u = new URL(kieUrl);
-      u.pathname = "/api/wavespeed/callback";
-      return u.toString();
-    } catch (_) {}
+  if (explicit && typeof explicit === "string" && explicit.startsWith("http")) {
+    resolvedUrl = explicit.trim();
+  } else {
+    const kieUrl = getKieCallbackUrl();
+    if (kieUrl) {
+      try {
+        const u = new URL(kieUrl);
+        u.pathname = "/api/wavespeed/callback";
+        resolvedUrl = u.toString();
+      } catch (_) {}
+    }
   }
-  return null;
+  if (resolvedUrl?.startsWith("http://localhost")) {
+    console.warn("[callback] WaveSpeed resolved to localhost — falling back to poll");
+    return null;
+  }
+  return resolvedUrl;
 }
 
 /**

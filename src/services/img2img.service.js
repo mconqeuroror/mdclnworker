@@ -518,6 +518,19 @@ export function classifyRunpodDescribePhase(normalized) {
   return "processing";
 }
 
+/** RunPod rejects malformed ids with 400; avoid noisy polls on placeholder/partial ids. */
+function assertRunpodJobId(jobId) {
+  const s = typeof jobId === "string" ? jobId.trim() : "";
+  if (s.length < 10 || s.length > 128 || !/^[a-zA-Z0-9_-]+$/.test(s)) {
+    throw new Error("Invalid RunPod job id format");
+  }
+}
+
+export function isRunpodJobIdValidationError(err) {
+  const m = err && typeof err.message === "string" ? err.message : "";
+  return m.includes("Invalid RunPod job id format");
+}
+
 /**
  * @param {string} jobId
  * @param {{ useImageAnalysisEndpoint?: boolean }} [options] — use dedicated JoyCaption endpoint for status (required for jobs submitted there)
@@ -526,6 +539,8 @@ export async function getRunpodJobStatus(jobId, options = {}) {
   if (!RUNPOD_API_KEY) {
     throw new Error("Generation service not configured");
   }
+
+  assertRunpodJobId(jobId);
 
   const base = options.useImageAnalysisEndpoint ? RUNPOD_ANALYSIS_BASE : RUNPOD_BASE;
   const resp = await fetch(`${base}/status/${jobId}`, {

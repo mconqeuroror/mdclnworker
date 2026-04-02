@@ -61,7 +61,9 @@ const ENDPOINT_HEALTH_CATALOG = [
   { method: "POST",   path: "/api/nsfw/generate-advanced" },
   { method: "POST",   path: "/api/nsfw/generate-prompt" },
   { method: "POST",   path: "/api/nsfw/plan-generation" },
+  { method: "GET",    path: "/api/nsfw/plan-generation/status/:jobId" },
   { method: "POST",   path: "/api/nsfw/auto-select" },
+  { method: "GET",    path: "/api/nsfw/auto-select/status/:jobId" },
   // NSFW LoRA management
   { method: "POST",   path: "/api/nsfw/lora/create" },
   { method: "GET",    path: "/api/nsfw/loras/:modelId" },

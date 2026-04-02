@@ -679,7 +679,23 @@ export async function login(req, res) {
       });
     }
 
-    const validPassword = await bcrypt.compare(password, user.password);
+    // Legacy rows may have null authProvider; treat as email so bcrypt/hash checks still apply.
+    const authProvider = user.authProvider ?? "email";
+    if (authProvider !== "email") {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid email or password",
+      });
+    }
+    const passwordHash = user.password;
+    if (typeof passwordHash !== "string" || !passwordHash.startsWith("$2")) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid email or password",
+      });
+    }
+
+    const validPassword = await bcrypt.compare(password, passwordHash);
     if (!validPassword) {
       return res.status(401).json({
         success: false,
