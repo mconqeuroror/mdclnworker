@@ -153,6 +153,49 @@ function enforceCaptionSubjectClass(caption, triggerWord, subjectClass) {
   return out.replace(/,\s*$/, "");
 }
 
+/** Last-resort caption so every training image has a .txt file (training never blocks on one bad API call). */
+function buildFallbackCaption(triggerWord, captionSubjectClass, index) {
+  const t = triggerWord.trim();
+  const cls = captionSubjectClass || "person";
+  return `${t} ${cls}, training dataset image ${index + 1}, varied pose framing clothing and background, identity bound to trigger token, natural lighting, candid photo style.`;
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Download image bytes for captioning with aggressive retries (no single short timeout).
+ */
+async function fetchTrainingImageForCaption(imageUrl, index) {
+  const MAX_FETCH_ATTEMPTS = 10;
+  const TIMEOUT_PER_ATTEMPT_MS = 120_000;
+  let lastErr;
+  for (let attempt = 1; attempt <= MAX_FETCH_ATTEMPTS; attempt++) {
+    try {
+      const imgResponse = await fetch(imageUrl, {
+        signal: AbortSignal.timeout(TIMEOUT_PER_ATTEMPT_MS),
+      });
+      if (!imgResponse.ok) {
+        throw new Error(`Image fetch failed: ${imgResponse.status}`);
+      }
+      const imgBuffer = Buffer.from(await imgResponse.arrayBuffer());
+      if (!imgBuffer.length) throw new Error("empty image body");
+      const contentType = imgResponse.headers.get("content-type") || "image/jpeg";
+      const b64 = imgBuffer.toString("base64");
+      return { b64, contentType };
+    } catch (imgErr) {
+      lastErr = imgErr;
+      if (attempt < MAX_FETCH_ATTEMPTS) {
+        const delay = 2000 * Math.pow(2, Math.min(attempt - 1, 6));
+        console.warn(
+          `  ⚠️ Image fetch attempt ${attempt}/${MAX_FETCH_ATTEMPTS} failed for caption ${index + 1} (${imgErr.message}). Retrying in ${delay / 1000}s…`,
+        );
+        await sleep(delay);
+      }
+    }
+  }
+  throw lastErr || new Error("Image fetch failed");
+}
+
 /**
  * Caption a single training image using Grok vision (xAI API).
  * Follows Z-Image LoRA training captioning best practices:
@@ -169,16 +212,14 @@ async function captionSingleImage(imageUrl, triggerWord, index, captionSubjectCl
     return null;
   }
 
-  // Fetch the image once (outside the retry loop — the URL is stable)
-  let b64, contentType;
+  let b64;
+  let contentType;
   try {
-    const imgResponse = await fetch(imageUrl, { signal: AbortSignal.timeout(20_000) });
-    if (!imgResponse.ok) throw new Error(`Image fetch failed: ${imgResponse.status}`);
-    const imgBuffer = Buffer.from(await imgResponse.arrayBuffer());
-    contentType = imgResponse.headers.get("content-type") || "image/jpeg";
-    b64 = imgBuffer.toString("base64");
+    ({ b64, contentType } = await fetchTrainingImageForCaption(imageUrl, index));
   } catch (imgErr) {
-    console.error(`  ⚠️ Caption skipped for image ${index + 1} (could not fetch image): ${imgErr.message}`);
+    console.error(
+      `  ⚠️ Caption image ${index + 1}: could not fetch after retries: ${imgErr.message}`,
+    );
     return null;
   }
 
@@ -186,10 +227,11 @@ async function captionSingleImage(imageUrl, triggerWord, index, captionSubjectCl
   const grok = new OpenAI({
     apiKey: OPENROUTER_API_KEY,
     baseURL: "https://openrouter.ai/api/v1",
+    maxRetries: 0,
   });
 
-  const MAX_ATTEMPTS = 4;
-  const BASE_DELAY_MS = 2_000;
+  const MAX_ATTEMPTS = 10;
+  const BASE_DELAY_MS = 2_500;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
@@ -213,7 +255,17 @@ async function captionSingleImage(imageUrl, triggerWord, index, captionSubjectCl
       });
 
       const caption = (completion.choices?.[0]?.message?.content || "").trim();
-      if (!caption) return null;
+      if (!caption) {
+        if (attempt < MAX_ATTEMPTS) {
+          const delay = BASE_DELAY_MS * Math.pow(2, Math.min(attempt - 1, 5));
+          console.warn(
+            `  ⚠️ Empty caption for image ${index + 1}, attempt ${attempt}/${MAX_ATTEMPTS}. Retrying in ${delay / 1000}s…`,
+          );
+          await sleep(delay);
+          continue;
+        }
+        return null;
+      }
 
       let finalCaption = caption.startsWith(triggerWord) ? caption : `${triggerWord} ${caption}`;
       if (captionSubjectClass) {
@@ -225,8 +277,9 @@ async function captionSingleImage(imageUrl, triggerWord, index, captionSubjectCl
       const msg = error.message || "";
       const status = error.status ?? error.response?.status ?? 0;
 
-      // Decide whether to retry: 5xx errors and "Provider returned error" (upstream blip) are transient
       const isTransient =
+        status === 408 ||
+        status === 429 ||
         status >= 500 ||
         msg.includes("502") ||
         msg.includes("503") ||
@@ -234,17 +287,28 @@ async function captionSingleImage(imageUrl, triggerWord, index, captionSubjectCl
         msg.toLowerCase().includes("provider returned error") ||
         msg.toLowerCase().includes("bad gateway") ||
         msg.toLowerCase().includes("timeout") ||
+        msg.toLowerCase().includes("timed out") ||
         msg.toLowerCase().includes("econnreset") ||
-        msg.toLowerCase().includes("econnrefused");
+        msg.toLowerCase().includes("econnrefused") ||
+        msg.toLowerCase().includes("etimedout") ||
+        msg.toLowerCase().includes("socket hang up") ||
+        msg.toLowerCase().includes("rate limit");
 
       if (isTransient && attempt < MAX_ATTEMPTS) {
-        const delay = BASE_DELAY_MS * Math.pow(2, attempt - 1); // 2s, 4s, 8s
-        console.warn(`  ⚠️ Caption attempt ${attempt}/${MAX_ATTEMPTS} failed for image ${index + 1} (${msg.slice(0, 80)}). Retrying in ${delay / 1000}s…`);
-        await new Promise(r => setTimeout(r, delay));
+        const delay =
+          status === 429
+            ? Math.min(90_000, BASE_DELAY_MS * Math.pow(2, attempt))
+            : BASE_DELAY_MS * Math.pow(2, Math.min(attempt - 1, 6));
+        console.warn(
+          `  ⚠️ Caption attempt ${attempt}/${MAX_ATTEMPTS} failed for image ${index + 1} (${msg.slice(0, 80)}). Retrying in ${delay / 1000}s…`,
+        );
+        await sleep(delay);
         continue;
       }
 
-      console.error(`  ⚠️ Caption failed for image ${index + 1} after ${attempt} attempt(s): ${msg.slice(0, 120)}`);
+      console.error(
+        `  ⚠️ Caption failed for image ${index + 1} after ${attempt} attempt(s): ${msg.slice(0, 120)}`,
+      );
       return null;
     }
   }
@@ -253,8 +317,8 @@ async function captionSingleImage(imageUrl, triggerWord, index, captionSubjectCl
 }
 
 /**
- * Caption all training images in parallel batches.
- * Returns array of caption strings (or null for failed captions), same length as imageUrls.
+ * Caption all training images in parallel batches, with extra rounds for misses and fallbacks.
+ * Returns caption strings for every index (fallback used only if vision API never succeeds).
  */
 async function captionAllTrainingImages(imageUrls, triggerWord, captionSubjectClass = null) {
   console.log(`\n📝 ============================================`);
@@ -265,28 +329,61 @@ async function captionAllTrainingImages(imageUrls, triggerWord, captionSubjectCl
   }
   console.log(`📝 ============================================`);
 
-  const BATCH_SIZE = 5;
+  const BATCH_SIZE = 4;
   const results = new Array(imageUrls.length).fill(null);
 
   for (let batch = 0; batch < imageUrls.length; batch += BATCH_SIZE) {
     const slice = imageUrls.slice(batch, batch + BATCH_SIZE);
     const batchPromises = slice.map((url, i) =>
-      captionSingleImage(url, triggerWord, batch + i, captionSubjectClass)
+      captionSingleImage(url, triggerWord, batch + i, captionSubjectClass),
     );
     const batchResults = await Promise.all(batchPromises);
     batchResults.forEach((caption, i) => {
       results[batch + i] = caption;
     });
-    console.log(`  ✅ Batch ${Math.floor(batch / BATCH_SIZE) + 1} done (${Math.min(batch + BATCH_SIZE, imageUrls.length)}/${imageUrls.length})`);
+    console.log(
+      `  ✅ Batch ${Math.floor(batch / BATCH_SIZE) + 1} done (${Math.min(batch + BATCH_SIZE, imageUrls.length)}/${imageUrls.length})`,
+    );
 
-    // Brief pause between batches to avoid rate-limit spikes on OpenRouter
     if (batch + BATCH_SIZE < imageUrls.length) {
-      await new Promise(r => setTimeout(r, 800));
+      await sleep(1000);
+    }
+  }
+
+  const MAX_EXTRA_ROUNDS = 8;
+  for (let round = 0; round < MAX_EXTRA_ROUNDS; round++) {
+    const missing = results
+      .map((c, i) => (c == null ? i : -1))
+      .filter((i) => i >= 0);
+    if (missing.length === 0) break;
+    console.log(
+      `📝 Caption retry round ${round + 1}/${MAX_EXTRA_ROUNDS}: ${missing.length} image(s) still without caption`,
+    );
+    for (const idx of missing) {
+      const c = await captionSingleImage(
+        imageUrls[idx],
+        triggerWord,
+        idx,
+        captionSubjectClass,
+      );
+      results[idx] = c;
+      await sleep(500);
+    }
+  }
+
+  let fallbackUsed = 0;
+  for (let i = 0; i < results.length; i++) {
+    if (results[i] == null) {
+      results[i] = buildFallbackCaption(triggerWord, captionSubjectClass, i);
+      fallbackUsed += 1;
+      console.warn(`  📝 Image ${i + 1}: using fallback caption after all retries`);
     }
   }
 
   const captionedCount = results.filter(Boolean).length;
-  console.log(`📝 Captioned ${captionedCount}/${imageUrls.length} images successfully`);
+  console.log(
+    `📝 Caption pass complete: ${captionedCount}/${imageUrls.length} images (${fallbackUsed} fallback)`,
+  );
 
   return results;
 }
@@ -321,12 +418,12 @@ async function createTrainingZip(imageUrls, captions = []) {
   console.log(`📦 Creating training ZIP with ${imageUrls.length} images${hasCaptions ? " + captions" : ""}...`);
 
   for (let i = 0; i < imageUrls.length; i++) {
-    const MAX_FETCH_ATTEMPTS = 3;
+    const MAX_FETCH_ATTEMPTS = 8;
     let lastErr;
     let added = false;
     for (let attempt = 1; attempt <= MAX_FETCH_ATTEMPTS; attempt++) {
       try {
-        const response = await fetch(imageUrls[i], { signal: AbortSignal.timeout(30_000) });
+        const response = await fetch(imageUrls[i], { signal: AbortSignal.timeout(120_000) });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
         const buffer = await response.arrayBuffer();

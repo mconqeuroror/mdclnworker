@@ -2105,61 +2105,129 @@ export async function trainLora(req, res) {
       console.warn("⚠️ No CALLBACK_BASE_URL set — LoRA training will rely on polling only");
     }
 
-    const trainingResult = await startLoraTraining(imageUrls, triggerWord, {
-      steps: isProTraining ? 9000 : 4500,
-      loraRank: isProTraining ? 32 : 16,
+    // Captioning + ZIP + fal submit can exceed HTTP limits (504). Run after response via waitUntil on Vercel.
+    const bgPayload = {
+      userId,
+      creditsNeeded,
+      modelId,
+      targetLoraId,
+      imageUrls: [...imageUrls],
+      triggerWord,
+      isProTraining,
       captionSubjectClass,
-      webhookUrl: trainingWebhookUrl,
-    });
+      trainingWebhookUrl,
+    };
 
-    if (!trainingResult.success) {
-      await refundCredits(userId, creditsNeeded);
-      creditsDeducted = 0;
+    const runTrainLoraBackground = async () => {
+      const {
+        userId: uid,
+        creditsNeeded: cost,
+        modelId: mid,
+        targetLoraId: lid,
+        imageUrls: urls,
+        triggerWord: tw,
+        isProTraining: pro,
+        captionSubjectClass: csc,
+        trainingWebhookUrl: wh,
+      } = bgPayload;
 
-      if (targetLoraId) {
-        await prisma.trainedLora.update({
-          where: { id: targetLoraId },
-          data: { status: "failed", error: trainingResult.error },
+      try {
+        const trainingResult = await startLoraTraining(urls, tw, {
+          steps: pro ? 9000 : 4500,
+          loraRank: pro ? 32 : 16,
+          captionSubjectClass: csc,
+          webhookUrl: wh,
         });
-      } else {
-        await prisma.savedModel.update({
-          where: { id: modelId },
-          data: { loraStatus: "failed", loraError: trainingResult.error },
-        });
+
+        if (!trainingResult.success) {
+          await refundCredits(uid, cost);
+          if (lid) {
+            await prisma.trainedLora.update({
+              where: { id: lid },
+              data: { status: "failed", error: trainingResult.error },
+            });
+            await syncLegacyLoraFields(mid, lid);
+          } else {
+            await prisma.savedModel.update({
+              where: { id: mid },
+              data: { loraStatus: "failed", loraError: trainingResult.error },
+            });
+          }
+          return;
+        }
+
+        if (lid) {
+          await prisma.trainedLora.update({
+            where: { id: lid },
+            data: {
+              triggerWord: tw,
+              falRequestId: trainingResult.requestId,
+              error: null,
+            },
+          });
+          await syncLegacyLoraFields(mid, lid);
+        } else {
+          await prisma.savedModel.update({
+            where: { id: mid },
+            data: {
+              loraStatus: "training",
+              loraTriggerWord: tw,
+              loraFalRequestId: trainingResult.requestId,
+              loraError: null,
+            },
+          });
+        }
+        console.log(`✅ LoRA fal job submitted in background: ${trainingResult.requestId}`);
+      } catch (e) {
+        console.error("❌ Train LoRA background error:", e?.message || e);
+        try {
+          await refundCredits(uid, cost);
+        } catch (re) {
+          console.error("❌ Train LoRA background refund failed:", re?.message || re);
+        }
+        try {
+          if (lid) {
+            await prisma.trainedLora.update({
+              where: { id: lid },
+              data: {
+                status: "failed",
+                error: e?.message || "Failed to start LoRA training",
+              },
+            });
+            await syncLegacyLoraFields(mid, lid);
+          } else if (mid) {
+            await prisma.savedModel.update({
+              where: { id: mid },
+              data: {
+                loraStatus: "failed",
+                loraError: e?.message || "Failed to start LoRA training",
+              },
+            });
+          }
+        } catch (se) {
+          console.error("⚠️ Failed to persist LoRA failure after background error:", se?.message);
+        }
       }
+    };
 
-      return res.status(500).json({
-        success: false,
-        message: trainingResult.error || "Failed to start LoRA training",
-      });
-    }
-
-    if (targetLoraId) {
-      await prisma.trainedLora.update({
-        where: { id: targetLoraId },
-        data: {
-          triggerWord,
-          falRequestId: trainingResult.requestId,
-          error: null,
-        },
-      });
-      await syncLegacyLoraFields(modelId, targetLoraId);
+    const bgPromise = runTrainLoraBackground();
+    if (process.env.VERCEL) {
+      try {
+        const { waitUntil } = await import("@vercel/functions");
+        waitUntil(bgPromise);
+      } catch (e) {
+        console.warn("Train LoRA: waitUntil unavailable, background may not complete on serverless:", e?.message);
+        void bgPromise;
+      }
     } else {
-      await prisma.savedModel.update({
-        where: { id: modelId },
-        data: {
-          loraStatus: "training",
-          loraTriggerWord: triggerWord,
-          loraFalRequestId: trainingResult.requestId,
-          loraError: null,
-        },
-      });
+      void bgPromise;
     }
 
-    res.json({
+    return res.status(202).json({
       success: true,
-      message: "LoRA training started! It can take a while and has no hard timeout.",
-      requestId: trainingResult.requestId,
+      deferred: true,
+      message:
+        "LoRA preprocessing started (captioning and dataset upload). This runs in the background — poll training status; fal training begins once a request id appears.",
       triggerWord,
       creditsUsed: creditsNeeded,
     });
@@ -2243,6 +2311,7 @@ export async function getLoraTrainingStatus(req, res) {
           triggerWord: lora.triggerWord,
           nsfwUnlocked: model.nsfwUnlocked,
           loraId: lora.id,
+          preprocessing: lora.status === "training" && !lora.falRequestId,
         });
       }
 
@@ -2333,6 +2402,7 @@ export async function getLoraTrainingStatus(req, res) {
         loraUrl: model.loraUrl,
         triggerWord: model.loraTriggerWord,
         nsfwUnlocked: model.nsfwUnlocked,
+        preprocessing: model.loraStatus === "training" && !model.loraFalRequestId,
       });
     }
 
