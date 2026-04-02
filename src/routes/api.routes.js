@@ -1,5 +1,6 @@
 import express from "express";
 import prisma from "../lib/prisma.js";
+import { isAllowedPublicAssetHost } from "../utils/publicAssetHost.js";
 import { getErrorMessageForDb } from "../lib/userError.js";
 import {
   signup,
@@ -61,6 +62,7 @@ import {
   generateAdvancedModel,
   generateTrialReference,
   trialUploadReal,
+  trialUploadFromBlobUrls,
   completeOnboarding,
   lockSpecialOffer,
 } from "../controllers/model.controller.js";
@@ -2435,19 +2437,7 @@ router.post(
 // DOWNLOAD PROXY - Fixes CORS issues for file downloads
 // ============================================
 // Authenticated endpoint for CORS-safe downloads from trusted hosts
-function isAllowedDownloadHost(hostname) {
-  const allowedDomains = [
-    "r2.dev",
-    "cloudfront.net",
-    "wavespeed.ai",
-    "replicate.delivery",
-    "vercel-storage.com",
-  ];
-  const lower = String(hostname || "").toLowerCase();
-  return allowedDomains.some(
-    (domain) => lower === domain || lower.endsWith(`.${domain}`),
-  );
-}
+const isAllowedDownloadHost = isAllowedPublicAssetHost;
 
 const DOWNLOAD_PROXY_MAX_BYTES = 120 * 1024 * 1024; // 120 MB
 const DOWNLOAD_PROXY_TIMEOUT_MS = 20_000;

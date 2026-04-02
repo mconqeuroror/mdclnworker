@@ -27,6 +27,7 @@ import {
   validateGenerationUploadSync,
   sendUploadGuardResponse,
 } from "../lib/generationUploadGuards.js";
+import { assertHttpsAllowedAssetUrl } from "../utils/publicAssetHost.js";
 
 const ONBOARDING_TRIAL_REFERENCE_TYPE = "onboarding_trial_reference";
 
@@ -1347,6 +1348,118 @@ export async function generateTrialReference(req, res) {
   }
 }
 
+async function assertTrialEligible(userId, res) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { hasUsedFreeTrial: true },
+  });
+  if (!user) {
+    res.status(401).json({ success: false, message: "Unauthorized" });
+    return false;
+  }
+  const isProduction = process.env.NODE_ENV === "production";
+  if (user.hasUsedFreeTrial && isProduction) {
+    res.status(403).json({
+      success: false,
+      message: "You have already used your free trial. Purchase credits to continue.",
+      code: "TRIAL_ALREADY_USED",
+    });
+    return false;
+  }
+  return true;
+}
+
+async function finishTrialModelWithStoredPhotoUrls(res, userId, photo1Url, photo2Url, photo3Url, body) {
+  const modelName = body.name || "My Model";
+
+  let savedAppearance = null;
+  if (body.savedAppearance) {
+    try {
+      savedAppearance =
+        typeof body.savedAppearance === "string"
+          ? JSON.parse(body.savedAppearance)
+          : body.savedAppearance;
+    } catch {
+      savedAppearance = null;
+    }
+  }
+
+  let modelAge = null;
+  if (body.age) {
+    const parsedAge = parseInt(body.age, 10);
+    if (!isNaN(parsedAge) && parsedAge >= 18 && parsedAge <= 90) {
+      modelAge = parsedAge;
+    }
+  }
+
+  const model = await prisma.savedModel.create({
+    data: {
+      userId,
+      name: modelName,
+      photo1Url,
+      photo2Url,
+      photo3Url,
+      thumbnail: photo1Url,
+      isAIGenerated: false,
+      ...(savedAppearance && { savedAppearance }),
+      ...(modelAge && { age: modelAge }),
+    },
+  });
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: { hasUsedFreeTrial: true },
+  });
+
+  console.log("✅ Trial model created - user marked as hasUsedFreeTrial=true");
+
+  res.json({
+    success: true,
+    message: "Model created successfully!",
+    model: {
+      id: model.id,
+      name: model.name,
+      photo1Url: model.photo1Url,
+      photo2Url: model.photo2Url,
+      photo3Url: model.photo3Url,
+      thumbnail: model.thumbnail,
+      savedAppearance: model.savedAppearance || null,
+    },
+    isTrial: true,
+  });
+}
+
+/**
+ * Onboarding trial after client uploaded each photo directly to Blob (no multipart through Vercel).
+ */
+export async function trialUploadFromBlobUrls(req, res) {
+  try {
+    const userId = req.user.userId;
+    if (!(await assertTrialEligible(userId, res))) return;
+
+    const { face1Url, face2Url, bodyUrl, name, savedAppearance, age } = req.body || {};
+    let p1;
+    let p2;
+    let p3;
+    try {
+      p1 = assertHttpsAllowedAssetUrl(String(face1Url), "face1Url");
+      p2 = assertHttpsAllowedAssetUrl(String(face2Url), "face2Url");
+      p3 = assertHttpsAllowedAssetUrl(String(bodyUrl), "bodyUrl");
+    } catch (e) {
+      return res.status(400).json({ success: false, message: e.message || "Invalid photo URL" });
+    }
+
+    await finishTrialModelWithStoredPhotoUrls(res, userId, p1, p2, p3, {
+      name,
+      savedAppearance,
+      age,
+    });
+  } catch (error) {
+    console.error("Trial upload (blob URLs) error:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+}
+
 /**
  * Upload real photos during onboarding trial
  * Creates a model for the user with uploaded photos
@@ -1355,23 +1468,8 @@ export async function trialUploadReal(req, res) {
   try {
     const userId = req.user.userId;
 
-    // Check if user has already used their free trial
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { hasUsedFreeTrial: true },
-    });
+    if (!(await assertTrialEligible(userId, res))) return;
 
-    // Skip trial check in development for testing (production only)
-    const isProduction = process.env.NODE_ENV === 'production';
-    if (user.hasUsedFreeTrial && isProduction) {
-      return res.status(403).json({
-        success: false,
-        message: "You have already used your free trial. Purchase credits to continue.",
-        code: "TRIAL_ALREADY_USED",
-      });
-    }
-
-    // Check if files were uploaded
     if (!req.files || !req.files.face1 || !req.files.face2 || !req.files.body) {
       return res.status(400).json({
         success: false,
@@ -1385,15 +1483,13 @@ export async function trialUploadReal(req, res) {
       if (!check.ok) return sendUploadGuardResponse(res, check);
     }
 
-    let photo1Url, photo2Url, photo3Url;
-
     if (!isR2Configured()) {
       return res.status(503).json({ success: false, message: "File storage is not configured" });
     }
 
     console.log("\n📸 Uploading trial photos to R2...");
-    
-    [photo1Url, photo2Url, photo3Url] = await Promise.all([
+
+    const [photo1Url, photo2Url, photo3Url] = await Promise.all([
       uploadFileToR2(req.files.face1[0], "models"),
       uploadFileToR2(req.files.face2[0], "models"),
       uploadFileToR2(req.files.body[0], "models"),
@@ -1401,69 +1497,7 @@ export async function trialUploadReal(req, res) {
 
     console.log("✅ Photos uploaded successfully");
 
-    // Create model for user
-    // IMPORTANT: User-uploaded photos are NOT AI-generated
-    // This means NSFW features will NOT be available for this model
-    // This protects real people from non-consensual content
-    const modelName = req.body.name || "My Model";
-
-    // Parse savedAppearance if provided (sent as JSON string in FormData)
-    let savedAppearance = null;
-    if (req.body.savedAppearance) {
-      try {
-        savedAppearance = typeof req.body.savedAppearance === "string"
-          ? JSON.parse(req.body.savedAppearance)
-          : req.body.savedAppearance;
-      } catch {
-        savedAppearance = null;
-      }
-    }
-
-    // Parse age if provided
-    let modelAge = null;
-    if (req.body.age) {
-      const parsedAge = parseInt(req.body.age, 10);
-      if (!isNaN(parsedAge) && parsedAge >= 18 && parsedAge <= 90) {
-        modelAge = parsedAge;
-      }
-    }
-
-    const model = await prisma.savedModel.create({
-      data: {
-        userId,
-        name: modelName,
-        photo1Url,
-        photo2Url,
-        photo3Url,
-        thumbnail: photo1Url,
-        isAIGenerated: false,
-        ...(savedAppearance && { savedAppearance }),
-        ...(modelAge && { age: modelAge }),
-      },
-    });
-
-    // Mark user as having used their free trial
-    await prisma.user.update({
-      where: { id: userId },
-      data: { hasUsedFreeTrial: true },
-    });
-
-    console.log("✅ Trial model created - user marked as hasUsedFreeTrial=true");
-
-    res.json({
-      success: true,
-      message: "Model created successfully!",
-      model: {
-        id: model.id,
-        name: model.name,
-        photo1Url: model.photo1Url,
-        photo2Url: model.photo2Url,
-        photo3Url: model.photo3Url,
-        thumbnail: model.thumbnail,
-        savedAppearance: model.savedAppearance || null,
-      },
-      isTrial: true,
-    });
+    await finishTrialModelWithStoredPhotoUrls(res, userId, photo1Url, photo2Url, photo3Url, req.body);
   } catch (error) {
     console.error("Trial upload error:", error);
     res.status(500).json({ success: false, message: "Server error" });
@@ -1791,6 +1825,7 @@ export default {
   generateAdvancedModel,
   generateTrialReference,
   trialUploadReal,
+  trialUploadFromBlobUrls,
   completeOnboarding,
   lockSpecialOffer,
 };

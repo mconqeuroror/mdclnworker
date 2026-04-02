@@ -776,21 +776,22 @@ export default function OnboardingPage() {
     setIsLoading(true);
 
     try {
-      const formData = new FormData();
-      formData.append("face1", realPhotos.face1);
-      formData.append("face2", realPhotos.face2);
-      formData.append("body", realPhotos.body);
-      formData.append("name", "My Model");
-      if (Object.keys(realLooks).length > 0) {
-        formData.append("savedAppearance", JSON.stringify(realLooks));
-      }
-      if (realAge && parseInt(realAge) >= 1) {
-        formData.append("age", realAge);
-      }
+      const [face1Url, face2Url, bodyUrl] = await Promise.all([
+        uploadFile(realPhotos.face1),
+        uploadFile(realPhotos.face2),
+        uploadFile(realPhotos.body),
+      ]);
 
-      const response = await api.post("/onboarding/trial-upload", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
+      const payload = {
+        face1Url,
+        face2Url,
+        bodyUrl,
+        name: "My Model",
+        ...(Object.keys(realLooks).length > 0 && { savedAppearance: realLooks }),
+        ...(realAge && parseInt(realAge, 10) >= 1 && { age: realAge }),
+      };
+
+      const response = await api.post("/onboarding/trial-upload", payload);
 
       if (response.data.success) {
         setCreatedModelId(response.data.model.id);

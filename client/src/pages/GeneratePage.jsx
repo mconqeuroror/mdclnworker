@@ -783,6 +783,7 @@ function ModelSelector({ models, selectedModel, onSelect, accentColor = "purple"
 
 import toast from "react-hot-toast";
 import api, { generationAPI, pricingAPI, uploadFile } from "../services/api";
+import { downloadFromPublicUrl } from "../utils/directDownload";
 import {
   KLING_I2V,
   KLING_MOTION,
@@ -3891,16 +3892,8 @@ function PromptImageContent({ onGenerationUpdate, models, selectedModel, setSele
       const isVideo = ["video", "faceswap", "face-swap", "prompt-video", "talking-head", "recreate-video"].includes(generation.type) || lowerUrl.includes('.mp4') || lowerUrl.includes('.webm');
       const extension = isVideo ? (lowerUrl.includes('.webm') ? 'webm' : 'mp4') : "jpg";
       const filename = `modelclone_${generation.type || 'prompt'}_${generation.id.slice(0, 8)}.${extension}`;
-      
-      // Use backend proxy to avoid CORS issues
-      const downloadUrl = `/api/download?url=${encodeURIComponent(url)}&filename=${encodeURIComponent(filename)}`;
-      
-      const link = document.createElement("a");
-      link.href = downloadUrl;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+
+      await downloadFromPublicUrl(url, filename);
       toast.success("Download started!");
     } catch (error) {
       console.error("Download failed:", error);

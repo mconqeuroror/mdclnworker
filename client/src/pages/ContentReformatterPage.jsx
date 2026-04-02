@@ -2,6 +2,7 @@ import { useMemo, useState, useEffect, useRef } from "react";
 import { Upload, RefreshCw, Download, Copy, CheckCircle2, AlertCircle, FileType2, Video, History } from "lucide-react";
 import toast from "react-hot-toast";
 import { reformatterAPI } from "../services/api";
+import { downloadFromPublicUrl } from "../utils/directDownload";
 
 const LOCALE_STORAGE_KEY = "app_locale";
 
@@ -218,14 +219,7 @@ export default function ContentReformatterPage() {
       .trim() || "converted";
     const ext = String(result.convertedFormat || "file").toLowerCase();
     const forcedName = `${baseName}.${ext}`;
-    const proxyUrl = `/api/download?url=${encodeURIComponent(result.downloadUrl)}&filename=${encodeURIComponent(forcedName)}`;
-
-    const a = document.createElement("a");
-    a.href = proxyUrl;
-    a.download = forcedName;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    void downloadFromPublicUrl(result.downloadUrl, forcedName);
   };
 
   const handleCopyUrl = async () => {
@@ -252,13 +246,7 @@ export default function ContentReformatterPage() {
     if (!job?.outputUrl) return;
     const name = (job.originalFileName || "converted").replace(/\.[^/.]+$/, "") || "converted";
     const ext = (job.outputExt || "file").toLowerCase();
-    const proxyUrl = `/api/download?url=${encodeURIComponent(job.outputUrl)}&filename=${encodeURIComponent(`${name}.${ext}`)}`;
-    const a = document.createElement("a");
-    a.href = proxyUrl;
-    a.download = `${name}.${ext}`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    void downloadFromPublicUrl(job.outputUrl, `${name}.${ext}`);
   };
 
   return (

@@ -56,6 +56,7 @@ import {
 } from "lucide-react";
 import toast from "react-hot-toast";
 import api, { uploadFile, getUploadConfig } from "../services/api";
+import { downloadFromPublicUrl } from "../utils/directDownload";
 import { useAuthStore } from "../store";
 import { REPURPOSE_DEVICE_OPTIONS } from "../data/repurposeDeviceOptions";
 import { hasPremiumAccess } from "../utils/premiumAccess";
@@ -1450,13 +1451,7 @@ export default function VideoRepurposerPage({ embedded }) {
 
   const handleProxyDownload = useCallback((sourceUrl, fileName) => {
     if (!sourceUrl) return;
-    const downloadUrl = `/api/download?url=${encodeURIComponent(sourceUrl)}&filename=${encodeURIComponent(fileName || "download")}`;
-    const a = document.createElement("a");
-    a.href = downloadUrl;
-    a.download = fileName || "download";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    void downloadFromPublicUrl(sourceUrl, fileName || "download");
   }, []);
 
   const handleDownloadAll = useCallback(() => {

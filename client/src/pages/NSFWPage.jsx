@@ -63,6 +63,7 @@ import { cn } from "../lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import api, { uploadFile } from "../services/api";
+import { downloadFromPublicUrl } from "../utils/directDownload";
 import { useAuthStore } from "../store";
 import { sound } from "../utils/sounds";
 import { useCachedModels } from "../hooks/useCachedModels";
@@ -689,17 +690,11 @@ function NsfwGallery({ modelId }) {
     return [outputUrl];
   };
 
-  const handleDownload = (url, genId, index = 0) => {
+  const handleDownload = async (url, genId, index = 0) => {
     const lowerUrl = url.toLowerCase();
     const ext = lowerUrl.includes(".mp4") ? "mp4" : lowerUrl.includes(".webm") ? "webm" : "jpg";
     const filename = `nsfw-${genId ? genId.substring(0, 8) : "image"}-${index + 1}.${ext}`;
-    const downloadUrl = `/api/download?url=${encodeURIComponent(url)}&filename=${encodeURIComponent(filename)}`;
-    const a = document.createElement("a");
-    a.href = downloadUrl;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    await downloadFromPublicUrl(url, filename);
   };
 
   return (
@@ -1991,15 +1986,9 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
     }
   };
 
-  const handleDownload = (url, genId) => {
+  const handleDownload = async (url, genId) => {
     const filename = `nsfw-video-${genId ? genId.substring(0, 8) : "vid"}.mp4`;
-    const downloadUrl = `/api/download?url=${encodeURIComponent(url)}&filename=${encodeURIComponent(filename)}`;
-    const a = document.createElement("a");
-    a.href = downloadUrl;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    await downloadFromPublicUrl(url, filename);
   };
 
   const handleExtendVideo = async (genId) => {

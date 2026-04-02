@@ -8,6 +8,7 @@ import {
   PauseCircle, Info,
 } from "lucide-react";
 import { creatorStudioAPI, avatarAPI, modelAPI, pricingAPI, uploadFile } from "../services/api";
+import { downloadFromPublicUrl } from "../utils/directDownload";
 import { useAuthStore } from "../store";
 import { useActiveGeneration } from "../hooks/useActiveGeneration";
 import CreatorStudioVoiceTab from "../components/CreatorStudioVoiceTab";
@@ -481,11 +482,16 @@ function ResultCard({ gen, onExpand }) {
               className="w-8 h-8 rounded-lg bg-black/50 flex items-center justify-center text-white hover:bg-black/70 backdrop-blur-sm">
               <Maximize2 className="w-4 h-4" />
             </button>
-            <a href={`/api/download?url=${encodeURIComponent(gen.outputUrl)}&filename=creator-${gen.id}.jpg`}
-              download onClick={(e) => e.stopPropagation()}
-              className="w-8 h-8 rounded-lg bg-black/50 flex items-center justify-center text-white hover:bg-black/70 backdrop-blur-sm">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                downloadFromPublicUrl(gen.outputUrl, `creator-${gen.id}.jpg`);
+              }}
+              className="w-8 h-8 rounded-lg bg-black/50 flex items-center justify-center text-white hover:bg-black/70 backdrop-blur-sm"
+            >
               <Download className="w-4 h-4" />
-            </a>
+            </button>
           </div>
           {gen.prompt && (
             <div className="absolute bottom-0 left-0 right-0 px-3 py-2 bg-gradient-to-t from-black/70 to-transparent pointer-events-none">
@@ -521,11 +527,16 @@ function Lightbox({ gen, onClose }) {
           className="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/60 flex items-center justify-center text-white hover:bg-black/80">
           <X className="w-4 h-4" />
         </button>
-        <a href={`/api/download?url=${encodeURIComponent(gen.outputUrl)}&filename=creator-${gen.id}.jpg`}
-          download className="absolute bottom-3 right-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white/10 text-white hover:bg-white/20 backdrop-blur-sm"
-          onClick={(e) => e.stopPropagation()}>
+        <button
+          type="button"
+          className="absolute bottom-3 right-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white/10 text-white hover:bg-white/20 backdrop-blur-sm"
+          onClick={(e) => {
+            e.stopPropagation();
+            downloadFromPublicUrl(gen.outputUrl, `creator-${gen.id}.jpg`);
+          }}
+        >
           <Download className="w-3.5 h-3.5" /> {copy.save}
-        </a>
+        </button>
       </motion.div>
     </motion.div>
   );
@@ -635,11 +646,12 @@ function CreateAvatarModal({ isOpen, onClose, model, avatarCount, onCreated }) {
 
     setSubmitting(true);
     try {
-      const fd = new FormData();
-      fd.append("modelId", model.id);
-      fd.append("name", name.trim());
-      fd.append("photo", photo);
-      const data = await avatarAPI.create(fd);
+      const photoUrl = await uploadFile(photo);
+      const data = await avatarAPI.create({
+        modelId: model.id,
+        name: name.trim(),
+        photoUrl,
+      });
       toast.success(copy.avatarSubmitted);
       reset();
       onCreated(data.avatar);

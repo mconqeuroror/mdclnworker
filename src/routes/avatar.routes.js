@@ -18,6 +18,7 @@ import { adminMiddleware } from "../middleware/admin.middleware.js";
 import { getGenerationPricing } from "../services/generation-pricing.service.js";
 import { textToSpeech } from "../services/elevenlabs.service.js";
 import { uploadBufferToBlobOrR2 } from "../utils/kieUpload.js";
+import { assertHttpsAllowedAssetUrl } from "../utils/publicAssetHost.js";
 import {
   uploadAsset,
   createPhotoAvatar,
@@ -137,22 +138,19 @@ router.get("/", async (req, res) => {
   return res.json({ avatars, model });
 });
 
-/** POST /api/avatars — create a new avatar */
-router.post("/", upload.single("photo"), async (req, res) => {
+/** POST /api/avatars — create a new avatar (multipart photo or JSON { modelId, name, photoUrl } after client → Blob) */
+async function createAvatarFromPhotoBuffer(req, res, buffer, mimeType) {
   const { modelId, name } = req.body;
 
   if (!modelId) return res.status(400).json({ error: "modelId is required" });
   if (!name?.trim()) return res.status(400).json({ error: "Avatar name is required" });
-  if (!req.file) return res.status(400).json({ error: "Photo is required" });
 
-  // Verify model ownership
   const model = await prisma.savedModel.findFirst({
     where: { id: modelId, userId: req.user.id },
     select: { id: true, elevenLabsVoiceId: true },
   });
   if (!model) return res.status(404).json({ error: "Model not found" });
 
-  // A default model voice is required — all avatars use that selected voice
   if (!model.elevenLabsVoiceId) {
     return res.status(400).json({
       error: "This model has no default voice. Please create and select one in Voice Studio first.",
@@ -160,7 +158,6 @@ router.post("/", upload.single("photo"), async (req, res) => {
     });
   }
 
-  // Enforce 3-avatar limit
   const existing = await prisma.avatar.count({ where: { modelId, userId: req.user.id } });
   if (existing >= MAX_AVATARS_PER_MODEL) {
     return res.status(400).json({
@@ -169,7 +166,6 @@ router.post("/", upload.single("photo"), async (req, res) => {
     });
   }
 
-  // Credit check
   const pricing = await getGenerationPricing();
   const creationCost = pricing.avatarCreation ?? 1000;
 
@@ -183,23 +179,20 @@ router.post("/", upload.single("photo"), async (req, res) => {
     });
   }
 
-  // Deduct credits upfront
   await prisma.user.update({
     where: { id: req.user.id },
     data: { credits: { decrement: creationCost } },
   });
 
-  // Upload photo to R2 for our own storage
-  const ext = req.file.mimetype.split("/")[1] || "jpg";
+  const ext = mimeType.split("/")[1] || "jpg";
   let photoUrl;
   try {
-    photoUrl = await uploadBufferToBlobOrR2(req.file.buffer, "avatars", ext, req.file.mimetype);
+    photoUrl = await uploadBufferToBlobOrR2(buffer, "avatars", ext, mimeType);
   } catch (err) {
     await prisma.user.update({ where: { id: req.user.id }, data: { credits: { increment: creationCost } } });
     return res.status(500).json({ error: "Failed to upload photo: " + err.message });
   }
 
-  // Create DB record immediately so UI can show processing state
   const avatar = await prisma.avatar.create({
     data: {
       userId: req.user.id,
@@ -213,11 +206,55 @@ router.post("/", upload.single("photo"), async (req, res) => {
 
   res.json({ success: true, avatar });
 
-  // Process in background
-  processAvatarCreation(avatar.id, req.user.id, req.file.buffer, req.file.mimetype, ext, creationCost).catch(
-    err => console.error(`[Avatar] Background creation failed for ${avatar.id}:`, err.message)
+  processAvatarCreation(avatar.id, req.user.id, buffer, mimeType, ext, creationCost).catch((err) =>
+    console.error(`[Avatar] Background creation failed for ${avatar.id}:`, err.message),
   );
-});
+}
+
+router.post(
+  "/",
+  (req, res, next) => {
+    const ct = String(req.headers["content-type"] || "");
+    if (!ct.includes("application/json")) return next();
+    return express.json({ limit: "2mb" })(req, res, next);
+  },
+  async (req, res, next) => {
+    const ct = String(req.headers["content-type"] || "");
+    if (!ct.includes("application/json")) return next();
+    const { modelId, name, photoUrl: remoteUrl } = req.body || {};
+    if (!modelId || !name?.trim() || !remoteUrl) {
+      return res.status(400).json({ error: "modelId, name, and photoUrl (https) are required" });
+    }
+    let href;
+    try {
+      href = assertHttpsAllowedAssetUrl(String(remoteUrl), "photoUrl");
+    } catch (e) {
+      return res.status(400).json({ error: e.message });
+    }
+    let r;
+    try {
+      r = await fetch(href);
+    } catch {
+      return res.status(400).json({ error: "Failed to fetch photo" });
+    }
+    if (!r.ok) return res.status(400).json({ error: "Photo URL returned an error" });
+    const mimeType = (r.headers.get("content-type") || "image/jpeg").split(";")[0].trim();
+    if (!mimeType.startsWith("image/")) {
+      return res.status(400).json({ error: "photoUrl must point to an image" });
+    }
+    const buffer = Buffer.from(await r.arrayBuffer());
+    const maxBytes = 20 * 1024 * 1024;
+    if (buffer.length > maxBytes) {
+      return res.status(400).json({ error: "Photo is too large" });
+    }
+    return createAvatarFromPhotoBuffer(req, res, buffer, mimeType);
+  },
+  upload.single("photo"),
+  async (req, res) => {
+    if (!req.file) return res.status(400).json({ error: "Photo is required" });
+    return createAvatarFromPhotoBuffer(req, res, req.file.buffer, req.file.mimetype);
+  },
+);
 
 async function processAvatarCreation(avatarId, userId, photoBuffer, mimeType, ext, creationCost) {
   try {

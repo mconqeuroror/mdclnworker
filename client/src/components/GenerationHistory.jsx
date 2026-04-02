@@ -17,6 +17,7 @@ import {
   Zap,
 } from "lucide-react";
 import { useGenerations } from "../hooks/useGenerations";
+import { downloadFromPublicUrl } from "../utils/directDownload";
 
 const PREVIEW_BADGE_STYLE = {
   background: "rgba(255,255,255,0.04)",
@@ -122,14 +123,7 @@ export function GenerationHistory({
     const ext = isVideo ? (lowerUrl.includes(".webm") ? "webm" : "mp4") : "jpg";
     const filename = `generation-${gen?.id || "image"}-${index + 1}.${ext}`;
 
-    const downloadUrl = `/api/download?url=${encodeURIComponent(url)}&filename=${encodeURIComponent(filename)}`;
-
-    const a = document.createElement("a");
-    a.href = downloadUrl;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    await downloadFromPublicUrl(url, filename);
   };
 
   const handleDownloadAll = async () => {

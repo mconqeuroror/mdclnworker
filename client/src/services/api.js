@@ -796,13 +796,21 @@ export const tutorialsAPI = {
       });
       return response.data;
     }
-    const formData = new FormData();
-    formData.append("slot", slot);
-    formData.append("video", file);
-    const response = await api.post("/admin/tutorial-video-slot", formData, {
-      headers: { "Content-Type": "multipart/form-data" },
-    });
-    return response.data;
+    if (import.meta.env.DEV) {
+      console.warn(
+        "[tutorials] Blob not configured — using multipart admin upload (dev only).",
+      );
+      const formData = new FormData();
+      formData.append("slot", slot);
+      formData.append("video", file);
+      const response = await api.post("/admin/tutorial-video-slot", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      return response.data;
+    }
+    throw new Error(
+      "Tutorial video uploads require Vercel Blob (configure BLOB_READ_WRITE_TOKEN).",
+    );
   },
 };
 
@@ -899,7 +907,15 @@ export const avatarAPI = {
     return response.data;
   },
 
-  create: async (formData) => {
+  create: async ({ modelId, name, file, photoUrl }) => {
+    if (photoUrl && typeof photoUrl === "string") {
+      const response = await api.post("/avatars", { modelId, name, photoUrl });
+      return response.data;
+    }
+    const formData = new FormData();
+    formData.append("modelId", modelId);
+    formData.append("name", name);
+    formData.append("photo", file);
     const response = await api.post("/avatars", formData, {
       headers: { "Content-Type": "multipart/form-data" },
     });

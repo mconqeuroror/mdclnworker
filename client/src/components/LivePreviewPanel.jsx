@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Download, Loader2, AlertTriangle, Clock, CheckCircle, X, Maximize2, Info } from 'lucide-react';
 import { resolveLocale } from './generateAIModelFormCopy';
+import { downloadFromPublicUrl } from '../utils/directDownload';
 
 const LIVE_PREVIEW_COPY = {
   en: {
@@ -61,13 +62,7 @@ export default function LivePreviewPanel({
     const isOutputVideo = isVideo || lowerUrl.includes(".mp4") || lowerUrl.includes(".webm");
     const ext = isOutputVideo ? (lowerUrl.includes(".webm") ? "webm" : "mp4") : "jpg";
     const filename = `generation-${latestGeneration.id}.${ext}`;
-    const downloadUrl = `/api/download?url=${encodeURIComponent(outputUrl)}&filename=${encodeURIComponent(filename)}`;
-    const link = document.createElement('a');
-    link.href = downloadUrl;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    void downloadFromPublicUrl(outputUrl, filename);
   };
 
   return (

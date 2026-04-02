@@ -27,6 +27,7 @@ import {
 import LazyImage from "../components/LazyImage";
 import LazyVideo from "../components/LazyVideo";
 import { getThumbnailUrl, getMediumUrl } from "../utils/imageUtils";
+import { downloadFromPublicUrl, fetchPublicAssetBlob } from "../utils/directDownload";
 
 const gradientPurple = 'linear-gradient(135deg, #8B5CF6, #3B82F6)';
 const gradientCyan = 'linear-gradient(135deg, #22D3EE, #14B8A6)';
@@ -544,13 +545,7 @@ export default function HistoryPage() {
       const lowerUrl = primaryUrl.toLowerCase();
       const ext = isVideo ? (lowerUrl.includes(".webm") ? "webm" : "mp4") : "jpg";
       const filename = `${generation.type}_${idPrefix}.${ext}`;
-      const downloadUrl = `/api/download?url=${encodeURIComponent(primaryUrl)}&filename=${encodeURIComponent(filename)}`;
-      const a = document.createElement("a");
-      a.href = downloadUrl;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+      await downloadFromPublicUrl(primaryUrl, filename);
       return;
     }
 
@@ -560,11 +555,8 @@ export default function HistoryPage() {
     for (let i = 0; i < urls.length; i++) {
       const url = urls[i];
       const filename = `${generation.type}_${idPrefix}_${i + 1}.jpg`;
-      const downloadUrl = `/api/download?url=${encodeURIComponent(url)}&filename=${encodeURIComponent(filename)}`;
       try {
-        const resp = await fetch(downloadUrl, { credentials: "include" });
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        const blob = await resp.blob();
+        const blob = await fetchPublicAssetBlob(url);
         zip.file(filename, blob);
       } catch (e) {
         console.error(`Failed to download output ${i + 1}/${urls.length} for ${generation.id}:`, e);
@@ -613,10 +605,7 @@ export default function HistoryPage() {
             const lowerUrl = url.toLowerCase();
             const ext = isVideo ? (lowerUrl.includes(".webm") ? "webm" : "mp4") : "jpg";
             const filename = `${gen.type}_${idPrefix}${urls.length > 1 ? `_${u + 1}` : ""}.${ext}`;
-            const downloadUrl = `/api/download?url=${encodeURIComponent(url)}&filename=${encodeURIComponent(filename)}`;
-            const response = await fetch(downloadUrl, { credentials: "include" });
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            const blob = await response.blob();
+            const blob = await fetchPublicAssetBlob(url);
             zip.file(filename, blob);
           }
         } catch (error) {
