@@ -240,7 +240,20 @@ export default function LanderNewPublicApp({ config, noCursor = false, editMode 
       {renderSpacer(spacers.beforeFooter, "layout.spacer.beforeFooter")}
       <footer className="site-footer">
         <div className="container footer-inner">
-          <p>{footerCta.text}</p>
+          <div className="footer-main-col">
+            <p>{footerCta.text}</p>
+            <nav className="footer-legal" aria-label="Legal and policies">
+              <a href="/terms">Terms of Service</a>
+              <span className="footer-legal-sep" aria-hidden="true">
+                ·
+              </span>
+              <a href="/privacy">Privacy Policy</a>
+              <span className="footer-legal-sep" aria-hidden="true">
+                ·
+              </span>
+              <a href="/cookies">Cookie Policy</a>
+            </nav>
+          </div>
           <a href={footerCta.ctaHref} className="btn btn-primary" data-dp-target-id="footer.cta">
             {footerCta.ctaText}
           </a>
