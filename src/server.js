@@ -3,6 +3,7 @@ import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import path from 'path';
+import { existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import apiRoutes from './routes/api.routes.js';
 import { apiLimiter } from './middleware/rateLimiter.js';
@@ -52,6 +53,21 @@ if (isProduction) {
 }
 
 const app = express();
+
+// Apple Pay domain verification — mount first (before CORS, auth, /api rate limits).
+// Apple's crawler GETs /.well-known/... with no session; must not sit behind auth.
+const wellKnownDirs = [
+  path.join(__dirname, 'public', '.well-known'),
+  path.join(__dirname, '..', 'client', 'public', '.well-known'),
+];
+for (const dir of wellKnownDirs) {
+  if (existsSync(dir)) {
+    app.use('/.well-known', express.static(dir));
+    console.log('📎 Serving /.well-known (Apple Pay domain association) from:', dir);
+    break;
+  }
+}
+
 // Prefer SERVER_PORT so the backend never binds to a platform-assigned "frontend" PORT (e.g. Replit 3001)
 const PORT = Number(process.env.SERVER_PORT || process.env.PORT || 5000) || 5000;
 const readIntervalMs = (value, fallbackMs) => {

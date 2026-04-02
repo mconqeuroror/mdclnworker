@@ -152,6 +152,13 @@ function CheckoutForm({ item, itemType, onSuccess, onClose, paymentMethod, onSwi
     }
   }, [canUseCrypto]);
 
+  const referralCode = referralCodeInput.trim() || null;
+  const discountCode = discountValidation?.valid ? discountCodeInput.trim() : null;
+
+  const walletCodesRef = useRef({ referralCode: null, discountCode: null });
+  // During render (not useEffect): avoids a render→effect gap if the user taps wallet immediately.
+  walletCodesRef.current = { referralCode, discountCode };
+
   useEffect(() => {
     if (!stripe || !displayPrice) return;
 
@@ -199,7 +206,8 @@ function CheckoutForm({ item, itemType, onSuccess, onClose, paymentMethod, onSwi
         let paymentIntentId = null;
 
         if (itemType === 'subscription') {
-          const response = await stripeAPI.createEmbeddedSubscription(item.id, item.billingCycle, referralCode || undefined, discountCode || undefined);
+          const { referralCode: r, discountCode: d } = walletCodesRef.current;
+          const response = await stripeAPI.createEmbeddedSubscription(item.id, item.billingCycle, r || undefined, d || undefined);
           clientSecret = response.clientSecret;
           subscriptionId = response.subscriptionId;
           setPendingSubscriptionId(subscriptionId);
@@ -211,7 +219,8 @@ function CheckoutForm({ item, itemType, onSuccess, onClose, paymentMethod, onSwi
           paymentIntentId = response.paymentIntentId || null;
           setPendingStripeConfirmation({ kind: "special-offer", paymentIntentId });
         } else {
-          const response = await stripeAPI.createPaymentIntent(item.credits, referralCode || undefined, discountCode || undefined);
+          const { referralCode: r, discountCode: d } = walletCodesRef.current;
+          const response = await stripeAPI.createPaymentIntent(item.credits, r || undefined, d || undefined);
           clientSecret = response.clientSecret;
           paymentIntentId = response.paymentIntentId || null;
           setPendingStripeConfirmation({ kind: "payment", paymentIntentId });
@@ -246,7 +255,10 @@ function CheckoutForm({ item, itemType, onSuccess, onClose, paymentMethod, onSwi
         if (paymentIntent?.status === 'requires_action') {
           console.log('🔐 Wallet: 3D Secure required...');
           const returnUrl = typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname || '/'}${window.location.search || ''}` : undefined;
-          const { error: actionError, paymentIntent: confirmedIntent } = await stripe.confirmCardPayment(clientSecret, { return_url: returnUrl });
+          const { error: actionError, paymentIntent: confirmedIntent } = await stripe.confirmCardPayment(clientSecret, {
+            payment_method: ev.paymentMethod.id,
+            return_url: returnUrl,
+          });
           if (actionError) {
             setError(actionError.message || 'Bank authentication failed.');
             setLoading(false);
@@ -311,8 +323,26 @@ function CheckoutForm({ item, itemType, onSuccess, onClose, paymentMethod, onSwi
     };
   }, [stripe, displayPrice, itemType, item, displayCredits, finalizePayment]);
 
-  const referralCode = referralCodeInput.trim() || null;
-  const discountCode = discountValidation?.valid ? discountCodeInput.trim() : null;
+  useEffect(() => {
+    const pr = paymentRequest;
+    if (!pr || !stripe) return;
+
+    const label = itemType === 'subscription'
+      ? `${item.name} Plan`
+      : itemType === 'special-offer'
+        ? 'AI Model + Credits'
+        : `${displayCredits} Credits`;
+
+    const fullCents = Math.round(displayPrice * 100);
+    const amountCents =
+      discountValidation?.valid && typeof discountValidation.finalAmountCents === 'number'
+        ? discountValidation.finalAmountCents
+        : fullCents;
+
+    pr.update({ total: { label, amount: amountCents } }).catch(() => {
+      // e.g. sheet open or browser rejected update — non-fatal
+    });
+  }, [paymentRequest, stripe, itemType, item, displayCredits, displayPrice, discountValidation]);
 
   useEffect(() => {
     if (discountDebounceRef.current) clearTimeout(discountDebounceRef.current);
@@ -687,6 +717,11 @@ function CheckoutForm({ item, itemType, onSuccess, onClose, paymentMethod, onSwi
               )}
             </div>
           </div>
+          {itemType === 'subscription' && (
+            <p className="text-[10px] sm:text-xs text-slate-500 mt-2 leading-snug">
+              Promotional or discount pricing applies to your first payment only. Renewals are billed at the regular plan price.
+            </p>
+          )}
         </div>
       </div>
 

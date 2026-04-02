@@ -99,7 +99,7 @@ export default function LanderNewRenderer({
     { id: "kie", name: "KIE AI", logoUrl: "" },
     { id: "wavespeed", name: "WaveSpeed", logoUrl: "" },
     { id: "runpod", name: "RunPod", logoUrl: "" },
-    { id: "stripe", name: "Stripe", logoUrl: "" },
+    { id: "stripe", name: "Stripe", logoUrl: "/partners/stripe.svg" },
   ];
   const fallbackPricing = [
     { id: "starter", name: "Starter", credits: 2900, monthly: 29, annual: 289, pricePerCredit: 0.01, popular: false, bonusCredits: 0 },

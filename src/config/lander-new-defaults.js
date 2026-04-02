@@ -77,7 +77,7 @@ export const LANDER_NEW_DEFAULTS = {
         { id: "kie", name: "KIE AI", logoUrl: "" },
         { id: "wavespeed", name: "WaveSpeed", logoUrl: "" },
         { id: "runpod", name: "RunPod", logoUrl: "" },
-        { id: "stripe", name: "Stripe", logoUrl: "" },
+        { id: "stripe", name: "Stripe", logoUrl: "/partners/stripe.svg" },
       ],
     },
     pricing: {

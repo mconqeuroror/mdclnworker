@@ -84,6 +84,22 @@ function inferRefundBucketFromTransaction(tx) {
   return "purchased";
 }
 
+/** Align subscription pool expiry with Stripe's invoice period when present (avoids webhook-delay drift). */
+function subscriptionCreditsExpireAtFromInvoice(invoice, billingCycle) {
+  const periodEndSec = invoice?.lines?.data?.[0]?.period?.end ?? invoice?.period_end;
+  if (periodEndSec && typeof periodEndSec === "number") {
+    const d = new Date(periodEndSec * 1000);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+  const fallback = new Date();
+  if (billingCycle === "annual") {
+    fallback.setFullYear(fallback.getFullYear() + 1);
+  } else {
+    fallback.setMonth(fallback.getMonth() + 1);
+  }
+  return fallback;
+}
+
 async function resolveRefundContextFromCharge(charge) {
   const candidateSessionIds = [];
   const paymentIntentId = typeof charge.payment_intent === "string" ? charge.payment_intent : null;
@@ -1009,13 +1025,10 @@ router.post(
                       break;
                     }
 
-                    const now = new Date();
-                    const creditsExpireAt = new Date(now);
-                    if (metaBillingCycle === "annual") {
-                      creditsExpireAt.setFullYear(creditsExpireAt.getFullYear() + 1);
-                    } else {
-                      creditsExpireAt.setMonth(creditsExpireAt.getMonth() + 1);
-                    }
+                    const creditsExpireAt = subscriptionCreditsExpireAtFromInvoice(
+                      invoice,
+                      metaBillingCycle || "monthly",
+                    );
 
                     try {
                       await prisma.$transaction(async (tx) => {
@@ -1200,13 +1213,7 @@ router.post(
               console.log(`🔄 invoice.payment_succeeded: processing renewal for user ${user.id}, sub ${subscriptionId}, +${parsedCredits} credits`);
             }
 
-            const now = new Date();
-            const creditsExpireAt = new Date(now);
-            if (billingCycle === "annual") {
-              creditsExpireAt.setFullYear(creditsExpireAt.getFullYear() + 1);
-            } else {
-              creditsExpireAt.setMonth(creditsExpireAt.getMonth() + 1);
-            }
+            const creditsExpireAt = subscriptionCreditsExpireAtFromInvoice(invoice, billingCycle);
 
             try {
               await prisma.$transaction(async (tx) => {
@@ -1220,14 +1227,26 @@ router.post(
                   },
                 });
 
+                const priorRenewal = await tx.user.findUnique({
+                  where: { id: user.id },
+                  select: { subscriptionCredits: true },
+                });
+                const rolloverRenewal = rolloverSubPoolToPurchasedUpdate(priorRenewal?.subscriptionCredits);
+                if (Object.keys(rolloverRenewal).length) {
+                  console.log(
+                    `💾 Renewal: rolling ${priorRenewal?.subscriptionCredits ?? 0} subscription credits → purchased`,
+                  );
+                }
+
                 await tx.user.update({
                   where: { id: user.id },
                   data: {
+                    ...rolloverRenewal,
                     stripeSubscriptionId: subscriptionId,
                     subscriptionTier: resolvedTierId,
                     subscriptionStatus: "active",
                     subscriptionBillingCycle: billingCycle,
-                    subscriptionCredits: { increment: parsedCredits },
+                    subscriptionCredits: parsedCredits,
                     creditsExpireAt,
                   },
                 });
