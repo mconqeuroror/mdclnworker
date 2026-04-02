@@ -23,8 +23,6 @@ function useHasHydrated() {
 }
 
 // Pages
-import SelectUserTypePage from './pages/SelectUserTypePage';
-import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
 import SignupPage from './pages/SignupPage';
 import VerifyEmailPage from './pages/VerifyEmailPage';
@@ -36,7 +34,6 @@ import DesignerStudioPage from './pages/DesignerStudioPage';
 import TermsPage from './pages/TermsPage';
 import PrivacyPage from './pages/PrivacyPage';
 import CookiesPage from './pages/CookiesPage';
-import CreateAIModelLandingPage from './pages/CreateAIModelLandingPage';
 import CreateAIModelLandingPageSk from './pages/CreateAIModelLandingPageSk';
 import ReferralCapturePage from './pages/ReferralCapturePage';
 import VoiceTestPage from './pages/VoiceTestPage';
@@ -499,8 +496,8 @@ function App() {
         />
         
         <Routes>
-          <Route path="/" element={<SelectUserTypePage />} />
-          <Route path="/landing" element={<LandingPage />} />
+          <Route path="/" element={<LanderNewPage />} />
+          <Route path="/landing" element={<Navigate to="/" replace />} />
           <Route path="/admin-login" element={<AdminLoginPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/signup" element={<SignupPage />} />
@@ -510,11 +507,11 @@ function App() {
           <Route path="/terms" element={<TermsPage />} />
           <Route path="/privacy" element={<PrivacyPage />} />
           <Route path="/cookies" element={<CookiesPage />} />
-          <Route path="/create-ai-model" element={<CreateAIModelLandingPage />} />
+          <Route path="/create-ai-model" element={<LanderNewPage />} />
           <Route path="/sk/vytvor-ai-model" element={<CreateAIModelLandingPageSk />} />
           <Route path="/r/:suffix" element={<ReferralCapturePage />} />
           <Route path="/free-course" element={<FreeCourseFunnelPage />} />
-          <Route path="/lander-new" element={<LanderNewPage />} />
+          <Route path="/lander-new" element={<Navigate to="/" replace />} />
           {/* Preview frame loaded inside editor iframe — must be public (no AdminRoute) */}
           <Route path="/admin/lander-preview-frame" element={<AdminLanderPreviewFrame />} />
           <Route path="/admin/affiliate-lander-preview-frame" element={<AdminAffiliateLanderPreviewFrame />} />

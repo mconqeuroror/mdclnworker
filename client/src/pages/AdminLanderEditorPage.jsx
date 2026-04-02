@@ -612,7 +612,7 @@ export default function AdminLanderEditorPage() {
           {/* Preview label */}
           <div className="mb-3 flex w-full max-w-[1400px] items-center justify-between text-[0.65rem] text-gray-500">
             <span>{BREAKPOINT_WIDTHS[activeBreakpoint].label} — {BREAKPOINT_WIDTHS[activeBreakpoint].width}px</span>
-            <a href="/lander-new" target="_blank" rel="noopener" className="text-blue-400 hover:underline">
+            <a href="/" target="_blank" rel="noopener" className="text-blue-400 hover:underline">
               open in new tab ↗
             </a>
           </div>

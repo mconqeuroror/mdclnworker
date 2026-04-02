@@ -3,7 +3,7 @@ export const LANDER_NEW_DEFAULTS = {
     title: "ModelClone — AI Image & Video Studio for Creators",
     description:
       "Generate professional AI images and videos with full control over style, motion, and visual identity. The creative studio built for serious content output.",
-    canonicalUrl: "https://modelclone.app/lander-new",
+    canonicalUrl: "https://modelclone.app/",
     ogTitle: "ModelClone — AI Image & Video Studio for Creators",
     ogDescription:
       "Generate cinematic AI images and videos with precision control over shot, style, and motion. Built for creators and agencies who demand consistent output.",
@@ -31,7 +31,7 @@ export const LANDER_NEW_DEFAULTS = {
       },
       webPage: {
         name: "ModelClone — AI Image & Video Studio for Creators",
-        url: "https://modelclone.app/lander-new",
+        url: "https://modelclone.app/",
         description:
           "Generate professional AI images and videos with full control over style, motion, and visual identity. The creative studio built for serious content output.",
       },

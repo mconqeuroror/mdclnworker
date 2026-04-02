@@ -1,8 +1,19 @@
-import { useEffect, useMemo, useState } from "react";
-import { landerNewAPI } from "../services/api";
+import { useEffect, useMemo, useState, useRef, useSyncExternalStore } from "react";
+import { Navigate, useLocation } from "react-router-dom";
+import { landerNewAPI, referralAPI } from "../services/api";
 import { LANDER_NEW_DEFAULTS } from "../landerNew/defaults";
 import { deepMerge } from "../landerNew/utils";
 import LanderNewPublicApp from "../components/landerNew/LanderNewPublicApp";
+import { generateFingerprint } from "../utils/fingerprint";
+import { useAuthStore } from "../store";
+
+function useHasHydrated() {
+  return useSyncExternalStore(
+    (callback) => useAuthStore.persist.onFinishHydration(callback),
+    () => useAuthStore.persist.hasHydrated(),
+    () => false,
+  );
+}
 
 function upsertMeta(selector, attrs) {
   let el = document.head.querySelector(selector);
@@ -34,8 +45,13 @@ function upsertJsonLd(id, data) {
 }
 
 export default function LanderNewPage() {
+  const location = useLocation();
   const [config, setConfig] = useState(LANDER_NEW_DEFAULTS);
   const [loading, setLoading] = useState(true);
+  const hasHydrated = useHasHydrated();
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const [sessionValid, setSessionValid] = useState(null);
+  const checkedRef = useRef(false);
 
   useEffect(() => {
     let alive = true;
@@ -55,7 +71,82 @@ export default function LanderNewPage() {
     };
   }, []);
 
-  const seo = useMemo(() => config?.seo || LANDER_NEW_DEFAULTS.seo, [config]);
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const ref = params.get("ref")?.trim().toLowerCase();
+    if (!ref) return;
+    try {
+      localStorage.setItem("pendingReferralCode", ref);
+    } catch {
+      /* ignore */
+    }
+    (async () => {
+      try {
+        const fp = await generateFingerprint();
+        await referralAPI.captureHint(
+          ref,
+          fp?.visitorId || "no-fingerprint-available",
+          navigator.userAgent || "Unknown",
+        );
+      } catch {
+        /* best-effort */
+      }
+    })();
+  }, [location.search]);
+
+  useEffect(() => {
+    if (!isAuthenticated || checkedRef.current) return;
+    checkedRef.current = true;
+    (async () => {
+      try {
+        const { authAPI } = await import("../services/api");
+        const res = await authAPI.getProfile();
+        if (res?.success) setSessionValid(true);
+        else setSessionValid(false);
+      } catch {
+        setSessionValid(false);
+        try {
+          useAuthStore.setState({ user: null, isAuthenticated: false });
+        } catch {
+          /* ignore */
+        }
+      }
+    })();
+  }, [isAuthenticated]);
+
+  const seo = useMemo(() => {
+    const base = config?.seo || LANDER_NEW_DEFAULTS.seo;
+    const path = location.pathname;
+    if (path === "/create-ai-model") {
+      return {
+        ...base,
+        canonicalUrl: "https://modelclone.app/create-ai-model",
+        jsonLd: base.jsonLd
+          ? {
+              ...base.jsonLd,
+              webPage: base.jsonLd.webPage
+                ? { ...base.jsonLd.webPage, url: "https://modelclone.app/create-ai-model" }
+                : base.jsonLd.webPage,
+            }
+          : base.jsonLd,
+      };
+    }
+    if (path === "/") {
+      return {
+        ...base,
+        canonicalUrl: "https://modelclone.app/",
+        jsonLd: base.jsonLd
+          ? {
+              ...base.jsonLd,
+              webPage: base.jsonLd.webPage
+                ? { ...base.jsonLd.webPage, url: "https://modelclone.app/" }
+                : base.jsonLd.webPage,
+            }
+          : base.jsonLd,
+      };
+    }
+    return base;
+  }, [config, location.pathname]);
 
   useEffect(() => {
     document.title = seo.title || LANDER_NEW_DEFAULTS.seo.title;
@@ -119,6 +210,26 @@ export default function LanderNewPage() {
     if (webPage) upsertJsonLd("lander-new-page", webPage);
     if (softwareApplication) upsertJsonLd("lander-new-app", softwareApplication);
   }, [seo]);
+
+  if (!hasHydrated) {
+    return (
+      <div className="min-h-screen grid place-items-center text-slate-300 text-sm animate-pulse">
+        Loading…
+      </div>
+    );
+  }
+
+  if (isAuthenticated && sessionValid === true) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  if (isAuthenticated && sessionValid === null) {
+    return (
+      <div className="min-h-screen grid place-items-center text-slate-300 text-sm animate-pulse">
+        Loading…
+      </div>
+    );
+  }
 
   if (loading) return <div className="min-h-screen grid place-items-center text-slate-300">Loading lander...</div>;
 
