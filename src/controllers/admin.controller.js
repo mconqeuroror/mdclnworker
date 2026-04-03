@@ -2550,48 +2550,30 @@ function setStripeCache(key, data) {
   _stripeCache.set(key, { ts: Date.now(), data });
 }
 
+function isLiveActiveStripeSubscription(sub) {
+  const status = String(sub?.status || "").toLowerCase();
+  // Strict active count to match Stripe "active subscription" expectation.
+  return status === "active";
+}
+
+function stripeSubscriptionCustomerId(sub) {
+  if (!sub?.customer) return null;
+  return typeof sub.customer === "string" ? sub.customer : sub.customer?.id || null;
+}
+
 /**
- * Fetch subscription docs for MRR — many parallel retrieves instead of one tiny batch at a time
- * (was timing out admin when hundreds of DB-matched subs exist).
+ * Source-of-truth live subscription set from Stripe.
+ * We list account subscriptions and filter to "active-like" statuses.
  */
-async function retrieveActiveSubscriptionsForMrr(stripeClient, eligibleIds) {
-  const ids = [...eligibleIds].filter(Boolean);
-  if (ids.length === 0) return [];
-
-  const BATCH = 30;
-  const waves = [];
-  for (let i = 0; i < ids.length; i += BATCH) {
-    waves.push(ids.slice(i, i + BATCH));
-  }
-
-  const PARALLEL_WAVES = 4;
-  const out = [];
-
-  for (let i = 0; i < waves.length; i += PARALLEL_WAVES) {
-    const slice = waves.slice(i, i + PARALLEL_WAVES);
-    const settledArrays = await Promise.all(
-      slice.map((batch) =>
-        Promise.allSettled(
-          batch.map((id) =>
-            stripeClient.subscriptions.retrieve(
-              id,
-              { expand: ["items.data.price"] },
-              { timeout: 18_000 },
-            ),
-          ),
-        ),
-      ),
-    );
-    for (const settled of settledArrays) {
-      for (const r of settled) {
-        if (r.status !== "fulfilled") continue;
-        const sub = r.value;
-        if (sub && sub.status === "active") out.push(sub);
-      }
-    }
-  }
-
-  return out;
+async function listLiveSubscriptionsForMrr(stripeClient) {
+  const allSubs = await stripeClient.subscriptions
+    .list({
+      status: "all",
+      limit: 100,
+      expand: ["data.items.data.price"],
+    })
+    .autoPagingToArray({ limit: 10_000 });
+  return (allSubs || []).filter(isLiveActiveStripeSubscription);
 }
 
 /** Churn in date range — Search API filters by canceled_at (no full-table scan). */
@@ -2647,22 +2629,16 @@ export async function getStripeRevenue(req, res) {
     const periodStart = Math.floor(range.start.getTime() / 1000);
     const periodEnd   = Math.floor(range.end.getTime()   / 1000);
 
-    // Users with a real active subscription in our DB (not cancelled in-app / DB)
-    const dbActiveSubUsers = await prisma.user.findMany({
+    // DB count is kept as a diagnostic signal (sync drift), not the source of truth for "live active subs".
+    const dbActiveSubUsersCount = await prisma.user.count({
       where: {
         subscriptionStatus: "active",
         stripeSubscriptionId: { not: null },
         subscriptionCancelledAt: null,
       },
-      select: { stripeSubscriptionId: true },
     });
-    const eligibleStripeSubIds = new Set(
-      dbActiveSubUsers.map((u) => u.stripeSubscriptionId).filter(Boolean),
-    );
-    const activeSubscribersCount = eligibleStripeSubIds.size;
 
-    // No global Promise.race — parallel sub retrieves + charge paging could exceed 90s on large accounts;
-    // MRR path is batched with wave parallelism instead.
+    // No global Promise.race — Stripe paging can exceed 90s on larger accounts.
     const [allCharges, allActiveSubs, churnInPeriod] = await Promise.all([
       stripe.charges
         .list({
@@ -2670,9 +2646,13 @@ export async function getStripeRevenue(req, res) {
           created: { gte: periodStart, lte: periodEnd },
         })
         .autoPagingToArray({ limit: 2_000 }),
-      retrieveActiveSubscriptionsForMrr(stripe, eligibleStripeSubIds),
+      listLiveSubscriptionsForMrr(stripe),
       countChurnCanceledInPeriod(stripe, periodStart, periodEnd),
     ]);
+    const liveActiveSubscriptionsCount = allActiveSubs.length;
+    const liveActiveCustomersCount = new Set(
+      allActiveSubs.map(stripeSubscriptionCustomerId).filter(Boolean),
+    ).size;
 
     // ── Tally charges ────────────────────────────────────────────────────────
     let periodRevenueCents = 0;
@@ -2720,11 +2700,14 @@ export async function getStripeRevenue(req, res) {
         chargeCount: periodChargeCount,
       },
       subscriptions: {
-        active:        activeSubscribersCount,
+        active: liveActiveCustomersCount,
+        activeSubscriptions: liveActiveSubscriptionsCount,
         mrrCents,
-        arrCents:      mrrCents * 12,
+        arrCents: mrrCents * 12,
         churnInPeriod,
-        plans:         planList,
+        plans: planList,
+        source: "stripe_live",
+        dbActiveUsers: dbActiveSubUsersCount,
       },
     };
 

@@ -2027,16 +2027,20 @@ export default function AdminPage() {
                 {stripeRevenue && (
                   <>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 mb-3">
-                      <KpiCard label="MRR" value={fmt$(stripeRevenue.subscriptions?.mrrCents)} sub="Current prices · subs matched in DB" accent />
+                      <KpiCard label="MRR" value={fmt$(stripeRevenue.subscriptions?.mrrCents)} sub="Live Stripe subscriptions with status=active" accent />
                       <KpiCard label="ARR" value={fmt$(stripeRevenue.subscriptions?.arrCents)} sub="MRR × 12" accent />
                       <KpiCard label="Period Revenue" value={fmt$(stripeRevenue.periodRevenue?.amountCents)} sub={`${stripeRevenue.periodRevenue?.chargeCount || 0} charges · ${periodLabel}`} />
                       <KpiCard
-                        label="Active Subs"
+                        label="Live Active Subs"
                         value={stripeRevenue.subscriptions?.active || 0}
-                        sub={stripeRevenue.subscriptions?.churnInPeriod > 0 ? `${stripeRevenue.subscriptions.churnInPeriod} churned in period` : 'active + not cancelled (DB)'}
+                        sub={stripeRevenue.subscriptions?.churnInPeriod > 0 ? `${stripeRevenue.subscriptions.churnInPeriod} churned in period` : 'Unique Stripe customers with status=active'}
                         trend={stripeRevenue.subscriptions?.churnInPeriod > 0 ? -1 : 0}
                       />
                     </div>
+                    <p className="text-[11px] text-gray-500 -mt-1 mb-3">
+                      Live subs: {(stripeRevenue.subscriptions?.activeSubscriptions || 0).toLocaleString()} subscription record(s)
+                      {typeof stripeRevenue.subscriptions?.dbActiveUsers === 'number' ? ` · DB-marked active users: ${stripeRevenue.subscriptions.dbActiveUsers.toLocaleString()}` : ''}
+                    </p>
 
                     {stripeRevenue.subscriptions?.plans?.length > 0 && (
                       <div>
