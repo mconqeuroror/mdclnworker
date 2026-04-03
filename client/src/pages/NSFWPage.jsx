@@ -1956,7 +1956,7 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
     return [outputUrl];
   };
 
-  const creditsNeeded = videoDuration === 8 ? 8 : 5;
+  const creditsNeeded = videoDuration === 8 ? 80 : 50;
 
   const handleSubmitVideo = async () => {
     if (!videoSelectedImage || isSubmittingVideo) return;
@@ -4301,7 +4301,7 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
   const isProTraining = selectedLoraForTraining?.trainingMode === "pro";
   const requiredTrainingImages = isProTraining ? 30 : 15;
   const maxTrainingImages = isProTraining ? 30 : 15;
-  const trainingCreditCost = isProTraining ? 150 : 75;
+  const trainingCreditCost = isProTraining ? 1500 : 750;
 
   const handleToggleTrainingImage = (gen) => {
     setTrainingSelections(prev => {

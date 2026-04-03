@@ -390,12 +390,19 @@ export async function signup(req, res) {
     // If a user is already logged in (e.g. admin), drop that session before signup
     clearAuthCookie(res);
 
-    const { email, password, name, deviceFingerprint, userAgent, referralCode } = req.body;
+    const { email, password, name, deviceFingerprint, userAgent, referralCode, acceptedPolicies } = req.body;
 
     if (!email || !password) {
       return res.status(400).json({
         success: false,
         message: "Email and password required",
+      });
+    }
+    if (acceptedPolicies !== true) {
+      return res.status(400).json({
+        success: false,
+        message: "You must accept the Terms, Privacy Policy, and Cookie Policy to register.",
+        code: "POLICY_CONSENT_REQUIRED",
       });
     }
 
@@ -1337,7 +1344,7 @@ export async function changePassword(req, res) {
 
 export async function googleAuth(req, res) {
   try {
-    const { idToken, mode, referralCode, deviceFingerprint } = req.body;
+    const { idToken, mode, referralCode, deviceFingerprint, acceptedPolicies } = req.body;
     const ipAddress = getClientIp(req);
 
     if (!idToken) {
@@ -1379,6 +1386,13 @@ export async function googleAuth(req, res) {
     let isNewUser = false;
 
     if (!user) {
+      if (mode === "signup" && acceptedPolicies !== true) {
+        return res.status(400).json({
+          success: false,
+          message: "You must accept the Terms, Privacy Policy, and Cookie Policy to register.",
+          code: "POLICY_CONSENT_REQUIRED",
+        });
+      }
       // Auto-create account for smoother onboarding (no friction)
       isNewUser = true;
       const { getRegionFromIp } = await import("../utils/geo.js");

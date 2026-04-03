@@ -18,6 +18,7 @@ const COPY = {
     toastWelcomeBack: 'Welcome back!',
     toastSignupFailed: 'Signup failed',
     toastFillAllFields: 'Please fill in all fields',
+    toastAcceptPolicies: 'You must accept the Terms, Privacy Policy, and Cookie Policy to register',
     toastPasswordsMismatch: 'Passwords do not match',
     toastPasswordMin: 'Password must be at least 8 characters',
     toastVerifyEmailSent: 'Account created! Check your email for verification code',
@@ -39,7 +40,12 @@ const COPY = {
     emailSubmit: 'Create Account',
     backToGoogle: '← Back to Google signup',
     legalNotice:
-      'By signing up, you agree to our Terms of Service and Privacy Policy. We use device verification for fraud prevention.',
+      'We use device verification for fraud prevention.',
+    agreePrefix: 'I agree to the',
+    agreeTerms: 'Terms of Service',
+    agreePrivacy: 'Privacy Policy',
+    agreeCookies: 'Cookie Policy',
+    agreeAnd: 'and',
     alreadyHaveAccount: 'Already have an account?',
     signIn: 'Sign In',
     backHome: 'Back to Home',
@@ -50,6 +56,7 @@ const COPY = {
     toastWelcomeBack: 'С возвращением!',
     toastSignupFailed: 'Ошибка регистрации',
     toastFillAllFields: 'Пожалуйста, заполните все поля',
+    toastAcceptPolicies: 'Чтобы зарегистрироваться, нужно принять Условия, Политику конфиденциальности и Политику cookie',
     toastPasswordsMismatch: 'Пароли не совпадают',
     toastPasswordMin: 'Пароль должен содержать не менее 8 символов',
     toastVerifyEmailSent: 'Учётная запись создана! Проверьте почту — мы отправили код подтверждения',
@@ -71,7 +78,12 @@ const COPY = {
     emailSubmit: 'Создать учётную запись',
     backToGoogle: '← Вернуться к регистрации через Google',
     legalNotice:
-      'Регистрируясь, вы соглашаетесь с нашими Условиями использования и Политикой конфиденциальности. Мы используем верификацию устройства для защиты от мошенничества.',
+      'Мы используем верификацию устройства для защиты от мошенничества.',
+    agreePrefix: 'Я принимаю',
+    agreeTerms: 'Условия использования',
+    agreePrivacy: 'Политику конфиденциальности',
+    agreeCookies: 'Политику cookie',
+    agreeAnd: 'и',
     alreadyHaveAccount: 'Уже есть учётная запись?',
     signIn: 'Войти',
     backHome: 'На главную',
@@ -103,6 +115,7 @@ export default function SignupPage() {
   const [showEmailForm, setShowEmailForm] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [acceptedPolicies, setAcceptedPolicies] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -137,6 +150,10 @@ export default function SignupPage() {
     localStorage.getItem("pendingReferralCode") || null;
 
   const handleGoogleSignup = async () => {
+    if (!acceptedPolicies) {
+      toast.error(copy.toastAcceptPolicies);
+      return;
+    }
     setGoogleLoading(true);
     try {
       const googleResult = await signInWithGoogle();
@@ -162,6 +179,7 @@ export default function SignupPage() {
         getPendingReferralCode(),
         fingerprintValue,
         navigator.userAgent || "Unknown",
+        true,
       );
 
       if (data.success) {
@@ -192,6 +210,10 @@ export default function SignupPage() {
 
   const handleEmailSignup = async (e) => {
     e.preventDefault();
+    if (!acceptedPolicies) {
+      toast.error(copy.toastAcceptPolicies);
+      return;
+    }
     
     if (!formData.name || !formData.email || !formData.password || !formData.confirmPassword) {
       toast.error(copy.toastFillAllFields);
@@ -226,6 +248,7 @@ export default function SignupPage() {
         fingerprintValue,
         navigator.userAgent || "Unknown",
         getPendingReferralCode(),
+        true,
       );
       
       if (data.success) {
@@ -287,7 +310,7 @@ export default function SignupPage() {
               <button
                 type="button"
                 onClick={handleGoogleSignup}
-                disabled={googleLoading}
+                disabled={googleLoading || !acceptedPolicies}
                 className="w-full py-4 rounded-xl bg-white text-gray-900 font-bold flex items-center justify-center gap-3 hover:bg-gray-100 transition disabled:opacity-50 disabled:cursor-not-allowed"
                 data-testid="button-google-signup"
               >
@@ -390,7 +413,7 @@ export default function SignupPage() {
 
                 <button
                   type="submit"
-                  disabled={loading}
+                  disabled={loading || !acceptedPolicies}
                   className="w-full py-3 rounded-xl bg-white text-black hover:bg-white/90 transition font-semibold flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   data-testid="button-email-signup"
                 >
@@ -420,9 +443,33 @@ export default function SignupPage() {
 
           <div className="flex items-start gap-3 p-4 rounded-xl bg-white/5 border border-white/10 mt-6">
             <Shield className="w-5 h-5 text-slate-400 flex-shrink-0 mt-0.5" />
-            <p className="text-xs text-gray-400">
-              {copy.legalNotice}
-            </p>
+            <div className="space-y-2">
+              <label className="flex items-start gap-2 cursor-pointer text-xs text-gray-300">
+                <input
+                  type="checkbox"
+                  checked={acceptedPolicies}
+                  onChange={(e) => setAcceptedPolicies(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border border-white/30 bg-black/40 text-white focus:ring-1 focus:ring-white/50"
+                  data-testid="checkbox-accept-policies"
+                />
+                <span>
+                  {copy.agreePrefix}{" "}
+                  <Link to="/terms" target="_blank" rel="noopener noreferrer" className="underline hover:text-white">
+                    {copy.agreeTerms}
+                  </Link>{" "}
+                  {copy.agreeAnd}{" "}
+                  <Link to="/privacy" target="_blank" rel="noopener noreferrer" className="underline hover:text-white">
+                    {copy.agreePrivacy}
+                  </Link>{" "}
+                  {copy.agreeAnd}{" "}
+                  <Link to="/cookies" target="_blank" rel="noopener noreferrer" className="underline hover:text-white">
+                    {copy.agreeCookies}
+                  </Link>
+                  .
+                </span>
+              </label>
+              <p className="text-xs text-gray-400">{copy.legalNotice}</p>
+            </div>
           </div>
 
           <div className="relative my-6">

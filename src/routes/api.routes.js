@@ -109,6 +109,7 @@ import {
   generateNsfwVideoFromImage,
   extendNsfwVideo,
   recoverStuckNsfwGenerations,
+  recoverStaleLoraTrainings,
 } from "../controllers/nsfw.controller.js";
 import multer from "multer";
 import { handleUpload } from "@vercel/blob/client";
@@ -2134,6 +2135,14 @@ router.get("/cron/kie-recovery", async (req, res) => {
     await recoverStuckNsfwGenerations({ startContinuous: false });
   } catch (error) {
     console.error("[cron/kie-recovery] NSFW recovery failed:", error?.message || error);
+  }
+  try {
+    const stale = await recoverStaleLoraTrainings();
+    if ((stale?.checked || 0) > 0) {
+      console.log("[cron/kie-recovery] LoRA stale recovery:", stale);
+    }
+  } catch (error) {
+    console.error("[cron/kie-recovery] LoRA stale recovery failed:", error?.message || error);
   }
   try {
     const stats = await processPendingBlobRemirrorQueue({ limit: 30 });

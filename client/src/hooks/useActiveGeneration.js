@@ -32,6 +32,9 @@ export function useActiveGeneration() {
     console.log('🔄 Starting poll for generation:', generationId);
     consecutivePollErrorsRef.current = 0;
 
+    // Unlock UI right after submit/poll start so users can queue another generation immediately.
+    setIsGenerating(false);
+
     pollIntervalRef.current = setInterval(async () => {
       if (!mountedRef.current) {
         clearInterval(pollIntervalRef.current);

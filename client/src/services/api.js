@@ -308,9 +308,10 @@ api.interceptors.response.use(
 
 // Auth API
 export const authAPI = {
-  signup: async (email, password, name, deviceFingerprint, userAgent, referralCode = null) => {
+  signup: async (email, password, name, deviceFingerprint, userAgent, referralCode = null, acceptedPolicies = false) => {
     const body = { email, password, name, deviceFingerprint, userAgent };
     if (referralCode) body.referralCode = referralCode;
+    if (acceptedPolicies) body.acceptedPolicies = true;
     const response = await api.post("/auth/signup", body);
     return response.data;
   },
@@ -339,11 +340,13 @@ export const authAPI = {
     referralCode = null,
     deviceFingerprint = null,
     userAgent = null,
+    acceptedPolicies = false,
   ) => {
     const body = { idToken, email, displayName, uid, mode };
     if (referralCode) body.referralCode = referralCode;
     if (deviceFingerprint) body.deviceFingerprint = deviceFingerprint;
     if (userAgent) body.userAgent = userAgent;
+    if (acceptedPolicies) body.acceptedPolicies = true;
     const response = await api.post("/auth/google", body);
     return response.data;
   },

@@ -167,6 +167,7 @@ export async function awardFirstLoraTrainingBonus({ userId, modelId, targetLoraI
 // Credit costs
 const CREDITS_FOR_LORA_TRAINING = 750;
 const CREDITS_FOR_PRO_LORA_TRAINING = 1500;
+const LORA_STALE_RECOVERY_MS = Number(process.env.LORA_STALE_RECOVERY_MS) || 4 * 60 * 60 * 1000;
 const CREDITS_FOR_TRAINING_SESSION = 750;
 const CREDITS_PER_NSFW_IMAGE = 30;
 const CREDITS_PER_NSFW_DOUBLE = 50;
@@ -429,6 +430,182 @@ export async function finalizeTrainingCompletion({ loraId, modelId, userId, lora
   );
 
   return { loraUrl: permanentUrl, firstLoraBonus };
+}
+
+async function failLoraAndRefundIfStillTraining({
+  loraId,
+  modelId,
+  modelActiveLoraId,
+  userId,
+  trainingMode,
+  errorMessage,
+}) {
+  const msg = getErrorMessageForDb(errorMessage || "LoRA training failed");
+  const updated = await prisma.trainedLora.updateMany({
+    where: { id: loraId, status: "training" },
+    data: {
+      status: "failed",
+      error: msg,
+    },
+  });
+  if (updated.count === 0) return { updated: false, refunded: false };
+
+  try {
+    await syncLegacyLoraFields(modelId, modelActiveLoraId || null);
+  } catch (syncErr) {
+    console.error(`⚠️ Failed to sync legacy LoRA fields for ${loraId}:`, syncErr?.message);
+  }
+
+  const refundAmount =
+    trainingMode === "pro"
+      ? CREDITS_FOR_PRO_LORA_TRAINING
+      : CREDITS_FOR_LORA_TRAINING;
+  try {
+    await refundCredits(userId, refundAmount);
+    console.log(`💰 Refunded ${refundAmount} credits to user ${userId} for stale/failed LoRA ${loraId}`);
+    return { updated: true, refunded: true };
+  } catch (refundErr) {
+    console.error(`⚠️ Failed to refund stale/failed LoRA ${loraId}:`, refundErr?.message);
+    return { updated: true, refunded: false };
+  }
+}
+
+export async function recoverStaleLoraTrainings({
+  staleAfterMs = LORA_STALE_RECOVERY_MS,
+  onlyLoraId = null,
+} = {}) {
+  const cutoff = new Date(Date.now() - staleAfterMs);
+  const where = {
+    status: "training",
+    updatedAt: { lt: cutoff },
+    ...(onlyLoraId ? { id: onlyLoraId } : {}),
+  };
+
+  const staleRows = await prisma.trainedLora.findMany({
+    where,
+    include: {
+      model: {
+        select: {
+          id: true,
+          name: true,
+          userId: true,
+          activeLoraId: true,
+        },
+      },
+    },
+    orderBy: { updatedAt: "asc" },
+    take: onlyLoraId ? 1 : 60,
+  });
+
+  if (!staleRows.length) {
+    return { checked: 0, completed: 0, failed: 0, refunded: 0 };
+  }
+
+  let completed = 0;
+  let failed = 0;
+  let refunded = 0;
+
+  for (const lora of staleRows) {
+    const ageMinutes = Math.round((Date.now() - new Date(lora.updatedAt).getTime()) / 60000);
+    try {
+      if (!lora.falRequestId) {
+        const result = await failLoraAndRefundIfStillTraining({
+          loraId: lora.id,
+          modelId: lora.modelId,
+          modelActiveLoraId: lora.model?.activeLoraId || null,
+          userId: lora.model.userId,
+          trainingMode: lora.trainingMode,
+          errorMessage: `LoRA preprocessing stalled after ${ageMinutes} min (no provider request id)`,
+        });
+        if (result.updated) {
+          failed += 1;
+          if (result.refunded) refunded += 1;
+        }
+        continue;
+      }
+
+      const status = await checkTrainingStatus(lora.falRequestId);
+      if (status.status === "COMPLETED") {
+        const result = await getTrainingResult(lora.falRequestId);
+        const falUrl = result?.loraUrl;
+        if (!falUrl) {
+          const failRes = await failLoraAndRefundIfStillTraining({
+            loraId: lora.id,
+            modelId: lora.modelId,
+            modelActiveLoraId: lora.model?.activeLoraId || null,
+            userId: lora.model.userId,
+            trainingMode: lora.trainingMode,
+            errorMessage: "Training completed but no LoRA URL returned",
+          });
+          if (failRes.updated) {
+            failed += 1;
+            if (failRes.refunded) refunded += 1;
+          }
+          continue;
+        }
+
+        await finalizeTrainingCompletion({
+          loraId: lora.id,
+          modelId: lora.modelId,
+          userId: lora.model.userId,
+          loraUrl: falUrl,
+          modelName: lora.model?.name || "model",
+        });
+        completed += 1;
+        continue;
+      }
+
+      if (status.status === "FAILED") {
+        const failRes = await failLoraAndRefundIfStillTraining({
+          loraId: lora.id,
+          modelId: lora.modelId,
+          modelActiveLoraId: lora.model?.activeLoraId || null,
+          userId: lora.model.userId,
+          trainingMode: lora.trainingMode,
+          errorMessage: `Training failed on fal.ai (stale recovery after ${ageMinutes} min)`,
+        });
+        if (failRes.updated) {
+          failed += 1;
+          if (failRes.refunded) refunded += 1;
+        }
+        continue;
+      }
+
+      const failRes = await failLoraAndRefundIfStillTraining({
+        loraId: lora.id,
+        modelId: lora.modelId,
+        modelActiveLoraId: lora.model?.activeLoraId || null,
+        userId: lora.model.userId,
+        trainingMode: lora.trainingMode,
+        errorMessage: `Training timed out after ${ageMinutes} min (last provider status: ${status.status})`,
+      });
+      if (failRes.updated) {
+        failed += 1;
+        if (failRes.refunded) refunded += 1;
+      }
+    } catch (error) {
+      console.error(`⚠️ Stale LoRA recovery error for ${lora.id}:`, error?.message || error);
+      const failRes = await failLoraAndRefundIfStillTraining({
+        loraId: lora.id,
+        modelId: lora.modelId,
+        modelActiveLoraId: lora.model?.activeLoraId || null,
+        userId: lora.model.userId,
+        trainingMode: lora.trainingMode,
+        errorMessage: `Stale recovery failed: ${error?.message || "unknown error"}`,
+      });
+      if (failRes.updated) {
+        failed += 1;
+        if (failRes.refunded) refunded += 1;
+      }
+    }
+  }
+
+  return {
+    checked: staleRows.length,
+    completed,
+    failed,
+    refunded,
+  };
 }
 
 // ============================================
@@ -2293,7 +2470,7 @@ export async function getLoraTrainingStatus(req, res) {
     const targetLoraId = loraIdParam || model.activeLoraId;
 
     if (targetLoraId) {
-      const lora = await prisma.trainedLora.findUnique({ where: { id: targetLoraId } });
+      let lora = await prisma.trainedLora.findUnique({ where: { id: targetLoraId } });
 
       if (!lora || lora.modelId !== modelId) {
         return res.json({
@@ -2301,6 +2478,26 @@ export async function getLoraTrainingStatus(req, res) {
           status: "none",
           nsfwUnlocked: model.nsfwUnlocked,
         });
+      }
+
+      // Self-heal stale training rows during user polling (fallback in addition to cron/server intervals).
+      if (
+        lora.status === "training" &&
+        new Date(lora.updatedAt).getTime() < Date.now() - LORA_STALE_RECOVERY_MS
+      ) {
+        try {
+          await recoverStaleLoraTrainings({ onlyLoraId: lora.id });
+          lora = await prisma.trainedLora.findUnique({ where: { id: targetLoraId } });
+          if (!lora || lora.modelId !== modelId) {
+            return res.json({
+              success: true,
+              status: "none",
+              nsfwUnlocked: model.nsfwUnlocked,
+            });
+          }
+        } catch (staleErr) {
+          console.error("Stale LoRA check in status endpoint failed:", staleErr?.message);
+        }
       }
 
       if (lora.status !== "training" || !lora.falRequestId) {
@@ -5214,6 +5411,7 @@ export default {
   testFaceRefGeneration,
   testFaceRefStatus,
   recoverStuckNsfwGenerations,
+  recoverStaleLoraTrainings,
   startNsfwPoller,
   generateNsfwVideoFromImage,
   extendNsfwVideo,

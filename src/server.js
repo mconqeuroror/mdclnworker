@@ -9,7 +9,7 @@ import apiRoutes from './routes/api.routes.js';
 import { apiLimiter } from './middleware/rateLimiter.js';
 import { cleanupStuckGenerations } from './controllers/generation.controller.js';
 import nsfwController from './controllers/nsfw.controller.js';
-const { recoverStuckNsfwGenerations } = nsfwController;
+const { recoverStuckNsfwGenerations, recoverStaleLoraTrainings } = nsfwController;
 import generationPoller from './services/generation-poller.service.js';
 import prisma from './lib/prisma.js';
 import { refundCredits } from './services/credit.service.js';
@@ -431,6 +431,14 @@ if (!process.env.VERCEL) {
   } catch (error) {
     console.error('NSFW recovery failed (non-fatal):', error.message);
   }
+  try {
+    const stale = await recoverStaleLoraTrainings();
+    if ((stale?.checked || 0) > 0) {
+      console.log("🧯 Startup stale LoRA recovery:", stale);
+    }
+  } catch (error) {
+    console.error('Stale LoRA recovery failed on startup (non-fatal):', error.message);
+  }
 
   if (process.env.RUN_STARTUP_DATA_FIXES === "true") {
     // Optional one-time manual data fixes; disabled by default in production.
@@ -625,7 +633,6 @@ if (!process.env.VERCEL) {
   console.log(`📦 Blob re-mirror queue enabled (${Math.round(BLOB_REMIRROR_QUEUE_INTERVAL_MS / 1000)}s interval)`);
 
   // Heal stuck "generating" models every 10 min (initial 3-pose creation only).
-  // LoRA training has no timeout: we never heal or fail models in loraStatus 'training'.
   let modelHealingInProgress = false;
   setInterval(async () => {
     if (modelHealingInProgress) return;
@@ -636,7 +643,7 @@ if (!process.env.VERCEL) {
         where: {
           status: 'generating',
           createdAt: { lt: cutoff },
-          loraStatus: { not: 'training' }, // never timeout LoRA training
+          loraStatus: { not: 'training' },
         },
         select: { id: true, userId: true, createdAt: true }
       });
@@ -654,7 +661,30 @@ if (!process.env.VERCEL) {
       modelHealingInProgress = false;
     }
   }, 10 * 60 * 1000);
-  console.log('🩹 Stuck model healing enabled (600s); LoRA training has no timeout');
+  console.log('🩹 Stuck model healing enabled (600s)');
+
+  // Stale LoRA training watchdog: if a training row is >4h old, poll fal result.
+  // Completed rows are finalized; failed/stuck rows are failed and credits refunded once.
+  let staleLoraRecoveryInProgress = false;
+  const STALE_LORA_RECOVERY_INTERVAL_MS =
+    readIntervalMs(process.env.STALE_LORA_RECOVERY_INTERVAL_MS, 10 * 60 * 1000);
+  setInterval(async () => {
+    if (staleLoraRecoveryInProgress) return;
+    staleLoraRecoveryInProgress = true;
+    try {
+      const stale = await recoverStaleLoraTrainings();
+      if ((stale?.checked || 0) > 0) {
+        console.log("🧯 Periodic stale LoRA recovery:", stale);
+      }
+    } catch (error) {
+      console.error('Periodic stale LoRA recovery failed (non-fatal):', error.message);
+    } finally {
+      staleLoraRecoveryInProgress = false;
+    }
+  }, STALE_LORA_RECOVERY_INTERVAL_MS);
+  console.log(
+    `🧯 Stale LoRA recovery enabled (${Math.round(STALE_LORA_RECOVERY_INTERVAL_MS / 1000)}s interval; stale after ${Math.round((Number(process.env.LORA_STALE_RECOVERY_MS) || 4 * 60 * 60 * 1000) / 1000)}s)`,
+  );
 
   // Periodic system snapshots for infra monitoring
   await captureSystemHealthSnapshot();
