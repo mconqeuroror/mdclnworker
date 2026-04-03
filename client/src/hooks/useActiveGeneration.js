@@ -32,6 +32,15 @@ export function useActiveGeneration() {
     console.log('🔄 Starting poll for generation:', generationId);
     consecutivePollErrorsRef.current = 0;
 
+    // Immediately show a queued/submitted state while first status poll is in-flight.
+    setActiveGeneration((prev) => ({
+      ...(prev || {}),
+      id: generationId,
+      status: "pending",
+      progressStage: "Queued successfully",
+      createdAt: prev?.createdAt || new Date().toISOString(),
+    }));
+
     // Unlock UI right after submit/poll start so users can queue another generation immediately.
     setIsGenerating(false);
 
