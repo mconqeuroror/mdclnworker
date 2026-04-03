@@ -1661,18 +1661,19 @@ textarea:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 5px 10px;
+  padding: 6px 12px;
   border-radius: 100px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
-  background: var(--accent-subtle);
-  color: var(--accent);
-  border: 1px solid var(--accent);
+  background: rgba(255, 255, 255, 0.04);
+  color: #ddd6fe;
+  border: 1px solid rgba(167, 139, 250, 0.35);
   transition: all var(--transition-default);
 }
 .nsfw-ai-enhance-btn:hover:not(:disabled) {
-  background: var(--accent);
+  background: rgba(124, 58, 237, 0.22);
   color: #fff;
+  border-color: rgba(167, 139, 250, 0.6);
 }
 .nsfw-ai-enhance-btn:disabled {
   opacity: 0.65;
@@ -1680,19 +1681,19 @@ textarea:focus-visible {
 }
 
 .active-tags-bar {
-  position: sticky;
-  top: 0;
-  z-index: 10;
+  position: static;
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
-  background: var(--bg-surface);
-  border-bottom: 1px solid var(--border-subtle);
+  padding: var(--space-3);
+  margin-bottom: var(--space-3);
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
   flex-wrap: wrap;
 }
 .active-tags-label {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-secondary);
   font-weight: 600;
 }
@@ -1706,25 +1707,25 @@ textarea:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 3px 8px;
+  padding: 5px 10px;
   border-radius: 100px;
-  font-size: 11px;
-  background: var(--accent-subtle);
-  color: var(--accent);
-  border: 1px solid var(--accent);
+  font-size: 12px;
+  background: rgba(124, 58, 237, 0.16);
+  color: #d8b4fe;
+  border: 1px solid rgba(167, 139, 250, 0.45);
   transition: all var(--transition-default);
 }
 .active-tag:hover {
-  background: var(--accent);
+  background: rgba(124, 58, 237, 0.3);
   color: #fff;
 }
 .clear-all {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-secondary);
-  background: transparent;
+  background: rgba(255, 255, 255, 0.02);
   border: 1px solid var(--border-default);
   border-radius: 999px;
-  padding: 4px 10px;
+  padding: 5px 12px;
   transition: all var(--transition-default);
 }
 .clear-all:hover {
@@ -1733,25 +1734,12 @@ textarea:focus-visible {
 }
 
 .nsfw-generate-sticky {
-  position: sticky;
-  bottom: 0;
-  z-index: 9;
-  padding-top: var(--space-3);
-  background: linear-gradient(to top, rgba(13, 13, 15, 0.98) 40%, rgba(13, 13, 15, 0));
+  position: static;
+  padding-top: var(--space-4);
 }
 .video-generate-sticky {
-  position: sticky;
-  bottom: 0;
-  z-index: 9;
-  padding-top: var(--space-3);
-  background: linear-gradient(to top, rgba(0, 0, 0, 0.95) 45%, rgba(0, 0, 0, 0));
-}
-
-@media (max-width: 768px) {
-  .active-tags-bar {
-    position: static;
-    padding: var(--space-2) var(--space-3);
-  }
+  position: static;
+  padding-top: var(--space-4);
 }
 
 /* Shared Generate page refinements */
@@ -1787,7 +1775,7 @@ textarea:focus-visible {
 
 .generation-history-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: var(--space-3);
 }
 .generation-card-video {
@@ -1861,16 +1849,15 @@ textarea:focus-visible {
 
 /* Generate top tabs polish */
 .generate-top-tabs {
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-default);
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: var(--radius-lg);
 }
 .generate-top-tab {
   transition: border-color var(--transition-default), background var(--transition-default), transform var(--transition-default);
 }
 .generate-top-tab:hover {
-  border-color: rgba(124, 58, 237, 0.5);
-  transform: translateY(-1px);
+  border-color: rgba(124, 58, 237, 0.45);
 }
 
 /* Settings grouping for recreate video */
@@ -1879,8 +1866,8 @@ textarea:focus-visible {
   gap: var(--space-3);
 }
 .video-setting-card {
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid var(--border-subtle);
+  background: rgba(255, 255, 255, 0.015);
+  border: 1px solid rgba(255, 255, 255, 0.07);
   border-radius: var(--radius-md);
   padding: var(--space-3);
 }
@@ -1889,5 +1876,17 @@ textarea:focus-visible {
   .video-settings-layout {
     grid-template-columns: 1fr 1fr;
     align-items: start;
+  }
+}
+
+@media (max-width: 768px) {
+  .active-tags-bar {
+    padding: var(--space-2) var(--space-3);
+  }
+  .quick-presets {
+    gap: 6px;
+  }
+  .generation-history-grid {
+    grid-template-columns: 1fr;
   }
 }
