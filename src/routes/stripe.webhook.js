@@ -217,6 +217,16 @@ router.post(
           const { userId, credits, tierId, type, billingCycle } =
             session.metadata;
 
+          // Guardrail: never grant credits from checkout completion unless Stripe marks it paid.
+          // First-cycle/renewal safety nets (payment_intent/invoice events) handle delayed confirmations.
+          const sessionPaymentStatus = String(session.payment_status || "").toLowerCase();
+          if (sessionPaymentStatus !== "paid") {
+            console.warn(
+              `⚠️ checkout.session.completed ${session.id} is ${sessionPaymentStatus || "unknown"}; skipping credit grant until paid event`,
+            );
+            break;
+          }
+
           if (!userId || !credits) {
             console.error(
               "❌ Missing metadata in checkout session:",
@@ -1124,6 +1134,17 @@ router.post(
             invoice.amount_paid ||
             invoice.amount_due ||
             0;
+          const paidAmountCents = parseInt(String(invoice.amount_paid || 0), 10) || 0;
+
+          // Guardrail: do not award credits on $0 invoices (e.g. full-discount/trial/no charge).
+          // Requirement is to credit only after successful payment.
+          if (paidAmountCents <= 0) {
+            console.warn(
+              `⚠️ invoice.payment_succeeded ${invoice.id} for sub ${subscriptionId} has amount_paid=${paidAmountCents}; skipping credit grant`,
+            );
+            break;
+          }
+
           const inferredPlan = inferSubscriptionPlanFromAmount(
             billedAmountCents,
             billingCycle,

@@ -4,9 +4,11 @@ import { recordReferralCommissionFromPayment } from "../services/referral.servic
 import { deleteElevenLabsVoice } from "../services/elevenlabs.service.js";
 import { purgeAllBlobAndR2ForUser } from "../utils/userStoragePurge.js";
 import {
+  inferSubscriptionCreditsFromAmount,
   normalizeCreditUnits,
   resolveSubscriptionBillingCycle,
 } from "../utils/creditUnits.js";
+import { rolloverSubPoolToPurchasedUpdate } from "../services/credit.service.js";
 
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY || process.env.TESTING_STRIPE_SECRET_KEY;
 
@@ -319,6 +321,596 @@ function parseSourceFromPaymentSessionId(paymentSessionId) {
   if (sourceId.startsWith("in_")) return { sourceType: "stripe_invoice", sourceId };
   if (sourceId.startsWith("sub_")) return { sourceType: "stripe_subscription", sourceId };
   return null;
+}
+
+function clampInt(value, fallback, min, max) {
+  const parsed = parseInt(String(value ?? ""), 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, parsed));
+}
+
+function subscriptionCreditsExpireAtFromInvoice(invoice, billingCycle) {
+  const periodEndSec = invoice?.lines?.data?.[0]?.period?.end ?? invoice?.period_end;
+  if (periodEndSec && typeof periodEndSec === "number") {
+    const d = new Date(periodEndSec * 1000);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+  const fallback = new Date();
+  if (billingCycle === "annual") fallback.setFullYear(fallback.getFullYear() + 1);
+  else fallback.setMonth(fallback.getMonth() + 1);
+  return fallback;
+}
+
+async function collectMissingRefillInvoices({
+  days = 90,
+  userId = null,
+  email = null,
+}) {
+  if (!stripe) throw new Error("Stripe not configured");
+
+  const startedAt = Date.now();
+  const sinceSec = Math.floor(Date.now() / 1000) - (days * 24 * 60 * 60);
+  const userWhere = { stripeCustomerId: { not: null } };
+  if (userId) userWhere.id = userId;
+  if (email) userWhere.email = { equals: String(email).trim(), mode: "insensitive" };
+
+  const users = [];
+  const USER_BATCH_SIZE = 500;
+  let userBatchesScanned = 0;
+  let cursorId = null;
+  while (true) {
+    const batch = await prisma.user.findMany({
+      where: userWhere,
+      select: {
+        id: true,
+        email: true,
+        stripeSubscriptionId: true,
+        stripeCustomerId: true,
+        subscriptionTier: true,
+        subscriptionBillingCycle: true,
+        subscriptionStatus: true,
+      },
+      orderBy: { id: "asc" },
+      take: USER_BATCH_SIZE,
+      ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
+    });
+    if (!batch.length) break;
+    users.push(...batch);
+    userBatchesScanned += 1;
+    cursorId = batch[batch.length - 1].id;
+  }
+
+  const findings = [];
+  const errors = [];
+  const seenInvoiceIds = new Set();
+  let subscriptionsScanned = 0;
+  let invoicesScanned = 0;
+  let invoicesPaidPositive = 0;
+  let invoicesRefundSkipped = 0;
+  let invoicesUnsupportedReasonSkipped = 0;
+  let invoicesAlreadyCreditedSkipped = 0;
+
+  for (const user of users) {
+    try {
+      let subs = [];
+      if (user.stripeSubscriptionId) {
+        try {
+          const sub = await stripe.subscriptions.retrieve(user.stripeSubscriptionId);
+          if (sub) subs.push(sub);
+        } catch (err) {
+          if (err?.code !== "resource_missing") throw err;
+        }
+      }
+      if (subs.length === 0 && user.stripeCustomerId) {
+        const listed = await stripe.subscriptions.list({
+          customer: user.stripeCustomerId,
+          status: "all",
+          limit: 20,
+        });
+        subs = listed?.data || [];
+      }
+
+      for (const sub of subs) {
+        const subscriptionId = sub?.id;
+        if (!subscriptionId) continue;
+        subscriptionsScanned += 1;
+        const invoices = await stripe.invoices.list({
+          subscription: subscriptionId,
+          status: "paid",
+          created: { gte: sinceSec },
+          limit: 100,
+        });
+
+        for (const invoice of invoices?.data || []) {
+          if (!invoice?.id || seenInvoiceIds.has(invoice.id)) continue;
+          seenInvoiceIds.add(invoice.id);
+          invoicesScanned += 1;
+
+          const paidAmountCents = parseInt(String(invoice.amount_paid || 0), 10) || 0;
+          if (paidAmountCents <= 0) continue;
+          invoicesPaidPositive += 1;
+          if (await invoiceHasRefundActivity(invoice)) {
+            invoicesRefundSkipped += 1;
+            continue;
+          }
+          const billingReason = String(invoice.billing_reason || "");
+          if (!["subscription_cycle", "subscription_create"].includes(billingReason)) {
+            invoicesUnsupportedReasonSkipped += 1;
+            continue;
+          }
+
+          const existingCreditTx = await prisma.creditTransaction.findFirst({
+            where: { paymentSessionId: invoice.id },
+            select: { id: true, createdAt: true, amount: true },
+          });
+          if (existingCreditTx) {
+            invoicesAlreadyCreditedSkipped += 1;
+            continue;
+          }
+
+          const billingCycle = resolveSubscriptionBillingCycle(sub);
+          const inferredCredits = inferSubscriptionCreditsFromAmount(
+            invoice.subtotal_excluding_tax || invoice.subtotal || invoice.amount_paid || invoice.amount_due || 0,
+            billingCycle,
+          );
+          const metadataCredits = normalizeCreditUnits(sub.metadata?.credits);
+          const effectiveCredits = metadataCredits || inferredCredits || 0;
+
+          findings.push({
+            invoiceId: invoice.id,
+            subscriptionId,
+            stripeCustomerId:
+              (typeof invoice.customer === "string" ? invoice.customer : invoice.customer?.id) ||
+              user.stripeCustomerId ||
+              null,
+            user: {
+              id: user.id,
+              email: user.email,
+              subscriptionStatus: user.subscriptionStatus,
+              subscriptionTier: user.subscriptionTier,
+              subscriptionBillingCycle: user.subscriptionBillingCycle,
+            },
+            amountPaidCents: paidAmountCents,
+            currency: invoice.currency || "usd",
+            billingReason,
+            paidAt: invoice.status_transitions?.paid_at
+              ? new Date(invoice.status_transitions.paid_at * 1000).toISOString()
+              : null,
+            createdAt: invoice.created ? new Date(invoice.created * 1000).toISOString() : null,
+            metadataTierId: sub.metadata?.tierId || null,
+            billingCycle,
+            expectedCredits: effectiveCredits,
+            creditsSource: metadataCredits ? "subscription_metadata" : inferredCredits ? "amount_inference" : "unknown",
+          });
+        }
+      }
+    } catch (error) {
+      errors.push({
+        userId: user.id,
+        email: user.email,
+        message: error?.message || String(error),
+      });
+    }
+  }
+
+  findings.sort((a, b) => {
+    const aTs = new Date(a.createdAt || 0).getTime();
+    const bTs = new Date(b.createdAt || 0).getTime();
+    return bTs - aTs;
+  });
+
+  return {
+    scannedUsers: users.length,
+    progress: {
+      userBatchSize: USER_BATCH_SIZE,
+      userBatchesScanned,
+      usersMatched: users.length,
+      usersProcessed: users.length,
+      subscriptionsScanned,
+      invoicesScanned,
+      invoicesPaidPositive,
+      invoicesRefundSkipped,
+      invoicesUnsupportedReasonSkipped,
+      invoicesAlreadyCreditedSkipped,
+      missingInvoicesFound: findings.length,
+      userErrors: errors.length,
+      durationMs: Date.now() - startedAt,
+    },
+    findings,
+    errors,
+  };
+}
+
+async function invoiceHasRefundActivity(invoice) {
+  if (!stripe || !invoice) return false;
+
+  const paymentIntentId =
+    typeof invoice.payment_intent === "string"
+      ? invoice.payment_intent
+      : invoice.payment_intent?.id || null;
+
+  if (paymentIntentId) {
+    try {
+      const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId, {
+        expand: ["charges.data.refunds"],
+      });
+      const charges = paymentIntent?.charges?.data || [];
+      for (const charge of charges) {
+        if ((charge?.amount_refunded || 0) > 0 || charge?.refunded === true) {
+          return true;
+        }
+        const refunds = charge?.refunds?.data || [];
+        if (
+          refunds.some(
+            (r) =>
+              (r?.amount || 0) > 0 &&
+              !["failed", "canceled"].includes(String(r?.status || "").toLowerCase()),
+          )
+        ) {
+          return true;
+        }
+      }
+    } catch (error) {
+      // Fail-safe: if we cannot verify refund state, do not treat invoice as reconcilable.
+      console.warn(
+        `[admin-refill-audit] refund check failed for payment_intent ${paymentIntentId}:`,
+        error?.message,
+      );
+      return true;
+    }
+  }
+
+  const chargeId = typeof invoice.charge === "string" ? invoice.charge : null;
+  if (chargeId) {
+    try {
+      const charge = await stripe.charges.retrieve(chargeId, { expand: ["refunds"] });
+      if ((charge?.amount_refunded || 0) > 0 || charge?.refunded === true) return true;
+      const refunds = charge?.refunds?.data || [];
+      if (
+        refunds.some(
+          (r) =>
+            (r?.amount || 0) > 0 &&
+            !["failed", "canceled"].includes(String(r?.status || "").toLowerCase()),
+        )
+      ) {
+        return true;
+      }
+    } catch (error) {
+      console.warn(
+        `[admin-refill-audit] refund check failed for charge ${chargeId}:`,
+        error?.message,
+      );
+      return true;
+    }
+  }
+
+  return false;
+}
+
+async function reconcileMissingRefillInvoice(invoiceId) {
+  if (!stripe) throw new Error("Stripe not configured");
+
+  const invoice = await stripe.invoices.retrieve(invoiceId);
+  const paidAmountCents = parseInt(String(invoice?.amount_paid || 0), 10) || 0;
+  if (paidAmountCents <= 0) {
+    return { status: "skipped", reason: "invoice_not_paid", invoiceId };
+  }
+  if (await invoiceHasRefundActivity(invoice)) {
+    return { status: "skipped", reason: "invoice_refunded", invoiceId };
+  }
+
+  const subscriptionId =
+    typeof invoice.subscription === "string" ? invoice.subscription : invoice.subscription?.id || null;
+  if (!subscriptionId) {
+    return { status: "skipped", reason: "missing_subscription_id", invoiceId };
+  }
+
+  const billingReason = String(invoice.billing_reason || "");
+  if (!["subscription_cycle", "subscription_create"].includes(billingReason)) {
+    return { status: "skipped", reason: `unsupported_billing_reason:${billingReason || "unknown"}`, invoiceId };
+  }
+
+  const existingTx = await prisma.creditTransaction.findFirst({
+    where: { paymentSessionId: invoiceId },
+    select: { id: true },
+  });
+  if (existingTx) {
+    return { status: "already_processed", invoiceId };
+  }
+
+  const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+  const billingCycle = resolveSubscriptionBillingCycle(subscription);
+
+  const inferredCredits = inferSubscriptionCreditsFromAmount(
+    invoice.subtotal_excluding_tax || invoice.subtotal || invoice.amount_paid || invoice.amount_due || 0,
+    billingCycle,
+  );
+  const metadataCredits = normalizeCreditUnits(subscription.metadata?.credits);
+  let parsedCredits = metadataCredits || inferredCredits || 0;
+
+  if (!parsedCredits) {
+    const firstGrant = await prisma.creditTransaction.findFirst({
+      where: { paymentSessionId: subscriptionId, amount: { gt: 0 } },
+      orderBy: { createdAt: "asc" },
+      select: { amount: true },
+    });
+    parsedCredits = firstGrant?.amount || 0;
+  }
+
+  if (!parsedCredits) {
+    return { status: "skipped", reason: "unable_to_resolve_credits", invoiceId, subscriptionId };
+  }
+
+  const stripeCustomerId =
+    typeof invoice.customer === "string" ? invoice.customer : invoice.customer?.id || null;
+
+  let user = await prisma.user.findFirst({
+    where: { stripeSubscriptionId: subscriptionId },
+    select: {
+      id: true,
+      email: true,
+      subscriptionTier: true,
+      subscriptionStatus: true,
+      subscriptionBillingCycle: true,
+    },
+  });
+
+  if (!user) {
+    const metadataUserId = subscription.metadata?.userId || null;
+    if (metadataUserId) {
+      user = await prisma.user.findUnique({
+        where: { id: metadataUserId },
+        select: {
+          id: true,
+          email: true,
+          subscriptionTier: true,
+          subscriptionStatus: true,
+          subscriptionBillingCycle: true,
+        },
+      });
+    }
+  }
+
+  if (!user && stripeCustomerId) {
+    user = await prisma.user.findFirst({
+      where: { stripeCustomerId },
+      select: {
+        id: true,
+        email: true,
+        subscriptionTier: true,
+        subscriptionStatus: true,
+        subscriptionBillingCycle: true,
+      },
+    });
+  }
+
+  if (!user) {
+    return { status: "skipped", reason: "user_not_found_for_invoice", invoiceId, subscriptionId };
+  }
+
+  const resolvedTierId = subscription.metadata?.tierId || user.subscriptionTier || "starter";
+  const creditsExpireAt = subscriptionCreditsExpireAtFromInvoice(invoice, billingCycle);
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.creditTransaction.create({
+        data: {
+          userId: user.id,
+          amount: parsedCredits,
+          type: "purchase",
+          description: `Subscription renewal reconcile: ${resolvedTierId}`,
+          paymentSessionId: invoiceId,
+        },
+      });
+
+      const prior = await tx.user.findUnique({
+        where: { id: user.id },
+        select: { subscriptionCredits: true },
+      });
+      const rollover = rolloverSubPoolToPurchasedUpdate(prior?.subscriptionCredits);
+
+      await tx.user.update({
+        where: { id: user.id },
+        data: {
+          ...rollover,
+          stripeSubscriptionId: subscriptionId,
+          subscriptionTier: resolvedTierId,
+          subscriptionStatus: "active",
+          subscriptionBillingCycle: billingCycle,
+          subscriptionCredits: parsedCredits,
+          creditsExpireAt,
+        },
+      });
+    });
+  } catch (error) {
+    if (error?.code === "P2002") {
+      return { status: "already_processed", invoiceId };
+    }
+    throw error;
+  }
+
+  await recordReferralCommissionFromPayment({
+    referredUserId: user.id,
+    purchaseAmountCents: paidAmountCents,
+    sourceType: "stripe_invoice",
+    sourceId: invoiceId,
+  }).catch((err) => {
+    console.warn(`[admin-refill-reconcile] referral commission record failed for invoice ${invoiceId}:`, err?.message);
+  });
+
+  return {
+    status: "reconciled",
+    invoiceId,
+    subscriptionId,
+    userId: user.id,
+    email: user.email,
+    credits: parsedCredits,
+    amountPaidCents: paidAmountCents,
+  };
+}
+
+export async function auditSubscriptionRefills(req, res) {
+  try {
+    if (!stripe) {
+      return res.status(503).json({ success: false, message: "Stripe not configured" });
+    }
+
+    const days = clampInt(req.body?.days ?? req.query?.days, 90, 1, 365);
+    const userId = req.body?.userId || req.query?.userId || null;
+    const email = req.body?.email || req.query?.email || null;
+
+    const { scannedUsers, progress, findings, errors } = await collectMissingRefillInvoices({
+      days,
+      userId,
+      email,
+    });
+
+    await prisma.adminAuditLog.create({
+      data: {
+        adminUserId: req.user.userId,
+        adminEmail: req.user.email || null,
+        action: "audit_subscription_refills",
+        targetType: "stripe_subscription_refills",
+        detailsJson: JSON.stringify({
+          days,
+          userId: userId || null,
+          email: email || null,
+          scannedUsers,
+          progress,
+          findings: findings.length,
+          errors: errors.length,
+        }),
+      },
+    }).catch(() => {});
+
+    return res.json({
+      success: true,
+      summary: {
+        days,
+        scannedUsers,
+        missingRefills: findings.length,
+        errors: errors.length,
+        progress,
+      },
+      findings,
+      errors,
+    });
+  } catch (error) {
+    console.error("Audit subscription refills error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error?.message || "Failed to audit subscription refills",
+    });
+  }
+}
+
+export async function reconcileSubscriptionRefills(req, res) {
+  try {
+    if (!stripe) {
+      return res.status(503).json({ success: false, message: "Stripe not configured" });
+    }
+
+    const dryRun = String(req.body?.dryRun ?? req.query?.dryRun ?? "true").toLowerCase() !== "false";
+    const days = clampInt(req.body?.days ?? req.query?.days, 90, 1, 365);
+    const userId = req.body?.userId || req.query?.userId || null;
+    const email = req.body?.email || req.query?.email || null;
+    const requestedInvoiceIds = Array.isArray(req.body?.invoiceIds)
+      ? req.body.invoiceIds.map((v) => String(v || "").trim()).filter((v) => v.startsWith("in_"))
+      : [];
+
+    let invoiceIds = requestedInvoiceIds;
+    let sourceFindingsCount = 0;
+    let sourceScanProgress = null;
+    if (invoiceIds.length === 0) {
+      const { findings, progress } = await collectMissingRefillInvoices({
+        days,
+        userId,
+        email,
+      });
+      sourceScanProgress = progress;
+      sourceFindingsCount = findings.length;
+      invoiceIds = findings.map((f) => f.invoiceId).filter(Boolean);
+    } else {
+      sourceFindingsCount = invoiceIds.length;
+    }
+
+    const uniqueInvoiceIds = [...new Set(invoiceIds)];
+    const results = [];
+    const summary = {
+      dryRun,
+      requestedInvoices: uniqueInvoiceIds.length,
+      sourceFindingsCount,
+      sourceScanProgress,
+      reconciled: 0,
+      alreadyProcessed: 0,
+      skipped: 0,
+      failed: 0,
+    };
+    const processStartedAt = Date.now();
+
+    for (const invoiceId of uniqueInvoiceIds) {
+      try {
+        if (dryRun) {
+          const invoice = await stripe.invoices.retrieve(invoiceId);
+          const paidAmountCents = parseInt(String(invoice?.amount_paid || 0), 10) || 0;
+          const subscriptionId =
+            typeof invoice.subscription === "string" ? invoice.subscription : invoice.subscription?.id || null;
+          results.push({
+            status: "dry_run_candidate",
+            invoiceId,
+            subscriptionId,
+            amountPaidCents: paidAmountCents,
+            billingReason: invoice.billing_reason || null,
+          });
+          summary.skipped += 1;
+          continue;
+        }
+
+        const outcome = await reconcileMissingRefillInvoice(invoiceId);
+        results.push(outcome);
+        if (outcome.status === "reconciled") summary.reconciled += 1;
+        else if (outcome.status === "already_processed") summary.alreadyProcessed += 1;
+        else summary.skipped += 1;
+      } catch (error) {
+        summary.failed += 1;
+        results.push({
+          status: "failed",
+          invoiceId,
+          reason: error?.message || String(error),
+        });
+      }
+    }
+
+    await prisma.adminAuditLog.create({
+      data: {
+        adminUserId: req.user.userId,
+        adminEmail: req.user.email || null,
+        action: dryRun ? "reconcile_subscription_refills_dry_run" : "reconcile_subscription_refills_execute",
+        targetType: "stripe_subscription_refills",
+        detailsJson: JSON.stringify({
+          days,
+          userId: userId || null,
+          email: email || null,
+          ...summary,
+          processingDurationMs: Date.now() - processStartedAt,
+        }),
+      },
+    }).catch(() => {});
+
+    summary.processingDurationMs = Date.now() - processStartedAt;
+
+    return res.json({
+      success: true,
+      summary,
+      results,
+    });
+  } catch (error) {
+    console.error("Reconcile subscription refills error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error?.message || "Failed to reconcile subscription refills",
+    });
+  }
 }
 
 async function resolveStripeAmountCentsFromSource({ sourceType, sourceId }) {
@@ -2164,6 +2756,8 @@ export default {
   deleteUser,
   getRecentActivity,
   recoverPayment,
+  auditSubscriptionRefills,
+  reconcileSubscriptionRefills,
   syncUserStripeState,
   reconcileAllSubscriptions,
   reconcileReferralCommissions,

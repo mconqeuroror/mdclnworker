@@ -362,11 +362,15 @@ export async function awardFirstPaidModelCompletionBonus(userId, modelId) {
   if (!userId || !modelId) return 0;
 
   return await prisma.$transaction(async (tx) => {
-    const existingBonus = await tx.creditTransaction.findFirst({
-      where: { userId, type: "first_paid_model_completion_bonus" },
-      select: { id: true },
+    const existingBonusTx = await tx.creditTransaction.findMany({
+      where: {
+        userId,
+        type: { in: ["first_paid_model_completion_bonus", "first_paid_model_completion_bonus_adjustment"] },
+      },
+      select: { amount: true },
     });
-    if (existingBonus) return 0;
+    const alreadyAwarded = existingBonusTx.reduce((sum, txRow) => sum + (txRow?.amount || 0), 0);
+    if (alreadyAwarded >= BONUS_CREDITS) return 0;
 
     const model = await tx.savedModel.findUnique({
       where: { id: modelId },
@@ -375,21 +379,31 @@ export async function awardFirstPaidModelCompletionBonus(userId, modelId) {
     if (!model || model.userId !== userId) return 0;
     if (model.status !== "ready") return 0;
     if (!model.paymentIntentId) return 0;
+    const delta = BONUS_CREDITS - alreadyAwarded;
+    if (delta <= 0) return 0;
 
     await tx.user.update({
       where: { id: userId },
-      data: { purchasedCredits: { increment: BONUS_CREDITS } },
+      data: { purchasedCredits: { increment: delta } },
     });
     await tx.creditTransaction.create({
       data: {
         userId,
-        amount: BONUS_CREDITS,
-        type: "first_paid_model_completion_bonus",
-        description: `First completed paid model bonus - ${BONUS_CREDITS} free credits`,
+        amount: delta,
+        type:
+          alreadyAwarded > 0
+            ? "first_paid_model_completion_bonus_adjustment"
+            : "first_paid_model_completion_bonus",
+        description:
+          alreadyAwarded > 0
+            ? `First completed paid model bonus adjustment +${delta} (target ${BONUS_CREDITS})`
+            : `First completed paid model bonus - ${BONUS_CREDITS} free credits`,
       },
     });
 
-    console.log(`🎁 Awarded ${BONUS_CREDITS} credits to user ${userId} for first completed paid model`);
-    return BONUS_CREDITS;
+    console.log(
+      `🎁 Awarded ${delta} credits to user ${userId} for first completed paid model (total target ${BONUS_CREDITS})`,
+    );
+    return delta;
   });
 }

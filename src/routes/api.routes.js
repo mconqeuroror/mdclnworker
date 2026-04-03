@@ -200,6 +200,8 @@ import {
   deleteUser,
   getRecentActivity,
   recoverPayment,
+  auditSubscriptionRefills,
+  reconcileSubscriptionRefills,
   syncUserStripeState,
   reconcileAllSubscriptions,
   reconcileReferralCommissions,
@@ -1073,6 +1075,8 @@ router.get("/admin/users/:id/purchases", authMiddleware, adminMiddleware, getUse
 router.post("/admin/users/:id/purchases/:purchaseId/refund", authMiddleware, adminMiddleware, refundUserPurchase);
 router.post("/admin/users/:id/stripe-sync", authMiddleware, adminMiddleware, syncUserStripeState);
 router.post("/admin/subscriptions/reconcile", authMiddleware, adminMiddleware, reconcileAllSubscriptions);
+router.post("/admin/subscriptions/refills/audit", authMiddleware, adminMiddleware, auditSubscriptionRefills);
+router.post("/admin/subscriptions/refills/reconcile", authMiddleware, adminMiddleware, reconcileSubscriptionRefills);
 router.post("/admin/referrals/reconcile", authMiddleware, adminMiddleware, reconcileReferralCommissions);
 router.post(
   "/admin/credits/add",

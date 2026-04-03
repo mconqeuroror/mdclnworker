@@ -849,6 +849,34 @@ export const adminAPI = {
     });
     return response.data;
   },
+  auditSubscriptionRefills: async ({
+    days = 90,
+    userId = "",
+    email = "",
+  } = {}) => {
+    const response = await api.post("/admin/subscriptions/refills/audit", {
+      days,
+      userId: userId || undefined,
+      email: email || undefined,
+    });
+    return response.data;
+  },
+  reconcileSubscriptionRefills: async ({
+    dryRun = true,
+    days = 90,
+    userId = "",
+    email = "",
+    invoiceIds = [],
+  } = {}) => {
+    const response = await api.post("/admin/subscriptions/refills/reconcile", {
+      dryRun,
+      days,
+      userId: userId || undefined,
+      email: email || undefined,
+      invoiceIds: Array.isArray(invoiceIds) ? invoiceIds : [],
+    });
+    return response.data;
+  },
 };
 
 // Crypto API (NOWPayments)

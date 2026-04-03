@@ -19,6 +19,13 @@ const getTotalCredits = (u) =>
   (u.subscriptionCredits || 0) + (u.purchasedCredits || 0) + (u.credits || 0);
 const fmt$ = (cents) => `$${((cents || 0) / 100).toFixed(2)}`;
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+const fmtDurationMs = (ms) => {
+  const n = Number(ms || 0);
+  if (!Number.isFinite(n) || n <= 0) return '0s';
+  if (n < 1000) return `${Math.round(n)}ms`;
+  if (n < 60_000) return `${(n / 1000).toFixed(1)}s`;
+  return `${(n / 60_000).toFixed(1)}m`;
+};
 const PROVIDER_NAME_RE = /\b(heygen|elevenlabs?|kling|nanobanana|nano\s*banana|replicate|fal(?:\.ai)?|wavespeed|openrouter|apify|kie)\b/ig;
 const redactProviderText = (value, fallback = '—') => {
   const raw = String(value ?? '').trim();
@@ -534,6 +541,16 @@ export default function AdminPage() {
   const [dailyRangeEnd, setDailyRangeEnd] = useState(() => new Date().toISOString().slice(0, 10));
   const [recoverStripeId, setRecoverStripeId] = useState('');
   const [recoverResult, setRecoverResult] = useState(null);
+  const [refillAuditForm, setRefillAuditForm] = useState({
+    days: 90,
+    userId: '',
+    email: '',
+  });
+  const [refillAuditLoading, setRefillAuditLoading] = useState(false);
+  const [refillReconcileLoading, setRefillReconcileLoading] = useState(false);
+  const [refillAuditResult, setRefillAuditResult] = useState(null);
+  const [refillReconcileResult, setRefillReconcileResult] = useState(null);
+  const [selectedRefillInvoiceIds, setSelectedRefillInvoiceIds] = useState([]);
   const [loraRecoveryForm, setLoraRecoveryForm] = useState({
     userId: '',
     modelName: '',
@@ -1100,6 +1117,88 @@ export default function AdminPage() {
       setRecoverResult({ success: false, message: msg });
       toast.error(msg);
     } finally { setRecoverLoading(false); }
+  };
+
+  const handleRunRefillAudit = async () => {
+    setRefillAuditLoading(true);
+    setRefillAuditResult(null);
+    setRefillReconcileResult(null);
+    setSelectedRefillInvoiceIds([]);
+    try {
+      const result = await adminAPI.auditSubscriptionRefills({
+        days: Math.max(1, Math.min(365, parseInt(refillAuditForm.days || 90, 10) || 90)),
+        userId: refillAuditForm.userId.trim(),
+        email: refillAuditForm.email.trim(),
+      });
+      setRefillAuditResult(result);
+      const foundIds = (result?.findings || []).map((f) => f.invoiceId).filter(Boolean);
+      setSelectedRefillInvoiceIds(foundIds);
+      if (result?.success) {
+        const progress = result?.summary?.progress || {};
+        toast.success(
+          foundIds.length
+            ? `Found ${foundIds.length} missing refill${foundIds.length === 1 ? '' : 's'} (scanned ${progress.usersProcessed || result?.summary?.scannedUsers || 0} users in ${progress.userBatchesScanned || 0} batches)`
+            : `No missing refills found (scanned ${progress.usersProcessed || result?.summary?.scannedUsers || 0} users)`,
+        );
+      } else {
+        toast.error(result?.message || 'Refill audit failed');
+      }
+    } catch (e) {
+      const msg = e?.response?.data?.message || 'Refill audit failed';
+      setRefillAuditResult({ success: false, message: msg, findings: [], errors: [] });
+      toast.error(msg);
+    } finally {
+      setRefillAuditLoading(false);
+    }
+  };
+
+  const toggleRefillInvoiceSelection = (invoiceId) => {
+    setSelectedRefillInvoiceIds((prev) =>
+      prev.includes(invoiceId)
+        ? prev.filter((id) => id !== invoiceId)
+        : [...prev, invoiceId],
+    );
+  };
+
+  const handleReconcileRefills = async ({ dryRun = false, selectedOnly = false } = {}) => {
+    if (selectedOnly && selectedRefillInvoiceIds.length === 0) {
+      toast.error('Select at least one invoice first');
+      return;
+    }
+
+    setRefillReconcileLoading(true);
+    setRefillReconcileResult(null);
+    try {
+      const result = await adminAPI.reconcileSubscriptionRefills({
+        dryRun,
+        days: Math.max(1, Math.min(365, parseInt(refillAuditForm.days || 90, 10) || 90)),
+        userId: refillAuditForm.userId.trim(),
+        email: refillAuditForm.email.trim(),
+        invoiceIds: selectedOnly ? selectedRefillInvoiceIds : [],
+      });
+      setRefillReconcileResult(result);
+      const summary = result?.summary || {};
+      if (result?.success) {
+        const sourceScan = summary?.sourceScanProgress || {};
+        const sourceScanSuffix = sourceScan?.usersProcessed
+          ? ` · scanned ${sourceScan.usersProcessed} users (${sourceScan.userBatchesScanned || 0} batches)`
+          : '';
+        if (dryRun) {
+          toast.success(`Dry run complete (${summary.requestedInvoices || 0} invoice candidates${sourceScanSuffix})`);
+        } else {
+          toast.success(
+            `Reconciled ${summary.reconciled || 0}, already ${summary.alreadyProcessed || 0}, skipped ${summary.skipped || 0}${sourceScanSuffix}`,
+          );
+          await handleRunRefillAudit();
+        }
+      } else {
+        toast.error(result?.message || 'Refill reconciliation failed');
+      }
+    } catch (e) {
+      toast.error(e?.response?.data?.message || 'Refill reconciliation failed');
+    } finally {
+      setRefillReconcileLoading(false);
+    }
   };
 
   const handleLoraRecovery = async () => {
@@ -2287,6 +2386,190 @@ export default function AdminPage() {
               {recoverResult.alreadyProcessed && <span className="text-gray-500 ml-1">— already processed.</span>}
           </div>
         )}
+        </Section>
+
+        {/* ── Subscription Refill Audit ─────────────────────────────────────── */}
+        <Section>
+          <SectionHeader title="Subscription Refill Audit & Reconcile" />
+          <p className="text-xs text-gray-500 mb-3">
+            Audit paid Stripe subscription invoices that did not grant credits, then reconcile missed refills. Scans all users with a Stripe customer ID.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+            <input
+              type="number"
+              min={1}
+              max={365}
+              value={refillAuditForm.days}
+              onChange={(e) => setRefillAuditForm((v) => ({ ...v, days: e.target.value }))}
+              placeholder="Days lookback"
+              className="px-3 py-2 rounded-lg border border-white/[0.07] bg-white/[0.03] text-xs focus:border-white/20 outline-none transition"
+            />
+            <input
+              type="text"
+              value={refillAuditForm.userId}
+              onChange={(e) => setRefillAuditForm((v) => ({ ...v, userId: e.target.value }))}
+              placeholder="Filter by userId (optional)"
+              className="px-3 py-2 rounded-lg border border-white/[0.07] bg-white/[0.03] text-xs font-mono focus:border-white/20 outline-none transition"
+            />
+            <input
+              type="email"
+              value={refillAuditForm.email}
+              onChange={(e) => setRefillAuditForm((v) => ({ ...v, email: e.target.value }))}
+              placeholder="Filter by email (optional)"
+              className="px-3 py-2 rounded-lg border border-white/[0.07] bg-white/[0.03] text-xs focus:border-white/20 outline-none transition"
+            />
+          </div>
+
+          <div className="mt-3 flex items-center gap-2 flex-wrap">
+            <GhostBtn onClick={handleRunRefillAudit} disabled={refillAuditLoading || refillReconcileLoading}>
+              {refillAuditLoading ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Search className="w-3 h-3" />}
+              Run Audit
+            </GhostBtn>
+            <GhostBtn
+              onClick={() => handleReconcileRefills({ dryRun: true, selectedOnly: true })}
+              disabled={refillAuditLoading || refillReconcileLoading || selectedRefillInvoiceIds.length === 0}
+            >
+              {refillReconcileLoading ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Search className="w-3 h-3" />}
+              Dry Run Selected
+            </GhostBtn>
+            <PrimaryBtn
+              onClick={() => handleReconcileRefills({ dryRun: false, selectedOnly: true })}
+              disabled={refillAuditLoading || refillReconcileLoading || selectedRefillInvoiceIds.length === 0}
+            >
+              {refillReconcileLoading ? (
+                <>
+                  <div className="w-3 h-3 border border-black/30 border-t-black rounded-full animate-spin" />
+                  Reconciling…
+                </>
+              ) : (
+                <>
+                  <Zap className="w-3 h-3" />
+                  Reconcile Selected
+                </>
+              )}
+            </PrimaryBtn>
+            <GhostBtn
+              onClick={() => handleReconcileRefills({ dryRun: true, selectedOnly: false })}
+              disabled={refillAuditLoading || refillReconcileLoading}
+            >
+              {refillReconcileLoading ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Search className="w-3 h-3" />}
+              Dry Run All Missing
+            </GhostBtn>
+            <PrimaryBtn
+              onClick={() => handleReconcileRefills({ dryRun: false, selectedOnly: false })}
+              disabled={refillAuditLoading || refillReconcileLoading}
+            >
+              {refillReconcileLoading ? (
+                <>
+                  <div className="w-3 h-3 border border-black/30 border-t-black rounded-full animate-spin" />
+                  Reconciling…
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="w-3 h-3" />
+                  Reconcile All Missing
+                </>
+              )}
+            </PrimaryBtn>
+          </div>
+
+          {refillAuditResult?.summary && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3">
+              <KpiCard label="Scanned Users" value={refillAuditResult.summary.scannedUsers || 0} />
+              <KpiCard label="Missing Refills" value={refillAuditResult.summary.missingRefills || 0} />
+              <KpiCard label="Errors" value={refillAuditResult.summary.errors || 0} />
+              <KpiCard label="Selected" value={selectedRefillInvoiceIds.length} />
+            </div>
+          )}
+          {refillAuditResult?.summary?.progress && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-2">
+              <KpiCard label="Scan Batches" value={refillAuditResult.summary.progress.userBatchesScanned || 0} />
+              <KpiCard label="Subscriptions" value={refillAuditResult.summary.progress.subscriptionsScanned || 0} />
+              <KpiCard label="Invoices Seen" value={refillAuditResult.summary.progress.invoicesScanned || 0} />
+              <KpiCard label="Scan Time" value={fmtDurationMs(refillAuditResult.summary.progress.durationMs)} />
+            </div>
+          )}
+          {refillReconcileResult?.summary && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-2">
+              <KpiCard label="Requested" value={refillReconcileResult.summary.requestedInvoices || 0} />
+              <KpiCard label="Reconciled" value={refillReconcileResult.summary.reconciled || 0} />
+              <KpiCard label="Already/Skipped" value={(refillReconcileResult.summary.alreadyProcessed || 0) + (refillReconcileResult.summary.skipped || 0)} />
+              <KpiCard label="Run Time" value={fmtDurationMs(refillReconcileResult.summary.processingDurationMs)} />
+            </div>
+          )}
+
+          {Array.isArray(refillAuditResult?.findings) && refillAuditResult.findings.length > 0 && (
+            <div className="mt-3 rounded-xl border border-white/[0.07] bg-white/[0.02] p-3">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-[11px] uppercase tracking-wider text-gray-500">Missing Refill Invoices</p>
+                <div className="flex items-center gap-1.5">
+                  <GhostBtn onClick={() => setSelectedRefillInvoiceIds(refillAuditResult.findings.map((f) => f.invoiceId))}>
+                    Select All
+                  </GhostBtn>
+                  <GhostBtn onClick={() => setSelectedRefillInvoiceIds([])}>
+                    Clear
+                  </GhostBtn>
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <THead
+                    cols={[
+                      { label: '' },
+                      { label: 'Invoice' },
+                      { label: 'User' },
+                      { label: 'Sub' },
+                      { label: 'Paid' },
+                      { label: 'Credits' },
+                      { label: 'Reason' },
+                    ]}
+                  />
+                  <tbody>
+                    {refillAuditResult.findings.slice(0, 300).map((f) => {
+                      const checked = selectedRefillInvoiceIds.includes(f.invoiceId);
+                      return (
+                        <tr key={f.invoiceId} className="border-b border-white/[0.04]">
+                          <td className="py-2.5 px-3">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => toggleRefillInvoiceSelection(f.invoiceId)}
+                              className="rounded"
+                            />
+                          </td>
+                          <td className="py-2.5 px-3 text-xs text-gray-300">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-mono">{f.invoiceId}</span>
+                              <CopyBtn text={f.invoiceId} />
+                            </div>
+                          </td>
+                          <td className="py-2.5 px-3 text-xs text-gray-400">
+                            <div>{f?.user?.email || f?.user?.id || '—'}</div>
+                            {f?.user?.id && <div className="text-[11px] text-gray-500 font-mono">{f.user.id}</div>}
+                          </td>
+                          <td className="py-2.5 px-3 text-xs text-gray-500 font-mono">{f.subscriptionId || '—'}</td>
+                          <td className="py-2.5 px-3 text-xs text-white">{fmt$(f.amountPaidCents || 0)}</td>
+                          <td className="py-2.5 px-3 text-xs text-gray-300">{(f.expectedCredits || 0).toLocaleString()}</td>
+                          <td className="py-2.5 px-3 text-xs text-gray-500">{f.billingReason || '—'}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              {refillAuditResult.findings.length > 300 && (
+                <p className="text-[11px] text-gray-500 mt-2">
+                  Showing first 300 rows of {refillAuditResult.findings.length}.
+                </p>
+              )}
+            </div>
+          )}
+
+          {Array.isArray(refillAuditResult?.errors) && refillAuditResult.errors.length > 0 && (
+            <div className="mt-3 p-3 rounded-lg border border-yellow-500/20 bg-yellow-500/[0.05] text-xs text-yellow-300">
+              Audit had {refillAuditResult.errors.length} user-level Stripe lookup errors.
+            </div>
+          )}
         </Section>
 
         {/* ── LoRA Recovery ─────────────────────────────────────────────────── */}
