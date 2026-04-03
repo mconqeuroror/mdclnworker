@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { HelmetProvider } from 'react-helmet-async';
 import { Analytics } from '@vercel/analytics/react';
 import App from './App';
+import './styles/tokens.css';
 import './index.css';
 
 // Top-level error boundary: catch errors so Vite does not show overlay/reload (endless refresh loop locally)

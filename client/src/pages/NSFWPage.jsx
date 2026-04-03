@@ -3903,6 +3903,25 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
 
   const blockedChips = getBlockedChips(chipSelections);
   const chipCount = Object.values(chipSelections).filter(Boolean).length;
+  const selectedChipItems = [];
+  for (const cat of selectorCategories) {
+    for (const g of cat.groups || []) {
+      const value = chipSelections[g.key];
+      if (value != null && String(value).trim() !== "") {
+        selectedChipItems.push({ key: g.key, label: g.label, value });
+      }
+    }
+  }
+  const removeSelectedChip = (key) => {
+    setGeneratedPrompt("");
+    setChipSelections((prev) => applyChipConstraints({ ...prev, [key]: "" }, lockedAppearance));
+  };
+  const clearAllChips = () => {
+    const next = {};
+    for (const key of Object.keys(chipSelections)) next[key] = "";
+    setGeneratedPrompt("");
+    setChipSelections(applyChipConstraints(next, lockedAppearance));
+  };
 
   // Legacy compat
   const nsfwAttributes = chipSelections;
@@ -5508,9 +5527,23 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
                 <>
                 {/* Scene Description */}
                 <div>
-                  <label className="block text-sm font-medium text-white mb-2">
-                    Describe the Scene
-                  </label>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-sm font-medium text-white">
+                      Describe the Scene
+                    </label>
+                    <button
+                      onClick={handleGeneratePrompt}
+                      disabled={isGeneratingAiPrompt}
+                      className="nsfw-ai-enhance-btn"
+                      data-testid="button-generate-prompt-ai-enhance"
+                    >
+                      {isGeneratingAiPrompt ? (
+                        <><Loader2 className="w-3 h-3 animate-spin" /> Generating…</>
+                      ) : (
+                        <><Sparkles className="w-3 h-3" /> AI Enhance</>
+                      )}
+                    </button>
+                  </div>
                   <textarea
                     value={sceneDescription}
                     onChange={(e) => { setSceneDescription(e.target.value); setGeneratedPrompt(""); setSelectedPreset(null); }}
@@ -5554,7 +5587,7 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
                   <p className="text-xs text-slate-500 mb-3">
                     Pick a pose — AI fills in the scene, selects chips, and creates your prompt
                   </p>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="quick-presets">
                     {SCENE_PRESETS.map((preset) => {
                       const isActive = selectedPreset === preset.id;
                       return (
@@ -5598,6 +5631,27 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
                       )}
                     </div>
                   </div>
+
+                  {selectedChipItems.length > 0 && (
+                    <div className="active-tags-bar">
+                      <span className="active-tags-label">Active ({selectedChipItems.length})</span>
+                      <div className="active-tags-list">
+                        {selectedChipItems.map((item) => (
+                          <button
+                            key={`${item.key}-${item.value}`}
+                            type="button"
+                            className="active-tag"
+                            onClick={() => removeSelectedChip(item.key)}
+                          >
+                            {item.label}: {item.value} <X className="w-2.5 h-2.5" />
+                          </button>
+                        ))}
+                      </div>
+                      <button type="button" className="clear-all" onClick={clearAllChips}>
+                        Clear all
+                      </button>
+                    </div>
+                  )}
 
                   <div className="rounded-xl border border-white/[0.08] overflow-hidden">
                     {selectorCategories.map((cat) => {
@@ -5708,21 +5762,6 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
                   </div>
                 </div>
 
-                {/* Step 1: Generate Prompt */}
-                <div>
-                  <button
-                    onClick={handleGeneratePrompt}
-                    disabled={isGeneratingAiPrompt}
-                    className="w-full py-3 rounded-xl font-semibold text-black transition-all flex items-center justify-center gap-2 bg-white border border-white/35 hover:bg-white/90"
-                  >
-                    {isGeneratingAiPrompt ? (
-                      <><Loader2 className="w-4 h-4 animate-spin" /> Generating prompt...</>
-                    ) : (
-                      <><Sparkles className="w-4 h-4" /> Generate Prompt with AI</>
-                    )}
-                  </button>
-                </div>
-
                 {/* Generated Prompt Preview */}
                 {generatedPrompt && (
                   <div className="p-3 rounded-xl bg-white/[0.06] border border-white/[0.18]">
@@ -5791,25 +5830,37 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
                     This size is sent to the generation workflow (empty latent / aspect node).
                   </p>
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-                    {NSFW_RESOLUTION_OPTIONS.map((ratio) => (
-                      <button
-                        key={ratio.id}
-                        type="button"
-                        onClick={() => setSelectedAspectRatio(ratio.id)}
-                        data-testid={`button-resolution-${ratio.id}`}
-                        className={`px-2 py-2 rounded-lg text-xs font-medium transition-colors flex flex-col items-center gap-0.5 ${
-                          selectedAspectRatio === ratio.id
-                            ? "bg-white text-black border border-white/35"
-                            : "bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white"
-                        }`}
-                      >
-                        <span>{ratio.label}</span>
-                        <span className="text-[10px] opacity-70">{ratio.size}</span>
-                        {ratio.hint && (
-                          <span className="text-[9px] text-slate-600 leading-tight text-center">{ratio.hint}</span>
-                        )}
-                      </button>
-                    ))}
+                    {NSFW_RESOLUTION_OPTIONS.map((ratio) => {
+                      const [w, h] = ratio.id.split("x").map(Number);
+                      const scale = 38 / Math.max(w || 1, h || 1);
+                      const previewW = Math.max(10, Math.round((w || 1) * scale));
+                      const previewH = Math.max(10, Math.round((h || 1) * scale));
+                      return (
+                        <button
+                          key={ratio.id}
+                          type="button"
+                          onClick={() => setSelectedAspectRatio(ratio.id)}
+                          data-testid={`button-resolution-${ratio.id}`}
+                          className={`px-2 py-2 rounded-lg text-xs font-medium transition-colors flex flex-col items-center gap-1 ${
+                            selectedAspectRatio === ratio.id
+                              ? "bg-white text-black border border-white/35"
+                              : "bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white"
+                          }`}
+                        >
+                          <div className="w-12 h-10 rounded-md bg-white/10 flex items-center justify-center border border-white/10">
+                            <div
+                              className={`rounded-sm ${selectedAspectRatio === ratio.id ? "bg-black/20" : "bg-white/20"}`}
+                              style={{ width: `${previewW}px`, height: `${previewH}px` }}
+                            />
+                          </div>
+                          <span>{ratio.label}</span>
+                          <span className="text-[10px] opacity-70">{ratio.size}</span>
+                          {ratio.hint && (
+                            <span className="text-[9px] text-slate-600 leading-tight text-center">{ratio.hint}</span>
+                          )}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -6145,48 +6196,50 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
                 </div>
 
                 {/* Generate Button */}
-                <button
-                  data-testid="button-generate-nsfw"
-                  onClick={handleGenerateNsfw}
-                  disabled={
-                    (nsfwGenerateMode === "custom"
-                      ? !customPrompt.trim()
-                      : !generatedPrompt.trim()) || isGeneratingNsfw
-                  }
-                  className="w-full py-4 rounded-xl font-semibold text-white transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                  style={{
-                    background:
-                      (nsfwGenerateMode === "custom" ? customPrompt.trim() : generatedPrompt.trim())
-                        ? "linear-gradient(135deg, #f43f5e 0%, #ec4899 100%)"
-                        : "rgba(255,255,255,0.1)",
-                    border: (nsfwGenerateMode === "custom" ? customPrompt.trim() : generatedPrompt.trim())
-                      ? "1px solid rgba(244,63,94,0.4)"
-                      : "1px solid rgba(255,255,255,0.08)",
-                    boxShadow: (nsfwGenerateMode === "custom" ? customPrompt.trim() : generatedPrompt.trim())
-                      ? "0 0 20px rgba(244,63,94,0.15)"
-                      : "none",
-                  }}
-                >
-                  {isGeneratingNsfw ? (
-                    <>
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                      Generating {imageQuantity === 2 ? "2 images" : ""}...
-                    </>
-                  ) : (
-                    <>
-                      <Flame className="w-5 h-5 text-rose-300" />
-                      Generate {imageQuantity === 2 ? "2 Images" : "Image"}
-                      <span className="px-2 py-0.5 rounded-full bg-white/20 text-xs inline-flex items-center gap-1.5">
-                        <Coins className="w-3 h-3 text-yellow-400" />
-                        <span>
-                          {imageQuantity === 2
-                            ? (skipFaceSwap ? "50" : "70")
-                            : (skipFaceSwap ? "30" : "40")}
+                <div className="nsfw-generate-sticky">
+                  <button
+                    data-testid="button-generate-nsfw"
+                    onClick={handleGenerateNsfw}
+                    disabled={
+                      (nsfwGenerateMode === "custom"
+                        ? !customPrompt.trim()
+                        : !generatedPrompt.trim()) || isGeneratingNsfw
+                    }
+                    className="w-full py-4 rounded-xl font-semibold text-white transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    style={{
+                      background:
+                        (nsfwGenerateMode === "custom" ? customPrompt.trim() : generatedPrompt.trim())
+                          ? "linear-gradient(135deg, #f43f5e 0%, #ec4899 100%)"
+                          : "rgba(255,255,255,0.1)",
+                      border: (nsfwGenerateMode === "custom" ? customPrompt.trim() : generatedPrompt.trim())
+                        ? "1px solid rgba(244,63,94,0.4)"
+                        : "1px solid rgba(255,255,255,0.08)",
+                      boxShadow: (nsfwGenerateMode === "custom" ? customPrompt.trim() : generatedPrompt.trim())
+                        ? "0 0 20px rgba(244,63,94,0.15)"
+                        : "none",
+                    }}
+                  >
+                    {isGeneratingNsfw ? (
+                      <>
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        Generating {imageQuantity === 2 ? "2 images" : ""}...
+                      </>
+                    ) : (
+                      <>
+                        <Flame className="w-5 h-5 text-rose-300" />
+                        Generate {imageQuantity === 2 ? "2 Images" : "Image"}
+                        <span className="px-2 py-0.5 rounded-full bg-white/20 text-xs inline-flex items-center gap-1.5">
+                          <Coins className="w-3 h-3 text-yellow-400" />
+                          <span>
+                            {imageQuantity === 2
+                              ? (skipFaceSwap ? "50" : "70")
+                              : (skipFaceSwap ? "30" : "40")}
+                          </span>
                         </span>
-                      </span>
-                    </>
-                  )}
-                </button>
+                      </>
+                    )}
+                  </button>
+                </div>
                 </>
                 )}
 

@@ -94,6 +94,7 @@ export function GenerationHistory({
   limit = 6,
 }) {
   const { all: generations, isLoading } = useGenerations(type);
+  const isVideoHistory = isVideoType(type) || type === "all-videos";
   const [previewModal, setPreviewModal] = useState(null);
   const [previewIndex, setPreviewIndex] = useState(0);
   const viewportBounds = useMainViewportBounds();
@@ -225,7 +226,7 @@ export function GenerationHistory({
         </span>
       </div>
 
-      <div className="space-y-2">
+      <div className={isVideoHistory ? "generation-history-grid" : "space-y-2"}>
         {limitedGenerations.map((gen, index) => (
           <GenerationHistoryCard
             key={gen.id}
@@ -235,6 +236,7 @@ export function GenerationHistory({
               handleDownload(parseOutputUrls(gen.outputUrl)[0], 0, gen)
             }
             index={index}
+            isVideoLayout={isVideoHistory}
           />
         ))}
       </div>
@@ -482,7 +484,7 @@ function isVideoType(type) {
   ].includes(type);
 }
 
-function GenerationHistoryCard({ generation, onPreview, onDownload, index }) {
+function GenerationHistoryCard({ generation, onPreview, onDownload, index, isVideoLayout = false }) {
   const isProcessing =
     generation.status === "processing" || generation.status === "pending";
   const isCompleted = generation.status === "completed";
@@ -537,7 +539,7 @@ function GenerationHistoryCard({ generation, onPreview, onDownload, index }) {
 
   return (
     <div
-      className="flex items-center gap-3 p-2 rounded-xl group cursor-pointer"
+      className={`group cursor-pointer ${isVideoLayout ? "generation-card-video" : "flex items-center gap-3 p-2 rounded-xl"}`}
       style={{
         background: "rgba(255,255,255,0.02)",
         border: "1px solid rgba(255,255,255,0.04)",
@@ -548,7 +550,7 @@ function GenerationHistoryCard({ generation, onPreview, onDownload, index }) {
     >
       {/* Thumbnail */}
       <div
-        className="relative w-12 h-12 rounded-lg overflow-hidden flex-shrink-0"
+        className={`relative overflow-hidden flex-shrink-0 ${isVideoLayout ? "generation-card-video__thumb" : "w-12 h-12 rounded-lg"}`}
         style={{
           background:
             "linear-gradient(135deg, rgba(139,92,246,0.1), rgba(59,130,246,0.08))",
@@ -579,17 +581,19 @@ function GenerationHistoryCard({ generation, onPreview, onDownload, index }) {
           </>
         ) : isProcessing ? (
           <div className="absolute inset-0 flex items-center justify-center">
-            <Loader2 className="w-4 h-4 animate-spin text-white/60" />
+            {isVideoLayout ? <div className="generation-card-video__shimmer" /> : null}
+            <Loader2 className="w-4 h-4 animate-spin text-white/60 relative z-[1]" />
           </div>
         ) : isFailed ? (
-          <div className="absolute inset-0 flex items-center justify-center">
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-black/30">
             <AlertTriangle className="w-4 h-4 text-red-400" />
+            {isVideoLayout ? <span className="text-[10px] text-red-300">Failed</span> : null}
           </div>
         ) : null}
       </div>
 
       {/* Info */}
-      <div className="flex-1 min-w-0">
+      <div className={`flex-1 min-w-0 ${isVideoLayout ? "p-2.5 pt-2" : ""}`}>
         <div className="flex items-center gap-2 mb-0.5">
           {isProcessing && (
             <span
@@ -625,17 +629,17 @@ function GenerationHistoryCard({ generation, onPreview, onDownload, index }) {
             </span>
           )}
         </div>
-        <p className="text-[11px] text-slate-400 truncate">
-          {getTypeLabel(generation)}
+        <p className={`text-slate-400 ${isVideoLayout ? "text-[10px] leading-relaxed line-clamp-2 min-h-[28px]" : "text-[11px] truncate"}`}>
+          {generation.prompt || getTypeLabel(generation)}
         </p>
-        <p className="text-[9px] text-slate-600">
+        <p className={`text-slate-600 ${isVideoLayout ? "text-[10px] mt-1" : "text-[9px]"}`}>
           {formatTimeAgo(generation.createdAt)}
         </p>
       </div>
 
       {/* Actions */}
       {isCompleted && generation.outputUrl && (
-        <div className="flex items-center gap-1.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className={`flex items-center gap-1.5 flex-shrink-0 transition-opacity ${isVideoLayout ? "p-2.5 pt-0 opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
           <button
             onClick={(e) => {
               e.stopPropagation();

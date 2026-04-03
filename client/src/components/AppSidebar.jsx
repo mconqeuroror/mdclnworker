@@ -300,6 +300,7 @@ export default function AppSidebar({
             className={`w-full flex items-center gap-3 rounded-xl transition-all hover:bg-white/5 px-3 py-2.5 ${
               collapsedProfileRow
             }`}
+            title={visuallyCollapsed ? (user?.name || user?.email?.split("@")[0] || "Profile") : undefined}
             data-testid="button-profile-menu"
           >
             <div className="w-8 h-8 rounded-full border border-white/20 flex items-center justify-center flex-shrink-0" style={{ background: 'transparent' }}>
@@ -463,11 +464,13 @@ export default function AppSidebar({
               onClick={() => {
                 setActiveTab(item.id);
               }}
+              title={visuallyCollapsed ? item.label : undefined}
+              data-tooltip={visuallyCollapsed ? item.label : undefined}
           className={`w-full relative flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group backdrop-blur-xl shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)] ${
                 collapsedRow
               } ${
                 activeTab === item.id
-                    ? "bg-white/[0.08] text-white"
+                    ? "bg-white/[0.08] text-white border border-violet-400/40"
                     : "text-slate-400 hover:text-white hover:bg-white/[0.04]"
               }`}
               data-testid={`sidebar-${item.id}`}
@@ -525,6 +528,8 @@ export default function AppSidebar({
           <div className="mt-2">
             <Link
               to="/pro"
+              title={visuallyCollapsed ? copy.proStudio : undefined}
+              data-tooltip={visuallyCollapsed ? copy.proStudio : undefined}
               className={`w-full relative flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group backdrop-blur-xl border border-purple-500/20 hover:border-purple-500/40 hover:bg-purple-500/10 ${collapsedRow}`}
               data-testid="sidebar-pro"
             >
@@ -564,6 +569,8 @@ export default function AppSidebar({
               onClick={() => {
                 item.action();
               }}
+              title={visuallyCollapsed ? item.label : undefined}
+              data-tooltip={visuallyCollapsed ? item.label : undefined}
               className={`w-full relative flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/[0.04] font-medium transition-all duration-200 active:scale-[0.98] border border-emerald-400/30 shadow-[0_0_12px_rgba(52,211,153,0.15)] hover:shadow-[0_0_18px_rgba(52,211,153,0.25)] ${
                 collapsedRow
               }`}
@@ -604,6 +611,8 @@ export default function AppSidebar({
             href="https://t.me/modelclonechat"
             target="_blank"
             rel="noopener noreferrer"
+            title={visuallyCollapsed ? "Telegram" : undefined}
+            data-tooltip={visuallyCollapsed ? "Telegram" : undefined}
             
             className={`w-full relative flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/[0.04] font-medium transition-all duration-200 active:scale-[0.98] ${
               collapsedRow
@@ -630,6 +639,8 @@ export default function AppSidebar({
             href="https://discord.gg/vpwGygjEaB"
             target="_blank"
             rel="noopener noreferrer"
+            title={visuallyCollapsed ? "Discord" : undefined}
+            data-tooltip={visuallyCollapsed ? "Discord" : undefined}
             
             className={`w-full relative flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/[0.04] font-medium transition-all duration-200 active:scale-[0.98] ${
               collapsedRow
@@ -685,6 +696,8 @@ export default function AppSidebar({
               onClick={() => {
                 onOpenAdmin();
               }}
+              title={visuallyCollapsed ? copy.adminPanel : undefined}
+              data-tooltip={visuallyCollapsed ? copy.adminPanel : undefined}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/[0.04] font-medium transition-all duration-200 active:scale-[0.98] ${
                 collapsedRow
               }`}
@@ -721,6 +734,8 @@ export default function AppSidebar({
               setCollapsed(true);
             }
           }}
+          title={visuallyCollapsed ? "Expand" : copy.collapse}
+          data-tooltip={visuallyCollapsed ? "Expand" : undefined}
           className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-500 hover:text-slate-300 hover:bg-white/[0.04] transition-all duration-200 ${
             collapsedRow
           }`}
@@ -741,6 +756,8 @@ export default function AppSidebar({
           onClick={() => {
             onLogout();
           }}
+          title={visuallyCollapsed ? copy.logout : undefined}
+          data-tooltip={visuallyCollapsed ? copy.logout : undefined}
           className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-all duration-200 group ${
             collapsedRow
           }`}
