@@ -9,7 +9,7 @@ import { uploadToCloudinary as uploadFile } from '../services/api';
 const VIDEO_ACCEPT = { 'video/mp4': ['.mp4'] };
 const IMAGE_ACCEPT = { 'image/jpeg': ['.jpg', '.jpeg'], 'image/png': ['.png'] };
 
-export default function FileUpload({ type = 'image', onUpload, preview, large, acceptOnlyMp4 = false, label = '' }) {
+export default function FileUpload({ type = 'image', onUpload, preview, large, acceptOnlyMp4 = false }) {
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
 
@@ -57,7 +57,7 @@ export default function FileUpload({ type = 'image', onUpload, preview, large, a
     <div
       {...getRootProps()}
       className={`
-        reference-upload-zone relative cursor-pointer overflow-hidden rounded-xl transition-all duration-300 group
+        relative cursor-pointer overflow-hidden rounded-xl transition-all duration-300 group
         ${large ? 'aspect-video' : 'h-24 sm:h-28'}
         ${isDragActive ? 'scale-[1.02]' : ''}
       `}
@@ -75,16 +75,13 @@ export default function FileUpload({ type = 'image', onUpload, preview, large, a
       <div 
         className={`absolute inset-0 rounded-xl transition-all duration-300 ${
           isDragActive 
-            ? 'border-2 border-violet-500/70' 
+            ? 'border-2 border-purple-500/50' 
             : preview 
               ? 'border border-white/20' 
-              : 'border-2 border-dashed border-white/25 group-hover:border-violet-400/70'
+              : 'border-2 border-dashed border-white/20 group-hover:border-white/40'
         }`}
       />
       
-      {label ? (
-        <span className="reference-upload-zone-label">{label}</span>
-      ) : null}
       
       <input {...getInputProps()} />
       
@@ -172,7 +169,7 @@ export default function FileUpload({ type = 'image', onUpload, preview, large, a
               {isDragActive ? 'Drop here' : 'Upload'}
             </span>
             <span className="text-[10px] text-slate-500">
-              {type === 'image' ? 'JPG, PNG • Drag or click' : 'MP4 only • Drag or click'}
+              {type === 'image' ? 'JPG, PNG' : 'MP4 only'}
             </span>
           </div>
         </div>

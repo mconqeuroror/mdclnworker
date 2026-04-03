@@ -196,7 +196,7 @@ app.use(telemetryMiddleware());
 app.use('/api', (req, res, next) => {
   if (req.path.startsWith('/admin')) return next();
   if (req.path.startsWith('/runpod/callback')) return next();
-  if (req.path.startsWith('/piapi/callback')) return next();
+  if (req.path.startsWith('/heygen/webhook')) return next();
   return apiLimiter(req, res, next);
 });
 

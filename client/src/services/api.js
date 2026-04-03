@@ -899,13 +899,9 @@ export const cryptoAPI = {
 
 // Creator Studio API
 export const creatorStudioAPI = {
-  generate: async ({ prompt, referencePhotos = [], aspectRatio = "1:1", resolution = "1K", nanoBananaModel = "nano-banana-pro" }) => {
+  generate: async (payload) => {
     const response = await api.post("/generate/creator-studio", {
-      prompt,
-      referencePhotos,
-      aspectRatio,
-      resolution,
-      nanoBananaModel,
+      ...(payload || {}),
     });
     return response.data;
   },
@@ -921,8 +917,20 @@ export const creatorStudioAPI = {
     const response = await api.post("/generate/creator-studio/video/extend", payload);
     return response.data;
   },
-  removeWatermarkVideo: async ({ sourceGenerationId }) => {
-    const response = await api.post("/generate/creator-studio/video/remove-watermark", { sourceGenerationId });
+  uploadMask: async ({ maskDataUrl }) => {
+    const response = await api.post("/generate/creator-studio/mask-upload", { maskDataUrl });
+    return response.data;
+  },
+  listAssets: async () => {
+    const response = await api.get("/generate/creator-studio/assets");
+    return response.data;
+  },
+  createAsset: async ({ url, assetType }) => {
+    const response = await api.post("/generate/creator-studio/assets", { url, assetType });
+    return response.data;
+  },
+  deleteAsset: async (assetId) => {
+    const response = await api.delete(`/generate/creator-studio/assets/${assetId}`);
     return response.data;
   },
   getVideoHistory: async ({ limit = 20, offset = 0 } = {}) => {

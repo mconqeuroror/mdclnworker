@@ -221,6 +221,16 @@ const MAX_REFS = 8;
 const MAX_AVATARS = 3;
 const WORDS_PER_SECOND = 2.5;
 const MAX_VIDEO_SECONDS = 600;
+const IMAGE_MODELS = [
+  { id: "nano-banana-pro", label: "Nano Banana" },
+  { id: "flux-kontext-pro", label: "Flux Kontext Pro" },
+  { id: "flux-kontext-max", label: "Flux Kontext Max" },
+  { id: "ideogram-v3-text", label: "Ideogram V3" },
+  { id: "ideogram-v3-edit", label: "Ideogram V3 Edit" },
+  { id: "ideogram-v3-remix", label: "Ideogram V3 Remix" },
+  { id: "wan-2-7-image-pro", label: "Wan 2.7 Image Pro" },
+  { id: "seedream-v4-5-edit", label: "Seedream v4.5 Edit" },
+];
 const VIDEO_FAMILIES = [
   { id: "sora2", label: "Sora 2 Pro" },
   { id: "kling30", label: "Kling 3.0" },
@@ -255,11 +265,14 @@ const VIDEO_DEFAULT_PRICING = Object.freeze({
   wan22AnimateReplace720pPerSec: 12.5,
   wan22AnimateReplace580pPerSec: 9.5,
   wan22AnimateReplace480pPerSec: 6,
-  seedance2PreviewCreditsPerSec: 60,
-  seedance2FastPreviewCreditsPerSec: 32,
-  seedance2PreviewEditCreditsPerSec: 100,
-  seedance2FastPreviewEditCreditsPerSec: 52,
-  seedanceRemoveWatermarkPerSec: 3.2,
+  seedance2Standard480WithVideoPerSec: 23,
+  seedance2Standard480NoVideoPerSec: 38,
+  seedance2Standard720WithVideoPerSec: 50,
+  seedance2Standard720NoVideoPerSec: 82,
+  seedance2Fast480WithVideoPerSec: 16,
+  seedance2Fast480NoVideoPerSec: 31,
+  seedance2Fast720WithVideoPerSec: 40,
+  seedance2Fast720NoVideoPerSec: 66,
 });
 
 function toPrice(source, key) {
@@ -292,7 +305,7 @@ function getDurationConfig(family, mode) {
 function getVideoModesByFamily(family) {
   if (family === "veo31") return ["ref2v", "t2v", "i2v", "extend"];
   if (family === "wan22") return ["move", "replace"];
-  if (family === "seedance2") return ["t2v", "i2v", "edit", "extend"];
+  if (family === "seedance2") return ["t2v", "i2v", "edit", "multi-ref"];
   return ["t2v", "i2v"];
 }
 
@@ -464,19 +477,256 @@ function MediaUploadField({ label, value, onUploaded, accept = "image/*", previe
   );
 }
 
+function SeedanceAssetModal({ isOpen, onClose, onSelect }) {
+  const [assets, setAssets] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [sourceUrl, setSourceUrl] = useState("");
+  const [assetType, setAssetType] = useState("image");
+  const [isCreating, setIsCreating] = useState(false);
+  const refresh = useCallback(async () => {
+    if (!isOpen) return;
+    setIsLoading(true);
+    try {
+      const data = await creatorStudioAPI.listAssets();
+      setAssets(data?.assets || []);
+    } catch (err) {
+      toast.error(err?.response?.data?.message || err?.message || "Failed to load assets");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [isOpen]);
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+      <div className="w-full max-w-2xl rounded-2xl border border-white/15 bg-[#0c0f14] p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-base font-semibold text-white">Seedance Assets</h3>
+          <button type="button" onClick={onClose} className="text-slate-400 hover:text-white">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <div className="rounded-xl border border-white/10 p-3 bg-black/20 mb-3">
+          <p className="text-xs text-slate-400 mb-2">Create asset (100 credits)</p>
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
+            <input
+              value={sourceUrl}
+              onChange={(e) => setSourceUrl(e.target.value)}
+              placeholder="https://... source image/video/audio URL"
+              className="md:col-span-3 rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-white outline-none"
+            />
+            <select value={assetType} onChange={(e) => setAssetType(e.target.value)} className="rounded-lg border border-white/15 bg-black/40 px-2 py-2 text-sm text-white outline-none">
+              <option value="image">Image</option>
+              <option value="video">Video</option>
+              <option value="audio">Audio</option>
+            </select>
+            <button
+              type="button"
+              disabled={isCreating || !sourceUrl.trim()}
+              onClick={async () => {
+                setIsCreating(true);
+                try {
+                  await creatorStudioAPI.createAsset({ url: sourceUrl.trim(), assetType });
+                  setSourceUrl("");
+                  await refresh();
+                  toast.success("Asset created");
+                } catch (err) {
+                  toast.error(err?.response?.data?.message || err?.message || "Asset create failed");
+                } finally {
+                  setIsCreating(false);
+                }
+              }}
+              className="rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold disabled:opacity-40"
+            >
+              {isCreating ? "Creating..." : "Create"}
+            </button>
+          </div>
+        </div>
+        <div className="max-h-[46vh] overflow-auto space-y-2 pr-1">
+          {isLoading && <p className="text-sm text-slate-400">Loading assets...</p>}
+          {!isLoading && assets.length === 0 && <p className="text-sm text-slate-500">No assets yet.</p>}
+          {!isLoading && assets.map((asset) => (
+            <div key={asset.id} className="rounded-lg border border-white/10 bg-black/25 px-3 py-2 flex items-center gap-3">
+              <div className="min-w-0 flex-1">
+                <p className="text-xs text-slate-300 truncate">{asset.assetUri || "asset://pending"}</p>
+                <p className="text-[11px] text-slate-500 truncate">{asset.assetType || "unknown"} · {asset.status}</p>
+              </div>
+              <button
+                type="button"
+                disabled={asset.status !== "completed" || !asset.assetUri}
+                onClick={() => onSelect(asset)}
+                className="px-2.5 py-1.5 rounded-md text-xs bg-white/10 text-slate-200 hover:bg-white/15 disabled:opacity-40"
+              >
+                Use
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await creatorStudioAPI.deleteAsset(asset.id);
+                    await refresh();
+                  } catch (err) {
+                    toast.error(err?.response?.data?.message || err?.message || "Delete failed");
+                  }
+                }}
+                className="text-slate-500 hover:text-red-400"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MaskEditorModal({ isOpen, imageUrl, onClose, onSave }) {
+  const canvasRef = useRef(null);
+  const imgRef = useRef(null);
+  const [brushSize, setBrushSize] = useState(28);
+  const [drawing, setDrawing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen || !imageUrl || !canvasRef.current) return;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      imgRef.current = img;
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      ctx.fillStyle = "black";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    };
+    img.src = imageUrl;
+  }, [isOpen, imageUrl]);
+
+  if (!isOpen) return null;
+
+  const drawAt = (clientX, clientY) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = ((clientX - rect.left) / rect.width) * canvas.width;
+    const y = ((clientY - rect.top) / rect.height) * canvas.height;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "white";
+    ctx.beginPath();
+    ctx.arc(x, y, brushSize, 0, Math.PI * 2);
+    ctx.fill();
+  };
+
+  return (
+    <div className="fixed inset-0 z-[70] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="w-full max-w-4xl rounded-2xl border border-white/10 bg-[#0c1016] p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-white font-semibold">Mask Editor</h3>
+          <button type="button" onClick={onClose} className="text-slate-400 hover:text-white">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <p className="text-xs text-slate-400 mb-2">Paint white where Ideogram should edit. Black stays unchanged.</p>
+        <div className="mb-3 flex items-center gap-3">
+          <span className="text-xs text-slate-400">Brush</span>
+          <input type="range" min={4} max={120} step={1} value={brushSize} onChange={(e) => setBrushSize(Number(e.target.value))} className="w-48 accent-violet-500" />
+          <span className="text-xs text-slate-300">{brushSize}px</span>
+          <button
+            type="button"
+            onClick={() => {
+              const canvas = canvasRef.current;
+              if (!canvas) return;
+              const ctx = canvas.getContext("2d");
+              ctx.fillStyle = "black";
+              ctx.fillRect(0, 0, canvas.width, canvas.height);
+            }}
+            className="ml-auto px-3 py-1.5 rounded-lg bg-white/10 text-slate-200 text-xs hover:bg-white/15"
+          >
+            Clear
+          </button>
+        </div>
+        <div className="relative rounded-xl overflow-hidden border border-white/15 bg-black/40">
+          {imageUrl ? (
+            <>
+              <img src={imageUrl} alt="" className="w-full max-h-[60vh] object-contain pointer-events-none select-none" />
+              <canvas
+                ref={canvasRef}
+                className="absolute inset-0 w-full h-full cursor-crosshair opacity-80"
+                onMouseDown={(e) => {
+                  setDrawing(true);
+                  drawAt(e.clientX, e.clientY);
+                }}
+                onMouseMove={(e) => {
+                  if (!drawing) return;
+                  drawAt(e.clientX, e.clientY);
+                }}
+                onMouseUp={() => setDrawing(false)}
+                onMouseLeave={() => setDrawing(false)}
+              />
+            </>
+          ) : (
+            <div className="h-60 flex items-center justify-center text-slate-500 text-sm">Upload/select an input image first</div>
+          )}
+        </div>
+        <div className="mt-3 flex justify-end">
+          <button
+            type="button"
+            disabled={!imageUrl || isSaving}
+            onClick={async () => {
+              const canvas = canvasRef.current;
+              if (!canvas) return;
+              setIsSaving(true);
+              try {
+                const maskDataUrl = canvas.toDataURL("image/png");
+                await onSave(maskDataUrl);
+              } finally {
+                setIsSaving(false);
+              }
+            }}
+            className="px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold disabled:opacity-40"
+          >
+            {isSaving ? "Uploading..." : "Use Mask"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function parseOutputUrls(outputUrl) {
+  if (!outputUrl) return [];
+  if (Array.isArray(outputUrl)) return outputUrl.filter(Boolean);
+  if (typeof outputUrl === "string" && outputUrl.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(outputUrl);
+      return Array.isArray(parsed) ? parsed.filter(Boolean) : [];
+    } catch {
+      return [];
+    }
+  }
+  return [outputUrl];
+}
+
 function ResultCard({ gen, onExpand }) {
   const copy = PAGE_COPY[resolveLocale()] || PAGE_COPY.en;
   const isProcessing = gen.status === "processing" || gen.status === "pending";
   const isFailed     = gen.status === "failed";
+  const outputUrls = parseOutputUrls(gen.outputUrl);
+  const previewUrl = outputUrls[0] || null;
   return (
     <motion.div
       initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
       className="relative rounded-2xl overflow-hidden border border-white/[0.07] bg-white/[0.03] group"
       style={{ aspectRatio: "1/1", minWidth: 220, maxWidth: 420, width: "100%" }}
     >
-      {gen.status === "completed" && gen.outputUrl ? (
+      {gen.status === "completed" && previewUrl ? (
         <>
-          <img src={gen.outputUrl} alt="" className="w-full h-full object-cover" />
+          <img src={previewUrl} alt="" className="w-full h-full object-cover" />
           <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-end p-3 gap-2">
             <button onClick={() => onExpand(gen)}
               className="w-8 h-8 rounded-lg bg-black/50 flex items-center justify-center text-white hover:bg-black/70 backdrop-blur-sm">
@@ -486,7 +736,7 @@ function ResultCard({ gen, onExpand }) {
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                downloadFromPublicUrl(gen.outputUrl, `creator-${gen.id}.jpg`);
+                downloadFromPublicUrl(previewUrl, `creator-${gen.id}.jpg`);
               }}
               className="w-8 h-8 rounded-lg bg-black/50 flex items-center justify-center text-white hover:bg-black/70 backdrop-blur-sm"
             >
@@ -517,12 +767,14 @@ function ResultCard({ gen, onExpand }) {
 function Lightbox({ gen, onClose }) {
   const copy = PAGE_COPY[resolveLocale()] || PAGE_COPY.en;
   if (!gen) return null;
+  const outputUrls = parseOutputUrls(gen.outputUrl);
+  const previewUrl = outputUrls[0] || "";
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       className="fixed inset-0 z-[999] flex items-center justify-center bg-black/90 p-4" onClick={onClose}>
       <motion.div initial={{ scale: 0.92 }} animate={{ scale: 1 }} exit={{ scale: 0.92 }}
         className="relative max-w-[90vw] max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
-        <img src={gen.outputUrl} alt="" className="max-w-full max-h-[90vh] rounded-2xl object-contain" />
+        <img src={previewUrl} alt="" className="max-w-full max-h-[90vh] rounded-2xl object-contain" />
         <button onClick={onClose}
           className="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/60 flex items-center justify-center text-white hover:bg-black/80">
           <X className="w-4 h-4" />
@@ -532,7 +784,7 @@ function Lightbox({ gen, onClose }) {
           className="absolute bottom-3 right-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white/10 text-white hover:bg-white/20 backdrop-blur-sm"
           onClick={(e) => {
             e.stopPropagation();
-            downloadFromPublicUrl(gen.outputUrl, `creator-${gen.id}.jpg`);
+            downloadFromPublicUrl(previewUrl, `creator-${gen.id}.jpg`);
           }}
         >
           <Download className="w-3.5 h-3.5" /> {copy.save}
@@ -1268,6 +1520,17 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
 
   // NanoBanana state
   const [prompt, setPrompt]             = useState("");
+  const [imageModel, setImageModel]     = useState("nano-banana-pro");
+  const [imageInputUrl, setImageInputUrl] = useState("");
+  const [imageMaskUrl, setImageMaskUrl] = useState("");
+  const [imageNumOutputs, setImageNumOutputs] = useState(1);
+  const [ideogramRenderingSpeed, setIdeogramRenderingSpeed] = useState("BALANCED");
+  const [fluxPromptUpsampling, setFluxPromptUpsampling] = useState(false);
+  const [fluxSafetyTolerance, setFluxSafetyTolerance] = useState(2);
+  const [wanThinkingMode, setWanThinkingMode] = useState(false);
+  const [wanColorPaletteText, setWanColorPaletteText] = useState("");
+  const [wanBboxListText, setWanBboxListText] = useState("");
+  const [maskEditorOpen, setMaskEditorOpen] = useState(false);
   const [refs, setRefs]                 = useState(Array(MAX_REFS).fill(null));
   const [uploadingIdx, setUploadingIdx] = useState(null);
   const [aspectRatio, setAspectRatio]   = useState("1:1");
@@ -1305,7 +1568,9 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
   const [klingElementDescription, setKlingElementDescription] = useState("");
   const [klingElementMediaUrls, setKlingElementMediaUrls] = useState(["", "", "", ""]);
   const [seedanceTaskType, setSeedanceTaskType] = useState("seedance-2-preview");
-  const [seedanceAutoRemoveWatermark, setSeedanceAutoRemoveWatermark] = useState(false);
+  const [seedanceResolution, setSeedanceResolution] = useState("720p");
+  const [seedanceGenerateAudio, setSeedanceGenerateAudio] = useState(false);
+  const [seedanceAssetModalOpen, setSeedanceAssetModalOpen] = useState(false);
   const [wanResolution, setWanResolution] = useState("580p");
   const [isVideoGenerating, setIsVideoGenerating] = useState(false);
   const [extendSourceId, setExtendSourceId] = useState("");
@@ -1369,10 +1634,47 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
 
   const handleGenerate = async () => {
     if (!prompt.trim()) { toast.error(copy.enterPrompt); return; }
+    if (imageModel === "ideogram-v3-edit" && (!imageInputUrl.trim() || !imageMaskUrl.trim())) {
+      toast.error("Ideogram Edit requires input image and mask.");
+      return;
+    }
+    if (imageModel === "ideogram-v3-remix" && !imageInputUrl.trim()) {
+      toast.error("Ideogram Remix requires input image.");
+      return;
+    }
     const filledRefs = refs.filter(Boolean);
+    let parsedColorPalette = [];
+    if (wanColorPaletteText.trim()) {
+      parsedColorPalette = wanColorPaletteText.split(",").map((x) => x.trim()).filter(Boolean).slice(0, 16);
+    }
+    let parsedBboxList = [];
+    if (wanBboxListText.trim()) {
+      try {
+        const parsed = JSON.parse(wanBboxListText);
+        if (Array.isArray(parsed)) parsedBboxList = parsed;
+      } catch {
+        toast.error("bbox_list must be valid JSON array.");
+        return;
+      }
+    }
     startGeneration({ status: "processing", type: "creator-studio", prompt: prompt.trim() });
     try {
-      const data = await creatorStudioAPI.generate({ prompt: prompt.trim(), referencePhotos: filledRefs, aspectRatio, resolution });
+      const data = await creatorStudioAPI.generate({
+        prompt: prompt.trim(),
+        generationModel: imageModel,
+        referencePhotos: filledRefs,
+        inputImageUrl: imageInputUrl.trim() || filledRefs[0] || undefined,
+        maskUrl: imageMaskUrl.trim() || (imageModel === "ideogram-v3-edit" ? (filledRefs[1] || undefined) : undefined),
+        numImages: imageNumOutputs,
+        renderingSpeed: ideogramRenderingSpeed,
+        promptUpsampling: fluxPromptUpsampling,
+        safetyTolerance: fluxSafetyTolerance,
+        thinkingMode: wanThinkingMode,
+        colorPalette: parsedColorPalette,
+        bboxList: parsedBboxList,
+        aspectRatio,
+        resolution,
+      });
       if (!data.success) throw new Error(data.message || copy.generationFailed);
       startGeneration({ ...data.generation, prompt: prompt.trim() });
       pollForCompletion(data.generation.id, {
@@ -1414,12 +1716,12 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
       toast.error("WAN requires both input video and input image uploads.");
       return;
     }
-    if (videoFamily === "seedance2" && videoMode === "edit" && !videoInputVideoUrl.trim()) {
-      toast.error("Seedance video edit requires a source video.");
+    if (videoFamily === "seedance2" && videoMode === "edit" && (!videoImageUrl.trim() || !videoEndFrameUrl.trim())) {
+      toast.error("Upload both first and last frame images.");
       return;
     }
-    if (videoFamily === "seedance2" && videoMode === "extend" && !extendSourceId.trim()) {
-      toast.error("Select a previous Seedance generation to extend.");
+    if (videoFamily === "seedance2" && videoMode === "multi-ref" && !videoImageUrl.trim() && !videoInputVideoUrl.trim()) {
+      toast.error("Seedance multimodal mode needs at least one image or video reference.");
       return;
     }
     setIsVideoGenerating(true);
@@ -1447,10 +1749,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
         nFrames: videoNFrames,
         size: videoSize,
         soraQuality,
-        removeWatermark:
-          videoFamily === "sora2"
-            ? soraRemoveWatermark
-            : (videoFamily === "seedance2" ? seedanceAutoRemoveWatermark : false),
+        removeWatermark: videoFamily === "sora2" ? soraRemoveWatermark : false,
         speed: videoSpeed,
         soundEnabled,
         soundPrompt: soundPrompt.trim(),
@@ -1462,6 +1761,8 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
         klingElements: normalizedKlingElements,
         aspectRatio: videoAspectRatio,
         seedanceTaskType,
+        seedanceResolution,
+        seedanceGenerateAudio,
         wanResolution,
         veoSeeds: veoSeed ? Number(veoSeed) : undefined,
         veoEnableTranslation,
@@ -1490,37 +1791,23 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
     }
   };
 
-  const handleSeedanceRemoveWatermark = async (item, { manualTrigger = true } = {}) => {
-    if (!item?.id) return;
-    const baseDuration = Math.max(5, Number(item.duration) || 5);
-    const estimatedCost = Math.ceil(toPrice(generationPricing, "seedanceRemoveWatermarkPerSec") * baseDuration);
-    if (manualTrigger) setIsVideoGenerating(true);
-    try {
-      const data = await creatorStudioAPI.removeWatermarkVideo({ sourceGenerationId: item.id });
-      if (!data?.success || !data?.generation?.id) {
-        throw new Error(data?.message || "Failed to start watermark removal");
-      }
-      toast.success(
-        manualTrigger
-          ? `Watermark removal started (${estimatedCost} credits).`
-          : `Auto watermark removal started (${estimatedCost} credits).`,
-      );
-      pollForCompletion(data.generation.id, {
-        onSuccess: (gen) => {
-          toast.success(manualTrigger ? "Watermark removed." : "Auto watermark removal completed.");
-          refreshUser?.();
-          setVideoHistory((prev) => [{ ...gen }, ...prev.filter((g) => g.id !== gen.id)]);
-        },
-        onFailure: (gen) => toast.error(gen.errorMessage || "Watermark removal failed — credits refunded"),
-      });
-    } catch (err) {
-      toast.error(err.response?.data?.message || err.message || "Failed to start watermark removal");
-    } finally {
-      if (manualTrigger) setIsVideoGenerating(false);
+  const COST = useMemo(() => {
+    const qty = Math.min(4, Math.max(1, Number(imageNumOutputs) || 1));
+    if (imageModel === "flux-kontext-pro") return Math.ceil((generationPricing?.creatorStudioFluxKontextPro || 10) * qty);
+    if (imageModel === "flux-kontext-max") return Math.ceil((generationPricing?.creatorStudioFluxKontextMax || 20) * qty);
+    if (imageModel === "wan-2-7-image-pro") return Math.ceil((generationPricing?.creatorStudioWan27ImagePro || 24) * qty);
+    if (imageModel === "seedream-v4-5-edit") return Math.ceil(generationPricing?.creatorStudioSeedream45Edit || 10);
+    if (imageModel === "ideogram-v3-text" || imageModel === "ideogram-v3-edit" || imageModel === "ideogram-v3-remix") {
+      const speed = String(ideogramRenderingSpeed || "BALANCED").toUpperCase();
+      const rate = speed === "TURBO"
+        ? (generationPricing?.creatorStudioIdeogramTurbo || 7)
+        : speed === "QUALITY"
+        ? (generationPricing?.creatorStudioIdeogramQuality || 20)
+        : (generationPricing?.creatorStudioIdeogramBalanced || 14);
+      return Math.ceil(rate * qty);
     }
-  };
-
-  const COST = resolution === "4K" ? 25 : 20;
+    return Math.ceil(resolution === "4K" ? (generationPricing?.creatorStudio4K || 25) : (generationPricing?.creatorStudio1K2K || 20));
+  }, [generationPricing, ideogramRenderingSpeed, imageModel, imageNumOutputs, resolution]);
   const creditsLeft = user?.credits ?? 0;
   const selectedAspect = ASPECT_RATIOS.find((ar) => ar.value === aspectRatio);
   const aspectSummary = selectedAspect?.hint ?? selectedAspect?.label ?? aspectRatio;
@@ -1612,23 +1899,24 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
     }
     if (videoFamily === "seedance2") {
       const fast = seedanceTaskType === "seedance-2-fast-preview";
-      const key = videoMode === "edit"
-        ? (fast ? "seedance2FastPreviewEditCreditsPerSec" : "seedance2PreviewEditCreditsPerSec")
-        : (fast ? "seedance2FastPreviewCreditsPerSec" : "seedance2PreviewCreditsPerSec");
+      const hasVideoInput = Boolean(videoInputVideoUrl.trim());
+      const is480 = String(seedanceResolution || "720p").toLowerCase() === "480p";
+      const key = fast
+        ? (is480
+            ? (hasVideoInput ? "seedance2Fast480WithVideoPerSec" : "seedance2Fast480NoVideoPerSec")
+            : (hasVideoInput ? "seedance2Fast720WithVideoPerSec" : "seedance2Fast720NoVideoPerSec"))
+        : (is480
+            ? (hasVideoInput ? "seedance2Standard480WithVideoPerSec" : "seedance2Standard480NoVideoPerSec")
+            : (hasVideoInput ? "seedance2Standard720WithVideoPerSec" : "seedance2Standard720NoVideoPerSec"));
       const perSec = toPrice(generationPricing, key);
-      const baseCost = Math.ceil(perSec * duration);
-      if (seedanceAutoRemoveWatermark && videoMode !== "remove-watermark") {
-        const wmPerSec = toPrice(generationPricing, "seedanceRemoveWatermarkPerSec");
-        const wmCost = Math.ceil(wmPerSec * Math.max(5, duration));
-        return {
-          cost: baseCost + wmCost,
-          details: `${perSec}/sec + auto RM ${wmPerSec}/sec (${fast ? "Fast" : "Quality"})`,
-        };
+      let baseCost = Math.ceil(perSec * duration);
+      if (seedanceGenerateAudio) {
+        baseCost = Math.ceil(baseCost * 1.2);
       }
-      return { cost: baseCost, details: `${perSec}/sec (${fast ? "Fast" : "Quality"})` };
+      return { cost: baseCost, details: `${perSec}/sec (${fast ? "Fast" : "Quality"} · ${seedanceResolution})` };
     }
     return { cost: 0, details: "Pricing unavailable" };
-  }, [durationConfig.min, generationPricing, kling30Quality, soraRemoveWatermark, seedanceAutoRemoveWatermark, seedanceTaskType, soundEnabled, videoDuration, videoFamily, videoMode, videoNFrames, videoSize, videoSpeed, wanResolution]);
+  }, [durationConfig.min, generationPricing, kling30Quality, seedanceGenerateAudio, seedanceResolution, soraRemoveWatermark, seedanceTaskType, soundEnabled, videoDuration, videoFamily, videoInputVideoUrl, videoMode, videoNFrames, videoSize, videoSpeed, wanResolution]);
 
   return (
     <div
@@ -1776,6 +2064,102 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                 className="w-full bg-transparent text-sm text-white placeholder-slate-500 resize-none outline-none px-1 py-1 leading-relaxed"
               />
               <div className="flex flex-col gap-3 mt-2 min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Model</span>
+                  <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+                    {IMAGE_MODELS.map((model) => (
+                      <Chip key={model.id} active={imageModel === model.id} onClick={() => setImageModel(model.id)}>
+                        {model.label}
+                      </Chip>
+                    ))}
+                  </div>
+                </div>
+                {(imageModel.startsWith("ideogram-v3") || imageModel === "wan-2-7-image-pro" || imageModel.startsWith("flux-kontext")) && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Outputs</span>
+                    <div className="flex items-center gap-1.5">
+                      {[1, 2, 3, 4].map((n) => (
+                        <Chip key={n} active={imageNumOutputs === n} onClick={() => setImageNumOutputs(n)}>
+                          {n}
+                        </Chip>
+                      ))}
+                    </div>
+                    {imageModel.startsWith("ideogram-v3") && (
+                      <>
+                        <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0 ml-1">Speed</span>
+                        <div className="flex items-center gap-1.5">
+                          {["TURBO", "BALANCED", "QUALITY"].map((mode) => (
+                            <Chip key={mode} active={ideogramRenderingSpeed === mode} onClick={() => setIdeogramRenderingSpeed(mode)}>
+                              {mode}
+                            </Chip>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+                {imageModel !== "nano-banana-pro" && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    <MediaUploadField label="Input image (optional)" value={imageInputUrl} onUploaded={setImageInputUrl} />
+                    {imageModel === "ideogram-v3-edit" && (
+                      <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                        <p className="text-xs text-slate-300 mb-2">Inpainting mask</p>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            disabled={!imageInputUrl}
+                            onClick={() => setMaskEditorOpen(true)}
+                            className="px-3 py-1.5 rounded-lg text-xs bg-white/10 text-slate-200 hover:bg-white/15 disabled:opacity-40"
+                          >
+                            Draw mask
+                          </button>
+                          <span className="text-[11px] text-slate-500 truncate">
+                            {imageMaskUrl ? "Mask ready" : "No mask uploaded"}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {imageModel.startsWith("flux-kontext") && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setFluxPromptUpsampling((v) => !v)}
+                      className={`px-3 py-1.5 rounded-lg text-xs ${fluxPromptUpsampling ? "bg-violet-600 text-white" : "bg-white/10 text-slate-300"}`}
+                    >
+                      Prompt upsampling: {fluxPromptUpsampling ? "On" : "Off"}
+                    </button>
+                    <span className="text-[10px] text-slate-500 uppercase tracking-widest ml-2">Safety</span>
+                    <div className="flex items-center gap-1.5">
+                      <Chip active={fluxSafetyTolerance === 2} onClick={() => setFluxSafetyTolerance(2)}>SFW</Chip>
+                      <Chip active={fluxSafetyTolerance === 6} onClick={() => setFluxSafetyTolerance(6)}>NSFW</Chip>
+                    </div>
+                  </div>
+                )}
+                {imageModel === "wan-2-7-image-pro" && (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setWanThinkingMode((v) => !v)}
+                      className={`px-3 py-2 rounded-lg text-xs ${wanThinkingMode ? "bg-violet-600 text-white" : "bg-white/10 text-slate-300"}`}
+                    >
+                      Thinking mode: {wanThinkingMode ? "On" : "Off"}
+                    </button>
+                    <input
+                      value={wanColorPaletteText}
+                      onChange={(e) => setWanColorPaletteText(e.target.value)}
+                      placeholder="color_palette (comma separated)"
+                      className="rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-xs text-white outline-none"
+                    />
+                    <input
+                      value={wanBboxListText}
+                      onChange={(e) => setWanBboxListText(e.target.value)}
+                      placeholder='bbox_list JSON, e.g. [{"x1":10}]'
+                      className="rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-xs text-white outline-none"
+                    />
+                  </div>
+                )}
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">{copy.refs}</span>
                   <div className="flex flex-wrap items-center gap-1.5 min-w-0">
@@ -2013,6 +2397,8 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                         ? "Text to Video"
                         : m === "i2v"
                           ? "Image to Video"
+                          : m === "multi-ref"
+                            ? "Multimodal References"
                           : m === "ref2v"
                             ? "Reference to Video"
                             : m === "move"
@@ -2020,7 +2406,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                               : m === "replace"
                                 ? "Animate Replace"
                                 : m === "edit"
-                                  ? "Video Edit"
+                                  ? "First + Last Frame"
                                   : "Extend"}
                     </Chip>
                   ))}
@@ -2071,12 +2457,25 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                       <MediaUploadField label="Input Image" value={videoImageUrl} onUploaded={setVideoImageUrl} />
                     </>
                   )}
-                  {videoFamily === "seedance2" && (videoMode === "i2v" || videoMode === "edit") && (
+                  {videoFamily === "seedance2" && (videoMode === "i2v" || videoMode === "edit" || videoMode === "multi-ref") && (
                     <>
                       {videoMode === "edit" && (
-                        <MediaUploadField label="Input Video" value={videoInputVideoUrl} onUploaded={setVideoInputVideoUrl} accept="video/*" preview="video" />
+                        <MediaUploadField label="First Frame" value={videoImageUrl} onUploaded={setVideoImageUrl} />
                       )}
-                      <MediaUploadField label="Reference Image (optional)" value={videoImageUrl} onUploaded={setVideoImageUrl} />
+                      {videoMode === "edit" && (
+                        <MediaUploadField label="Last Frame" value={videoEndFrameUrl} onUploaded={setVideoEndFrameUrl} />
+                      )}
+                      {videoMode === "i2v" && (
+                        <MediaUploadField label="First Frame" value={videoImageUrl} onUploaded={setVideoImageUrl} />
+                      )}
+                      {videoMode === "multi-ref" && (
+                        <>
+                          <MediaUploadField label="Reference Image 1 (optional)" value={videoImageUrl} onUploaded={setVideoImageUrl} />
+                          <MediaUploadField label="Reference Image 2 (optional)" value={videoRefImageUrl} onUploaded={setVideoRefImageUrl} />
+                          <MediaUploadField label="Reference Image 3 (optional)" value={videoThirdImageUrl} onUploaded={setVideoThirdImageUrl} />
+                          <MediaUploadField label="Reference Video (optional)" value={videoInputVideoUrl} onUploaded={setVideoInputVideoUrl} accept="video/*" preview="video" />
+                        </>
+                      )}
                     </>
                   )}
                   {(videoFamily === "veo31" && videoMode === "extend") && (
@@ -2089,21 +2488,6 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                           .map((item) => (
                             <option key={item.id} value={item.providerTaskId}>
                               {item.prompt?.slice(0, 56) || "Veo generation"} ({item.providerTaskId})
-                            </option>
-                          ))}
-                      </select>
-                    </div>
-                  )}
-                  {(videoFamily === "seedance2" && videoMode === "extend") && (
-                    <div>
-                      <label className="block text-xs text-slate-400 mb-1">Select Seedance video to extend</label>
-                      <select value={extendSourceId} onChange={(e) => setExtendSourceId(e.target.value)} className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-white outline-none">
-                        <option value="">Choose from gallery</option>
-                        {videoHistory
-                          .filter((item) => item?.providerFamily === "seedance2" && item?.providerTaskId && item?.status === "completed")
-                          .map((item) => (
-                            <option key={item.id} value={item.providerTaskId}>
-                              {item.prompt?.slice(0, 56) || "Seedance generation"} ({item.providerTaskId})
                             </option>
                           ))}
                       </select>
@@ -2399,24 +2783,38 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                       <label className="block text-xs text-slate-400 mb-2">Model Variant</label>
                       <ToggleGroup value={seedanceTaskType} onChange={setSeedanceTaskType} options={[{ value: "seedance-2-preview", label: "Quality" }, { value: "seedance-2-fast-preview", label: "Fast" }]} />
                     </div>
-                    {videoMode !== "remove-watermark" && (
-                      <div className="rounded-xl border border-white/10 p-3 col-span-2">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="text-xs text-slate-300">Auto remove watermark</p>
-                            <p className="text-[11px] text-slate-500 mt-1">Runs a second Seedance pass after completion.</p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => setSeedanceAutoRemoveWatermark((v) => !v)}
-                            className={`px-3 py-1.5 rounded-lg text-xs ${seedanceAutoRemoveWatermark ? "bg-violet-600 text-white" : "bg-white/10 text-slate-300"}`}
-                          >
-                            {seedanceAutoRemoveWatermark ? "On" : "Off"}
-                          </button>
-                        </div>
+                    <div className="rounded-xl border border-white/10 p-3">
+                      <label className="block text-xs text-slate-400 mb-2">Resolution</label>
+                      <ToggleGroup value={seedanceResolution} onChange={setSeedanceResolution} options={[{ value: "480p", label: "480p" }, { value: "720p", label: "720p" }]} />
+                    </div>
+                    <div className="rounded-xl border border-white/10 p-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-slate-300">Generate audio</span>
+                        <button
+                          type="button"
+                          onClick={() => setSeedanceGenerateAudio((v) => !v)}
+                          className={`px-3 py-1.5 rounded-lg text-xs ${seedanceGenerateAudio ? "bg-violet-600 text-white" : "bg-white/10 text-slate-300"}`}
+                        >
+                          {seedanceGenerateAudio ? "On" : "Off"}
+                        </button>
                       </div>
-                    )}
-                    {(videoMode === "t2v" || videoMode === "i2v") && (
+                    </div>
+                    <div className="rounded-xl border border-white/10 p-3 col-span-2">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-xs text-slate-300">Volcanic assets</p>
+                          <p className="text-[11px] text-slate-500 mt-1">Create/select `asset://` references (100 credits each).</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setSeedanceAssetModalOpen(true)}
+                          className="px-3 py-1.5 rounded-lg text-xs bg-white/10 text-slate-200 hover:bg-white/15"
+                        >
+                          Open assets
+                        </button>
+                      </div>
+                    </div>
+                    {(videoMode === "t2v" || videoMode === "i2v" || videoMode === "edit" || videoMode === "multi-ref") && (
                       <div className="rounded-xl border border-white/10 p-3 col-span-2">
                         <label className="block text-xs text-slate-400 mb-2">Aspect Ratio</label>
                         <ToggleGroup value={videoAspectRatio} onChange={setVideoAspectRatio} options={[{ value: "16:9", label: "16:9" }, { value: "9:16", label: "9:16" }, { value: "4:3", label: "4:3" }, { value: "3:4", label: "3:4" }]} />
@@ -2496,21 +2894,13 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                           onClick={() => {
                             const family = item.providerFamily === "seedance2" ? "seedance2" : "veo31";
                             setVideoFamily(family);
-                            setVideoMode("extend");
-                            setExtendSourceId(item.providerTaskId);
+                            setVideoMode(family === "seedance2" ? "multi-ref" : "extend");
+                            if (family !== "seedance2") setExtendSourceId(item.providerTaskId);
+                            if (family === "seedance2" && item.outputUrl) setVideoInputVideoUrl(item.outputUrl);
                           }}
                           className="mt-2 text-xs px-2.5 py-1.5 rounded-lg bg-white/10 text-slate-200 hover:bg-white/15"
                         >
-                          Extend this video
-                        </button>
-                      )}
-                      {item.providerFamily === "seedance2" && item.status === "completed" && item.outputUrl && (
-                        <button
-                          type="button"
-                          onClick={() => handleSeedanceRemoveWatermark(item)}
-                          className="mt-2 ml-2 text-xs px-2.5 py-1.5 rounded-lg bg-violet-600/70 text-white hover:bg-violet-600"
-                        >
-                          Remove watermark
+                          {item.providerFamily === "seedance2" ? "Use as reference" : "Extend this video"}
                         </button>
                       )}
                     </div>
@@ -2528,6 +2918,41 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
       )}
 
       {activeTab === "voices" && <CreatorStudioVoiceTab initialModelId={initialModelId} />}
+
+      <SeedanceAssetModal
+        isOpen={seedanceAssetModalOpen}
+        onClose={() => setSeedanceAssetModalOpen(false)}
+        onSelect={(asset) => {
+          const uri = asset?.assetUri;
+          if (!uri) return;
+          const type = String(asset?.assetType || "").toLowerCase();
+          if (type === "video") {
+            setVideoInputVideoUrl(uri);
+          } else if (type === "audio") {
+            // Audio references are submitted via multimodal mode; append into prompt for now.
+            setVideoPrompt((prev) => `${prev}${prev ? "\n" : ""}audio ref: ${uri}`);
+          } else {
+            setVideoImageUrl(uri);
+          }
+          setSeedanceAssetModalOpen(false);
+        }}
+      />
+      <MaskEditorModal
+        isOpen={maskEditorOpen}
+        imageUrl={imageInputUrl}
+        onClose={() => setMaskEditorOpen(false)}
+        onSave={async (maskDataUrl) => {
+          try {
+            const data = await creatorStudioAPI.uploadMask({ maskDataUrl });
+            if (!data?.success || !data?.maskUrl) throw new Error(data?.message || "Mask upload failed");
+            setImageMaskUrl(data.maskUrl);
+            setMaskEditorOpen(false);
+            toast.success("Mask uploaded");
+          } catch (err) {
+            toast.error(err?.response?.data?.message || err?.message || "Mask upload failed");
+          }
+        }}
+      />
     </div>
   );
 }

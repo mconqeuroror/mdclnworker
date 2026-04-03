@@ -14,22 +14,29 @@ import express from "express";
 import multer from "multer";
 import prisma from "../lib/prisma.js";
 import { authMiddleware } from "../middleware/auth.middleware.js";
-import { adminMiddleware } from "../middleware/admin.middleware.js";
 import { getGenerationPricing } from "../services/generation-pricing.service.js";
-import { textToSpeech } from "../services/elevenlabs.service.js";
 import { uploadBufferToBlobOrR2 } from "../utils/kieUpload.js";
 import { assertHttpsAllowedAssetUrl } from "../utils/publicAssetHost.js";
 import {
+  checkAndExpireCredits,
+  getTotalCredits,
+  deductCredits,
+  refundCredits,
+} from "../services/credit.service.js";
+import {
   uploadAsset,
-  createPhotoAvatar,
+  createPhotoAvatarGroup,
+  addLookToAvatarGroup,
+  trainPhotoAvatarGroup,
   pollAvatarUntilReady,
   deletePhotoAvatar,
+  deletePhotoAvatarGroup,
   generateAvatarVideo,
   pollVideoUntilReady,
 } from "../services/heygen.service.js";
 
 const router = express.Router();
-router.use(authMiddleware, adminMiddleware);
+router.use(authMiddleware);
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -40,7 +47,9 @@ const upload = multer({
   },
 });
 
-const MAX_AVATARS_PER_MODEL = 3;
+const MAX_GROUPS_PER_USER = 3;
+const MAX_LOOKS_PER_GROUP = 3;
+const MAX_TOTAL_SLOTS = MAX_GROUPS_PER_USER * MAX_LOOKS_PER_GROUP; // 9
 const MAX_VIDEO_SECONDS = 600; // 10 minutes
 const WORDS_PER_SECOND = 2.5;  // average speech rate
 
@@ -51,6 +60,73 @@ function estimateDuration(script) {
   return Math.max(5, Math.round(words / WORDS_PER_SECOND));
 }
 
+async function markAvatarReadyById(avatarId, heygenAvatarId) {
+  const result = await prisma.avatar.updateMany({
+    where: {
+      id: avatarId,
+      status: { in: ["processing", "pending"] },
+    },
+    data: {
+      status: "ready",
+      heygenAvatarId: heygenAvatarId || undefined,
+      errorMessage: null,
+    },
+  });
+  return result.count > 0;
+}
+
+async function markAvatarFailedAndRefund(avatarId, reason) {
+  const row = await prisma.avatar.findUnique({
+    where: { id: avatarId },
+    select: { id: true, userId: true, status: true, creditsCost: true },
+  });
+  if (!row || row.status === "failed" || row.status === "ready") return false;
+  const updated = await prisma.avatar.updateMany({
+    where: { id: avatarId, status: { in: ["processing", "pending"] } },
+    data: { status: "failed", errorMessage: reason || "Avatar creation failed" },
+  });
+  if (updated.count > 0) {
+    await refundCredits(row.userId, row.creditsCost || 0).catch(() => {});
+    return true;
+  }
+  return false;
+}
+
+async function markVideoCompleted(videoId, outputUrl, duration) {
+  const updated = await prisma.avatarVideo.updateMany({
+    where: { id: videoId, status: { in: ["processing", "pending"] } },
+    data: {
+      status: "completed",
+      outputUrl: outputUrl || null,
+      duration: duration ?? null,
+      completedAt: new Date(),
+      errorMessage: null,
+    },
+  });
+  return updated.count > 0;
+}
+
+async function markVideoFailedAndRefund(videoId, reason) {
+  const row = await prisma.avatarVideo.findUnique({
+    where: { id: videoId },
+    select: { id: true, userId: true, status: true, creditsCost: true },
+  });
+  if (!row || row.status === "failed" || row.status === "completed") return false;
+  const updated = await prisma.avatarVideo.updateMany({
+    where: { id: videoId, status: { in: ["processing", "pending"] } },
+    data: {
+      status: "failed",
+      errorMessage: reason || "Avatar video generation failed",
+      completedAt: new Date(),
+    },
+  });
+  if (updated.count > 0) {
+    await refundCredits(row.userId, row.creditsCost || 0).catch(() => {});
+    return true;
+  }
+  return false;
+}
+
 /**
  * Charge 500cr monthly maintenance fee for any avatar that hasn't been billed
  * in the last 30 days. Suspends avatars if the user has insufficient credits.
@@ -59,41 +135,45 @@ async function runMonthlyBillingForUser(userId) {
   const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
   const cutoff = new Date(Date.now() - THIRTY_DAYS);
 
-  const due = await prisma.avatar.findMany({
+  const dueRaw = await prisma.avatar.findMany({
     where: {
       userId,
       status: { in: ["ready", "processing", "suspended"] },
       lastBilledAt: { lt: cutoff },
+      heygenGroupId: { not: null },
     },
+    orderBy: { createdAt: "asc" },
   });
 
+  if (!dueRaw.length) return;
+
+  // Charge once per HeyGen group, not per look row.
+  const dueByGroup = new Map();
+  for (const row of dueRaw) {
+    const key = String(row.heygenGroupId || "");
+    if (!key || dueByGroup.has(key)) continue;
+    dueByGroup.set(key, row);
+  }
+  const due = [...dueByGroup.values()];
   if (!due.length) return;
 
   const pricing = await getGenerationPricing();
   const monthlyCost = pricing.avatarMonthly ?? 500;
 
   for (const avatar of due) {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { credits: true },
-    });
-    const hasCredits = user && user.credits >= monthlyCost;
+    const user = await checkAndExpireCredits(userId);
+    const hasCredits = getTotalCredits(user) >= monthlyCost;
 
     if (hasCredits) {
-      await prisma.$transaction([
-        prisma.user.update({
-          where: { id: userId },
-          data: { credits: { decrement: monthlyCost } },
-        }),
-        prisma.avatar.update({
-          where: { id: avatar.id },
-          data: { lastBilledAt: new Date(), status: avatar.status === "suspended" ? "ready" : avatar.status },
-        }),
-      ]);
+      await deductCredits(userId, monthlyCost);
+      await prisma.avatar.updateMany({
+        where: { userId, heygenGroupId: avatar.heygenGroupId },
+        data: { lastBilledAt: new Date(), status: "ready" },
+      });
       console.log(`💳 [Avatar] Monthly fee charged: ${monthlyCost}cr for avatar ${avatar.id}`);
     } else {
-      await prisma.avatar.update({
-        where: { id: avatar.id },
+      await prisma.avatar.updateMany({
+        where: { userId, heygenGroupId: avatar.heygenGroupId },
         data: { status: "suspended", lastBilledAt: new Date() },
       });
       console.warn(`⚠️  [Avatar] Insufficient credits for monthly fee — avatar ${avatar.id} suspended`);
@@ -158,38 +238,56 @@ async function createAvatarFromPhotoBuffer(req, res, buffer, mimeType) {
     });
   }
 
-  const existing = await prisma.avatar.count({ where: { modelId, userId: req.user.id } });
-  if (existing >= MAX_AVATARS_PER_MODEL) {
+  const modelAvatars = await prisma.avatar.findMany({
+    where: { userId: req.user.id, modelId },
+    select: { id: true, heygenGroupId: true },
+    orderBy: { createdAt: "asc" },
+  });
+  const existingGroupId = modelAvatars.find((a) => !!a.heygenGroupId)?.heygenGroupId || null;
+  if (existingGroupId && modelAvatars.length >= MAX_LOOKS_PER_GROUP) {
     return res.status(400).json({
-      error: `You can have at most ${MAX_AVATARS_PER_MODEL} avatars per model. Delete one to create a new one.`,
-      code: "LIMIT_REACHED",
+      error: `This avatar group already has ${MAX_LOOKS_PER_GROUP} looks.`,
+      code: "LOOK_LIMIT_REACHED",
+    });
+  }
+
+  const userAvatars = await prisma.avatar.findMany({
+    where: { userId: req.user.id },
+    select: { heygenGroupId: true },
+  });
+  const totalSlots = userAvatars.length;
+  const groupCount = new Set(userAvatars.map((a) => a.heygenGroupId).filter(Boolean)).size;
+  if (totalSlots >= MAX_TOTAL_SLOTS) {
+    return res.status(400).json({
+      error: `You reached the total Real Avatar slot limit (${MAX_TOTAL_SLOTS}).`,
+      code: "SLOT_LIMIT_REACHED",
+    });
+  }
+  if (!existingGroupId && groupCount >= MAX_GROUPS_PER_USER) {
+    return res.status(400).json({
+      error: `You can create at most ${MAX_GROUPS_PER_USER} avatar groups.`,
+      code: "GROUP_LIMIT_REACHED",
     });
   }
 
   const pricing = await getGenerationPricing();
   const creationCost = pricing.avatarCreation ?? 1000;
 
-  const user = await prisma.user.findUnique({
-    where: { id: req.user.id },
-    select: { credits: true },
-  });
-  if (!user || user.credits < creationCost) {
+  const user = await checkAndExpireCredits(req.user.id);
+  if (getTotalCredits(user) < creationCost) {
     return res.status(402).json({
       error: `Insufficient credits. Avatar creation costs ${creationCost} credits.`,
     });
   }
 
-  await prisma.user.update({
-    where: { id: req.user.id },
-    data: { credits: { decrement: creationCost } },
-  });
+  await deductCredits(req.user.id, creationCost);
 
   const ext = mimeType.split("/")[1] || "jpg";
   let photoUrl;
   try {
     photoUrl = await uploadBufferToBlobOrR2(buffer, "avatars", ext, mimeType);
   } catch (err) {
-    await prisma.user.update({ where: { id: req.user.id }, data: { credits: { increment: creationCost } } });
+    await refundCredits(req.user.id, creationCost).catch(() => {});
     return res.status(500).json({ error: "Failed to upload photo: " + err.message });
   }
 
@@ -201,12 +299,13 @@ async function createAvatarFromPhotoBuffer(req, res, buffer, mimeType) {
       photoUrl,
       status: "processing",
       creditsCost: creationCost,
+      heygenGroupId: existingGroupId,
     },
   });
 
   res.json({ success: true, avatar });
 
-  processAvatarCreation(avatar.id, req.user.id, buffer, mimeType, ext, creationCost).catch((err) =>
+  processAvatarCreation(avatar.id, req.user.id, buffer, mimeType, ext, creationCost, existingGroupId).catch((err) =>
     console.error(`[Avatar] Background creation failed for ${avatar.id}:`, err.message),
   );
 }
@@ -256,42 +355,61 @@ router.post(
   },
 );
 
-async function processAvatarCreation(avatarId, userId, photoBuffer, mimeType, ext, creationCost) {
+async function processAvatarCreation(avatarId, userId, photoBuffer, mimeType, ext, creationCost, existingGroupId = null) {
   try {
     console.log(`[Avatar] Starting HeyGen avatar creation for ${avatarId}`);
 
     // 1. Upload image to HeyGen
-    const imageAssetId = await uploadAsset(photoBuffer, `avatar_${avatarId}.${ext}`, mimeType);
+    const uploaded = await uploadAsset(photoBuffer, `avatar_${avatarId}.${ext}`, mimeType, "photo_avatar");
+    const imageKey = uploaded.imageKey;
+    if (!imageKey) throw new Error("HeyGen upload did not return image_key");
 
-    // 2. Submit photo avatar creation
-    const groupId = await createPhotoAvatar(imageAssetId, `Avatar ${avatarId}`);
+    let groupId = existingGroupId;
+    let statusIdToPoll = null;
+    if (groupId) {
+      // Add a new look to existing avatar group
+      const added = await addLookToAvatarGroup(groupId, [imageKey]);
+      statusIdToPoll = added.generationId || groupId;
+    } else {
+      groupId = await createPhotoAvatarGroup(imageKey, `Avatar ${avatarId}`);
+      statusIdToPoll = groupId;
+      await trainPhotoAvatarGroup(groupId).catch((e) =>
+        console.warn(`[Avatar] train call failed for group ${groupId}: ${e?.message || e}`),
+      );
+    }
 
-    // Persist groupId
+    // Persist groupId then poll status endpoint until we receive look/avatar_id.
     await prisma.avatar.update({ where: { id: avatarId }, data: { heygenGroupId: groupId } });
+    // Webhook-first: wait for HeyGen webhook to finalize.
+    // Fallback watchdog polls after a grace period in case webhook is missed.
+    const pollTarget = statusIdToPoll || groupId;
+    setTimeout(async () => {
+      try {
+        const current = await prisma.avatar.findUnique({
+          where: { id: avatarId },
+          select: { status: true },
+        });
+        if (!current || current.status !== "processing") return;
+        const ready = await pollAvatarUntilReady(pollTarget);
+        const changed = await markAvatarReadyById(avatarId, ready.avatarId);
+        if (changed) {
+          console.log(`✅ [Avatar] Watchdog finalized avatar ${avatarId} ready (${ready.avatarId})`);
+        }
+      } catch (watchErr) {
+        const changed = await markAvatarFailedAndRefund(
+          avatarId,
+          watchErr?.message || "Avatar creation watchdog failed",
+        );
+        if (changed) {
+          console.warn(`⚠️ [Avatar] Watchdog marked avatar ${avatarId} failed`);
+        }
+      }
+    }, 90_000);
 
-    // 3. Poll until ready
-    const { avatarId: heygenAvatarId } = await pollAvatarUntilReady(groupId);
-
-    // 4. Mark as ready
-    await prisma.avatar.update({
-      where: { id: avatarId },
-      data: { status: "ready", heygenAvatarId },
-    });
-
-    console.log(`✅ [Avatar] Avatar ${avatarId} is ready (HeyGen ID: ${heygenAvatarId})`);
+    console.log(`✅ [Avatar] Avatar ${avatarId} submitted; awaiting webhook`);
   } catch (err) {
     console.error(`❌ [Avatar] Creation failed for ${avatarId}: ${err.message}`);
-
-    await prisma.avatar.update({
-      where: { id: avatarId },
-      data: { status: "failed", errorMessage: err.message },
-    });
-
-    // Refund credits
-    await prisma.user.update({
-      where: { id: userId },
-      data: { credits: { increment: creationCost } },
-    });
+    await markAvatarFailedAndRefund(avatarId, err.message);
 
     console.log(`💳 [Avatar] Refunded ${creationCost}cr to user ${userId} after creation failure`);
   }
@@ -304,11 +422,27 @@ router.delete("/:id", async (req, res) => {
   });
   if (!avatar) return res.status(404).json({ error: "Avatar not found" });
 
-  // Delete from HeyGen (best-effort)
-  if (avatar.heygenGroupId) {
-    deletePhotoAvatar(avatar.heygenGroupId).catch(e =>
-      console.warn("[Avatar] HeyGen delete failed (ignoring):", e.message)
+  // Delete look on HeyGen (best-effort)
+  if (avatar.heygenAvatarId) {
+    deletePhotoAvatar(avatar.heygenAvatarId).catch((e) =>
+      console.warn("[Avatar] HeyGen look delete failed (ignoring):", e.message),
     );
+  }
+
+  // If this was the last look in a group, delete the whole group.
+  if (avatar.heygenGroupId) {
+    const remainingLooks = await prisma.avatar.count({
+      where: {
+        userId: req.user.id,
+        heygenGroupId: avatar.heygenGroupId,
+        NOT: { id: avatar.id },
+      },
+    });
+    if (remainingLooks === 0) {
+      deletePhotoAvatarGroup(avatar.heygenGroupId).catch((e) =>
+        console.warn("[Avatar] HeyGen group delete failed (ignoring):", e.message),
+      );
+    }
   }
 
   // Cascade-delete videos and avatar record
@@ -358,21 +492,15 @@ router.post("/:id/generate", async (req, res) => {
   const costPerSec = pricing.avatarVideoPerSec ?? 5;
   const creditsCost = estimatedSecs * costPerSec;
 
-  const user = await prisma.user.findUnique({
-    where: { id: req.user.id },
-    select: { credits: true },
-  });
-  if (!user || user.credits < creditsCost) {
+  const user = await checkAndExpireCredits(req.user.id);
+  if (getTotalCredits(user) < creditsCost) {
     return res.status(402).json({
       error: `Insufficient credits. Estimated cost: ${creditsCost}cr (${estimatedSecs}s × ${costPerSec}cr/s).`,
     });
   }
 
   // Deduct upfront
-  await prisma.user.update({
-    where: { id: req.user.id },
-    data: { credits: { decrement: creditsCost } },
-  });
+  await deductCredits(req.user.id, creditsCost);
 
   const videoRecord = await prisma.avatarVideo.create({
     data: {
@@ -401,55 +529,48 @@ async function processVideoGeneration(videoId, userId, heygenAvatarId, elevenLab
   try {
     console.log(`[Avatar] Generating video ${videoId}`);
 
-    // 1. Generate audio from script using ElevenLabs
-    const audioBuffer = await textToSpeech(script, elevenLabsVoiceId, {
-      model_id: "eleven_v3",
-      voice_settings: { stability: 0.5, similarity_boost: 0.75, style: 0.1, use_speaker_boost: true },
+    // AV4 with ElevenLabs voice provider (eleven_v3), no pre-rendered audio pipeline.
+    const heygenVideoId = await generateAvatarVideo({
+      avatarId: heygenAvatarId,
+      inputText: script,
+      heygenVoiceId: elevenLabsVoiceId,
+      title: `Modelclone Avatar ${videoId}`,
+      width: 1920,
+      height: 1080,
+      aspectRatio: "16:9",
+      test: false,
+      callbackId: videoId,
     });
-
-    // 2. Upload audio to HeyGen
-    const audioAssetId = await uploadAsset(
-      audioBuffer,
-      `avatar_video_${videoId}.mp3`,
-      "audio/mpeg"
-    );
-
-    // 3. Submit video generation
-    const heygenVideoId = await generateAvatarVideo(heygenAvatarId, audioAssetId);
 
     await prisma.avatarVideo.update({
       where: { id: videoId },
       data: { heygenVideoId },
     });
 
-    // 4. Poll until done
-    const result = await pollVideoUntilReady(heygenVideoId);
+    // Webhook-first completion; fallback watchdog polling.
+    setTimeout(async () => {
+      try {
+        const row = await prisma.avatarVideo.findUnique({
+          where: { id: videoId },
+          select: { status: true },
+        });
+        if (!row || row.status !== "processing") return;
+        const result = await pollVideoUntilReady(heygenVideoId);
+        const changed = await markVideoCompleted(videoId, result.videoUrl, result.duration);
+        if (changed) console.log(`✅ [Avatar] Watchdog completed video ${videoId}`);
+      } catch (watchErr) {
+        const changed = await markVideoFailedAndRefund(
+          videoId,
+          watchErr?.message || "Avatar video watchdog failed",
+        );
+        if (changed) console.warn(`⚠️ [Avatar] Watchdog marked video ${videoId} failed`);
+      }
+    }, 75_000);
 
-    // 5. Finalize
-    await prisma.avatarVideo.update({
-      where: { id: videoId },
-      data: {
-        status: "completed",
-        outputUrl: result.videoUrl,
-        duration: result.duration,
-        completedAt: new Date(),
-      },
-    });
-
-    console.log(`✅ [Avatar] Video ${videoId} completed`);
+    console.log(`✅ [Avatar] Video ${videoId} submitted; awaiting webhook`);
   } catch (err) {
     console.error(`❌ [Avatar] Video ${videoId} failed: ${err.message}`);
-
-    await prisma.avatarVideo.update({
-      where: { id: videoId },
-      data: { status: "failed", errorMessage: err.message, completedAt: new Date() },
-    });
-
-    // Refund credits
-    await prisma.user.update({
-      where: { id: userId },
-      data: { credits: { increment: creditsCost } },
-    });
+    await markVideoFailedAndRefund(videoId, err.message);
 
     console.log(`💳 [Avatar] Refunded ${creditsCost}cr to user ${userId} after video failure`);
   }

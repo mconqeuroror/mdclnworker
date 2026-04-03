@@ -1178,6 +1178,280 @@ async function extendVideoWithVeo31KieInternal(options = {}) {
   return { success: true, deferred: true, taskId };
 }
 
+function parseKieAssetIdFromRecord(record) {
+  if (!record) return null;
+  const candidates = [];
+  const direct = record.assetId || record.asset_id || record.id || record.asset || null;
+  if (direct) candidates.push(String(direct));
+
+  let resultJson = record.resultJson ?? record.result_json ?? null;
+  if (typeof resultJson === "string") {
+    try {
+      resultJson = JSON.parse(resultJson);
+    } catch {
+      resultJson = null;
+    }
+  }
+  if (resultJson && typeof resultJson === "object") {
+    const nestedDirect =
+      resultJson.assetId ||
+      resultJson.asset_id ||
+      resultJson.id ||
+      resultJson.asset ||
+      resultJson.data?.assetId ||
+      resultJson.data?.asset_id ||
+      resultJson.result?.assetId ||
+      resultJson.result?.asset_id ||
+      null;
+    if (nestedDirect) candidates.push(String(nestedDirect));
+  }
+
+  for (const raw of candidates) {
+    const trimmed = String(raw || "").trim();
+    if (!trimmed) continue;
+    if (trimmed.startsWith("asset://")) return trimmed.replace(/^asset:\/\//, "");
+    return trimmed;
+  }
+  return null;
+}
+
+async function createVolcanicAssetKieInternal({ url, assetType }) {
+  if (!KIE_API_KEY) throw new Error("KIE_API_KEY not set");
+  const normalizedUrl = String(url || "").trim();
+  if (!normalizedUrl.startsWith("http")) throw new Error("Asset URL must be a public http(s) URL");
+  const typeRaw = String(assetType || "").trim().toLowerCase();
+  const normalizedAssetType =
+    typeRaw === "image" ? "Image" : typeRaw === "video" ? "Video" : typeRaw === "audio" ? "Audio" : null;
+  if (!normalizedAssetType) throw new Error("assetType must be one of: Image, Video, Audio");
+
+  const createRes = await fetch(`${KIE_API_URL}/playground/createAsset`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${KIE_API_KEY}`,
+    },
+    body: JSON.stringify({
+      url: normalizedUrl,
+      assetType: normalizedAssetType,
+    }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  const createText = await createRes.text();
+  if (!createRes.ok) {
+    throw new Error(kieHttpErrorMessage(createRes.status, createText));
+  }
+  let createData = null;
+  try {
+    createData = createText ? JSON.parse(createText) : null;
+  } catch {
+    throw new Error(`Asset create invalid response: ${createText?.slice(0, 200) || "empty"}`);
+  }
+  const taskId = createData?.id || createData?.data?.id || createData?.taskId || createData?.data?.taskId || null;
+  if (!taskId) throw new Error("Asset create did not return task id");
+
+  const outputUrl = await kiePollTask(taskId, 3 * 60 * 1000, "create-asset");
+  const statusRes = await getKieTaskStatus(taskId).catch(() => null);
+  const statusObj = statusRes && typeof statusRes === "object" ? statusRes : {};
+  const assetId = parseKieAssetIdFromRecord(statusObj) || String(taskId);
+
+  return {
+    success: true,
+    taskId: String(taskId),
+    assetId,
+    assetUri: `asset://${assetId}`,
+    sourceUrl: normalizedUrl,
+    outputUrl: outputUrl || null,
+    assetType: normalizedAssetType,
+  };
+}
+
+async function generateFluxKontextKieInternal(payload = {}) {
+  const {
+    prompt,
+    inputImage = null,
+    aspectRatio = "16:9",
+    outputFormat = "jpeg",
+    promptUpsampling = false,
+    model = "flux-kontext-pro",
+    enableTranslation = true,
+    safetyTolerance = 2,
+    callBackUrl = null,
+  } = payload;
+  const reqBody = {
+    model,
+    input: {
+      prompt: String(prompt || "").trim(),
+      ...(inputImage ? { inputImage: String(inputImage).trim() } : {}),
+      aspectRatio: String(aspectRatio || "16:9"),
+      outputFormat: String(outputFormat || "jpeg"),
+      promptUpsampling: !!promptUpsampling,
+      enableTranslation: enableTranslation !== false,
+      safetyTolerance: Number.isFinite(Number(safetyTolerance)) ? Number(safetyTolerance) : 2,
+    },
+  };
+  if (callBackUrl) reqBody.callBackUrl = callBackUrl;
+  const result = await kieRun(reqBody, "flux-kontext", KIE_POLL_TIMEOUT_IMAGE_MS, {
+    onTaskCreated: payload.onTaskCreated,
+  });
+  return result;
+}
+
+async function generateWan27ImageProKieInternal(payload = {}) {
+  const {
+    prompt,
+    inputUrls = [],
+    aspectRatio = "1:1",
+    enableSequential = false,
+    n = 1,
+    resolution = "2K",
+    thinkingMode = false,
+    colorPalette = null,
+    bboxList = null,
+    watermark = false,
+    seed = 0,
+  } = payload;
+
+  const reqBody = {
+    model: "wan/2-7-image-pro",
+    input: {
+      prompt: String(prompt || "").trim(),
+      ...(Array.isArray(inputUrls) && inputUrls.length ? { input_urls: inputUrls.slice(0, 9) } : {}),
+      ...(!inputUrls?.length ? { aspect_ratio: String(aspectRatio || "1:1") } : {}),
+      enable_sequential: !!enableSequential,
+      n: Math.max(1, Number.parseInt(String(n || 1), 10) || 1),
+      resolution: String(resolution || "2K"),
+      thinking_mode: !!thinkingMode,
+      ...(Array.isArray(colorPalette) && colorPalette.length ? { color_palette: colorPalette } : {}),
+      ...(Array.isArray(bboxList) && bboxList.length ? { bbox_list: bboxList } : {}),
+      watermark: !!watermark,
+      seed: Math.max(0, Number.parseInt(String(seed || 0), 10) || 0),
+    },
+  };
+
+  return kieRun(reqBody, "wan-2-7-image-pro", KIE_POLL_TIMEOUT_IMAGE_MS, {
+    onTaskCreated: payload.onTaskCreated,
+  });
+}
+
+async function generateIdeogramV3KieInternal(payload = {}) {
+  const {
+    variant = "text",
+    prompt,
+    callBackUrl = null,
+  } = payload;
+  const type = String(variant || "text").toLowerCase();
+
+  if (type === "text") {
+    const reqBody = {
+      model: "ideogram/v3-text-to-image",
+      input: {
+        prompt: String(prompt || "").trim(),
+        rendering_speed: payload.renderingSpeed || "BALANCED",
+        style: payload.style || "AUTO",
+        expand_prompt: payload.expandPrompt !== false,
+        image_size: payload.imageSize || "square_hd",
+        ...(payload.seed != null ? { seed: Number(payload.seed) } : {}),
+        ...(payload.negativePrompt ? { negative_prompt: String(payload.negativePrompt) } : {}),
+      },
+      ...(callBackUrl ? { callBackUrl } : {}),
+    };
+    return kieRun(reqBody, "ideogram-v3-text", KIE_POLL_TIMEOUT_IMAGE_MS, {
+      onTaskCreated: payload.onTaskCreated,
+    });
+  }
+
+  if (type === "edit") {
+    const reqBody = {
+      model: "ideogram/v3-edit",
+      input: {
+        prompt: String(prompt || "").trim(),
+        image_url: String(payload.imageUrl || "").trim(),
+        mask_url: String(payload.maskUrl || "").trim(),
+        rendering_speed: payload.renderingSpeed || "BALANCED",
+        expand_prompt: payload.expandPrompt !== false,
+        ...(payload.seed != null ? { seed: Number(payload.seed) } : {}),
+      },
+      ...(callBackUrl ? { callBackUrl } : {}),
+    };
+    return kieRun(reqBody, "ideogram-v3-edit", KIE_POLL_TIMEOUT_IMAGE_MS, {
+      onTaskCreated: payload.onTaskCreated,
+    });
+  }
+
+  if (type === "remix") {
+    const reqBody = {
+      model: "ideogram/v3-remix",
+      input: {
+        prompt: String(prompt || "").trim(),
+        image_url: String(payload.imageUrl || "").trim(),
+        rendering_speed: payload.renderingSpeed || "BALANCED",
+        style: payload.style || "AUTO",
+        expand_prompt: payload.expandPrompt !== false,
+        image_size: payload.imageSize || "square_hd",
+        num_images: Number(payload.numImages || 1),
+        ...(payload.seed != null ? { seed: Number(payload.seed) } : {}),
+        ...(payload.strength != null ? { strength: Number(payload.strength) } : {}),
+        ...(payload.negativePrompt ? { negative_prompt: String(payload.negativePrompt) } : {}),
+      },
+      ...(callBackUrl ? { callBackUrl } : {}),
+    };
+    return kieRun(reqBody, "ideogram-v3-remix", KIE_POLL_TIMEOUT_IMAGE_MS, {
+      onTaskCreated: payload.onTaskCreated,
+    });
+  }
+
+  throw new Error(`Unsupported ideogram variant: ${variant}`);
+}
+
+async function generateSeedance2KieInternal(payload = {}) {
+  const {
+    variant = "seedance-2-preview",
+    prompt = "",
+    firstFrameUrl = null,
+    lastFrameUrl = null,
+    referenceImageUrls = [],
+    referenceVideoUrls = [],
+    referenceAudioUrls = [],
+    returnLastFrame = false,
+    generateAudio = false,
+    resolution = "720p",
+    aspectRatio = "16:9",
+    duration = 8,
+    webSearch = false,
+    onTaskCreated,
+  } = payload;
+
+  const modelName =
+    String(variant || "").toLowerCase() === "seedance-2-fast-preview"
+      ? "bytedance/seedance-2-fast"
+      : "bytedance/seedance-2";
+
+  const input = {
+    prompt: String(prompt || "").trim(),
+    ...(firstFrameUrl ? { first_frame_url: String(firstFrameUrl).trim() } : {}),
+    ...(lastFrameUrl ? { last_frame_url: String(lastFrameUrl).trim() } : {}),
+    ...(Array.isArray(referenceImageUrls) && referenceImageUrls.length ? { reference_image_urls: referenceImageUrls.slice(0, 7) } : {}),
+    ...(Array.isArray(referenceVideoUrls) && referenceVideoUrls.length ? { reference_video_urls: referenceVideoUrls.slice(0, 3) } : {}),
+    ...(Array.isArray(referenceAudioUrls) && referenceAudioUrls.length ? { reference_audio_urls: referenceAudioUrls.slice(0, 3) } : {}),
+    return_last_frame: !!returnLastFrame,
+    generate_audio: !!generateAudio,
+    resolution: String(resolution || "720p"),
+    aspect_ratio: String(aspectRatio || "16:9"),
+    duration: Number(duration || 8),
+    web_search: !!webSearch,
+  };
+
+  return kieRun(
+    {
+      model: modelName,
+      input,
+    },
+    modelName,
+    KIE_POLL_TIMEOUT_VIDEO_MS,
+    { onTaskCreated },
+  );
+}
+
 // ─── Public API — all go through the queue ────────────────────────────────────
 
 export function generateImageWithSeedreamKie(...args) {
@@ -1238,4 +1512,19 @@ export function generateVideoWithVeo31Kie(...args) {
 }
 export function extendVideoWithVeo31Kie(...args) {
   return enqueueKieJob(() => extendVideoWithVeo31KieInternal(...args));
+}
+export function createVolcanicAssetKie(...args) {
+  return enqueueKieJob(() => createVolcanicAssetKieInternal(...args));
+}
+export function generateFluxKontextKie(...args) {
+  return enqueueKieJob(() => generateFluxKontextKieInternal(...args));
+}
+export function generateWan27ImageProKie(...args) {
+  return enqueueKieJob(() => generateWan27ImageProKieInternal(...args));
+}
+export function generateIdeogramV3Kie(...args) {
+  return enqueueKieJob(() => generateIdeogramV3KieInternal(...args));
+}
+export function generateSeedance2Kie(...args) {
+  return enqueueKieJob(() => generateSeedance2KieInternal(...args));
 }

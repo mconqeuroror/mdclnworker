@@ -5,6 +5,11 @@ import {
 import {
   generateImageWithNanoBananaKie,
   generateTextToImageNanoBananaKie,
+  generateFluxKontextKie,
+  generateWan27ImageProKie,
+  generateIdeogramV3Kie,
+  generateSeedance2Kie,
+  createVolcanicAssetKie,
   generateVideoWithMotionKie,
   generateVideoWithKling26Kie,
   generateVideoWithWanAnimateMoveKie,
@@ -14,7 +19,6 @@ import {
   generateVideoWithVeo31Kie,
   extendVideoWithVeo31Kie,
 } from "../services/kie.service.js";
-import { submitPiApiTask } from "../services/piapi.service.js";
 import {
   generateImageWithIdentityWaveSpeed,
   generateImageWithSeedreamWaveSpeed,
@@ -38,6 +42,7 @@ import {
   mirrorToBlob,
   isVercelBlobConfigured,
   mirrorExternalUrlToPersistentBlob,
+  uploadBufferToBlobOrR2,
 } from "../utils/kieUpload.js";
 import { enqueueGenerationBlobRemirror } from "../services/blob-remirror-queue.service.js";
 import { deleteStoredMediaFromOutputField } from "../utils/storageDelete.js";
@@ -2604,6 +2609,26 @@ export async function cleanupStuckGenerations(req, res) {
       `\n🔍 Checking for stuck generations (image>${IMAGE_TIMEOUT_MINUTES}m, video>${VIDEO_TIMEOUT_MINUTES}m, nsfw>${NSFW_CLEANUP_TIMEOUT_MINUTES}m)...`,
     );
 
+    // Cleanup temp creator-studio masks (target 1h lifetime).
+    const maskCutoff = new Date(Date.now() - 65 * 60 * 1000);
+    const expiredMasks = await prisma.generation.findMany({
+      where: {
+        type: "creator-studio-mask",
+        createdAt: { lt: maskCutoff },
+      },
+      select: { id: true, outputUrl: true },
+      take: 500,
+    });
+    for (const row of expiredMasks) {
+      if (row.outputUrl?.startsWith("http")) {
+        await deleteStoredMediaFromOutputField(row.outputUrl).catch(() => {});
+      }
+      await prisma.generation.delete({ where: { id: row.id } }).catch(() => {});
+    }
+    if (expiredMasks.length > 0) {
+      console.log(`🧹 Cleaned ${expiredMasks.length} expired creator-studio mask(s)`);
+    }
+
     // Find all generations stuck in processing or pending
     const processingGenerations = await prisma.generation.findMany({
       where: {
@@ -3921,7 +3946,16 @@ const CREATOR_STUDIO_ASPECT_RATIOS = [
   "5:4", "4:5", "21:9",
 ];
 const CREATOR_STUDIO_RESOLUTIONS = ["1K", "2K", "4K"];
-const CREATOR_STUDIO_MODELS = ["nano-banana-pro"];
+const CREATOR_STUDIO_MODELS = [
+  "nano-banana-pro",
+  "flux-kontext-pro",
+  "flux-kontext-max",
+  "wan-2-7-image-pro",
+  "ideogram-v3-text",
+  "ideogram-v3-edit",
+  "ideogram-v3-remix",
+  "seedream-v4-5-edit",
+];
 const CREATOR_STUDIO_VIDEO_FAMILIES = ["sora2", "kling26", "kling30", "veo31", "wan22", "seedance2"];
 const CREATOR_STUDIO_VIDEO_ALLOWED_MODES = Object.freeze({
   sora2: ["t2v", "i2v"],
@@ -3929,7 +3963,7 @@ const CREATOR_STUDIO_VIDEO_ALLOWED_MODES = Object.freeze({
   kling30: ["t2v", "i2v"],
   veo31: ["ref2v", "t2v", "i2v", "extend"],
   wan22: ["move", "replace"],
-  seedance2: ["t2v", "i2v", "edit", "extend", "remove-watermark"],
+  seedance2: ["t2v", "i2v", "edit", "multi-ref"],
 });
 
 function validateCreatorStudioVideoDuration(family, mode, value) {
@@ -3967,15 +4001,6 @@ function validateCreatorStudioVideoDuration(family, mode, value) {
   }
   if (family === "seedance2") {
     if (mode === "edit") {
-      if (duration !== 5) {
-        return { valid: false, message: "Seedance edit currently supports only 5-second output." };
-      }
-      return { valid: true, duration };
-    }
-    if (mode === "remove-watermark") {
-      if (duration < 5 || duration > 600) {
-        return { valid: false, message: "Seedance watermark removal duration must be between 5 and 600 seconds." };
-      }
       return { valid: true, duration };
     }
     if (![5, 10, 15].includes(duration)) {
@@ -4002,8 +4027,7 @@ function normalizeCreatorStudioVideoMode(family, mode) {
   if (fam === "seedance2") {
     if (normalized === "i2v") return "i2v";
     if (normalized === "edit") return "edit";
-    if (normalized === "extend") return "extend";
-    if (normalized === "remove-watermark") return "remove-watermark";
+    if (normalized === "multi-ref") return "multi-ref";
     return "t2v";
   }
   if (fam === "sora2") return normalized === "i2v" ? "i2v" : "t2v";
@@ -4080,16 +4104,23 @@ function estimateCreatorStudioVideoCredits(pricing, payload) {
   }
   if (family === "seedance2") {
     const fast = String(payload.seedanceTaskType || "seedance-2-preview") === "seedance-2-fast-preview";
-    const perSec = mode === "remove-watermark"
-      ? pricing.seedanceRemoveWatermarkPerSec
-      : mode === "edit"
-      ? (fast ? pricing.seedance2FastPreviewEditCreditsPerSec : pricing.seedance2PreviewEditCreditsPerSec)
-      : (fast ? pricing.seedance2FastPreviewCreditsPerSec : pricing.seedance2PreviewCreditsPerSec);
-    const baseCost = Math.ceil(seconds * (Number(perSec) || 0));
-    if (mode !== "remove-watermark" && payload.removeWatermark === true) {
-      const watermarkSeconds = Math.max(5, seconds);
-      const watermarkCost = Math.ceil(watermarkSeconds * (Number(pricing.seedanceRemoveWatermarkPerSec) || 0));
-      return baseCost + watermarkCost;
+    const seedanceResolution = String(payload.seedanceResolution || "720p").toLowerCase() === "480p" ? "480" : "720";
+    const hasVideoInput = !!payload.hasVideoInput;
+    const key = fast
+      ? (seedanceResolution === "480"
+          ? (hasVideoInput ? "seedance2Fast480WithVideoPerSec" : "seedance2Fast480NoVideoPerSec")
+          : (hasVideoInput ? "seedance2Fast720WithVideoPerSec" : "seedance2Fast720NoVideoPerSec"))
+      : (seedanceResolution === "480"
+          ? (hasVideoInput ? "seedance2Standard480WithVideoPerSec" : "seedance2Standard480NoVideoPerSec")
+          : (hasVideoInput ? "seedance2Standard720WithVideoPerSec" : "seedance2Standard720NoVideoPerSec"));
+    const perSec = Number(pricing?.[key] || 0);
+    // Cost rule from spec: with video input include both input and output duration.
+    const inputVideoSeconds = hasVideoInput ? Math.max(0, Number(payload.inputVideoDurationSeconds || 0)) : 0;
+    const totalSeconds = hasVideoInput ? inputVideoSeconds + seconds : seconds;
+    let baseCost = Math.ceil(totalSeconds * perSec);
+    // Provider-side audio add-on pricing is not yet exposed by docs in this flow; keep a conservative uplift.
+    if (payload.generateAudio === true) {
+      baseCost = Math.ceil(baseCost * 1.2);
     }
     return baseCost;
   }
@@ -4104,10 +4135,25 @@ export async function generateCreatorStudio(req, res) {
   try {
     const {
       prompt = "",
-      referencePhotos = [],   // 0–8 public image URLs
+      referencePhotos = [],   // generic image references
       aspectRatio = "1:1",
       resolution = "1K",
-      nanoBananaModel = "nano-banana-pro",
+      generationModel = "nano-banana-pro",
+      inputImageUrl = "",
+      maskUrl = "",
+      numImages = 1,
+      renderingSpeed = "BALANCED",
+      ideogramStyle = "AUTO",
+      ideogramImageSize = "square_hd",
+      ideogramStrength = 0.8,
+      ideogramExpandPrompt = true,
+      outputFormat = "jpeg",
+      promptUpsampling = false,
+      safetyTolerance = 2,
+      thinkingMode = false,
+      colorPalette = [],
+      bboxList = [],
+      seedreamSize = "",
     } = req.body;
 
     userId = req.user.userId;
@@ -4121,18 +4167,71 @@ export async function generateCreatorStudio(req, res) {
     if (!CREATOR_STUDIO_RESOLUTIONS.includes(resolution)) {
       return res.status(400).json({ success: false, message: `Invalid resolution.` });
     }
-    const modelName = CREATOR_STUDIO_MODELS.includes(nanoBananaModel) ? nanoBananaModel : "nano-banana-pro";
+    const modelName = CREATOR_STUDIO_MODELS.includes(generationModel) ? generationModel : "nano-banana-pro";
 
     const refs = Array.isArray(referencePhotos)
       ? referencePhotos.filter((u) => typeof u === "string" && u.length > 0).slice(0, 8)
       : [];
-    const refsCheck = await validateNanoBananaInputImages(refs);
-    if (!refsCheck.valid) {
-      return res.status(400).json({ success: false, message: refsCheck.message });
+    if (modelName === "nano-banana-pro") {
+      const refsCheck = await validateNanoBananaInputImages(refs);
+      if (!refsCheck.valid) {
+        return res.status(400).json({ success: false, message: refsCheck.message });
+      }
+    }
+    const normalizedInputImage = String(inputImageUrl || "").trim();
+    const normalizedMaskUrl = String(maskUrl || "").trim();
+    if (normalizedInputImage) {
+      const check = validateImageUrl(normalizedInputImage);
+      if (!check.valid) return res.status(400).json({ success: false, message: `inputImageUrl: ${check.message}` });
+    }
+    if (normalizedMaskUrl) {
+      const check = validateImageUrl(normalizedMaskUrl);
+      if (!check.valid) return res.status(400).json({ success: false, message: `maskUrl: ${check.message}` });
+    }
+    if (modelName === "ideogram-v3-edit") {
+      if (!normalizedInputImage) {
+        return res.status(400).json({ success: false, message: "Ideogram edit requires inputImageUrl." });
+      }
+      if (!normalizedMaskUrl) {
+        return res.status(400).json({ success: false, message: "Ideogram edit requires maskUrl." });
+      }
+    }
+    if (modelName === "ideogram-v3-remix" && !normalizedInputImage) {
+      return res.status(400).json({ success: false, message: "Ideogram remix requires inputImageUrl." });
     }
 
     const pricing = await getGenerationPricing();
-    const creditsNeeded = resolution === "4K" ? pricing.creatorStudio4K : pricing.creatorStudio1K2K;
+    const clampedNumImages = Math.min(4, Math.max(1, Number.parseInt(String(numImages || 1), 10) || 1));
+    let creditsNeeded = resolution === "4K" ? pricing.creatorStudio4K : pricing.creatorStudio1K2K;
+    if (modelName === "flux-kontext-pro") {
+      creditsNeeded = (pricing.creatorStudioFluxKontextPro || 10) * clampedNumImages;
+    } else if (modelName === "flux-kontext-max") {
+      creditsNeeded = (pricing.creatorStudioFluxKontextMax || 20) * clampedNumImages;
+    } else if (modelName === "wan-2-7-image-pro") {
+      creditsNeeded = (pricing.creatorStudioWan27ImagePro || 24) * clampedNumImages;
+    } else if (modelName === "ideogram-v3-text") {
+      const speed = String(renderingSpeed || "BALANCED").toUpperCase();
+      const rate = speed === "TURBO"
+        ? (pricing.creatorStudioIdeogramTurbo || 7)
+        : speed === "QUALITY"
+        ? (pricing.creatorStudioIdeogramQuality || 20)
+        : (pricing.creatorStudioIdeogramBalanced || 14);
+      creditsNeeded = rate * clampedNumImages;
+    } else if (modelName === "ideogram-v3-edit" || modelName === "ideogram-v3-remix") {
+      const speed = String(renderingSpeed || "BALANCED").toUpperCase();
+      const rate = speed === "TURBO"
+        ? (pricing.creatorStudioIdeogramTurbo || 7)
+        : speed === "QUALITY"
+        ? (pricing.creatorStudioIdeogramQuality || 20)
+        : (pricing.creatorStudioIdeogramBalanced || 14);
+      creditsNeeded = rate * clampedNumImages;
+    } else if (modelName === "seedream-v4-5-edit") {
+      creditsNeeded = pricing.creatorStudioSeedream45Edit || 10;
+    }
+    creditsNeeded = Math.ceil(Number(creditsNeeded) || 0);
+    if (creditsNeeded <= 0) {
+      return res.status(400).json({ success: false, message: "Could not calculate credits for selected model." });
+    }
 
     const user = await checkAndExpireCredits(userId);
     const totalCredits = getTotalCredits(user);
@@ -4154,8 +4253,28 @@ export async function generateCreatorStudio(req, res) {
         inputImageUrl: refs.join(",") || null,
         status: "processing",
         creditsCost: creditsNeeded,
-        replicateModel: `kie-${modelName}`,
-        pipelinePayload: JSON.stringify({ aspectRatio, resolution, nanoBananaModel: modelName, refCount: refs.length }),
+        replicateModel: modelName.startsWith("seedream") ? `wavespeed-${modelName}` : `kie-${modelName}`,
+        pipelinePayload: JSON.stringify({
+          aspectRatio,
+          resolution,
+          generationModel: modelName,
+          refCount: refs.length,
+          inputImageUrl: normalizedInputImage || null,
+          maskUrl: normalizedMaskUrl || null,
+          numImages: clampedNumImages,
+          renderingSpeed: String(renderingSpeed || "BALANCED").toUpperCase(),
+          ideogramStyle: String(ideogramStyle || "AUTO").toUpperCase(),
+          ideogramImageSize: String(ideogramImageSize || "square_hd"),
+          ideogramStrength: Number(ideogramStrength || 0.8),
+          ideogramExpandPrompt: ideogramExpandPrompt !== false,
+          outputFormat: String(outputFormat || "jpeg"),
+          promptUpsampling: !!promptUpsampling,
+          safetyTolerance: Number(safetyTolerance ?? 2),
+          thinkingMode: thinkingMode === true,
+          colorPalette: Array.isArray(colorPalette) ? colorPalette.slice(0, 16) : [],
+          bboxList: Array.isArray(bboxList) ? bboxList.slice(0, 24) : [],
+          seedreamSize: String(seedreamSize || ""),
+        }),
       },
     });
     generationId = generation.id;
@@ -4221,38 +4340,121 @@ async function processCreatorStudioInBackground(
       await registerKieTaskForGeneration(taskId, generationId, userId, "creator-studio");
     };
 
-    let result;
+    const generation = await prisma.generation.findUnique({
+      where: { id: generationId },
+      select: { pipelinePayload: true },
+    });
+    const payload = generation?.pipelinePayload && typeof generation.pipelinePayload === "object"
+      ? generation.pipelinePayload
+      : (typeof generation?.pipelinePayload === "string"
+          ? (() => { try { return JSON.parse(generation.pipelinePayload); } catch { return {}; } })()
+          : {});
 
-    if (refs.length === 0) {
-      // Pure text-to-image — no identity references
+    const normalizedModel = String(payload?.generationModel || modelName || "nano-banana-pro");
+    const normalizedInputImage = String(payload?.inputImageUrl || "").trim();
+    const normalizedMaskUrl = String(payload?.maskUrl || "").trim();
+    const normalizedNumImages = Math.min(4, Math.max(1, Number.parseInt(String(payload?.numImages || 1), 10) || 1));
+    const normalizedRenderingSpeed = String(payload?.renderingSpeed || "BALANCED").toUpperCase();
+
+    let result;
+    if (normalizedModel === "nano-banana-pro") {
+      if (refs.length === 0) {
+        result = await requestQueue.enqueue(() =>
+          generateTextToImageNanoBananaKie(promptText, {
+            aspectRatio,
+            resolution,
+            model: normalizedModel,
+            onTaskCreated,
+          }),
+        );
+      } else {
+        const kieImages = await Promise.all(
+          refs.map((u, i) => ensureKieAccessibleUrl(u, `cs-ref-${i + 1}`)),
+        ).catch(() => refs);
+        result = await requestQueue.enqueue(() =>
+          generateImageWithNanoBananaKie(kieImages, promptText, {
+            aspectRatio,
+            resolution,
+            model: normalizedModel,
+            onTaskCreated,
+          }),
+        );
+      }
+    } else if (normalizedModel === "seedream-v4-5-edit") {
+      const seedreamInputs = refs.length > 0 ? refs : (normalizedInputImage ? [normalizedInputImage] : []);
+      const kieImages = await Promise.all(
+        seedreamInputs.map((u, i) => ensureKieAccessibleUrl(u, `seedream-ref-${i + 1}`)),
+      ).catch(() => seedreamInputs);
       result = await requestQueue.enqueue(() =>
-        generateTextToImageNanoBananaKie(promptText, {
-          aspectRatio,
-          resolution,
-          model: modelName,
+        generateImageWithSeedreamWaveSpeed(kieImages, promptText, {
+          size: String(payload?.seedreamSize || "").trim() || undefined,
           onTaskCreated,
-        })
+        }),
+      );
+    } else if (normalizedModel === "flux-kontext-pro" || normalizedModel === "flux-kontext-max") {
+      const baseInput = normalizedInputImage || refs[0] || null;
+      const kieInput = baseInput ? await ensureKieAccessibleUrl(baseInput, "flux-input") : null;
+      result = await requestQueue.enqueue(() =>
+        generateFluxKontextKie({
+          model: normalizedModel,
+          prompt: promptText,
+          inputImage: kieInput,
+          aspectRatio,
+          outputFormat: String(payload?.outputFormat || "jpeg"),
+          promptUpsampling: payload?.promptUpsampling === true,
+          safetyTolerance: Number(payload?.safetyTolerance ?? 2),
+          onTaskCreated,
+        }),
+      );
+    } else if (normalizedModel === "wan-2-7-image-pro") {
+      const sourceInputs = refs.length > 0 ? refs : (normalizedInputImage ? [normalizedInputImage] : []);
+      const kieInputUrls = await Promise.all(
+        sourceInputs.slice(0, 9).map((u, i) => ensureKieAccessibleUrl(u, `wan27-input-${i + 1}`)),
+      ).catch(() => sourceInputs.slice(0, 9));
+      result = await requestQueue.enqueue(() =>
+        generateWan27ImageProKie({
+          prompt: promptText,
+          inputUrls: kieInputUrls,
+          aspectRatio,
+          n: normalizedNumImages,
+          resolution: String(resolution || "2K"),
+          thinkingMode: payload?.thinkingMode === true,
+          colorPalette: Array.isArray(payload?.colorPalette) ? payload.colorPalette : [],
+          bboxList: Array.isArray(payload?.bboxList) ? payload.bboxList : [],
+          onTaskCreated,
+        }),
+      );
+    } else if (normalizedModel.startsWith("ideogram-v3-")) {
+      const variant = normalizedModel.replace("ideogram-v3-", "");
+      const imageUrlRaw = normalizedInputImage || refs[0] || "";
+      const imageUrl = imageUrlRaw ? await ensureKieAccessibleUrl(imageUrlRaw, "ideogram-input") : "";
+      const maskUrl = normalizedMaskUrl ? await ensureKieAccessibleUrl(normalizedMaskUrl, "ideogram-mask") : "";
+      result = await requestQueue.enqueue(() =>
+        generateIdeogramV3Kie({
+          variant,
+          prompt: promptText,
+          imageUrl,
+          maskUrl,
+          renderingSpeed: normalizedRenderingSpeed,
+          style: String(payload?.ideogramStyle || "AUTO").toUpperCase(),
+          imageSize: String(payload?.ideogramImageSize || "square_hd"),
+          strength: Number(payload?.ideogramStrength ?? 0.8),
+          numImages: normalizedNumImages,
+          expandPrompt: payload?.ideogramExpandPrompt !== false,
+          onTaskCreated,
+        }),
       );
     } else {
-      // Image-guided generation — upload refs so KIE can fetch them
-      const kieImages = await Promise.all(
-        refs.map((u, i) => ensureKieAccessibleUrl(u, `cs-ref-${i + 1}`))
-      ).catch(() => refs);
-
-      result = await requestQueue.enqueue(() =>
-        generateImageWithNanoBananaKie(kieImages, promptText, {
-          aspectRatio,
-          resolution,
-          model: modelName,
-          onTaskCreated,
-        })
-      );
+      throw new Error(`Unsupported creator-studio model: ${normalizedModel}`);
     }
 
     if (result.success && result.deferred && result.taskId) {
+      const deferredModelTag = normalizedModel === "seedream-v4-5-edit"
+        ? `wavespeed-seedream:${result.taskId}`
+        : `kie-task:${result.taskId}`;
       await prisma.generation.update({
         where: { id: generationId },
-        data: { replicateModel: `kie-task:${result.taskId}` },
+        data: { replicateModel: deferredModelTag },
       });
       console.log(`✅ [Creator Studio] Deferred; callback expected for task ${result.taskId}`);
     } else if (result.success && result.outputUrl) {
@@ -4301,6 +4503,10 @@ async function processCreatorStudioVideoInBackground({
   klingElements,
   aspectRatio,
   seedanceTaskType,
+  seedanceResolution,
+  seedanceGenerateAudio,
+  seedanceReturnLastFrame,
+  seedanceReferenceAudioUrls,
   wanResolution,
   originalTaskId = null,
   originalGenerationId = null,
@@ -4445,43 +4651,37 @@ async function processCreatorStudioVideoInBackground({
             })),
       );
     } else if (lowerFamily === "seedance2") {
-      const taskType = normalizedMode === "remove-watermark"
-        ? "remove-watermark"
-        : String(seedanceTaskType || "seedance-2-preview");
-      const seedanceInput = normalizedMode === "remove-watermark"
-        ? {
-            video_url: String(inputVideoUrl || ""),
-            duration: Number(durationSeconds) || 5,
-          }
-        : {
-            prompt: String(finalPrompt || ""),
-            duration: Number(durationSeconds) || 5,
-            aspect_ratio: String(aspectRatio || "16:9"),
-            ...(imageUrl ? { image_urls: [String(imageUrl)] } : {}),
-            ...(inputVideoUrl ? { video_urls: [String(inputVideoUrl)] } : {}),
-            ...(normalizedMode === "extend" ? { parent_task_id: String(originalTaskId || "") } : {}),
-          };
-      const submit = await requestQueue.enqueue(() =>
-        submitPiApiTask({
-          model: "seedance",
-          task_type: taskType,
-          input: seedanceInput,
+      const firstFrame = imageUrl ? await ensureKieAccessibleUrl(imageUrl, "seedance-first-frame") : null;
+      const lastFrame = endFrameUrl ? await ensureKieAccessibleUrl(endFrameUrl, "seedance-last-frame") : null;
+      const refImagesRaw = [referenceImageUrl, thirdImageUrl].filter(Boolean).slice(0, 7);
+      const refImages = refImagesRaw.length
+        ? await Promise.all(refImagesRaw.map((u, i) => ensureKieAccessibleUrl(u, `seedance-ref-image-${i + 1}`)))
+        : [];
+      const refVideosRaw = inputVideoUrl ? [inputVideoUrl] : [];
+      const refVideos = refVideosRaw.length
+        ? await Promise.all(refVideosRaw.map((u, i) => ensureKieAccessibleUrl(u, `seedance-ref-video-${i + 1}`)))
+        : [];
+      const refAudiosRaw = Array.isArray(seedanceReferenceAudioUrls) ? seedanceReferenceAudioUrls.filter(Boolean).slice(0, 3) : [];
+      const refAudios = refAudiosRaw.length
+        ? await Promise.all(refAudiosRaw.map((u, i) => ensureKieAccessibleUrl(u, `seedance-ref-audio-${i + 1}`)))
+        : [];
+      result = await requestQueue.enqueue(() =>
+        generateSeedance2Kie({
+          variant: String(seedanceTaskType || "seedance-2-preview"),
+          prompt: String(finalPrompt || ""),
+          firstFrameUrl: firstFrame,
+          lastFrameUrl: normalizedMode === "edit" ? (lastFrame || null) : null,
+          referenceImageUrls: normalizedMode === "multi-ref" ? [firstFrame, ...refImages].filter(Boolean) : refImages,
+          referenceVideoUrls: normalizedMode === "multi-ref" ? refVideos : [],
+          referenceAudioUrls: normalizedMode === "multi-ref" ? refAudios : [],
+          returnLastFrame: seedanceReturnLastFrame === true,
+          generateAudio: seedanceGenerateAudio === true,
+          resolution: String(seedanceResolution || "720p"),
+          aspectRatio: String(aspectRatio || "16:9"),
+          duration: Number(durationSeconds) || 5,
+          onTaskCreated: onTaskSubmitted,
         }),
       );
-      const taskId = submit?.data?.data?.task_id || submit?.data?.data?.taskId || submit?.data?.task_id || submit?.data?.taskId;
-      if (!taskId) {
-        throw new Error("Seedance task submission did not return task id.");
-      }
-      await prisma.generation.update({
-        where: { id: generationId },
-        data: {
-          provider: "piapi",
-          replicateModel: `piapi-task:${taskId}`,
-          providerTaskId: taskId,
-          providerResponse: submit?.data || null,
-        },
-      });
-      result = { success: true, deferred: true, taskId };
     } else {
       throw new Error(`Unsupported Creator Studio video family: ${lowerFamily}`);
     }
@@ -4490,7 +4690,7 @@ async function processCreatorStudioVideoInBackground({
       await prisma.generation.update({
         where: { id: generationId },
         data: {
-          replicateModel: lowerFamily === "seedance2" ? `piapi-task:${result.taskId}` : `kie-task:${result.taskId}`,
+          replicateModel: `kie-task:${result.taskId}`,
           providerTaskId: result.taskId,
         },
       });
@@ -4547,6 +4747,10 @@ export async function generateCreatorStudioVideo(req, res) {
       klingElements = [],
       aspectRatio = "16:9",
       seedanceTaskType = "seedance-2-preview",
+      seedanceResolution = "720p",
+      seedanceGenerateAudio = false,
+      seedanceReturnLastFrame = false,
+      seedanceReferenceAudioUrls = [],
       wanResolution = "580p",
       originalTaskId = null,
       originalGenerationId = null,
@@ -4574,7 +4778,7 @@ export async function generateCreatorStudioVideo(req, res) {
     }
     const normalizedDurationSeconds = durationValidation.duration;
 
-    if (!prompt?.trim() && !(lowerFamily === "seedance2" && normalizedMode === "remove-watermark")) {
+    if (!prompt?.trim()) {
       return res.status(400).json({ success: false, message: "A prompt is required." });
     }
     const normalizedImageUrl = String(imageUrl || "").trim();
@@ -4583,23 +4787,23 @@ export async function generateCreatorStudioVideo(req, res) {
     const normalizedThirdImageUrl = String(thirdImageUrl || "").trim();
     const normalizedInputVideoUrl = String(inputVideoUrl || "").trim();
 
-    if (normalizedImageUrl) {
+    if (normalizedImageUrl && !normalizedImageUrl.startsWith("asset://")) {
       const imageCheck = validateImageUrl(normalizedImageUrl);
       if (!imageCheck.valid) return res.status(400).json({ success: false, message: `imageUrl: ${imageCheck.message}` });
     }
-    if (normalizedReferenceImageUrl) {
+    if (normalizedReferenceImageUrl && !normalizedReferenceImageUrl.startsWith("asset://")) {
       const imageCheck = validateImageUrl(normalizedReferenceImageUrl);
       if (!imageCheck.valid) return res.status(400).json({ success: false, message: `referenceImageUrl: ${imageCheck.message}` });
     }
-    if (normalizedEndFrameUrl) {
+    if (normalizedEndFrameUrl && !normalizedEndFrameUrl.startsWith("asset://")) {
       const imageCheck = validateImageUrl(normalizedEndFrameUrl);
       if (!imageCheck.valid) return res.status(400).json({ success: false, message: `endFrameUrl: ${imageCheck.message}` });
     }
-    if (normalizedThirdImageUrl) {
+    if (normalizedThirdImageUrl && !normalizedThirdImageUrl.startsWith("asset://")) {
       const imageCheck = validateImageUrl(normalizedThirdImageUrl);
       if (!imageCheck.valid) return res.status(400).json({ success: false, message: `thirdImageUrl: ${imageCheck.message}` });
     }
-    if (normalizedInputVideoUrl) {
+    if (normalizedInputVideoUrl && !normalizedInputVideoUrl.startsWith("asset://")) {
       const videoCheck = validateVideoUrl(normalizedInputVideoUrl);
       if (!videoCheck.valid) return res.status(400).json({ success: false, message: `inputVideoUrl: ${videoCheck.message}` });
     }
@@ -4678,14 +4882,11 @@ export async function generateCreatorStudioVideo(req, res) {
       if (!["seedance-2-preview", "seedance-2-fast-preview"].includes(String(seedanceTaskType))) {
         return res.status(400).json({ success: false, message: "Invalid Seedance task type." });
       }
-      if (normalizedMode === "edit" && !normalizedInputVideoUrl) {
-        return res.status(400).json({ success: false, message: "Seedance video edit requires input video." });
+      if (normalizedMode === "edit" && (!normalizedImageUrl || !normalizedEndFrameUrl)) {
+        return res.status(400).json({ success: false, message: "Seedance first+last mode requires both first and last frame images." });
       }
-      if (normalizedMode === "extend" && !originalTaskId) {
-        return res.status(400).json({ success: false, message: "Seedance extend requires original task id." });
-      }
-      if (normalizedMode === "remove-watermark" && !normalizedInputVideoUrl) {
-        return res.status(400).json({ success: false, message: "Seedance watermark remover requires input video URL." });
+      if (normalizedMode === "multi-ref" && !normalizedImageUrl && !normalizedInputVideoUrl) {
+        return res.status(400).json({ success: false, message: "Seedance multimodal mode requires at least one image or video reference." });
       }
       if (!["16:9", "9:16", "4:3", "3:4"].includes(String(aspectRatio || ""))) {
         return res.status(400).json({ success: false, message: "Seedance aspect ratio must be one of 16:9, 9:16, 4:3, 3:4." });
@@ -4704,6 +4905,10 @@ export async function generateCreatorStudioVideo(req, res) {
       soundEnabled,
       kling30Quality,
       seedanceTaskType,
+      seedanceResolution,
+      generateAudio: seedanceGenerateAudio === true,
+      hasVideoInput: !!normalizedInputVideoUrl,
+      inputVideoDurationSeconds: Number(req.body?.inputVideoDurationSeconds || 0),
       wanResolution,
     });
     if (!Number.isFinite(creditsNeeded) || creditsNeeded <= 0) {
@@ -4730,16 +4935,16 @@ export async function generateCreatorStudioVideo(req, res) {
         inputVideoUrl: normalizedInputVideoUrl || null,
         status: "processing",
         creditsCost: creditsNeeded,
-        provider: lowerFamily === "seedance2" ? "piapi" : "kie",
+        provider: "kie",
         providerFamily: lowerFamily,
         providerMode: normalizedMode,
         providerType: normalizedMode,
-        providerModel: `${lowerFamily === "seedance2" ? "piapi" : "kie"}-${lowerFamily}-${normalizedMode}`,
+        providerModel: `kie-${lowerFamily}-${normalizedMode}`,
         parentTaskId: originalTaskId,
         originalGenerationId: originalGenerationId || null,
-        replicateModel: `${lowerFamily === "seedance2" ? "piapi" : "kie"}-${lowerFamily}-${normalizedMode}`,
+        replicateModel: `kie-${lowerFamily}-${normalizedMode}`,
         extendEligible: (lowerFamily === "veo31" && normalizedMode !== "extend")
-          || (lowerFamily === "seedance2" && normalizedMode !== "extend" && normalizedMode !== "remove-watermark"),
+          || (lowerFamily === "seedance2" && ["t2v", "i2v"].includes(normalizedMode)),
         providerRequest: {
           family: lowerFamily,
           mode: normalizedMode,
@@ -4761,6 +4966,10 @@ export async function generateCreatorStudioVideo(req, res) {
           klingElements,
           aspectRatio,
           seedanceTaskType,
+          seedanceResolution,
+          seedanceGenerateAudio,
+          seedanceReturnLastFrame,
+          seedanceReferenceAudioUrls,
           wanResolution,
           originalTaskId,
           veoSeeds,
@@ -4794,6 +5003,10 @@ export async function generateCreatorStudioVideo(req, res) {
       klingElements,
       aspectRatio,
       seedanceTaskType,
+      seedanceResolution,
+      seedanceGenerateAudio,
+      seedanceReturnLastFrame,
+      seedanceReferenceAudioUrls,
       wanResolution,
       originalTaskId,
       originalGenerationId,
@@ -4801,20 +5014,9 @@ export async function generateCreatorStudioVideo(req, res) {
       veoEnableTranslation,
       veoWatermark,
     };
-    // PiAPI (Seedance) tasks: await submission so providerTaskId is persisted before the
-    // HTTP response is sent. This prevents the race where PiAPI's callback arrives before
-    // the background fire-and-forget has written the task ID to the DB.
-    // KIE tasks use onTaskSubmitted() internally to persist the task ID synchronously, so
-    // they are safe to fire-and-forget.
-    if (lowerFamily === "seedance2") {
-      await processCreatorStudioVideoInBackground(bgArgs).catch((err) =>
-        console.error("❌ Creator Studio video background error:", err),
-      );
-    } else {
-      processCreatorStudioVideoInBackground(bgArgs).catch((err) =>
-        console.error("❌ Creator Studio video background error:", err),
-      );
-    }
+    processCreatorStudioVideoInBackground(bgArgs).catch((err) =>
+      console.error("❌ Creator Studio video background error:", err),
+    );
 
     return res.json({
       success: true,
@@ -4851,248 +5053,223 @@ export async function extendCreatorStudioVideo(req, res) {
   return generateCreatorStudioVideo(req, res);
 }
 
-export async function removeWatermarkCreatorStudioVideo(req, res) {
+export async function uploadCreatorStudioMask(req, res) {
   try {
     const userId = req.user.userId;
-    const sourceGenerationId = String(req.body?.sourceGenerationId || "").trim();
-    const directInputVideoUrl = String(req.body?.inputVideoUrl || "").trim();
-    const requestedDuration = Number(req.body?.durationSeconds);
-    const hasDirectDuration = Number.isFinite(requestedDuration) && requestedDuration > 0;
-
-    let inputVideoUrl = directInputVideoUrl;
-    let durationSeconds = hasDirectDuration ? requestedDuration : null;
-    let originalGenerationId = null;
-
-    if (sourceGenerationId) {
-      const source = await prisma.generation.findFirst({
-        where: {
-          id: sourceGenerationId,
-          userId,
-          type: "creator-studio-video",
-          providerFamily: "seedance2",
-        },
-        select: {
-          id: true,
-          outputUrl: true,
-          duration: true,
-          status: true,
-        },
-      });
-      if (!source || !source.outputUrl || source.status !== "completed") {
-        return res.status(400).json({ success: false, message: "Source Seedance video not found or not completed." });
-      }
-      inputVideoUrl = source.outputUrl;
-      durationSeconds = Math.max(5, Number(source.duration) || 5);
-      originalGenerationId = source.id;
-    } else {
-      if (!inputVideoUrl) {
-        return res.status(400).json({ success: false, message: "Provide sourceGenerationId or inputVideoUrl." });
-      }
-      const videoCheck = validateVideoUrl(inputVideoUrl);
-      if (!videoCheck.valid) {
-        return res.status(400).json({ success: false, message: `inputVideoUrl: ${videoCheck.message}` });
-      }
-      if (!hasDirectDuration) {
-        return res.status(400).json({ success: false, message: "durationSeconds is required when using inputVideoUrl directly." });
-      }
-      durationSeconds = Math.max(5, Math.floor(requestedDuration));
+    const maskDataUrl = String(req.body?.maskDataUrl || "").trim();
+    if (!maskDataUrl.startsWith("data:image/png;base64,")) {
+      return res.status(400).json({ success: false, message: "maskDataUrl must be a PNG data URL." });
     }
-
-    req.body = {
-      ...(req.body || {}),
-      family: "seedance2",
-      mode: "remove-watermark",
-      prompt: "",
-      inputVideoUrl,
-      durationSeconds,
-      originalGenerationId: originalGenerationId || req.body?.originalGenerationId || null,
-    };
-    return generateCreatorStudioVideo(req, res);
+    const base64 = maskDataUrl.split(",")[1] || "";
+    const buffer = Buffer.from(base64, "base64");
+    if (!buffer.length) {
+      return res.status(400).json({ success: false, message: "Mask is empty." });
+    }
+    const url = await uploadBufferToBlobOrR2(buffer, "kie-relay", "png", "image/png");
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+    await prisma.generation.create({
+      data: {
+        userId,
+        type: "creator-studio-mask",
+        prompt: "creator-studio-mask",
+        status: "completed",
+        creditsCost: 0,
+        provider: "internal",
+        providerFamily: "creator-studio",
+        providerMode: "mask",
+        providerType: "mask-upload",
+        outputUrl: url,
+        completedAt: new Date(),
+        providerResponse: {
+          expiresAt: expiresAt.toISOString(),
+        },
+      },
+    });
+    return res.json({
+      success: true,
+      maskUrl: url,
+      expiresAt: expiresAt.toISOString(),
+    });
   } catch (error) {
-    console.error("❌ removeWatermarkCreatorStudioVideo error:", error);
+    console.error("❌ uploadCreatorStudioMask error:", error);
+    return res.status(500).json({ success: false, message: "Failed to upload mask", error: error.message });
+  }
+}
+
+export async function listCreatorStudioAssets(req, res) {
+  try {
+    const userId = req.user.userId;
+    const assets = await prisma.generation.findMany({
+      where: {
+        userId,
+        type: "creator-studio-asset",
+      },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        status: true,
+        createdAt: true,
+        completedAt: true,
+        providerTaskId: true,
+        providerMode: true,
+        inputImageUrl: true,
+        outputUrl: true,
+        providerResponse: true,
+      },
+      take: 120,
+    });
+    return res.json({
+      success: true,
+      assets: assets.map((row) => ({
+        id: row.id,
+        status: row.status,
+        createdAt: row.createdAt,
+        completedAt: row.completedAt,
+        taskId: row.providerTaskId || null,
+        assetType: row.providerMode || null,
+        sourceUrl: row.inputImageUrl || null,
+        assetUri: row.outputUrl || null,
+        meta: row.providerResponse || null,
+      })),
+    });
+  } catch (error) {
+    console.error("❌ listCreatorStudioAssets error:", error);
     return res.status(500).json({ success: false, message: "Server error", error: error.message });
   }
 }
 
-export async function handlePiApiCallback(req, res) {
+export async function createCreatorStudioAsset(req, res) {
+  const userId = req.user.userId;
+  let generationId = null;
   try {
-    const body = req.body || {};
-    const data = body?.data || body;
-    const taskId = data?.task_id || data?.taskId || body?.task_id || body?.taskId || body?.id;
-    if (!taskId) return res.status(200).json({ success: true, ignored: "missing_task_id" });
+    const sourceUrl = String(req.body?.url || "").trim();
+    const assetTypeRaw = String(req.body?.assetType || "").trim().toLowerCase();
+    const assetType = assetTypeRaw === "image" ? "Image" : assetTypeRaw === "video" ? "Video" : assetTypeRaw === "audio" ? "Audio" : null;
+    if (!assetType) {
+      return res.status(400).json({ success: false, message: "assetType must be image, video, or audio." });
+    }
+    if (!sourceUrl.startsWith("http")) {
+      return res.status(400).json({ success: false, message: "A public source URL is required." });
+    }
 
-    const lookupTaskId = String(taskId);
-    const lookupDelays = [0, 150, 400, 900, 1600];
-    let generation = null;
-    for (const delay of lookupDelays) {
-      if (delay > 0) await new Promise((r) => setTimeout(r, delay));
-      generation = await prisma.generation.findFirst({
-        where: {
-          OR: [
-            { providerTaskId: lookupTaskId },
-            { replicateModel: `piapi-task:${lookupTaskId}` },
-          ],
-        },
-        select: {
-          id: true,
-          status: true,
-          creditsRefunded: true,
-          duration: true,
-          providerFamily: true,
-          providerMode: true,
-          providerTaskId: true,
-          providerRequest: true,
-        },
+    const existingCount = await prisma.generation.count({
+      where: {
+        userId,
+        type: "creator-studio-asset",
+      },
+    });
+    if (existingCount >= 100) {
+      return res.status(400).json({ success: false, message: "Asset cap reached (100/100). Delete old assets before creating new ones." });
+    }
+
+    const pricing = await getGenerationPricing();
+    const creditsNeeded = Math.max(1, Math.ceil(Number(pricing.creatorStudioAssetCreate || 100)));
+    const user = await checkAndExpireCredits(userId);
+    const totalCredits = getTotalCredits(user);
+    if (totalCredits < creditsNeeded) {
+      return res.status(403).json({
+        success: false,
+        message: `Need ${creditsNeeded} credits, you have ${totalCredits}.`,
       });
-      if (generation) break;
     }
-    if (!generation) return res.status(200).json({ success: true, ignored: "generation_not_found" });
-    if (generation.providerTaskId && String(generation.providerTaskId) !== lookupTaskId) {
-      return res.status(200).json({ success: true, ignored: "stale_callback" });
-    }
+    await deductCredits(userId, creditsNeeded);
 
-    const rawStatus = String(data?.status || body?.status || "").toLowerCase();
-    const outputUrl =
-      data?.output?.video ||
-      data?.output?.video_url ||
-      data?.output?.url ||
-      body?.output?.video ||
-      body?.outputUrl ||
-      null;
+    const generation = await prisma.generation.create({
+      data: {
+        userId,
+        type: "creator-studio-asset",
+        prompt: sourceUrl,
+        status: "processing",
+        creditsCost: creditsNeeded,
+        provider: "kie",
+        providerFamily: "seedance-assets",
+        providerMode: assetType.toLowerCase(),
+        providerType: "create",
+        providerModel: "kie-volcanic-asset",
+        inputImageUrl: sourceUrl,
+      },
+    });
+    generationId = generation.id;
 
-    if (rawStatus.includes("completed") || outputUrl) {
-      const providerRequest =
-        generation.providerRequest && typeof generation.providerRequest === "object"
-          ? generation.providerRequest
-          : {};
-      const shouldChainSeedanceWatermark =
-        String(generation.providerFamily || "").toLowerCase() === "seedance2"
-        && String(generation.providerMode || "").toLowerCase() !== "remove-watermark"
-        && providerRequest.removeWatermark === true
-        && !!outputUrl;
-
-      if (shouldChainSeedanceWatermark) {
-        try {
-          const removerDuration = Math.max(5, Number(generation.duration) || 5);
-          const submit = await submitPiApiTask({
-            model: "seedance",
-            task_type: "remove-watermark",
-            input: {
-              video_url: String(outputUrl || ""),
-              duration: removerDuration,
-            },
-          });
-          const removerTaskId =
-            submit?.data?.data?.task_id
-            || submit?.data?.data?.taskId
-            || submit?.data?.task_id
-            || submit?.data?.taskId
-            || null;
-          if (!removerTaskId) {
-            throw new Error("Seedance watermark-remover submit did not return task id.");
-          }
-
-          await prisma.generation.update({
-            where: { id: generation.id },
-            data: {
-              status: "processing",
-              provider: "piapi",
-              replicateModel: `piapi-task:${removerTaskId}`,
-              providerTaskId: removerTaskId,
-              providerMode: "remove-watermark",
-              providerType: "remove-watermark",
-              providerModel: "piapi-seedance2-remove-watermark",
-              providerRequest: {
-                ...(providerRequest || {}),
-                watermarkSourceTaskId: lookupTaskId,
-                watermarkSourceVideoUrl: outputUrl,
-              },
-              providerResponse: submit?.data || body,
-            },
-          });
-          return res.status(200).json({ success: true, chained: "seedance_remove_watermark" });
-        } catch (chainErr) {
-          await prisma.generation.update({
-            where: { id: generation.id },
-            data: {
-              status: "failed",
-              errorMessage: getErrorMessageForDb(chainErr?.message || "Seedance watermark-remover chaining failed"),
-              providerResponse: body,
-            },
-          });
-          if (!generation.creditsRefunded) {
-            await refundGeneration(generation.id).catch(() => {});
-          }
-          return res.status(200).json({ success: true, failed: "seedance_remove_watermark_chain" });
-        }
-      }
-
-      // Persist immediately with the provider URL, then mirror to durable storage in the background.
-      await prisma.generation.update({
-        where: { id: generation.id },
-        data: {
-          status: "completed",
-          outputUrl: outputUrl || undefined,
-          completedAt: new Date(),
-          providerResponse: body,
-        },
-      });
-      // Mirror ephemeral PiAPI URL (img.theapi.app/ephemeral/…) to persistent storage so it
-      // doesn't expire. This runs after the 200 is sent so the response is not delayed.
-      if (outputUrl) {
-        (async () => {
-          try {
-            let persisted = outputUrl;
-            if (isVercelBlobConfigured()) {
-              persisted = await mirrorExternalUrlToPersistentBlob(outputUrl, "generations");
-            } else if (isR2Configured()) {
-              persisted = await mirrorToR2(outputUrl, "generations");
-            }
-            if (persisted && persisted !== outputUrl) {
-              await prisma.generation.update({
-                where: { id: generation.id },
-                data: { outputUrl: persisted },
-              });
-            }
-          } catch (e) {
-            console.warn("⚠️ PiAPI output URL mirror failed:", e?.message);
-            void enqueueGenerationBlobRemirror({
-              generationId: generation.id,
-              sourceUrl: outputUrl,
-              contentTypeHint: "video/mp4",
-              reason: "piapi-callback-mirror-failed",
-            }).catch(() => {});
-          }
-        })();
-      }
-      return res.status(200).json({ success: true });
-    }
-
-    if (rawStatus.includes("failed")) {
-      await prisma.generation.update({
-        where: { id: generation.id },
-        data: {
-          status: "failed",
-          errorMessage: getErrorMessageForDb(data?.error?.message || body?.message || "PiAPI task failed"),
-          providerResponse: body,
-        },
-      });
-      if (!generation.creditsRefunded) {
-        await refundGeneration(generation.id).catch(() => {});
-      }
-      return res.status(200).json({ success: true });
-    }
+    const kieUrl = await ensureKieAccessibleUrl(sourceUrl, "seedance-asset-source");
+    const created = await createVolcanicAssetKie({
+      url: kieUrl,
+      assetType,
+    });
 
     await prisma.generation.update({
       where: { id: generation.id },
       data: {
-        status: "processing",
-        providerResponse: body,
+        status: "completed",
+        outputUrl: created.assetUri,
+        providerTaskId: created.taskId || null,
+        completedAt: new Date(),
+        providerResponse: {
+          assetId: created.assetId,
+          assetUri: created.assetUri,
+          sourceUrl,
+          mirroredSourceUrl: kieUrl,
+          outputUrl: created.outputUrl || null,
+          createdAt: new Date().toISOString(),
+        },
       },
     });
-    return res.status(200).json({ success: true });
+
+    return res.json({
+      success: true,
+      asset: {
+        id: generation.id,
+        status: "completed",
+        taskId: created.taskId || null,
+        assetType: assetType.toLowerCase(),
+        sourceUrl,
+        assetUri: created.assetUri,
+      },
+      creditsUsed: creditsNeeded,
+      creditsRemaining: totalCredits - creditsNeeded,
+    });
   } catch (error) {
-    console.error("❌ PiAPI callback handling failed:", error);
-    return res.status(200).json({ success: true });
+    console.error("❌ createCreatorStudioAsset error:", error);
+    if (generationId) {
+      await prisma.generation.update({
+        where: { id: generationId },
+        data: {
+          status: "failed",
+          errorMessage: getErrorMessageForDb(error.message || "Failed to create asset"),
+        },
+      }).catch(() => {});
+      await refundGeneration(generationId).catch(() => {});
+    }
+    return res.status(500).json({ success: false, message: error.message || "Failed to create asset" });
+  }
+}
+
+export async function deleteCreatorStudioAsset(req, res) {
+  try {
+    const userId = req.user.userId;
+    const id = String(req.params?.assetId || "").trim();
+    if (!id) return res.status(400).json({ success: false, message: "assetId is required." });
+    const existing = await prisma.generation.findFirst({
+      where: {
+        id,
+        userId,
+        type: "creator-studio-asset",
+      },
+      select: { id: true, outputUrl: true, inputImageUrl: true },
+    });
+    if (!existing) {
+      return res.status(404).json({ success: false, message: "Asset not found." });
+    }
+    if (existing.outputUrl?.startsWith("http")) {
+      await deleteStoredMediaFromOutputField(existing.outputUrl).catch(() => {});
+    }
+    if (existing.inputImageUrl?.startsWith("http")) {
+      await deleteStoredMediaFromOutputField(existing.inputImageUrl).catch(() => {});
+    }
+    await prisma.generation.delete({ where: { id } });
+    return res.json({ success: true });
+  } catch (error) {
+    console.error("❌ deleteCreatorStudioAsset error:", error);
+    return res.status(500).json({ success: false, message: "Server error", error: error.message });
   }
 }

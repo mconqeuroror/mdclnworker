@@ -718,6 +718,12 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
                 console.warn("[KIE Callback] deleteBlobAfterKie inputVideoUrl:", err?.message || err);
               });
             }
+            const providerReq = gen.providerRequest && typeof gen.providerRequest === "object" ? gen.providerRequest : null;
+            if (providerReq?.maskUrl) {
+              deleteBlobAfterKie(String(providerReq.maskUrl)).catch((err) => {
+                console.warn("[KIE Callback] deleteBlobAfterKie maskUrl:", err?.message || err);
+              });
+            }
           }
         } catch (e) {
           console.warn("[KIE Callback] input blob cleanup lookup failed:", e?.message || e);

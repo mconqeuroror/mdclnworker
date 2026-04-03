@@ -46,8 +46,10 @@ import {
   generateCreatorStudio,
   generateCreatorStudioVideo,
   extendCreatorStudioVideo,
-  removeWatermarkCreatorStudioVideo,
-  handlePiApiCallback,
+  uploadCreatorStudioMask,
+  listCreatorStudioAssets,
+  createCreatorStudioAsset,
+  deleteCreatorStudioAsset,
 } from "../controllers/generation.controller.js";
 import { processPendingBlobRemirrorQueue } from "../services/blob-remirror-queue.service.js";
 import {
@@ -248,6 +250,7 @@ import referralRoutes from "./referral.routes.js";
 import draftRoutes from "./draft.routes.js";
 import reformatterRoutes from "./reformatter.routes.js";
 import avatarRoutes from "./avatar.routes.js";
+import heygenCallbackRoutes from "./heygen-callback.routes.js";
 import landerNewRoutes from "./lander-new.routes.js";
 import adminLanderNewRoutes from "./admin-lander-new.routes.js";
 import affiliateLanderPublicRoutes from "./affiliate-lander-public.routes.js";
@@ -2057,14 +2060,30 @@ router.post(
 );
 
 router.post(
-  "/generate/creator-studio/video/remove-watermark",
+  "/generate/creator-studio/mask-upload",
   authMiddleware,
   generationLimiter,
-  validateGeneration,
-  removeWatermarkCreatorStudioVideo,
+  uploadCreatorStudioMask,
 );
 
-router.post("/piapi/callback", handlePiApiCallback);
+router.get(
+  "/generate/creator-studio/assets",
+  authMiddleware,
+  listCreatorStudioAssets,
+);
+
+router.post(
+  "/generate/creator-studio/assets",
+  authMiddleware,
+  generationLimiter,
+  createCreatorStudioAsset,
+);
+
+router.delete(
+  "/generate/creator-studio/assets/:assetId",
+  authMiddleware,
+  deleteCreatorStudioAsset,
+);
 
 /**
  * Get ElevenLabs voices for talking head
@@ -2246,6 +2265,7 @@ router.use("/admin/affiliate-lander", authMiddleware, adminMiddleware, adminAffi
 // REAL AVATARS (HeyGen Photo Avatar IV)
 // ============================================
 router.use("/avatars", avatarRoutes);
+router.use("/heygen", heygenCallbackRoutes);
 
 // ============================================
 // ADMIN ROUTES (Backup, Stats, User Management)

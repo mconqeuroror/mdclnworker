@@ -18,6 +18,14 @@ export const DEFAULT_GENERATION_PRICING = Object.freeze({
   // Creator Studio — NanoBanana Pro
   creatorStudio1K2K: 20,
   creatorStudio4K: 25,
+  creatorStudioFluxKontextPro: 10,
+  creatorStudioFluxKontextMax: 20,
+  creatorStudioWan27ImagePro: 24,
+  creatorStudioIdeogramTurbo: 7,
+  creatorStudioIdeogramBalanced: 14,
+  creatorStudioIdeogramQuality: 20,
+  creatorStudioSeedream45Edit: 10,
+  creatorStudioAssetCreate: 100,
   nanoBananaFlash1K: 4,
   nanoBanana2Flash4K: 8,
   nanoBananaPro4K: 24,
@@ -67,13 +75,17 @@ export const DEFAULT_GENERATION_PRICING = Object.freeze({
   kling26Sound5s: 110,
   kling26Sound10s: 220,
 
-  // Seedance 2 (PiAPI) converted to equivalent credits/sec at current policy
-  seedance2PreviewCreditsPerSec: 60,
-  seedance2FastPreviewCreditsPerSec: 32,
-  seedance2PreviewEditCreditsPerSec: 100,
-  seedance2FastPreviewEditCreditsPerSec: 52,
-  // Seedance remove-watermark priced at $0.016/s (credits policy conversion).
-  seedanceRemoveWatermarkPerSec: 6.4,
+  // Seedance 2 (KIE) — user pricing policy (2x provider cost)
+  // Standard model
+  seedance2Standard480WithVideoPerSec: 23,
+  seedance2Standard480NoVideoPerSec: 38,
+  seedance2Standard720WithVideoPerSec: 50,
+  seedance2Standard720NoVideoPerSec: 82,
+  // Fast model
+  seedance2Fast480WithVideoPerSec: 16,
+  seedance2Fast480NoVideoPerSec: 31,
+  seedance2Fast720WithVideoPerSec: 40,
+  seedance2Fast720NoVideoPerSec: 66,
 
   videoPrompt5s: 60,
   videoPrompt10s: 100,

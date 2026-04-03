@@ -1,249 +1,274 @@
 /**
- * HeyGen Photo Avatar IV API service
- *
- * Environment variables:
- *   HEYGEN_API_KEY  — HeyGen API key
- *
- * Flow:
- *   1. uploadAsset(buffer, filename, mimeType) → assetId
- *   2. createPhotoAvatar(imageAssetId, name)   → groupId
- *   3. pollAvatarStatus(groupId)               → { status, avatarId }
- *   4. generateVideo(avatarId, audioAssetId, opts) → videoId
- *   5. getVideoStatus(videoId)                 → { status, videoUrl, duration }
- *   6. deleteAvatar(groupId)
+ * HeyGen Photo Avatar IV + AV4 service.
+ * Spec-aligned endpoints:
+ * - POST /v1/asset/upload
+ * - POST /v2/photo_avatar/avatar_group/create
+ * - POST /v2/photo_avatar/avatar_group/add
+ * - POST /v2/photo_avatar/train
+ * - GET  /v2/photo_avatar/status/{id}
+ * - POST /v2/video/av4/generate
+ * - GET  /v2/videos/{video_id} (fallback /v1/video_status.get)
  */
 
 const HEYGEN_API_KEY = process.env.HEYGEN_API_KEY;
 const HEYGEN_BASE = "https://api.heygen.com";
 
 if (!HEYGEN_API_KEY) {
-  console.warn("⚠️  HEYGEN_API_KEY not set — Real Avatars feature will not work");
+  console.warn("⚠️ HEYGEN_API_KEY not set — Real Avatars feature will not work");
 }
 
 function heygenHeaders(extra = {}) {
   return {
     "X-Api-Key": HEYGEN_API_KEY || "",
-    "Accept": "application/json",
+    Accept: "application/json",
     ...extra,
   };
+}
+
+export function getHeygenWebhookUrl() {
+  const explicit = process.env.HEYGEN_WEBHOOK_URL;
+  if (explicit && String(explicit).startsWith("http")) return String(explicit).trim();
+  const callbackBase = process.env.CALLBACK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || process.env.APP_PUBLIC_URL || process.env.PUBLIC_URL || process.env.APP_URL;
+  if (callbackBase) {
+    const base = String(callbackBase).trim().replace(/\/$/, "");
+    const withProtocol = base.startsWith("http") ? base : `https://${base}`;
+    return `${withProtocol.replace(/\/$/, "")}/api/heygen/webhook`;
+  }
+  const vercel = process.env.VERCEL_URL;
+  if (vercel) return `https://${String(vercel).replace(/^https?:\/\//, "").replace(/\/$/, "")}/api/heygen/webhook`;
+  return null;
 }
 
 async function heygenFetch(path, init = {}) {
   const url = `${HEYGEN_BASE}${path}`;
   const resp = await fetch(url, { ...init, signal: init.signal ?? AbortSignal.timeout(30_000) });
   const text = await resp.text();
-  let data;
-  try { data = JSON.parse(text); } catch { data = { raw: text }; }
-
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = { raw: text };
+  }
   if (!resp.ok) {
-    const msg = data?.message || data?.error || text.slice(0, 300);
-    throw new Error(`HeyGen ${init.method || "GET"} ${path} → ${resp.status}: ${msg}`);
+    const msg = data?.message || data?.error?.message || data?.error || text.slice(0, 300);
+    throw new Error(`HeyGen ${init.method || "GET"} ${path} -> ${resp.status}: ${msg}`);
+  }
+  if (data?.error) {
+    const errMessage = typeof data.error === "string" ? data.error : (data.error?.message || JSON.stringify(data.error));
+    if (errMessage) throw new Error(`HeyGen ${path} returned error: ${errMessage}`);
   }
   return data;
 }
 
-// ── Asset upload ──────────────────────────────────────────────────────────────
+function normalizeProcessingStatus(rawStatus) {
+  const s = String(rawStatus || "").toLowerCase();
+  if (["completed", "success", "succeeded", "active", "finished", "ready"].includes(s)) return "completed";
+  if (["failed", "fail", "error"].includes(s)) return "failed";
+  return "processing";
+}
 
-/**
- * Upload a file (image or audio) to HeyGen's asset storage.
- * Returns the asset `id` (asset_key used in subsequent calls).
- */
-export async function uploadAsset(buffer, filename, mimeType = "application/octet-stream") {
+export async function uploadAsset(buffer, filename, mimeType = "application/octet-stream", assetTypeOverride = null) {
   if (!HEYGEN_API_KEY) throw new Error("HEYGEN_API_KEY is not configured");
+  const assetType =
+    assetTypeOverride
+    || (mimeType.startsWith("image/") ? "photo_avatar" : mimeType.startsWith("audio/") ? "audio" : "photo_avatar");
 
   const form = new FormData();
   form.append("file", new Blob([buffer], { type: mimeType }), filename);
+  form.append("asset_type", assetType);
 
-  const data = await heygenFetch("/v1/asset", {
+  const data = await heygenFetch("/v1/asset/upload", {
     method: "POST",
-    headers: heygenHeaders(), // Content-Type set automatically by FormData
+    headers: heygenHeaders(),
     body: form,
+    signal: AbortSignal.timeout(60_000),
   });
 
-  const assetId = data?.data?.id || data?.data?.asset_id;
-  if (!assetId) throw new Error(`HeyGen asset upload: no ID in response: ${JSON.stringify(data)}`);
-  console.log(`✅ [HeyGen] Asset uploaded: ${assetId}`);
-  return assetId;
+  const uploaded = data?.data || {};
+  const imageKey = uploaded.image_key || uploaded.asset_key || uploaded.key || null;
+  const url = uploaded.url || null;
+  const assetId = uploaded.id || uploaded.asset_id || null;
+  if (!imageKey && !url && !assetId) {
+    throw new Error(`HeyGen asset upload returned no usable key/url/id: ${JSON.stringify(data).slice(0, 300)}`);
+  }
+  return { imageKey, url, assetId };
 }
 
-// ── Photo Avatar ──────────────────────────────────────────────────────────────
-
-/**
- * Create a Photo Avatar group from an uploaded image asset.
- * Returns the `avatar_group_id` — poll getPhotoAvatarStatus() for readiness.
- */
-export async function createPhotoAvatar(imageAssetId, name = "Avatar") {
+export async function createPhotoAvatarGroup(imageKey, name = "Avatar") {
   if (!HEYGEN_API_KEY) throw new Error("HEYGEN_API_KEY is not configured");
-
-  const data = await heygenFetch("/v2/photo_avatar", {
+  const data = await heygenFetch("/v2/photo_avatar/avatar_group/create", {
     method: "POST",
     headers: heygenHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({
-      image_key: imageAssetId,
       name,
-      circle_background_color: "#F0F0F0",
+      image_key: imageKey,
     }),
   });
-
-  const groupId = data?.data?.avatar_group_id || data?.data?.id;
-  if (!groupId) throw new Error(`HeyGen create avatar: no group_id in response: ${JSON.stringify(data)}`);
-  console.log(`✅ [HeyGen] Photo avatar submitted: group=${groupId}`);
+  const groupId = data?.data?.group_id || data?.data?.avatar_group_id || data?.data?.id || null;
+  if (!groupId) throw new Error(`HeyGen create group returned no group_id: ${JSON.stringify(data).slice(0, 300)}`);
   return groupId;
 }
 
-/**
- * Get the processing status of a Photo Avatar group.
- * @returns {{ status: string, avatarId: string|null }}
- *   status: "processing" | "completed" | "failed"
- *   avatarId: the first avatar_id from the group when completed
- */
-export async function getPhotoAvatarStatus(groupId) {
+export async function addLookToAvatarGroup(groupId, imageKeys = []) {
   if (!HEYGEN_API_KEY) throw new Error("HEYGEN_API_KEY is not configured");
-
-  const data = await heygenFetch(`/v2/photo_avatar/${groupId}`);
-  const group = data?.data;
-
-  if (!group) throw new Error(`HeyGen avatar status: empty response for ${groupId}`);
-
-  const rawStatus = (group.status || "").toLowerCase();
-  let status = "processing";
-  if (rawStatus === "completed" || rawStatus === "active" || rawStatus === "success") status = "completed";
-  else if (rawStatus === "failed" || rawStatus === "error") status = "failed";
-
-  const avatarList = group.avatar_list || [];
-  const avatarId = avatarList[0]?.avatar_id || null;
-
-  return { status, avatarId, raw: group };
-}
-
-/**
- * Delete a Photo Avatar group from HeyGen.
- */
-export async function deletePhotoAvatar(groupId) {
-  if (!HEYGEN_API_KEY) throw new Error("HEYGEN_API_KEY is not configured");
-
-  try {
-    await heygenFetch(`/v2/photo_avatar/${groupId}`, { method: "DELETE" });
-    console.log(`🗑️  [HeyGen] Avatar group ${groupId} deleted`);
-  } catch (err) {
-    // 404 = already gone, ignore
-    if (!err.message.includes("404")) throw err;
-    console.warn(`[HeyGen] Avatar ${groupId} not found on delete — already removed`);
+  if (!groupId) throw new Error("groupId is required");
+  if (!Array.isArray(imageKeys) || imageKeys.length === 0) {
+    throw new Error("imageKeys must include at least one uploaded image_key");
   }
+  const data = await heygenFetch("/v2/photo_avatar/avatar_group/add", {
+    method: "POST",
+    headers: heygenHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({
+      group_id: groupId,
+      image_keys: imageKeys,
+    }),
+  });
+  const generationId = data?.data?.generation_id || data?.data?.id || null;
+  return { generationId, raw: data?.data || null };
 }
 
-// ── Video generation ──────────────────────────────────────────────────────────
-
-/**
- * Generate a talking-head video using a Photo Avatar and a pre-generated audio file.
- * @param {string} avatarId     - the avatar_id from the group
- * @param {string} audioAssetId - HeyGen asset ID of the uploaded MP3/WAV
- * @param {object} opts
- * @param {number} opts.width   - video width (default 1280)
- * @param {number} opts.height  - video height (default 720)
- * @returns {string} HeyGen video_id
- */
-export async function generateAvatarVideo(avatarId, audioAssetId, opts = {}) {
+export async function trainPhotoAvatarGroup(groupId) {
   if (!HEYGEN_API_KEY) throw new Error("HEYGEN_API_KEY is not configured");
+  if (!groupId) throw new Error("groupId is required");
+  return heygenFetch("/v2/photo_avatar/train", {
+    method: "POST",
+    headers: heygenHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ group_id: groupId }),
+  });
+}
 
-  const width  = opts.width  ?? 1280;
-  const height = opts.height ?? 720;
+export async function getPhotoAvatarStatus(id) {
+  if (!HEYGEN_API_KEY) throw new Error("HEYGEN_API_KEY is not configured");
+  let row = null;
+  try {
+    const data = await heygenFetch(`/v2/photo_avatar/status/${encodeURIComponent(id)}`);
+    row = data?.data || {};
+  } catch (error) {
+    const fallback = await heygenFetch(`/v2/photo_avatar/${encodeURIComponent(id)}`);
+    row = fallback?.data || {};
+  }
+  const status = normalizeProcessingStatus(row.status || row.state);
+  const avatarId =
+    row.avatar_id
+    || row.avatarId
+    || row?.result?.avatar_id
+    || row?.result?.avatarId
+    || row?.avatar?.id
+    || null;
+  return { status, avatarId, raw: row };
+}
+
+export async function deletePhotoAvatar(avatarId) {
+  if (!HEYGEN_API_KEY) throw new Error("HEYGEN_API_KEY is not configured");
+  if (!avatarId) return;
+  await heygenFetch(`/v2/photo_avatar/${encodeURIComponent(avatarId)}`, { method: "DELETE" });
+}
+
+export async function deletePhotoAvatarGroup(groupId) {
+  if (!HEYGEN_API_KEY) throw new Error("HEYGEN_API_KEY is not configured");
+  if (!groupId) return;
+  await heygenFetch(`/v2/photo_avatar/avatar_group/${encodeURIComponent(groupId)}`, { method: "DELETE" });
+}
+
+export async function generateAvatarVideo({
+  avatarId,
+  inputText,
+  heygenVoiceId,
+  width = 1920,
+  height = 1080,
+  aspectRatio = "16:9",
+  title = "Modelclone Avatar Video",
+  test = false,
+  callbackId = null,
+}) {
+  if (!HEYGEN_API_KEY) throw new Error("HEYGEN_API_KEY is not configured");
+  if (!avatarId) throw new Error("avatarId is required");
+  if (!inputText?.trim()) throw new Error("inputText is required");
+  if (!heygenVoiceId?.trim()) throw new Error("HeyGen voice_id is required");
 
   const payload = {
-    video_inputs: [
-      {
-        character: {
-          type: "avatar",
-          avatar_id: avatarId,
-          avatar_style: "normal",
-        },
-        voice: {
-          type: "audio",
-          audio_asset_id: audioAssetId,
-        },
-        background: opts.backgroundUrl
-          ? { type: "image", url: opts.backgroundUrl }
-          : { type: "color", value: "#1a1a2e" },
+    title,
+    avatar_id: avatarId,
+    input_text: String(inputText).trim(),
+    voice: {
+      voice_id: String(heygenVoiceId).trim(),
+      provider: "elevenlabs",
+      model: "eleven_v3",
+      elevenlabs_settings: {
+        stability: 0.5,
+        similarity_boost: 0.75,
+        style: 0.3,
+        use_speaker_boost: true,
       },
-    ],
+    },
     dimension: { width, height },
-    test: false,
+    aspect_ratio: aspectRatio,
+    background: { type: "color", value: "#FFFFFF" },
+    caption: false,
+    test: !!test,
   };
+  const callbackUrl = getHeygenWebhookUrl();
+  if (callbackUrl) payload.callback_url = callbackUrl;
+  if (callbackId) payload.callback_id = String(callbackId);
 
-  const data = await heygenFetch("/v2/video/generate", {
+  const data = await heygenFetch("/v2/video/av4/generate", {
     method: "POST",
     headers: heygenHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify(payload),
     signal: AbortSignal.timeout(60_000),
   });
-
-  const videoId = data?.data?.video_id || data?.video_id;
-  if (!videoId) throw new Error(`HeyGen generate video: no video_id: ${JSON.stringify(data)}`);
-  console.log(`✅ [HeyGen] Video generation started: ${videoId}`);
+  const videoId = data?.data?.video_id || data?.data?.id || data?.video_id || null;
+  if (!videoId) throw new Error(`HeyGen AV4 generate returned no video_id: ${JSON.stringify(data).slice(0, 300)}`);
   return videoId;
 }
 
-/**
- * Poll HeyGen for video completion status.
- * @returns {{ status: string, videoUrl: string|null, duration: number|null }}
- *   status: "processing" | "completed" | "failed"
- */
 export async function getVideoStatus(videoId) {
   if (!HEYGEN_API_KEY) throw new Error("HEYGEN_API_KEY is not configured");
-
-  const data = await heygenFetch(`/v1/video_status.get?video_id=${encodeURIComponent(videoId)}`);
-  const d = data?.data;
-
-  const rawStatus = (d?.status || "").toLowerCase();
-  let status = "processing";
-  if (rawStatus === "completed" || rawStatus === "success" || rawStatus === "finished") status = "completed";
-  else if (rawStatus === "failed" || rawStatus === "error") status = "failed";
-
-  return {
-    status,
-    videoUrl: d?.video_url || d?.url || null,
-    thumbnailUrl: d?.thumbnail_url || null,
-    duration: d?.duration ?? null,
-  };
+  try {
+    const data = await heygenFetch(`/v2/videos/${encodeURIComponent(videoId)}`);
+    const row = data?.data || {};
+    const status = normalizeProcessingStatus(row.status || row.state);
+    return {
+      status,
+      videoUrl: row.video_url || row.url || null,
+      thumbnailUrl: row.thumbnail_url || null,
+      duration: Number(row.duration || 0) || null,
+    };
+  } catch (error) {
+    const fallback = await heygenFetch(`/v1/video_status.get?video_id=${encodeURIComponent(videoId)}`);
+    const row = fallback?.data || {};
+    const status = normalizeProcessingStatus(row.status || row.state);
+    return {
+      status,
+      videoUrl: row.video_url || row.url || null,
+      thumbnailUrl: row.thumbnail_url || null,
+      duration: Number(row.duration || 0) || null,
+    };
+  }
 }
 
-// ── Background polling helpers ────────────────────────────────────────────────
-
-/**
- * Poll HeyGen avatar creation until completed or failed (max ~10 min).
- * Returns { avatarId } on success.
- */
-export async function pollAvatarUntilReady(groupId, maxMs = 10 * 60 * 1000) {
+export async function pollAvatarUntilReady(id, maxMs = 12 * 60 * 1000) {
   const deadline = Date.now() + maxMs;
-  let delay = 15_000; // start with 15s
-
+  let delay = 6_000;
   while (Date.now() < deadline) {
-    await new Promise(r => setTimeout(r, delay));
-    delay = Math.min(delay * 1.5, 60_000); // back-off up to 60s
-
-    const { status, avatarId } = await getPhotoAvatarStatus(groupId);
-    if (status === "completed" && avatarId) return { avatarId };
-    if (status === "failed") throw new Error("HeyGen avatar creation failed on their end");
+    await new Promise((r) => setTimeout(r, delay));
+    delay = Math.min(Math.floor(delay * 1.35), 30_000);
+    const row = await getPhotoAvatarStatus(id);
+    if (row.status === "completed" && row.avatarId) return { avatarId: row.avatarId };
+    if (row.status === "failed") throw new Error("HeyGen photo avatar processing failed");
   }
-
-  throw new Error("HeyGen avatar creation timed out after 10 minutes");
+  throw new Error("HeyGen photo avatar processing timed out");
 }
 
-/**
- * Poll HeyGen video generation until completed or failed (max ~15 min).
- */
-export async function pollVideoUntilReady(videoId, maxMs = 15 * 60 * 1000) {
+export async function pollVideoUntilReady(videoId, maxMs = 20 * 60 * 1000) {
   const deadline = Date.now() + maxMs;
-  let delay = 10_000;
-
+  let delay = 5_000;
   while (Date.now() < deadline) {
-    await new Promise(r => setTimeout(r, delay));
-    delay = Math.min(delay * 1.3, 30_000);
-
-    const result = await getVideoStatus(videoId);
-    if (result.status === "completed") return result;
-    if (result.status === "failed") throw new Error("HeyGen video generation failed");
+    await new Promise((r) => setTimeout(r, delay));
+    delay = Math.min(Math.floor(delay * 1.25), 20_000);
+    const row = await getVideoStatus(videoId);
+    if (row.status === "completed") return row;
+    if (row.status === "failed") throw new Error("HeyGen video generation failed");
   }
-
-  throw new Error("HeyGen video generation timed out after 15 minutes");
+  throw new Error("HeyGen video generation timed out");
 }

@@ -610,12 +610,7 @@ function ImageSourceSelector({ modelId, onUpload, onGallerySelect, preview, sele
       </div>
 
       {mode === "upload" ? (
-        <FileUpload
-          type={type}
-          onUpload={onUpload}
-          preview={preview}
-          label={type === "video" ? "Reference video" : "Reference image"}
-        />
+        <FileUpload type={type} onUpload={onUpload} preview={preview} />
       ) : (
         <div className="rounded-xl p-2.5 glass-card">
           {selectedGalleryImage ? (
@@ -703,7 +698,7 @@ function ModelSelector({ models, selectedModel, onSelect, accentColor = "purple"
         <button
           onClick={() => { setIsOpen(!isOpen); }}
           data-testid="button-select-model"
-          className="model-selector-trigger relative overflow-hidden w-full flex items-center gap-3 p-3 group text-white"
+          className="relative overflow-hidden w-full flex items-center gap-3 p-3 group text-white"
         >
           {(isOpen || selectedModelData) && (
             <span className="absolute top-0 left-0 w-24 h-24 pointer-events-none" style={PURPLE_CORNER_GLOW_STYLE} />
@@ -718,10 +713,7 @@ function ModelSelector({ models, selectedModel, onSelect, accentColor = "purple"
                 <div className="model-fallback w-full h-full items-center justify-center bg-slate-800 text-white text-[8px] font-bold absolute inset-0" style={{ display: 'none' }}>{selectedModelData.name?.charAt(0)}</div>
               </div>
               <div className="flex-1 text-left min-w-0">
-                <div className="flex items-center gap-2">
-                  <p className={`text-sm font-medium ${accents[accentColor].text} truncate`}>{selectedModelData.name}</p>
-                  <span className="model-selector-badge">Selected</span>
-                </div>
+                <p className={`text-sm font-medium ${accents[accentColor].text} truncate`}>{selectedModelData.name}</p>
                 <p className="text-[10px] text-slate-500">{isOpen ? copy.modelHintTapToClose : copy.modelHintTapToChange}</p>
               </div>
             </>
@@ -745,8 +737,7 @@ function ModelSelector({ models, selectedModel, onSelect, accentColor = "purple"
             className="px-3 pb-3 pt-1"
             style={{ borderTop: `1px solid ${accents[accentColor].border}` }}
           >
-            <p className="text-[10px] text-slate-500 mb-2 px-0.5">Choose a model to apply your identity/look preset.</p>
-            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2 max-h-56 overflow-y-auto custom-scrollbar pr-1">
+            <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 gap-2 max-h-48 overflow-y-auto custom-scrollbar pr-1">
               {models.map((model) => (
                 <button
                   key={model.id}
@@ -895,7 +886,7 @@ export default function GeneratePage({ setActiveTab: setDashboardTab, openVoiceS
             setIsTabDrawerOpen(false);
           }}
           data-testid={activeTab === "image" ? "tab-image" : "tab-video"}
-          className="generate-top-tabs w-full relative overflow-hidden py-3 px-3 sm:py-4 sm:px-6 rounded-xl flex items-center justify-between gap-3 min-h-[48px] sm:min-h-[56px] group text-white"
+          className="w-full relative overflow-hidden py-3 px-3 sm:py-4 sm:px-6 rounded-xl flex items-center justify-between gap-3 min-h-[48px] sm:min-h-[56px] group text-white"
           style={SELECTED_GLASS_STYLE}
         >
           <div className="absolute top-0 left-0 w-24 h-24 pointer-events-none" style={PURPLE_CORNER_GLOW_STYLE} />
@@ -914,7 +905,7 @@ export default function GeneratePage({ setActiveTab: setDashboardTab, openVoiceS
         )}
 
         {(isTabDrawerOpen || !hasSelectedTopTab) && (
-          <div className="generate-top-tabs mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3">
+          <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3">
             {(!hasSelectedTopTab || activeTab !== "image") && (
               <button
                 onClick={() => {
@@ -924,7 +915,7 @@ export default function GeneratePage({ setActiveTab: setDashboardTab, openVoiceS
                   setIsTabDrawerOpen(false);
                 }}
                 data-testid="tab-image"
-                className="generate-top-tab relative py-3 px-3 sm:py-4 sm:px-6 rounded-xl flex items-center justify-center gap-2 sm:gap-3 min-h-[48px] sm:min-h-[56px] group text-white"
+                className="relative py-3 px-3 sm:py-4 sm:px-6 rounded-xl flex items-center justify-center gap-2 sm:gap-3 min-h-[48px] sm:min-h-[56px] group text-white"
                 style={UNSELECTED_GLASS_STYLE}
               >
                 <div className="relative flex items-center gap-2 sm:gap-3">
@@ -947,7 +938,7 @@ export default function GeneratePage({ setActiveTab: setDashboardTab, openVoiceS
                   setIsTabDrawerOpen(false);
                 }}
                 data-testid="tab-video"
-                className="generate-top-tab relative py-3 px-3 sm:py-4 sm:px-6 rounded-xl flex items-center justify-center gap-2 sm:gap-3 min-h-[48px] sm:min-h-[56px] group text-white"
+                className="relative py-3 px-3 sm:py-4 sm:px-6 rounded-xl flex items-center justify-center gap-2 sm:gap-3 min-h-[48px] sm:min-h-[56px] group text-white"
                 style={UNSELECTED_GLASS_STYLE}
               >
                 <div className="relative flex items-center gap-2 sm:gap-3">
@@ -3020,14 +3011,7 @@ function VideoGeneration() {
               <div className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold" style={{ background: 'rgba(203, 213, 225, 0.9)', color: '#0f172a', border: '1px solid rgba(255,255,255,0.2)' }}>3</div>
               <label className="text-[11px] uppercase tracking-[0.15em] text-slate-400 font-medium">{copy.videoRecreateReferenceVideo}</label>
             </div>
-            <FileUpload
-              type="video"
-              acceptOnlyMp4
-              onUpload={(file) => handleReferenceVideoUpload(file)}
-              preview={referenceVideo}
-              large
-              label="Reference"
-            />
+            <FileUpload type="video" acceptOnlyMp4 onUpload={(file) => handleReferenceVideoUpload(file)} preview={referenceVideo} large />
             {referenceVideoDuration > 0 && (
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <span className="px-2 py-0.5 text-[10px] font-medium rounded-full" style={{ background: 'rgba(34,197,94,0.15)', color: '#22C55E' }}>
@@ -3049,8 +3033,7 @@ function VideoGeneration() {
             )}
           </div>
 
-          <div className="video-settings-layout">
-          <div className="video-setting-card mb-5">
+          <div className="mb-5">
             <label className="text-[11px] uppercase tracking-[0.15em] text-slate-400 font-medium block mb-2">{copy.videoRecreateEngineLabel}</label>
             <div className="grid grid-cols-2 gap-2">
               <button
@@ -3081,7 +3064,7 @@ function VideoGeneration() {
           </div>
 
           {recreateEngine === "wan" && (
-            <div className="video-setting-card mb-5">
+            <div className="mb-5">
               <label className="text-[11px] uppercase tracking-[0.15em] text-slate-400 font-medium block mb-2">{copy.videoRecreateWanResolutionLabel}</label>
               <div className="grid grid-cols-3 gap-2">
                 {[
@@ -3105,7 +3088,7 @@ function VideoGeneration() {
             </div>
           )}
 
-          <div className="video-setting-card mb-2 rounded-xl px-3 py-2.5" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}>
+          <div className="mb-2 rounded-xl px-3 py-2.5" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}>
             <p className="text-[10px] text-slate-400 leading-relaxed">
               <span className="text-slate-200 font-medium">{recreateEngine === "wan" ? copy.videoRecreateEngineWan : copy.videoRecreateClassicInfoPrefix}</span>{" "}
               {recreateEngine === "wan" ? `${copy.videoRecreateWanDesc} · ${wanResolution}` : copy.videoRecreateClassicInfoValue} · ~
@@ -3119,7 +3102,7 @@ function VideoGeneration() {
 
           {/* Ultra: Motion Control Pro+ @ 1080p */}
           {recreateEngine === "kling" && (
-          <div className="video-setting-card mb-5 flex items-start gap-3">
+          <div className="mb-5 flex items-start gap-3">
             <button
               type="button"
               onClick={() => setRecreateUltraMode(!recreateUltraMode)}
@@ -3138,7 +3121,7 @@ function VideoGeneration() {
           )}
 
           {/* Audio Toggle */}
-          <div className="video-setting-card mb-5 flex items-center gap-3">
+          <div className="mb-5 flex items-center gap-3">
             <button
               onClick={() => setKeepAudioFromVideo(!keepAudioFromVideo)}
               className={`relative w-10 h-5 rounded-full transition-all flex items-center ${keepAudioFromVideo ? 'bg-emerald-500' : 'bg-red-500'}`}
@@ -3147,10 +3130,8 @@ function VideoGeneration() {
             </button>
             <span className="text-[11px] text-slate-400">{copy.videoKeepAudio} {keepAudioFromVideo ? <span className="text-green-400 font-bold">{copy.on}</span> : <span className="text-slate-500 font-bold">{copy.off}</span>}</span>
           </div>
-          </div>
 
           {/* Generate Button */}
-          <div className="video-generate-sticky">
           {referenceVideoDuration > 0 && credits < Math.ceil(referenceVideoDuration * recreateCreditsPerSec) ? (
             <button
               onClick={() => setShowCreditsModal(true)}
@@ -3182,7 +3163,6 @@ function VideoGeneration() {
               )}
             </button>
           )}
-          </div>
         </div>
       )}
 
@@ -3275,7 +3255,6 @@ function VideoGeneration() {
           </div>
 
           {/* Generate Button */}
-          <div className="video-generate-sticky">
           {credits < (promptVideoDuration === 5 ? 60 : 100) ? (
             <button
               onClick={() => setShowCreditsModal(true)}
@@ -3305,7 +3284,6 @@ function VideoGeneration() {
               )}
             </button>
           )}
-          </div>
         </div>
       )}
 
@@ -3327,7 +3305,7 @@ function VideoGeneration() {
               <div className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold" style={{ background: 'rgba(203, 213, 225, 0.9)', color: '#0f172a', border: '1px solid rgba(255,255,255,0.2)' }}>2</div>
               <label className="text-[11px] uppercase tracking-[0.15em] text-slate-400 font-medium">{copy.faceswapVideoSourceVideo}</label>
             </div>
-            <FileUpload type="video" onUpload={handleVideoUpload} preview={sourceVideo} large label="Source" />
+            <FileUpload type="video" onUpload={handleVideoUpload} preview={sourceVideo} large />
             {videoDuration > 0 && (
               <div className="mt-2 flex items-center gap-2">
                 <span className="px-2 py-0.5 text-[10px] font-medium rounded-full" style={{ background: 'rgba(34,211,238,0.15)', color: '#22D3EE' }}>
@@ -3363,7 +3341,6 @@ function VideoGeneration() {
           </div>
 
           {/* Generate Button */}
-          <div className="video-generate-sticky">
           {videoDuration > 0 && credits < Math.ceil(videoDuration * 10) ? (
             <button
               onClick={() => setShowCreditsModal(true)}
@@ -3393,7 +3370,6 @@ function VideoGeneration() {
               )}
             </button>
           )}
-          </div>
         </div>
       )}
 
@@ -3572,7 +3548,6 @@ function VideoGeneration() {
           </div>
 
           {/* Generate Button */}
-          <div className="video-generate-sticky">
           {talkingHeadText.length >= 5 && credits < Math.max(70, Math.ceil(Math.ceil(talkingHeadText.length / 12.5) * 13)) ? (
             <button
               onClick={() => setShowCreditsModal(true)}
@@ -3602,7 +3577,6 @@ function VideoGeneration() {
               )}
             </button>
           )}
-          </div>
         </div>
       )}
 
