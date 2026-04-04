@@ -126,7 +126,11 @@ export async function createPhotoAvatarGroup(imageKey, name = "Avatar") {
   });
   const groupId = data?.data?.group_id || data?.data?.avatar_group_id || data?.data?.id || null;
   if (!groupId) throw new Error(`HeyGen create group returned no group_id: ${JSON.stringify(data).slice(0, 300)}`);
-  return groupId;
+  const generationId =
+    data?.data?.generation_id
+    || data?.data?.id
+    || null;
+  return { groupId, generationId, raw: data?.data || null };
 }
 
 export async function addLookToAvatarGroup(groupId, imageKeys = []) {
@@ -150,11 +154,16 @@ export async function addLookToAvatarGroup(groupId, imageKeys = []) {
 export async function trainPhotoAvatarGroup(groupId) {
   if (!HEYGEN_API_KEY) throw new Error("HEYGEN_API_KEY is not configured");
   if (!groupId) throw new Error("groupId is required");
-  return heygenFetch("/v2/photo_avatar/train", {
+  const data = await heygenFetch("/v2/photo_avatar/train", {
     method: "POST",
     headers: heygenHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({ group_id: groupId }),
   });
+  const generationId =
+    data?.data?.generation_id
+    || data?.data?.id
+    || null;
+  return { generationId, raw: data?.data || null };
 }
 
 export async function getPhotoAvatarStatus(id) {
@@ -175,7 +184,13 @@ export async function getPhotoAvatarStatus(id) {
     || row?.result?.avatarId
     || row?.avatar?.id
     || null;
-  return { status, avatarId, raw: row };
+  const imageKeys =
+    row.image_key_list
+    || row.image_keys
+    || row?.result?.image_key_list
+    || row?.result?.image_keys
+    || [];
+  return { status, avatarId, imageKeys: Array.isArray(imageKeys) ? imageKeys : [], raw: row };
 }
 
 export async function deletePhotoAvatar(avatarId) {

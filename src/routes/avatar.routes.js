@@ -28,6 +28,7 @@ import {
   createPhotoAvatarGroup,
   addLookToAvatarGroup,
   trainPhotoAvatarGroup,
+  getPhotoAvatarStatus,
   pollAvatarUntilReady,
   deletePhotoAvatar,
   deletePhotoAvatarGroup,
@@ -58,6 +59,43 @@ const WORDS_PER_SECOND = 2.5;  // average speech rate
 function estimateDuration(script) {
   const words = script.trim().split(/\s+/).length;
   return Math.max(5, Math.round(words / WORDS_PER_SECOND));
+}
+
+async function waitForPhotoGenerationSuccess(generationId, maxMs = 8 * 60 * 1000) {
+  const deadline = Date.now() + maxMs;
+  let delay = 5_000;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, delay));
+    delay = Math.min(Math.floor(delay * 1.35), 20_000);
+    const row = await getPhotoAvatarStatus(generationId);
+    if (row.status === "completed") return row;
+    if (row.status === "failed") {
+      throw new Error("HeyGen look generation failed");
+    }
+  }
+  throw new Error("HeyGen look generation timed out");
+}
+
+async function trainGroupWhenReady(groupId, lookGenerationId = null) {
+  if (lookGenerationId) {
+    await waitForPhotoGenerationSuccess(lookGenerationId);
+  }
+  let lastError = null;
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    try {
+      const train = await trainPhotoAvatarGroup(groupId);
+      return train?.generationId || null;
+    } catch (error) {
+      lastError = error;
+      const message = String(error?.message || "");
+      const notReadyYet = message.includes("No valid image for training found");
+      if (!notReadyYet || attempt === 4) break;
+      const backoff = attempt * 8_000;
+      console.warn(`[Avatar] train not ready for group ${groupId}, retry ${attempt}/4 in ${Math.round(backoff / 1000)}s`);
+      await new Promise((r) => setTimeout(r, backoff));
+    }
+  }
+  throw lastError || new Error("HeyGen train failed");
 }
 
 async function markAvatarReadyById(avatarId, heygenAvatarId) {
@@ -365,46 +403,49 @@ async function processAvatarCreation(avatarId, userId, photoBuffer, mimeType, ex
     if (!imageKey) throw new Error("HeyGen upload did not return image_key");
 
     let groupId = existingGroupId;
-    let statusIdToPoll = null;
+    let lookGenerationId = null;
     if (groupId) {
       // Add a new look to existing avatar group
       const added = await addLookToAvatarGroup(groupId, [imageKey]);
-      statusIdToPoll = added.generationId || groupId;
+      lookGenerationId = added.generationId || null;
     } else {
-      groupId = await createPhotoAvatarGroup(imageKey, `Avatar ${avatarId}`);
-      statusIdToPoll = groupId;
-      await trainPhotoAvatarGroup(groupId).catch((e) =>
-        console.warn(`[Avatar] train call failed for group ${groupId}: ${e?.message || e}`),
-      );
+      const created = await createPhotoAvatarGroup(imageKey, `Avatar ${avatarId}`);
+      groupId = created.groupId;
+      lookGenerationId = created.generationId || null;
     }
+    const trainGenerationId = await trainGroupWhenReady(groupId, lookGenerationId);
 
     // Persist groupId then poll status endpoint until we receive look/avatar_id.
     await prisma.avatar.update({ where: { id: avatarId }, data: { heygenGroupId: groupId } });
     // Webhook-first: wait for HeyGen webhook to finalize.
     // Fallback watchdog polls after a grace period in case webhook is missed.
-    const pollTarget = statusIdToPoll || groupId;
-    setTimeout(async () => {
-      try {
-        const current = await prisma.avatar.findUnique({
-          where: { id: avatarId },
-          select: { status: true },
-        });
-        if (!current || current.status !== "processing") return;
-        const ready = await pollAvatarUntilReady(pollTarget);
-        const changed = await markAvatarReadyById(avatarId, ready.avatarId);
-        if (changed) {
-          console.log(`✅ [Avatar] Watchdog finalized avatar ${avatarId} ready (${ready.avatarId})`);
+    const pollTarget = trainGenerationId || lookGenerationId || null;
+    if (pollTarget) {
+      setTimeout(async () => {
+        try {
+          const current = await prisma.avatar.findUnique({
+            where: { id: avatarId },
+            select: { status: true },
+          });
+          if (!current || current.status !== "processing") return;
+          const ready = await pollAvatarUntilReady(pollTarget);
+          const changed = await markAvatarReadyById(avatarId, ready.avatarId);
+          if (changed) {
+            console.log(`✅ [Avatar] Watchdog finalized avatar ${avatarId} ready (${ready.avatarId})`);
+          }
+        } catch (watchErr) {
+          const changed = await markAvatarFailedAndRefund(
+            avatarId,
+            watchErr?.message || "Avatar creation watchdog failed",
+          );
+          if (changed) {
+            console.warn(`⚠️ [Avatar] Watchdog marked avatar ${avatarId} failed`);
+          }
         }
-      } catch (watchErr) {
-        const changed = await markAvatarFailedAndRefund(
-          avatarId,
-          watchErr?.message || "Avatar creation watchdog failed",
-        );
-        if (changed) {
-          console.warn(`⚠️ [Avatar] Watchdog marked avatar ${avatarId} failed`);
-        }
-      }
-    }, 90_000);
+      }, 90_000);
+    } else {
+      console.warn(`[Avatar] No HeyGen generation ID returned for avatar ${avatarId}; relying on webhook only`);
+    }
 
     console.log(`✅ [Avatar] Avatar ${avatarId} submitted; awaiting webhook`);
   } catch (err) {
