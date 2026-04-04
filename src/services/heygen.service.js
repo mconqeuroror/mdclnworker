@@ -61,6 +61,12 @@ async function heygenFetch(path, init = {}) {
   return data;
 }
 
+function getHeygenStatusFromError(error) {
+  const msg = String(error?.message || "");
+  const m = msg.match(/->\s*(\d{3})\s*:/);
+  return m ? Number(m[1]) : null;
+}
+
 async function heygenUploadFetch(path, init = {}) {
   const url = `${HEYGEN_UPLOAD_BASE}${path}`;
   const resp = await fetch(url, { ...init, signal: init.signal ?? AbortSignal.timeout(30_000) });
@@ -126,10 +132,7 @@ export async function createPhotoAvatarGroup(imageKey, name = "Avatar") {
   });
   const groupId = data?.data?.group_id || data?.data?.avatar_group_id || data?.data?.id || null;
   if (!groupId) throw new Error(`HeyGen create group returned no group_id: ${JSON.stringify(data).slice(0, 300)}`);
-  const generationId =
-    data?.data?.generation_id
-    || data?.data?.id
-    || null;
+  const generationId = data?.data?.generation_id || null;
   return { groupId, generationId, raw: data?.data || null };
 }
 
@@ -173,6 +176,17 @@ export async function getPhotoAvatarStatus(id) {
     const data = await heygenFetch(`/v2/photo_avatar/generation/${encodeURIComponent(id)}`);
     row = data?.data || {};
   } catch (error) {
+    const status = getHeygenStatusFromError(error);
+    // Keep fallback only for "not found / unsupported endpoint" cases.
+    // Never fallback on auth failures; surface them directly.
+    if (status === 401 || status === 403) {
+      throw new Error(
+        `HeyGen auth failed while checking photo generation status (HTTP ${status}). Verify HEYGEN_API_KEY for this environment.`,
+      );
+    }
+    if (status !== 404 && status !== 405) {
+      throw error;
+    }
     const fallback = await heygenFetch(`/v2/photo_avatar/${encodeURIComponent(id)}`);
     row = fallback?.data || {};
   }

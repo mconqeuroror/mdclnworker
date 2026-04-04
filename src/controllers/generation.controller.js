@@ -4660,6 +4660,7 @@ async function processCreatorStudioVideoInBackground({
             })),
       );
     } else if (lowerFamily === "seedance2") {
+      const isMultiRefMode = normalizedMode === "multi-ref";
       const firstFrame = imageUrl ? await ensureKieAccessibleUrl(imageUrl, "seedance-first-frame") : null;
       const lastFrame = endFrameUrl ? await ensureKieAccessibleUrl(endFrameUrl, "seedance-last-frame") : null;
       const refImagesRaw = [referenceImageUrl, thirdImageUrl].filter(Boolean).slice(0, 7);
@@ -4678,11 +4679,13 @@ async function processCreatorStudioVideoInBackground({
         generateSeedance2Kie({
           variant: String(seedanceTaskType || "seedance-2-preview"),
           prompt: String(finalPrompt || ""),
-          firstFrameUrl: firstFrame,
+          // KIE rejects payloads that mix first/last frames with reference_image_urls.
+          // In multi-ref mode, treat imageUrl as a reference image (not first frame).
+          firstFrameUrl: isMultiRefMode ? null : firstFrame,
           lastFrameUrl: normalizedMode === "edit" ? (lastFrame || null) : null,
-          referenceImageUrls: normalizedMode === "multi-ref" ? [firstFrame, ...refImages].filter(Boolean) : refImages,
-          referenceVideoUrls: normalizedMode === "multi-ref" ? refVideos : [],
-          referenceAudioUrls: normalizedMode === "multi-ref" ? refAudios : [],
+          referenceImageUrls: isMultiRefMode ? [firstFrame, ...refImages].filter(Boolean).slice(0, 9) : refImages,
+          referenceVideoUrls: isMultiRefMode ? refVideos : [],
+          referenceAudioUrls: isMultiRefMode ? refAudios : [],
           returnLastFrame: seedanceReturnLastFrame === true,
           generateAudio: seedanceGenerateAudio === true,
           resolution: String(seedanceResolution || "720p"),
