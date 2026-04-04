@@ -1619,6 +1619,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
   const [isVideoGenerating, setIsVideoGenerating] = useState(false);
   const [extendSourceId, setExtendSourceId] = useState("");
   const [mobileVideoBarExpanded, setMobileVideoBarExpanded] = useState(false);
+  const [kling30AdvancedOpen, setKling30AdvancedOpen] = useState(false);
   const isFluxImageModel = imageModel.startsWith("flux-kontext");
   const isIdeogramImageModel = imageModel.startsWith("ideogram-v3");
   const isWanImageModel = imageModel === "wan-2-7-image-pro";
@@ -2576,125 +2577,98 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                 rows={2}
                 className="w-full bg-transparent text-sm text-white placeholder-slate-500 resize-none outline-none px-1 py-1 leading-relaxed"
               />
-              <div className="flex flex-col gap-3 mt-2 min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Family</span>
-                  <div className="flex flex-wrap items-center gap-1.5 min-w-0">
-                    {VIDEO_FAMILIES.map((family) => (
-                      <Chip key={family.id} active={videoFamily === family.id} onClick={() => { setVideoFamily(family.id); setVideoMode(defaultModeByFamily(family.id)); }}>
-                        {family.label}
-                      </Chip>
-                    ))}
-                  </div>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Mode</span>
-                  <div className="flex flex-wrap items-center gap-1.5 min-w-0">
-                    {videoModes.map((m) => (
-                      <Chip key={m} active={videoMode === m} onClick={() => setVideoMode(m)}>
-                        {m === "t2v" ? "Text → Video" : m === "i2v" ? "Image → Video" : m === "multi-ref" ? "Multi-Ref" : m === "ref2v" ? "Ref → Video" : m === "move" ? "Animate" : m === "replace" ? "Replace" : m === "edit" ? "First + Last" : "Extend"}
-                      </Chip>
-                    ))}
-                  </div>
-                  <span className="text-[10px] text-violet-300 ml-auto flex items-center gap-1 shrink-0">
-                    <Coins className="w-3 h-3 text-yellow-400" /> {videoPricingInfo.details}
+              <div className="h-px bg-white/[0.06] mt-2 mb-1" />
+              <div className="flex flex-col gap-2 min-w-0">
+                <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+                  {VIDEO_FAMILIES.map((family) => (
+                    <Chip key={family.id} active={videoFamily === family.id} onClick={() => { setVideoFamily(family.id); setVideoMode(defaultModeByFamily(family.id)); }}>
+                      {family.label}
+                    </Chip>
+                  ))}
+                  <span className="w-px h-4 bg-white/10 mx-0.5" />
+                  {videoModes.map((m) => (
+                    <Chip key={m} active={videoMode === m} onClick={() => setVideoMode(m)}>
+                      {m === "t2v" ? "Text" : m === "i2v" ? "Image" : m === "multi-ref" ? "Multi-Ref" : m === "ref2v" ? "Ref" : m === "move" ? "Animate" : m === "replace" ? "Replace" : m === "edit" ? "First+Last" : "Extend"}
+                    </Chip>
+                  ))}
+                  <span className="text-[10px] text-violet-300/80 ml-auto flex items-center gap-1 shrink-0">
+                    <Coins className="w-3 h-3 text-yellow-400/70" /> {videoPricingInfo.details}
                   </span>
                 </div>
-                {/* Uploads — conditional by family + mode */}
-                <div className="flex flex-wrap items-start gap-2 empty:hidden">
-                  {(videoFamily === "sora2" || videoFamily === "kling26") && videoMode === "i2v" && (
+                {((videoFamily === "sora2" || videoFamily === "kling26") && videoMode === "i2v") && (
+                  <div className="flex flex-wrap items-start gap-2">
                     <MediaUploadField label="Input Image" value={videoImageUrl} onUploaded={setVideoImageUrl} />
-                  )}
-                  {videoFamily === "kling30" && videoMode === "i2v" && (
-                    <>
-                      <MediaUploadField label="Start Frame" value={videoImageUrl} onUploaded={setVideoImageUrl} />
-                      <MediaUploadField label="End Frame (optional)" value={videoEndFrameUrl} onUploaded={setVideoEndFrameUrl} />
-                    </>
-                  )}
-                  {videoFamily === "veo31" && videoMode === "i2v" && (
-                    <>
-                      <MediaUploadField label="Start Frame" value={videoImageUrl} onUploaded={setVideoImageUrl} />
-                      <MediaUploadField label="End Frame (optional)" value={videoEndFrameUrl} onUploaded={setVideoEndFrameUrl} />
-                    </>
-                  )}
-                  {videoFamily === "veo31" && videoMode === "ref2v" && (
-                    <>
-                      <MediaUploadField label="Reference Image 1" value={videoImageUrl} onUploaded={setVideoImageUrl} />
-                      <MediaUploadField label="Reference Image 2 (optional)" value={videoRefImageUrl} onUploaded={setVideoRefImageUrl} />
-                      <MediaUploadField label="Reference Image 3 (optional)" value={videoThirdImageUrl} onUploaded={setVideoThirdImageUrl} />
-                    </>
-                  )}
-                  {videoFamily === "wan22" && (
-                    <>
-                      <MediaUploadField label="Input Video" value={videoInputVideoUrl} onUploaded={setVideoInputVideoUrl} accept="video/*" preview="video" />
-                      <MediaUploadField label="Input Image" value={videoImageUrl} onUploaded={setVideoImageUrl} />
-                    </>
-                  )}
-                  {videoFamily === "seedance2" && (videoMode === "i2v" || videoMode === "edit" || videoMode === "multi-ref") && (
-                    <>
-                      {videoMode === "edit" && (
-                        <MediaUploadField label="First Frame" value={videoImageUrl} onUploaded={setVideoImageUrl} />
-                      )}
-                      {videoMode === "edit" && (
-                        <MediaUploadField label="Last Frame" value={videoEndFrameUrl} onUploaded={setVideoEndFrameUrl} />
-                      )}
-                      {videoMode === "i2v" && (
-                        <MediaUploadField label="First Frame" value={videoImageUrl} onUploaded={setVideoImageUrl} />
-                      )}
-                      {videoMode === "multi-ref" && (
-                        <>
-                          <MediaUploadField label="Reference Image 1 (optional)" value={videoImageUrl} onUploaded={setVideoImageUrl} />
-                          <MediaUploadField label="Reference Image 2 (optional)" value={videoRefImageUrl} onUploaded={setVideoRefImageUrl} />
-                          <MediaUploadField label="Reference Image 3 (optional)" value={videoThirdImageUrl} onUploaded={setVideoThirdImageUrl} />
-                          <MediaUploadField label="Reference Video (optional)" value={videoInputVideoUrl} onUploaded={setVideoInputVideoUrl} accept="video/*" preview="video" />
-                        </>
-                      )}
-                    </>
-                  )}
-                  {(videoFamily === "veo31" && videoMode === "extend") && (
-                    <div>
-                      <label className="block text-xs text-slate-400 mb-1">Select Veo video to extend</label>
-                      <select value={extendSourceId} onChange={(e) => setExtendSourceId(e.target.value)} className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-white outline-none">
-                        <option value="">Choose from gallery</option>
-                        {videoHistory
-                          .filter((item) => item?.providerFamily === "veo31" && item?.providerTaskId && item?.status === "completed")
-                          .map((item) => (
-                            <option key={item.id} value={item.providerTaskId}>
-                              {item.prompt?.slice(0, 56) || "Veo generation"} ({item.providerTaskId})
-                            </option>
-                          ))}
-                      </select>
-                    </div>
-                  )}
-                </div>
-                {/* Generic duration slider (WAN, Seedance non-edit) */}
-                {videoFamily !== "sora2" && videoFamily !== "kling26" && videoFamily !== "veo31" && videoFamily !== "kling30" && (
-                  <div className="flex items-center gap-3 w-full">
-                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Duration</span>
-                    <input type="range" min={durationConfig.min} max={durationConfig.max} step={durationConfig.step} disabled={durationConfig.fixed} value={videoDuration} onChange={(e) => setVideoDuration(Number(e.target.value))} className="flex-1 accent-violet-500 disabled:opacity-50" />
-                    <span className="text-xs text-white font-medium w-8 text-right shrink-0">{videoDuration}s</span>
                   </div>
                 )}
-                {/* ── Sora 2 ──────────────────────────────────────────── */}
+                {(videoFamily === "kling30" || videoFamily === "veo31") && videoMode === "i2v" && (
+                  <div className="flex flex-wrap items-start gap-2">
+                    <MediaUploadField label="Start Frame" value={videoImageUrl} onUploaded={setVideoImageUrl} />
+                    <MediaUploadField label="End Frame (opt)" value={videoEndFrameUrl} onUploaded={setVideoEndFrameUrl} />
+                  </div>
+                )}
+                {videoFamily === "veo31" && videoMode === "ref2v" && (
+                  <div className="flex flex-wrap items-start gap-2">
+                    <MediaUploadField label="Ref 1" value={videoImageUrl} onUploaded={setVideoImageUrl} />
+                    <MediaUploadField label="Ref 2 (opt)" value={videoRefImageUrl} onUploaded={setVideoRefImageUrl} />
+                    <MediaUploadField label="Ref 3 (opt)" value={videoThirdImageUrl} onUploaded={setVideoThirdImageUrl} />
+                  </div>
+                )}
+                {videoFamily === "wan22" && (
+                  <div className="flex flex-wrap items-start gap-2">
+                    <MediaUploadField label="Input Video" value={videoInputVideoUrl} onUploaded={setVideoInputVideoUrl} accept="video/*" preview="video" />
+                    <MediaUploadField label="Input Image" value={videoImageUrl} onUploaded={setVideoImageUrl} />
+                  </div>
+                )}
+                {videoFamily === "seedance2" && videoMode === "edit" && (
+                  <div className="flex flex-wrap items-start gap-2">
+                    <MediaUploadField label="First Frame" value={videoImageUrl} onUploaded={setVideoImageUrl} />
+                    <MediaUploadField label="Last Frame" value={videoEndFrameUrl} onUploaded={setVideoEndFrameUrl} />
+                  </div>
+                )}
+                {videoFamily === "seedance2" && videoMode === "i2v" && (
+                  <div className="flex flex-wrap items-start gap-2">
+                    <MediaUploadField label="First Frame" value={videoImageUrl} onUploaded={setVideoImageUrl} />
+                  </div>
+                )}
+                {videoFamily === "seedance2" && videoMode === "multi-ref" && (
+                  <div className="flex flex-wrap items-start gap-2">
+                    <MediaUploadField label="Ref 1 (opt)" value={videoImageUrl} onUploaded={setVideoImageUrl} />
+                    <MediaUploadField label="Ref 2 (opt)" value={videoRefImageUrl} onUploaded={setVideoRefImageUrl} />
+                    <MediaUploadField label="Ref 3 (opt)" value={videoThirdImageUrl} onUploaded={setVideoThirdImageUrl} />
+                    <MediaUploadField label="Ref Video (opt)" value={videoInputVideoUrl} onUploaded={setVideoInputVideoUrl} accept="video/*" preview="video" />
+                  </div>
+                )}
+                {videoFamily === "veo31" && videoMode === "extend" && (
+                  <select value={extendSourceId} onChange={(e) => setExtendSourceId(e.target.value)} className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-1.5 text-xs text-white outline-none">
+                    <option value="">Select Veo video to extend…</option>
+                    {videoHistory
+                      .filter((item) => item?.providerFamily === "veo31" && item?.providerTaskId && item?.status === "completed")
+                      .map((item) => (
+                        <option key={item.id} value={item.providerTaskId}>
+                          {item.prompt?.slice(0, 56) || "Veo generation"} ({item.providerTaskId})
+                        </option>
+                      ))}
+                  </select>
+                )}
+                {videoFamily !== "sora2" && videoFamily !== "kling26" && videoFamily !== "veo31" && videoFamily !== "kling30" && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-slate-500 shrink-0">{videoDuration}s</span>
+                    <input type="range" min={durationConfig.min} max={durationConfig.max} step={durationConfig.step} disabled={durationConfig.fixed} value={videoDuration} onChange={(e) => setVideoDuration(Number(e.target.value))} className="w-24 accent-violet-500 disabled:opacity-50" />
+                  </div>
+                )}
                 {videoFamily === "sora2" && (
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Duration</span>
-                    <div className="flex items-center gap-1.5">
-                      <Chip active={videoNFrames === "10"} onClick={() => setVideoNFrames("10")}>10s</Chip>
-                      <Chip active={videoNFrames === "15"} onClick={() => setVideoNFrames("15")}>15s</Chip>
-                    </div>
-                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0 ml-1">Quality</span>
-                    <div className="flex items-center gap-1.5">
-                      <Chip active={videoSize === "standard"} onClick={() => setVideoSize("standard")}>Standard</Chip>
-                      <Chip active={videoSize === "high"} onClick={() => setVideoSize("high")}>High</Chip>
-                    </div>
-                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0 ml-1">Aspect</span>
-                    <div className="flex items-center gap-1.5">
-                      <Chip active={videoAspectRatio === "portrait"} onClick={() => setVideoAspectRatio("portrait")}>Portrait</Chip>
-                      <Chip active={videoAspectRatio === "landscape"} onClick={() => setVideoAspectRatio("landscape")}>Landscape</Chip>
-                    </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Chip active={videoNFrames === "10"} onClick={() => setVideoNFrames("10")}>10s</Chip>
+                    <Chip active={videoNFrames === "15"} onClick={() => setVideoNFrames("15")}>15s</Chip>
+                    <span className="w-px h-4 bg-white/10 mx-0.5" />
+                    <Chip active={videoSize === "standard"} onClick={() => setVideoSize("standard")}>Standard</Chip>
+                    <Chip active={videoSize === "high"} onClick={() => setVideoSize("high")}>High</Chip>
+                    <span className="w-px h-4 bg-white/10 mx-0.5" />
+                    <Chip active={videoAspectRatio === "portrait"} onClick={() => setVideoAspectRatio("portrait")}>Portrait</Chip>
+                    <Chip active={videoAspectRatio === "landscape"} onClick={() => setVideoAspectRatio("landscape")}>Landscape</Chip>
+                    <span className="w-px h-4 bg-white/10 mx-0.5" />
                     <button type="button" onClick={() => setSoraRemoveWatermark((v) => !v)}
-                      className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-all ${soraRemoveWatermark ? "bg-violet-600 text-white border border-violet-500" : "bg-white/5 text-slate-400 border border-white/15"}`}>
+                      className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-all ${soraRemoveWatermark ? "bg-violet-600 text-white border border-violet-500" : "bg-white/5 text-slate-400 border border-white/10"}`}>
                       Watermark {soraRemoveWatermark ? "Off" : "On"}
                     </button>
                   </div>
@@ -2702,241 +2676,209 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                 {/* ── Kling 3.0 ──────────────────────────────────────── */}
                 {videoFamily === "kling30" && (
                   <>
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                      <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Quality</span>
-                      <div className="flex items-center gap-1.5">
-                        <Chip active={kling30Quality === "std"} onClick={() => setKling30Quality("std")}>Standard</Chip>
-                        <Chip active={kling30Quality === "pro"} onClick={() => setKling30Quality("pro")}>Pro</Chip>
-                      </div>
-                      <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0 ml-1">Aspect</span>
-                      <div className="flex items-center gap-1.5">
-                        <Chip active={videoAspectRatio === "16:9"} onClick={() => setVideoAspectRatio("16:9")}>16:9</Chip>
-                        <Chip active={videoAspectRatio === "9:16"} onClick={() => setVideoAspectRatio("9:16")}>9:16</Chip>
-                        <Chip active={videoAspectRatio === "1:1"} onClick={() => setVideoAspectRatio("1:1")}>1:1</Chip>
-                      </div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <Chip active={kling30Quality === "std"} onClick={() => setKling30Quality("std")}>Standard</Chip>
+                      <Chip active={kling30Quality === "pro"} onClick={() => setKling30Quality("pro")}>Pro</Chip>
+                      <span className="w-px h-4 bg-white/10 mx-0.5" />
+                      <Chip active={videoAspectRatio === "16:9"} onClick={() => setVideoAspectRatio("16:9")}>16:9</Chip>
+                      <Chip active={videoAspectRatio === "9:16"} onClick={() => setVideoAspectRatio("9:16")}>9:16</Chip>
+                      <Chip active={videoAspectRatio === "1:1"} onClick={() => setVideoAspectRatio("1:1")}>1:1</Chip>
+                      {!kling30MultiShot && (
+                        <>
+                          <span className="w-px h-4 bg-white/10 mx-0.5" />
+                          <span className="text-[10px] text-slate-500 shrink-0">{videoDuration}s</span>
+                          <input type="range" min={3} max={15} step={1} value={videoDuration} onChange={(e) => setVideoDuration(Number(e.target.value))} className="w-20 accent-violet-500" />
+                        </>
+                      )}
+                      <span className="w-px h-4 bg-white/10 mx-0.5" />
                       <button type="button" onClick={() => setKling30MultiShot((v) => !v)}
-                        className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-all ${kling30MultiShot ? "bg-violet-600 text-white border border-violet-500" : "bg-white/5 text-slate-400 border border-white/15"}`}>
-                        Multi-shot {kling30MultiShot ? "On" : "Off"}
+                        className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-all ${kling30MultiShot ? "bg-violet-600 text-white border border-violet-500" : "bg-white/5 text-slate-400 border border-white/10"}`}>
+                        Multi-shot
+                      </button>
+                      <button type="button" onClick={() => setKling30AdvancedOpen((v) => !v)}
+                        className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-all ${kling30AdvancedOpen ? "bg-white/10 text-slate-200 border border-white/15" : "bg-white/5 text-slate-400 border border-white/10"}`}>
+                        {klingElements.length > 0 ? `Elements (${klingElements.length})` : "Elements"}
                       </button>
                     </div>
-                    {!kling30MultiShot && (
-                      <div className="flex items-center gap-3 w-full">
-                        <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Duration</span>
-                        <input type="range" min={3} max={15} step={1} value={videoDuration} onChange={(e) => setVideoDuration(Number(e.target.value))} className="flex-1 accent-violet-500" />
-                        <span className="text-xs text-white font-medium w-8 text-right shrink-0">{videoDuration}s</span>
-                      </div>
-                    )}
                     {kling30MultiShot && (
-                      <div className="rounded-lg border border-white/10 bg-black/20 p-2.5 space-y-2 max-h-[28vh] overflow-y-auto [scrollbar-width:thin]">
+                      <div className="rounded-lg border border-white/10 bg-black/20 p-2 space-y-1.5 max-h-[24vh] overflow-y-auto [scrollbar-width:thin]">
                         <div className="flex items-center justify-between">
-                          <p className="text-[11px] text-slate-500">
-                            {kling30Shots.length} shot{kling30Shots.length !== 1 ? "s" : ""} · {kling30Shots.reduce((sum, s) => sum + s.duration, 0)}s total (max 15s)
+                          <p className="text-[10px] text-slate-500">
+                            {kling30Shots.length} shot{kling30Shots.length !== 1 ? "s" : ""} · {kling30Shots.reduce((sum, s) => sum + s.duration, 0)}s / 15s
                           </p>
                           {kling30Shots.length < 5 && (
                             <button type="button" onClick={() => setKling30Shots((prev) => [...prev, { prompt: "", duration: 3 }])}
-                              className="flex items-center gap-1 text-[11px] text-violet-400 hover:text-violet-300 transition-colors">
-                              <Plus className="w-3 h-3" /> Add shot
+                              className="flex items-center gap-1 text-[10px] text-violet-400 hover:text-violet-300 transition-colors">
+                              <Plus className="w-3 h-3" /> Shot
                             </button>
                           )}
                         </div>
                         {kling30Shots.map((shot, idx) => (
-                          <div key={idx} className="rounded-lg border border-white/10 bg-black/30 p-2 space-y-1.5">
-                            <div className="flex items-center justify-between">
-                              <span className="text-[11px] font-semibold text-slate-300">Shot {idx + 1}</span>
-                              {kling30Shots.length > 1 && (
-                                <button type="button" onClick={() => setKling30Shots((prev) => prev.filter((_, i) => i !== idx))} className="text-slate-500 hover:text-red-400 transition-colors">
-                                  <X className="w-3.5 h-3.5" />
-                                </button>
-                              )}
-                            </div>
-                            <textarea value={shot.prompt} onChange={(e) => setKling30Shots((prev) => prev.map((s, i) => i === idx ? { ...s, prompt: e.target.value } : s))}
-                              placeholder={`Shot ${idx + 1} — motion, camera…`} rows={1}
-                              className="w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1 text-xs text-white resize-none outline-none placeholder:text-slate-600" />
-                            <div className="flex items-center gap-2">
-                              <input type="range" min={3} max={Math.min(10, 15 - kling30Shots.filter((_, i) => i !== idx).reduce((s, sh) => s + sh.duration, 0))} step={1} value={shot.duration}
-                                onChange={(e) => setKling30Shots((prev) => prev.map((s, i) => i === idx ? { ...s, duration: Number(e.target.value) } : s))} className="flex-1 accent-violet-500" />
-                              <span className="text-xs text-white font-medium w-6 text-right">{shot.duration}s</span>
-                            </div>
+                          <div key={idx} className="flex items-center gap-2">
+                            <span className="text-[10px] text-slate-500 shrink-0 w-4">{idx + 1}</span>
+                            <input value={shot.prompt} onChange={(e) => setKling30Shots((prev) => prev.map((s, i) => i === idx ? { ...s, prompt: e.target.value } : s))}
+                              placeholder={`Shot ${idx + 1} — motion, camera…`}
+                              className="flex-1 min-w-0 rounded-lg border border-white/10 bg-black/40 px-2 py-1 text-xs text-white outline-none placeholder:text-slate-600" />
+                            <input type="range" min={3} max={Math.min(10, 15 - kling30Shots.filter((_, i) => i !== idx).reduce((s, sh) => s + sh.duration, 0))} step={1} value={shot.duration}
+                              onChange={(e) => setKling30Shots((prev) => prev.map((s, i) => i === idx ? { ...s, duration: Number(e.target.value) } : s))} className="w-16 accent-violet-500" />
+                            <span className="text-[10px] text-white w-5 text-right">{shot.duration}s</span>
+                            {kling30Shots.length > 1 && (
+                              <button type="button" onClick={() => setKling30Shots((prev) => prev.filter((_, i) => i !== idx))} className="text-slate-600 hover:text-red-400 transition-colors">
+                                <X className="w-3 h-3" />
+                              </button>
+                            )}
                           </div>
                         ))}
                       </div>
                     )}
-                    <div className="rounded-lg border border-white/10 bg-black/20 p-2.5 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[11px] font-semibold text-slate-400">Elements</span>
-                        <span className="text-[10px] text-slate-600">Up to 3 · 2–4 images each</span>
+                    {kling30AdvancedOpen && (
+                      <div className="rounded-lg border border-white/10 bg-black/20 p-2 space-y-2">
+                        <div className="flex flex-wrap gap-2">
+                          <input value={klingElementName} onChange={(e) => setKlingElementName(e.target.value)} placeholder="@name" className="flex-1 min-w-[5rem] rounded-lg border border-white/10 bg-black/40 px-2 py-1 text-xs text-white outline-none placeholder:text-slate-600" />
+                          <input value={klingElementDescription} onChange={(e) => setKlingElementDescription(e.target.value)} placeholder="Description" className="flex-1 min-w-[5rem] rounded-lg border border-white/10 bg-black/40 px-2 py-1 text-xs text-white outline-none placeholder:text-slate-600" />
+                          <button type="button" onClick={() => {
+                            const media = klingElementMediaUrls.filter(Boolean);
+                            if (!klingElementName.trim() || !klingElementDescription.trim() || media.length < 2) { toast.error("Need name, description, and 2+ images."); return; }
+                            setKlingElements((prev) => [...prev.slice(0, 2), { name: klingElementName.trim(), description: klingElementDescription.trim(), element_input_urls: media.slice(0, 4) }]);
+                            setKlingElementName(""); setKlingElementDescription(""); setKlingElementMediaUrls(["", "", "", ""]);
+                          }} className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold bg-violet-600 hover:bg-violet-500 text-white transition-colors shrink-0">
+                            <Plus className="w-3 h-3" /> Add
+                          </button>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {klingElementMediaUrls.map((url, idx) => (
+                            <MediaUploadField key={idx} label={`Img ${idx + 1}${idx < 2 ? "*" : ""}`} value={url} onUploaded={(newUrl) => setKlingElementMediaUrls((prev) => prev.map((v, i) => (i === idx ? newUrl : v)))} />
+                          ))}
+                        </div>
+                        {klingElements.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {klingElements.map((element, idx) => (
+                              <span key={`${element.name}-${idx}`} className="inline-flex items-center gap-1 text-[10px] text-slate-300 rounded-md bg-black/40 px-1.5 py-0.5">
+                                @{element.name} · {element.element_input_urls.length}
+                                <button type="button" className="text-slate-600 hover:text-red-400" onClick={() => setKlingElements((prev) => prev.filter((_, i) => i !== idx))}><X className="w-2.5 h-2.5" /></button>
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                      <div className="flex flex-wrap gap-2">
-                        <input value={klingElementName} onChange={(e) => setKlingElementName(e.target.value)} placeholder="@name" className="flex-1 min-w-[6rem] rounded-lg border border-white/10 bg-black/40 px-2 py-1 text-xs text-white outline-none placeholder:text-slate-600" />
-                        <input value={klingElementDescription} onChange={(e) => setKlingElementDescription(e.target.value)} placeholder="Description" className="flex-1 min-w-[6rem] rounded-lg border border-white/10 bg-black/40 px-2 py-1 text-xs text-white outline-none placeholder:text-slate-600" />
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        {klingElementMediaUrls.map((url, idx) => (
-                          <MediaUploadField key={idx} label={`Img ${idx + 1}${idx < 2 ? "*" : ""}`} value={url} onUploaded={(newUrl) => setKlingElementMediaUrls((prev) => prev.map((v, i) => (i === idx ? newUrl : v)))} />
-                        ))}
-                      </div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <button type="button" onClick={() => {
-                          const media = klingElementMediaUrls.filter(Boolean);
-                          if (!klingElementName.trim() || !klingElementDescription.trim() || media.length < 2) { toast.error("Need name, description, and 2+ images."); return; }
-                          setKlingElements((prev) => [...prev.slice(0, 2), { name: klingElementName.trim(), description: klingElementDescription.trim(), element_input_urls: media.slice(0, 4) }]);
-                          setKlingElementName(""); setKlingElementDescription(""); setKlingElementMediaUrls(["", "", "", ""]);
-                        }} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-violet-600 hover:bg-violet-500 text-white transition-colors">
-                          <Plus className="w-3 h-3" /> Add
-                        </button>
-                        {klingElements.map((element, idx) => (
-                          <span key={`${element.name}-${idx}`} className="inline-flex items-center gap-1.5 text-[11px] text-slate-300 rounded-lg bg-black/40 px-2 py-1">
-                            @{element.name} · {element.element_input_urls.length} imgs
-                            <button type="button" className="text-slate-500 hover:text-red-400" onClick={() => setKlingElements((prev) => prev.filter((_, i) => i !== idx))}><X className="w-3 h-3" /></button>
-                          </span>
-                        ))}
-                      </div>
-                    </div>
+                    )}
                   </>
                 )}
                 {/* ── Kling 2.6 ──────────────────────────────────────── */}
                 {videoFamily === "kling26" && (
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                  <div className="flex flex-wrap items-center gap-1.5">
                     {videoMode === "t2v" && (
                       <>
-                        <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Aspect</span>
-                        <div className="flex items-center gap-1.5">
-                          <Chip active={videoAspectRatio === "1:1"} onClick={() => setVideoAspectRatio("1:1")}>1:1</Chip>
-                          <Chip active={videoAspectRatio === "16:9"} onClick={() => setVideoAspectRatio("16:9")}>16:9</Chip>
-                          <Chip active={videoAspectRatio === "9:16"} onClick={() => setVideoAspectRatio("9:16")}>9:16</Chip>
-                        </div>
+                        <Chip active={videoAspectRatio === "1:1"} onClick={() => setVideoAspectRatio("1:1")}>1:1</Chip>
+                        <Chip active={videoAspectRatio === "16:9"} onClick={() => setVideoAspectRatio("16:9")}>16:9</Chip>
+                        <Chip active={videoAspectRatio === "9:16"} onClick={() => setVideoAspectRatio("9:16")}>9:16</Chip>
+                        <span className="w-px h-4 bg-white/10 mx-0.5" />
                       </>
                     )}
-                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Duration</span>
-                    <div className="flex items-center gap-1.5">
-                      <Chip active={videoDuration === 5} onClick={() => setVideoDuration(5)}>5s</Chip>
-                      <Chip active={videoDuration === 10} onClick={() => setVideoDuration(10)}>10s</Chip>
-                    </div>
+                    <Chip active={videoDuration === 5} onClick={() => setVideoDuration(5)}>5s</Chip>
+                    <Chip active={videoDuration === 10} onClick={() => setVideoDuration(10)}>10s</Chip>
                   </div>
                 )}
                 {/* ── Veo 3.1 ────────────────────────────────────────── */}
                 {videoFamily === "veo31" && (
-                  <>
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                      <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Speed</span>
-                      <div className="flex items-center gap-1.5">
-                        <Chip active={videoSpeed === "fast"} onClick={() => setVideoSpeed("fast")}>Fast</Chip>
-                        <Chip active={videoSpeed === "quality"} onClick={() => setVideoSpeed("quality")}>Quality</Chip>
-                      </div>
-                      {(videoMode === "ref2v" || videoMode === "i2v") && (
-                        <>
-                          <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0 ml-1">Aspect</span>
-                          <div className="flex items-center gap-1.5">
-                            <Chip active={videoAspectRatio === "Auto"} onClick={() => setVideoAspectRatio("Auto")}>Auto</Chip>
-                            <Chip active={videoAspectRatio === "16:9"} onClick={() => setVideoAspectRatio("16:9")}>16:9</Chip>
-                            <Chip active={videoAspectRatio === "9:16"} onClick={() => setVideoAspectRatio("9:16")}>9:16</Chip>
-                          </div>
-                        </>
-                      )}
-                      <button type="button" onClick={() => setVeoEnableTranslation((v) => !v)}
-                        className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-all ${veoEnableTranslation ? "bg-violet-600 text-white border border-violet-500" : "bg-white/5 text-slate-400 border border-white/15"}`}>
-                        Translation {veoEnableTranslation ? "On" : "Off"}
-                      </button>
-                      <span className="text-[10px] text-slate-500">8s fixed</span>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <input type="number" min={10000} max={99999} value={veoSeed} onChange={(e) => setVeoSeed(e.target.value)} placeholder="Seed (optional)"
-                        className="w-28 rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-white outline-none placeholder:text-slate-600" />
-                      <input value={veoWatermark} onChange={(e) => setVeoWatermark(e.target.value)} placeholder="Watermark text"
-                        className="w-32 rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-white outline-none placeholder:text-slate-600" />
-                    </div>
-                  </>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Chip active={videoSpeed === "fast"} onClick={() => setVideoSpeed("fast")}>Fast</Chip>
+                    <Chip active={videoSpeed === "quality"} onClick={() => setVideoSpeed("quality")}>Quality</Chip>
+                    {(videoMode === "ref2v" || videoMode === "i2v") && (
+                      <>
+                        <span className="w-px h-4 bg-white/10 mx-0.5" />
+                        <Chip active={videoAspectRatio === "Auto"} onClick={() => setVideoAspectRatio("Auto")}>Auto</Chip>
+                        <Chip active={videoAspectRatio === "16:9"} onClick={() => setVideoAspectRatio("16:9")}>16:9</Chip>
+                        <Chip active={videoAspectRatio === "9:16"} onClick={() => setVideoAspectRatio("9:16")}>9:16</Chip>
+                      </>
+                    )}
+                    <span className="w-px h-4 bg-white/10 mx-0.5" />
+                    <button type="button" onClick={() => setVeoEnableTranslation((v) => !v)}
+                      className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-all ${veoEnableTranslation ? "bg-violet-600 text-white border border-violet-500" : "bg-white/5 text-slate-400 border border-white/10"}`}>
+                      Translate
+                    </button>
+                    <span className="text-[10px] text-slate-500">8s</span>
+                    <span className="w-px h-4 bg-white/10 mx-0.5" />
+                    <input type="number" min={10000} max={99999} value={veoSeed} onChange={(e) => setVeoSeed(e.target.value)} placeholder="Seed"
+                      className="w-20 rounded-lg border border-white/10 bg-black/40 px-2 py-1 text-xs text-white outline-none placeholder:text-slate-600" />
+                    <input value={veoWatermark} onChange={(e) => setVeoWatermark(e.target.value)} placeholder="Watermark"
+                      className="w-24 rounded-lg border border-white/10 bg-black/40 px-2 py-1 text-xs text-white outline-none placeholder:text-slate-600" />
+                  </div>
                 )}
                 {/* ── WAN 2.2 ────────────────────────────────────────── */}
                 {videoFamily === "wan22" && (
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Resolution</span>
-                    <div className="flex items-center gap-1.5">
-                      <Chip active={wanResolution === "480p"} onClick={() => setWanResolution("480p")}>480p</Chip>
-                      <Chip active={wanResolution === "580p"} onClick={() => setWanResolution("580p")}>580p</Chip>
-                      <Chip active={wanResolution === "720p"} onClick={() => setWanResolution("720p")}>720p</Chip>
-                    </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Chip active={wanResolution === "480p"} onClick={() => setWanResolution("480p")}>480p</Chip>
+                    <Chip active={wanResolution === "580p"} onClick={() => setWanResolution("580p")}>580p</Chip>
+                    <Chip active={wanResolution === "720p"} onClick={() => setWanResolution("720p")}>720p</Chip>
                   </div>
                 )}
                 {/* ── Seedance 2.0 ───────────────────────────────────── */}
                 {videoFamily === "seedance2" && (
-                  <>
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                      <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Variant</span>
-                      <div className="flex items-center gap-1.5">
-                        <Chip active={seedanceTaskType === "seedance-2-preview"} onClick={() => setSeedanceTaskType("seedance-2-preview")}>Quality</Chip>
-                        <Chip active={seedanceTaskType === "seedance-2-fast-preview"} onClick={() => setSeedanceTaskType("seedance-2-fast-preview")}>Fast</Chip>
-                      </div>
-                      <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0 ml-1">Res</span>
-                      <div className="flex items-center gap-1.5">
-                        <Chip active={seedanceResolution === "480p"} onClick={() => setSeedanceResolution("480p")}>480p</Chip>
-                        <Chip active={seedanceResolution === "720p"} onClick={() => setSeedanceResolution("720p")}>720p</Chip>
-                      </div>
-                      <button type="button" onClick={() => setSeedanceGenerateAudio((v) => !v)}
-                        className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-all ${seedanceGenerateAudio ? "bg-violet-600 text-white border border-violet-500" : "bg-white/5 text-slate-400 border border-white/15"}`}>
-                        Audio {seedanceGenerateAudio ? "On" : "Off"}
-                      </button>
-                      <button type="button" onClick={() => setSeedanceAssetModalOpen(true)}
-                        className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-white/5 text-slate-400 border border-white/15 hover:bg-white/10 transition-all">
-                        Assets{(selectedSeedanceAssets.image || selectedSeedanceAssets.video || selectedSeedanceAssets.audio) ? " ✓" : ""}
-                      </button>
-                    </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Chip active={seedanceTaskType === "seedance-2-preview"} onClick={() => setSeedanceTaskType("seedance-2-preview")}>Quality</Chip>
+                    <Chip active={seedanceTaskType === "seedance-2-fast-preview"} onClick={() => setSeedanceTaskType("seedance-2-fast-preview")}>Fast</Chip>
+                    <span className="w-px h-4 bg-white/10 mx-0.5" />
+                    <Chip active={seedanceResolution === "480p"} onClick={() => setSeedanceResolution("480p")}>480p</Chip>
+                    <Chip active={seedanceResolution === "720p"} onClick={() => setSeedanceResolution("720p")}>720p</Chip>
                     {(videoMode === "t2v" || videoMode === "i2v" || videoMode === "edit" || videoMode === "multi-ref") && (
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Aspect</span>
-                        <div className="flex items-center gap-1">
-                          {["1:1", "16:9", "9:16", "4:3", "3:4", "21:9"].map((ar) => (
-                            <Chip key={ar} active={videoAspectRatio === ar} onClick={() => setVideoAspectRatio(ar)}>{ar}</Chip>
-                          ))}
-                        </div>
-                      </div>
+                      <>
+                        <span className="w-px h-4 bg-white/10 mx-0.5" />
+                        {["1:1", "16:9", "9:16", "4:3", "3:4", "21:9"].map((ar) => (
+                          <Chip key={ar} active={videoAspectRatio === ar} onClick={() => setVideoAspectRatio(ar)}>{ar}</Chip>
+                        ))}
+                      </>
                     )}
-                  </>
-                )}
-                {/* ── Sound ──────────────────────────────────────────── */}
-                {soundAvailable && (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button type="button" onClick={() => setSoundEnabled((v) => !v)}
-                      className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-all ${soundEnabled ? "bg-violet-600 text-white border border-violet-500" : "bg-white/5 text-slate-400 border border-white/15"}`}>
-                      Sound {soundEnabled ? "On" : "Off"}
+                    <span className="w-px h-4 bg-white/10 mx-0.5" />
+                    <button type="button" onClick={() => setSeedanceGenerateAudio((v) => !v)}
+                      className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-all ${seedanceGenerateAudio ? "bg-violet-600 text-white border border-violet-500" : "bg-white/5 text-slate-400 border border-white/10"}`}>
+                      Audio
                     </button>
-                    {soundEnabled && (
-                      <input value={soundPrompt} onChange={(e) => setSoundPrompt(e.target.value)} placeholder="Sound prompt (speech, ambience, SFX…)"
-                        className="flex-1 min-w-[12rem] rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-white outline-none placeholder:text-slate-600" />
-                    )}
-                  </div>
-                )}
-                {/* ── Generate row ────────────────────────────────────── */}
-                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 min-w-0">
-                  <div className="flex items-center gap-2 min-w-0" />
-                  <div className="flex flex-wrap items-center gap-2 sm:gap-3 shrink-0">
-                    <button
-                      type="button"
-                      onClick={handleGenerateVideo}
-                      disabled={isVideoGenerating}
-                      className="relative flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold tracking-wide overflow-hidden transition-all disabled:opacity-40 disabled:cursor-not-allowed shrink-0 min-w-[10.5rem] whitespace-nowrap"
-                      style={{
-                        background: "rgba(109,40,217,0.35)",
-                        backdropFilter: "blur(12px)",
-                        WebkitBackdropFilter: "blur(12px)",
-                        border: "1px solid rgba(139,92,246,0.5)",
-                        boxShadow: "0 0 18px rgba(109,40,217,0.35), inset 0 1px 0 rgba(255,255,255,0.08)",
-                        color: "#ffffff",
-                      }}
-                    >
-                      <span className="absolute inset-0 pointer-events-none rounded-xl" style={{
-                        background: "linear-gradient(160deg, rgba(255,255,255,0.07) 0%, transparent 60%)",
-                      }} />
-                      {isVideoGenerating
-                        ? <Loader2 className="w-4 h-4 animate-spin relative z-10" />
-                        : <Video className="w-4 h-4 relative z-10 shrink-0" />}
-                      <span className="relative z-10 flex items-center gap-1.5">
-                        {isVideoGenerating ? copy.generatingVideo : (
-                          <>{copy.generateVideo} {videoPricingInfo.cost} <Coins className="w-3.5 h-3.5 text-yellow-400 shrink-0" /></>
-                        )}
-                      </span>
+                    <button type="button" onClick={() => setSeedanceAssetModalOpen(true)}
+                      className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-all border ${(selectedSeedanceAssets.image || selectedSeedanceAssets.video || selectedSeedanceAssets.audio) ? "bg-white/10 text-slate-200 border-white/15" : "bg-white/5 text-slate-400 border-white/10"} hover:bg-white/10`}>
+                      Assets{(selectedSeedanceAssets.image || selectedSeedanceAssets.video || selectedSeedanceAssets.audio) ? " ✓" : ""}
                     </button>
                   </div>
+                )}
+                <div className="flex items-center gap-2 mt-0.5">
+                  {soundAvailable && (
+                    <>
+                      <button type="button" onClick={() => setSoundEnabled((v) => !v)}
+                        className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-all shrink-0 ${soundEnabled ? "bg-violet-600 text-white border border-violet-500" : "bg-white/5 text-slate-400 border border-white/10"}`}>
+                        Sound
+                      </button>
+                      {soundEnabled && (
+                        <input value={soundPrompt} onChange={(e) => setSoundPrompt(e.target.value)} placeholder="Sound prompt…"
+                          className="flex-1 min-w-[8rem] rounded-lg border border-white/10 bg-black/40 px-2 py-1 text-xs text-white outline-none placeholder:text-slate-600" />
+                      )}
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleGenerateVideo}
+                    disabled={isVideoGenerating}
+                    className="relative flex items-center justify-center gap-2 ml-auto px-5 py-2 rounded-xl text-sm font-bold tracking-wide overflow-hidden transition-all disabled:opacity-40 disabled:cursor-not-allowed shrink-0 whitespace-nowrap"
+                    style={{
+                      background: "rgba(109,40,217,0.35)",
+                      backdropFilter: "blur(12px)",
+                      WebkitBackdropFilter: "blur(12px)",
+                      border: "1px solid rgba(139,92,246,0.5)",
+                      boxShadow: "0 0 18px rgba(109,40,217,0.35), inset 0 1px 0 rgba(255,255,255,0.08)",
+                      color: "#ffffff",
+                    }}
+                  >
+                    <span className="absolute inset-0 pointer-events-none rounded-xl" style={{
+                      background: "linear-gradient(160deg, rgba(255,255,255,0.07) 0%, transparent 60%)",
+                    }} />
+                    {isVideoGenerating
+                      ? <Loader2 className="w-4 h-4 animate-spin relative z-10" />
+                      : <Video className="w-4 h-4 relative z-10 shrink-0" />}
+                    <span className="relative z-10 flex items-center gap-1.5">
+                      {isVideoGenerating ? copy.generatingVideo : (
+                        <>{copy.generateVideo} {videoPricingInfo.cost} <Coins className="w-3.5 h-3.5 text-yellow-400 shrink-0" /></>
+                      )}
+                    </span>
+                  </button>
                 </div>
               </div>
               <p className="text-[10px] text-slate-600 mt-1.5 text-right pr-1">{formatCopy(copy.creditsAvailable, { credits: creditsLeft })}</p>
@@ -3000,41 +2942,32 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
               </p>
             )}
             {mobileVideoBarExpanded && (
-              <div className="mt-3 space-y-3 border-t border-white/10 pt-3">
-                <div className="rounded-xl border border-white/20 bg-black/65 px-3 py-2">
-                  <textarea value={videoPrompt} onChange={(e) => setVideoPrompt(e.target.value)}
-                    placeholder="Describe motion, camera, timing…" rows={2}
-                    className="w-full bg-transparent text-sm text-white placeholder:text-slate-500 resize-none outline-none min-h-[2.75rem]" />
-                </div>
-                <div>
-                  <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-2 font-medium">Family</span>
-                  <div className="flex gap-2 overflow-x-auto pb-1 -mx-0.5 px-0.5 snap-x [scrollbar-width:thin]">
-                    {VIDEO_FAMILIES.map((family) => (
-                      <Chip key={family.id} active={videoFamily === family.id} onClick={() => { setVideoFamily(family.id); setVideoMode(defaultModeByFamily(family.id)); }}>
-                        {family.label}
-                      </Chip>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-2 font-medium">Mode</span>
-                  <div className="flex gap-2 overflow-x-auto pb-1 -mx-0.5 px-0.5 snap-x [scrollbar-width:thin]">
-                    {videoModes.map((m) => (
-                      <Chip key={m} active={videoMode === m} onClick={() => setVideoMode(m)}>
-                        {m === "t2v" ? "Text→Video" : m === "i2v" ? "Image→Video" : m === "multi-ref" ? "Multi-Ref" : m === "ref2v" ? "Ref→Video" : m === "move" ? "Animate" : m === "replace" ? "Replace" : m === "edit" ? "First+Last" : "Extend"}
-                      </Chip>
-                    ))}
-                  </div>
+              <div className="mt-3 space-y-2.5 border-t border-white/10 pt-3">
+                <textarea value={videoPrompt} onChange={(e) => setVideoPrompt(e.target.value)}
+                  placeholder="Describe motion, camera, timing…" rows={2}
+                  className="w-full rounded-xl border border-white/15 bg-black/50 px-3 py-2 text-sm text-white placeholder:text-slate-500 resize-none outline-none" />
+                <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-0.5 px-0.5 snap-x [scrollbar-width:thin]">
+                  {VIDEO_FAMILIES.map((family) => (
+                    <Chip key={family.id} active={videoFamily === family.id} onClick={() => { setVideoFamily(family.id); setVideoMode(defaultModeByFamily(family.id)); }}>
+                      {family.label}
+                    </Chip>
+                  ))}
+                  <span className="w-px h-5 bg-white/10 mx-0.5 shrink-0 self-center" />
+                  {videoModes.map((m) => (
+                    <Chip key={m} active={videoMode === m} onClick={() => setVideoMode(m)}>
+                      {m === "t2v" ? "Text" : m === "i2v" ? "Image" : m === "multi-ref" ? "Multi-Ref" : m === "ref2v" ? "Ref" : m === "move" ? "Animate" : m === "replace" ? "Replace" : m === "edit" ? "First+Last" : "Extend"}
+                    </Chip>
+                  ))}
                 </div>
                 <button type="button" onClick={handleGenerateVideo} disabled={isVideoGenerating}
-                  className="w-full min-h-[48px] shrink-0 px-4 py-3 rounded-xl text-sm font-semibold disabled:opacity-40 flex items-center justify-center gap-1.5"
+                  className="w-full min-h-[44px] shrink-0 px-4 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-40 flex items-center justify-center gap-1.5"
                   style={{ background: "linear-gradient(135deg,#7c3aed,#4f46e5)", color: "white" }}>
                   {isVideoGenerating
                     ? <Loader2 className="w-5 h-5 animate-spin" />
                     : <span className="flex items-center gap-1.5 whitespace-nowrap">{copy.generateVideo} {videoPricingInfo.cost} <Coins className="w-4 h-4 text-yellow-400" /></span>
                   }
                 </button>
-                <p className="text-[11px] text-slate-500 text-center leading-snug">{formatCopy(copy.creditsAvailable, { credits: creditsLeft })}</p>
+                <p className="text-[10px] text-slate-500 text-center">{formatCopy(copy.creditsAvailable, { credits: creditsLeft })}</p>
               </div>
             )}
           </div>
