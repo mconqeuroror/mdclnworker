@@ -1,45 +1,99 @@
 export const LANDER_NEW_DEFAULTS = {
   seo: {
-    title: "ModelClone — AI Image & Video Studio for Creators",
+    title: "ModelClone — Cinematic AI Video & Image Studio",
     description:
-      "Generate professional AI images and videos with full control over style, motion, and visual identity. The creative studio built for serious content output.",
+      "Create cinematic AI images and videos with unmatched visual quality. Recreate any identity, style, and motion with precision. The AI studio built for creators, agencies, and brands who refuse to compromise.",
     canonicalUrl: "https://modelclone.app/",
-    ogTitle: "ModelClone — AI Image & Video Studio for Creators",
+    ogTitle: "ModelClone — Cinematic AI Video & Image Studio",
     ogDescription:
-      "Generate cinematic AI images and videos with precision control over shot, style, and motion. Built for creators and agencies who demand consistent output.",
+      "The AI studio that produces the most cinematic images and videos on the market. Full creative control over identity, style, and motion. Built for creators and agencies who demand elite output.",
     ogImageUrl: "https://modelclone.app/og-lander-new.jpg",
     ogType: "website",
     ogSiteName: "ModelClone",
     twitterCard: "summary_large_image",
-    twitterTitle: "ModelClone — AI Image & Video Studio for Creators",
+    twitterTitle: "ModelClone — Cinematic AI Video & Image Studio",
     twitterDescription:
-      "Cinematic AI images and video. Full control over style, motion, and visual identity. Built for creators who care about output quality.",
+      "The highest visual quality AI video on the market. Recreate any identity, style, and motion with cinematic precision. Built for creators and agencies.",
     twitterImageUrl: "https://modelclone.app/og-lander-new.jpg",
     twitterSite: "@modelclone",
     twitterCreator: "@modelclone",
-    robots: "index,follow",
+    robots: "index, follow",
     jsonLd: {
       organization: {
         name: "ModelClone",
         url: "https://modelclone.app",
-        logo: "https://modelclone.app/modelclone-logo.svg",
+        logo: {
+          "@type": "ImageObject",
+          url: "https://modelclone.app/modelclone-logo.svg",
+          width: 200,
+          height: 60,
+        },
         sameAs: [
           "https://twitter.com/modelclone",
           "https://discord.gg/modelclone",
-          "https://www.instagram.com/modelclone",
+          "https://instagram.com/modelclone",
         ],
+        contactPoint: {
+          "@type": "ContactPoint",
+          contactType: "customer support",
+          url: "https://modelclone.app",
+        },
       },
       webPage: {
-        name: "ModelClone — AI Image & Video Studio for Creators",
+        name: "ModelClone — Cinematic AI Video & Image Studio",
         url: "https://modelclone.app/",
         description:
-          "Generate professional AI images and videos with full control over style, motion, and visual identity. The creative studio built for serious content output.",
+          "Create cinematic AI images and videos with unmatched visual quality. Recreate any identity, style, and motion with precision.",
+        isPartOf: {
+          "@type": "WebSite",
+          name: "ModelClone",
+          url: "https://modelclone.app",
+        },
+        breadcrumb: {
+          "@type": "BreadcrumbList",
+          itemListElement: [
+            {
+              "@type": "ListItem",
+              position: 1,
+              name: "Home",
+              item: "https://modelclone.app/",
+            },
+          ],
+        },
       },
       softwareApplication: {
         name: "ModelClone",
+        url: "https://modelclone.app",
         applicationCategory: "MultimediaApplication",
         operatingSystem: "Web",
-        offers: { price: "29", priceCurrency: "USD" },
+        description:
+          "AI-powered studio for generating cinematic images and videos with full control over identity, style, and motion. The highest visual quality AI video tool built for creators, agencies, and brands.",
+        screenshot: "https://modelclone.app/og-lander-new.jpg",
+        featureList: [
+          "AI identity recreation",
+          "Cinematic AI video generation",
+          "AI image generation",
+          "Motion transfer",
+          "Style control",
+          "Agency-grade output consistency",
+        ],
+        offers: {
+          price: "29.00",
+          priceCurrency: "USD",
+          priceSpecification: {
+            "@type": "UnitPriceSpecification",
+            price: "29.00",
+            priceCurrency: "USD",
+            unitText: "MONTH",
+          },
+          availability: "https://schema.org/InStock",
+          url: "https://modelclone.app",
+        },
+        publisher: {
+          "@type": "Organization",
+          name: "ModelClone",
+          url: "https://modelclone.app",
+        },
       },
     },
   },
