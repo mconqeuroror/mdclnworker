@@ -925,8 +925,8 @@ export const creatorStudioAPI = {
     const response = await api.get("/generate/creator-studio/assets");
     return response.data;
   },
-  createAsset: async ({ url, assetType }) => {
-    const response = await api.post("/generate/creator-studio/assets", { url, assetType });
+  createAsset: async ({ url, assetType, name }) => {
+    const response = await api.post("/generate/creator-studio/assets", { url, assetType, name });
     return response.data;
   },
   deleteAsset: async (assetId) => {

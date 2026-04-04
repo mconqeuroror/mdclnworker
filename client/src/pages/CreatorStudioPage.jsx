@@ -485,6 +485,7 @@ function SeedanceAssetModal({ isOpen, onClose, onSelect }) {
   const [assets, setAssets] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [sourceUrl, setSourceUrl] = useState("");
+  const [assetName, setAssetName] = useState("");
   const [assetType, setAssetType] = useState("image");
   const [isCreating, setIsCreating] = useState(false);
   const assetAccept = assetType === "video" ? "video/*" : assetType === "audio" ? "audio/*" : "image/*";
@@ -517,7 +518,7 @@ function SeedanceAssetModal({ isOpen, onClose, onSelect }) {
         </div>
         <div className="rounded-xl border border-white/10 p-3 bg-black/20 mb-3">
           <p className="text-xs text-slate-400 mb-2">Create asset (100 credits)</p>
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-2 items-end">
+          <div className="grid grid-cols-1 md:grid-cols-6 gap-2 items-end">
             <div className="md:col-span-3">
               <MediaUploadField
                 label={assetLabel}
@@ -527,6 +528,12 @@ function SeedanceAssetModal({ isOpen, onClose, onSelect }) {
                 preview={assetType === "video" ? "video" : assetType === "audio" ? "audio" : "image"}
               />
             </div>
+            <input
+              value={assetName}
+              onChange={(e) => setAssetName(e.target.value.slice(0, 80))}
+              placeholder="Asset name (optional)"
+              className="rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-white outline-none"
+            />
             <select
               value={assetType}
               onChange={(e) => {
@@ -545,8 +552,13 @@ function SeedanceAssetModal({ isOpen, onClose, onSelect }) {
               onClick={async () => {
                 setIsCreating(true);
                 try {
-                  await creatorStudioAPI.createAsset({ url: sourceUrl.trim(), assetType });
+                  await creatorStudioAPI.createAsset({
+                    url: sourceUrl.trim(),
+                    assetType,
+                    name: assetName.trim() || undefined,
+                  });
                   setSourceUrl("");
+                  setAssetName("");
                   await refresh();
                   toast.success("Asset created");
                 } catch (err) {
@@ -566,7 +578,19 @@ function SeedanceAssetModal({ isOpen, onClose, onSelect }) {
           {!isLoading && assets.length === 0 && <p className="text-sm text-slate-500">No assets yet.</p>}
           {!isLoading && assets.map((asset) => (
             <div key={asset.id} className="rounded-lg border border-white/10 bg-black/25 px-3 py-2 flex items-center gap-3">
+              <div className="w-12 h-12 rounded-lg border border-white/15 bg-black/50 overflow-hidden flex items-center justify-center flex-shrink-0">
+                {asset.assetType === "image" && asset.sourceUrl ? (
+                  <img src={asset.sourceUrl} alt={asset.name || "asset"} className="w-full h-full object-cover" />
+                ) : asset.assetType === "video" && asset.sourceUrl ? (
+                  <video src={asset.sourceUrl} className="w-full h-full object-cover" muted />
+                ) : asset.assetType === "audio" ? (
+                  <Mic className="w-4 h-4 text-slate-300" />
+                ) : (
+                  <Video className="w-4 h-4 text-slate-400" />
+                )}
+              </div>
               <div className="min-w-0 flex-1">
+                <p className="text-xs text-slate-200 truncate">{asset.name || "Untitled asset"}</p>
                 <p className="text-xs text-slate-300 truncate">{asset.assetUri || "asset://pending"}</p>
                 <p className="text-[11px] text-slate-500 truncate">{asset.assetType || "unknown"} · {asset.status}</p>
               </div>
@@ -1586,6 +1610,11 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
   const [seedanceResolution, setSeedanceResolution] = useState("720p");
   const [seedanceGenerateAudio, setSeedanceGenerateAudio] = useState(false);
   const [seedanceAssetModalOpen, setSeedanceAssetModalOpen] = useState(false);
+  const [selectedSeedanceAssets, setSelectedSeedanceAssets] = useState({
+    image: null,
+    video: null,
+    audio: null,
+  });
   const [wanResolution, setWanResolution] = useState("580p");
   const [isVideoGenerating, setIsVideoGenerating] = useState(false);
   const [extendSourceId, setExtendSourceId] = useState("");
@@ -2911,6 +2940,45 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                           Open assets
                         </button>
                       </div>
+                      {(selectedSeedanceAssets.image || selectedSeedanceAssets.video || selectedSeedanceAssets.audio) && (
+                        <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-2">
+                          {selectedSeedanceAssets.image && (
+                            <div className="rounded-lg border border-white/10 bg-black/40 p-2">
+                              <p className="text-[10px] text-slate-500 mb-1">Selected image asset</p>
+                              <div className="h-16 rounded border border-white/10 overflow-hidden bg-black/50">
+                                {selectedSeedanceAssets.image.sourceUrl ? (
+                                  <img src={selectedSeedanceAssets.image.sourceUrl} alt={selectedSeedanceAssets.image.name || "image asset"} className="w-full h-full object-cover" />
+                                ) : (
+                                  <div className="w-full h-full flex items-center justify-center text-[10px] text-slate-500">No preview</div>
+                                )}
+                              </div>
+                              <p className="text-[11px] text-slate-300 mt-1 truncate">{selectedSeedanceAssets.image.name || "Untitled image asset"}</p>
+                            </div>
+                          )}
+                          {selectedSeedanceAssets.video && (
+                            <div className="rounded-lg border border-white/10 bg-black/40 p-2">
+                              <p className="text-[10px] text-slate-500 mb-1">Selected video asset</p>
+                              <div className="h-16 rounded border border-white/10 overflow-hidden bg-black/50">
+                                {selectedSeedanceAssets.video.sourceUrl ? (
+                                  <video src={selectedSeedanceAssets.video.sourceUrl} className="w-full h-full object-cover" muted />
+                                ) : (
+                                  <div className="w-full h-full flex items-center justify-center text-[10px] text-slate-500">No preview</div>
+                                )}
+                              </div>
+                              <p className="text-[11px] text-slate-300 mt-1 truncate">{selectedSeedanceAssets.video.name || "Untitled video asset"}</p>
+                            </div>
+                          )}
+                          {selectedSeedanceAssets.audio && (
+                            <div className="rounded-lg border border-white/10 bg-black/40 p-2">
+                              <p className="text-[10px] text-slate-500 mb-1">Selected audio asset</p>
+                              <div className="h-16 rounded border border-white/10 bg-black/50 flex items-center justify-center">
+                                <Mic className="w-5 h-5 text-slate-300" />
+                              </div>
+                              <p className="text-[11px] text-slate-300 mt-1 truncate">{selectedSeedanceAssets.audio.name || "Untitled audio asset"}</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                     {(videoMode === "t2v" || videoMode === "i2v" || videoMode === "edit" || videoMode === "multi-ref") && (
                       <div className="rounded-xl border border-white/10 p-3 col-span-2">
@@ -3024,13 +3092,25 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
           const uri = asset?.assetUri;
           if (!uri) return;
           const type = String(asset?.assetType || "").toLowerCase();
+          const normalized = {
+            id: asset?.id,
+            name: asset?.name || null,
+            sourceUrl: asset?.sourceUrl || null,
+            assetUri: uri,
+            assetType: type,
+          };
           if (type === "video") {
             setVideoInputVideoUrl(uri);
+            setSelectedSeedanceAssets((prev) => ({ ...prev, video: normalized }));
           } else if (type === "audio") {
             // Audio references are submitted via multimodal mode; append into prompt for now.
-            setVideoPrompt((prev) => `${prev}${prev ? "\n" : ""}audio ref: ${uri}`);
+            setVideoPrompt((prev) => (
+              String(prev || "").includes(`audio ref: ${uri}`) ? prev : `${prev}${prev ? "\n" : ""}audio ref: ${uri}`
+            ));
+            setSelectedSeedanceAssets((prev) => ({ ...prev, audio: normalized }));
           } else {
             setVideoImageUrl(uri);
+            setSelectedSeedanceAssets((prev) => ({ ...prev, image: normalized }));
           }
           setSeedanceAssetModalOpen(false);
         }}

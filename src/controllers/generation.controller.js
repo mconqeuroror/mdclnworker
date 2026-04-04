@@ -5135,6 +5135,10 @@ export async function listCreatorStudioAssets(req, res) {
         createdAt: row.createdAt,
         completedAt: row.completedAt,
         taskId: row.providerTaskId || null,
+        name:
+          row.providerResponse?.assetName
+          || row.prompt
+          || null,
         assetType: row.providerMode || null,
         sourceUrl: row.inputImageUrl || null,
         assetUri: row.outputUrl || null,
@@ -5147,11 +5151,62 @@ export async function listCreatorStudioAssets(req, res) {
   }
 }
 
+async function validateSeedanceAssetImageDimensions(url) {
+  if (!url || !String(url).startsWith("http")) return { valid: false, message: "A public source URL is required." };
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(30_000) });
+    if (!response.ok) {
+      return { valid: false, message: `Source image is unreachable (HTTP ${response.status}).` };
+    }
+    const buffer = Buffer.from(await response.arrayBuffer());
+    if (!buffer.length) {
+      return { valid: false, message: "Source image is empty. Upload a valid image." };
+    }
+    const sharp = (await import("sharp")).default;
+    const meta = await sharp(buffer).metadata();
+    const width = Number(meta?.width || 0);
+    const height = Number(meta?.height || 0);
+    if (!width || !height) {
+      return { valid: true };
+    }
+    if (width < 300 || height < 300 || width > 6000 || height > 6000) {
+      return {
+        valid: false,
+        message: `Image dimensions ${width}x${height} are unsupported for volcanic assets. Use an image between 300 and 6000 px on both width and height.`,
+      };
+    }
+    return { valid: true };
+  } catch (error) {
+    return { valid: false, message: `Could not read source image dimensions: ${error?.message || "unknown error"}` };
+  }
+}
+
+function toCreatorStudioAssetCreateError(error) {
+  const raw = String(error?.message || "").trim();
+  if (!raw) return { status: 500, message: "Failed to create asset." };
+  if (
+    raw.includes("InvalidParameter.WidthTooSmall")
+    || raw.includes("InvalidParameter.HeightTooSmall")
+    || raw.includes("InvalidParameter.WidthTooLarge")
+    || raw.includes("InvalidParameter.HeightTooLarge")
+  ) {
+    return {
+      status: 400,
+      message: "Volcanic asset image must be between 300px and 6000px on both width and height.",
+    };
+  }
+  if (raw.includes("Asset create did not return task id")) {
+    return { status: 502, message: "Asset provider returned an invalid response. Please retry in a moment." };
+  }
+  return { status: 500, message: raw };
+}
+
 export async function createCreatorStudioAsset(req, res) {
   const userId = req.user.userId;
   let generationId = null;
   try {
     const sourceUrl = String(req.body?.url || "").trim();
+    const assetName = String(req.body?.name || "").trim().slice(0, 80);
     const assetTypeRaw = String(req.body?.assetType || "").trim().toLowerCase();
     const assetType = assetTypeRaw === "image" ? "Image" : assetTypeRaw === "video" ? "Video" : assetTypeRaw === "audio" ? "Audio" : null;
     if (!assetType) {
@@ -5159,6 +5214,12 @@ export async function createCreatorStudioAsset(req, res) {
     }
     if (!sourceUrl.startsWith("http")) {
       return res.status(400).json({ success: false, message: "A public source URL is required." });
+    }
+    if (assetType === "Image") {
+      const dimCheck = await validateSeedanceAssetImageDimensions(sourceUrl);
+      if (!dimCheck.valid) {
+        return res.status(400).json({ success: false, message: dimCheck.message });
+      }
     }
 
     const existingCount = await prisma.generation.count({
@@ -5187,7 +5248,7 @@ export async function createCreatorStudioAsset(req, res) {
       data: {
         userId,
         type: "creator-studio-asset",
-        prompt: sourceUrl,
+        prompt: assetName || `Seedance ${assetType.toLowerCase()} asset`,
         status: "processing",
         creditsCost: creditsNeeded,
         provider: "kie",
@@ -5215,6 +5276,7 @@ export async function createCreatorStudioAsset(req, res) {
         completedAt: new Date(),
         providerResponse: {
           assetId: created.assetId,
+          assetName: assetName || null,
           assetUri: created.assetUri,
           sourceUrl,
           mirroredSourceUrl: kieUrl,
@@ -5230,6 +5292,7 @@ export async function createCreatorStudioAsset(req, res) {
         id: generation.id,
         status: "completed",
         taskId: created.taskId || null,
+        name: assetName || null,
         assetType: assetType.toLowerCase(),
         sourceUrl,
         assetUri: created.assetUri,
@@ -5239,17 +5302,18 @@ export async function createCreatorStudioAsset(req, res) {
     });
   } catch (error) {
     console.error("❌ createCreatorStudioAsset error:", error);
+    const apiError = toCreatorStudioAssetCreateError(error);
     if (generationId) {
       await prisma.generation.update({
         where: { id: generationId },
         data: {
           status: "failed",
-          errorMessage: getErrorMessageForDb(error.message || "Failed to create asset"),
+          errorMessage: getErrorMessageForDb(apiError.message || error.message || "Failed to create asset"),
         },
       }).catch(() => {});
       await refundGeneration(generationId).catch(() => {});
     }
-    return res.status(500).json({ success: false, message: error.message || "Failed to create asset" });
+    return res.status(apiError.status).json({ success: false, message: apiError.message || "Failed to create asset" });
   }
 }
 
