@@ -136,6 +136,43 @@ export async function createPhotoAvatarGroup(imageKey, name = "Avatar") {
   return { groupId, generationId, raw: data?.data || null };
 }
 
+export async function createDigitalTwin({
+  trainingFootageUrl,
+  videoConsentUrl,
+  avatarName,
+  avatarGroupId = null,
+  callbackId = null,
+} = {}) {
+  if (!HEYGEN_API_KEY) throw new Error("HEYGEN_API_KEY is not configured");
+  const training = String(trainingFootageUrl || "").trim();
+  const consent = String(videoConsentUrl || "").trim();
+  const name = String(avatarName || "").trim();
+  if (!training) throw new Error("trainingFootageUrl is required");
+  if (!consent) throw new Error("videoConsentUrl is required");
+  if (!name) throw new Error("avatarName is required");
+  const payload = {
+    training_footage_url: training,
+    video_consent_url: consent,
+    avatar_name: name,
+  };
+  if (avatarGroupId) payload.avatar_group_id = String(avatarGroupId);
+  if (callbackId) payload.callback_id = String(callbackId);
+  const callbackUrl = getHeygenWebhookUrl();
+  if (callbackUrl) payload.callback_url = callbackUrl;
+  const data = await heygenFetch("/v2/video_avatar", {
+    method: "POST",
+    headers: heygenHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(60_000),
+  });
+  const avatarId = data?.data?.avatar_id || data?.data?.avatarId || null;
+  const groupId = data?.data?.avatar_group_id || data?.data?.group_id || data?.data?.groupId || null;
+  if (!avatarId) {
+    throw new Error(`HeyGen digital twin create returned no avatar_id: ${JSON.stringify(data).slice(0, 300)}`);
+  }
+  return { avatarId, groupId, raw: data?.data || null };
+}
+
 export async function addLookToAvatarGroup(groupId, imageKeys = []) {
   if (!HEYGEN_API_KEY) throw new Error("HEYGEN_API_KEY is not configured");
   if (!groupId) throw new Error("groupId is required");

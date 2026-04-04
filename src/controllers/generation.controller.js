@@ -4120,12 +4120,7 @@ function estimateCreatorStudioVideoCredits(pricing, payload) {
     // Cost rule from spec: with video input include both input and output duration.
     const inputVideoSeconds = hasVideoInput ? Math.max(0, Number(payload.inputVideoDurationSeconds || 0)) : 0;
     const totalSeconds = hasVideoInput ? inputVideoSeconds + seconds : seconds;
-    let baseCost = Math.ceil(totalSeconds * perSec);
-    // Provider-side audio add-on pricing is not yet exposed by docs in this flow; keep a conservative uplift.
-    if (payload.generateAudio === true) {
-      baseCost = Math.ceil(baseCost * 1.2);
-    }
-    return baseCost;
+    return Math.ceil(totalSeconds * perSec);
   }
   return 0;
 }

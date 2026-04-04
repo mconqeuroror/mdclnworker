@@ -2030,10 +2030,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
             ? (hasVideoInput ? "seedance2Standard480WithVideoPerSec" : "seedance2Standard480NoVideoPerSec")
             : (hasVideoInput ? "seedance2Standard720WithVideoPerSec" : "seedance2Standard720NoVideoPerSec"));
       const perSec = toPrice(generationPricing, key);
-      let baseCost = Math.ceil(perSec * duration);
-      if (seedanceGenerateAudio) {
-        baseCost = Math.ceil(baseCost * 1.2);
-      }
+      const baseCost = Math.ceil(perSec * duration);
       return { cost: baseCost, details: `${perSec}/sec (${fast ? "Fast" : "Quality"} · ${seedanceResolution})` };
     }
     return { cost: 0, details: "Pricing unavailable" };

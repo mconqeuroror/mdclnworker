@@ -26,6 +26,7 @@ import {
 import {
   uploadAsset,
   createPhotoAvatarGroup,
+  createDigitalTwin,
   addLookToAvatarGroup,
   trainPhotoAvatarGroup,
   getPhotoAvatarStatus,
@@ -358,9 +359,101 @@ router.post(
   async (req, res, next) => {
     const ct = String(req.headers["content-type"] || "");
     if (!ct.includes("application/json")) return next();
-    const { modelId, name, photoUrl: remoteUrl } = req.body || {};
-    if (!modelId || !name?.trim() || !remoteUrl) {
-      return res.status(400).json({ error: "modelId, name, and photoUrl (https) are required" });
+    const {
+      modelId,
+      name,
+      photoUrl: remoteUrl,
+      trainingFootageUrl,
+      videoConsentUrl,
+      avatarGroupId,
+    } = req.body || {};
+    if (!modelId || !name?.trim()) {
+      return res.status(400).json({ error: "modelId and name are required" });
+    }
+
+    // Digital Twin flow (HeyGen /v2/video_avatar)
+    if (trainingFootageUrl || videoConsentUrl) {
+      if (!trainingFootageUrl || !videoConsentUrl) {
+        return res.status(400).json({ error: "trainingFootageUrl and videoConsentUrl are both required for Digital Twin creation" });
+      }
+      let trainingHref;
+      let consentHref;
+      try {
+        trainingHref = assertHttpsAllowedAssetUrl(String(trainingFootageUrl), "trainingFootageUrl");
+        consentHref = assertHttpsAllowedAssetUrl(String(videoConsentUrl), "videoConsentUrl");
+      } catch (e) {
+        return res.status(400).json({ error: e.message });
+      }
+
+      const model = await prisma.savedModel.findFirst({
+        where: { id: modelId, userId: req.user.id },
+        select: { id: true, elevenLabsVoiceId: true },
+      });
+      if (!model) return res.status(404).json({ error: "Model not found" });
+      if (!model.elevenLabsVoiceId) {
+        return res.status(400).json({
+          error: "This model has no default voice. Please create and select one in Voice Studio first.",
+          code: "NO_VOICE",
+        });
+      }
+
+      const pricing = await getGenerationPricing();
+      const creationCost = pricing.avatarCreation ?? 1000;
+      const user = await checkAndExpireCredits(req.user.id);
+      if (getTotalCredits(user) < creationCost) {
+        return res.status(402).json({
+          error: `Insufficient credits. Avatar creation costs ${creationCost} credits.`,
+        });
+      }
+      await deductCredits(req.user.id, creationCost);
+
+      const avatar = await prisma.avatar.create({
+        data: {
+          userId: req.user.id,
+          modelId,
+          name: String(name).trim(),
+          // Required schema field; for Digital Twin we store training URL as canonical media pointer.
+          photoUrl: trainingHref,
+          status: "processing",
+          creditsCost: creationCost,
+          heygenGroupId: avatarGroupId ? String(avatarGroupId) : null,
+        },
+      });
+
+      res.json({ success: true, avatar });
+
+      (async () => {
+        try {
+          const created = await createDigitalTwin({
+            trainingFootageUrl: trainingHref,
+            videoConsentUrl: consentHref,
+            avatarName: String(name).trim(),
+            avatarGroupId: avatarGroupId ? String(avatarGroupId) : null,
+            callbackId: avatar.id,
+          });
+          await prisma.avatar.update({
+            where: { id: avatar.id },
+            data: {
+              heygenAvatarId: created.avatarId,
+              heygenGroupId: created.groupId || avatarGroupId || null,
+            },
+          });
+        } catch (err) {
+          console.error(`❌ [Avatar] Digital twin creation failed for ${avatar.id}: ${err.message}`);
+          const updated = await prisma.avatar.updateMany({
+            where: { id: avatar.id, status: { in: ["processing", "pending"] } },
+            data: { status: "failed", errorMessage: err.message || "Digital Twin creation failed" },
+          });
+          if (updated.count > 0) {
+            await refundCredits(req.user.id, creationCost).catch(() => {});
+          }
+        }
+      })();
+      return;
+    }
+
+    if (!remoteUrl) {
+      return res.status(400).json({ error: "photoUrl (https) is required when Digital Twin URLs are not provided" });
     }
     let href;
     try {

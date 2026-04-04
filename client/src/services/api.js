@@ -946,9 +946,25 @@ export const avatarAPI = {
     return response.data;
   },
 
-  create: async ({ modelId, name, file, photoUrl }) => {
+  create: async ({
+    modelId,
+    name,
+    file,
+    photoUrl,
+    trainingFootageUrl,
+    videoConsentUrl,
+    avatarGroupId,
+  }) => {
     if (photoUrl && typeof photoUrl === "string") {
-      const response = await api.post("/avatars", { modelId, name, photoUrl });
+      const payload = {
+        modelId,
+        name,
+        photoUrl,
+      };
+      if (trainingFootageUrl) payload.trainingFootageUrl = trainingFootageUrl;
+      if (videoConsentUrl) payload.videoConsentUrl = videoConsentUrl;
+      if (avatarGroupId) payload.avatarGroupId = avatarGroupId;
+      const response = await api.post("/avatars", payload);
       return response.data;
     }
     const formData = new FormData();
