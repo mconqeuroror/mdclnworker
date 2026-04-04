@@ -1,17 +1,18 @@
 /**
  * HeyGen Photo Avatar IV + AV4 service.
  * Spec-aligned endpoints:
- * - POST /v1/asset/upload
+ * - POST upload.heygen.com/v1/asset
  * - POST /v2/photo_avatar/avatar_group/create
  * - POST /v2/photo_avatar/avatar_group/add
  * - POST /v2/photo_avatar/train
- * - GET  /v2/photo_avatar/status/{id}
- * - POST /v2/video/av4/generate
+ * - GET  /v2/photo_avatar/generation/{generation_id}
+ * - POST /v2/video/generate
  * - GET  /v2/videos/{video_id} (fallback /v1/video_status.get)
  */
 
 const HEYGEN_API_KEY = process.env.HEYGEN_API_KEY;
 const HEYGEN_BASE = "https://api.heygen.com";
+const HEYGEN_UPLOAD_BASE = "https://upload.heygen.com";
 
 if (!HEYGEN_API_KEY) {
   console.warn("⚠️ HEYGEN_API_KEY not set — Real Avatars feature will not work");
@@ -60,6 +61,27 @@ async function heygenFetch(path, init = {}) {
   return data;
 }
 
+async function heygenUploadFetch(path, init = {}) {
+  const url = `${HEYGEN_UPLOAD_BASE}${path}`;
+  const resp = await fetch(url, { ...init, signal: init.signal ?? AbortSignal.timeout(30_000) });
+  const text = await resp.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = { raw: text };
+  }
+  if (!resp.ok) {
+    const msg = data?.message || data?.error?.message || data?.error || text.slice(0, 300);
+    throw new Error(`HeyGen Upload ${init.method || "GET"} ${path} -> ${resp.status}: ${msg}`);
+  }
+  if (data?.error) {
+    const errMessage = typeof data.error === "string" ? data.error : (data.error?.message || JSON.stringify(data.error));
+    if (errMessage) throw new Error(`HeyGen upload ${path} returned error: ${errMessage}`);
+  }
+  return data;
+}
+
 function normalizeProcessingStatus(rawStatus) {
   const s = String(rawStatus || "").toLowerCase();
   if (["completed", "success", "succeeded", "active", "finished", "ready"].includes(s)) return "completed";
@@ -69,18 +91,16 @@ function normalizeProcessingStatus(rawStatus) {
 
 export async function uploadAsset(buffer, filename, mimeType = "application/octet-stream", assetTypeOverride = null) {
   if (!HEYGEN_API_KEY) throw new Error("HEYGEN_API_KEY is not configured");
-  const assetType =
-    assetTypeOverride
-    || (mimeType.startsWith("image/") ? "photo_avatar" : mimeType.startsWith("audio/") ? "audio" : "photo_avatar");
-
-  const form = new FormData();
-  form.append("file", new Blob([buffer], { type: mimeType }), filename);
-  form.append("asset_type", assetType);
-
-  const data = await heygenFetch("/v1/asset/upload", {
+  // Official upload endpoint: upload.heygen.com/v1/asset with raw binary body.
+  const data = await heygenUploadFetch("/v1/asset", {
     method: "POST",
-    headers: heygenHeaders(),
-    body: form,
+    headers: {
+      "X-API-KEY": HEYGEN_API_KEY || "",
+      "Content-Type": mimeType,
+      "Content-Disposition": `attachment; filename="${String(filename || "upload.bin").replace(/"/g, "")}"`,
+      Accept: "application/json",
+    },
+    body: buffer,
     signal: AbortSignal.timeout(60_000),
   });
 
@@ -141,7 +161,7 @@ export async function getPhotoAvatarStatus(id) {
   if (!HEYGEN_API_KEY) throw new Error("HEYGEN_API_KEY is not configured");
   let row = null;
   try {
-    const data = await heygenFetch(`/v2/photo_avatar/status/${encodeURIComponent(id)}`);
+    const data = await heygenFetch(`/v2/photo_avatar/generation/${encodeURIComponent(id)}`);
     row = data?.data || {};
   } catch (error) {
     const fallback = await heygenFetch(`/v2/photo_avatar/${encodeURIComponent(id)}`);
@@ -188,30 +208,38 @@ export async function generateAvatarVideo({
 
   const payload = {
     title,
-    avatar_id: avatarId,
-    input_text: String(inputText).trim(),
-    voice: {
-      voice_id: String(heygenVoiceId).trim(),
-      provider: "elevenlabs",
-      model: "eleven_v3",
-      elevenlabs_settings: {
-        stability: 0.5,
-        similarity_boost: 0.75,
-        style: 0.3,
-        use_speaker_boost: true,
+    callback_id: callbackId ? String(callbackId) : undefined,
+    video_inputs: [
+      {
+        character: {
+          type: "avatar",
+          avatar_id: avatarId,
+        },
+        voice: {
+          type: "text",
+          voice_id: String(heygenVoiceId).trim(),
+          input_text: String(inputText).trim(),
+          elevenlabs_settings: {
+            model: "eleven_v3",
+            stability: 0.5,
+            similarity_boost: 0.75,
+            style: 0.3,
+            use_speaker_boost: true,
+          },
+        },
+        background: { type: "color", value: "#FFFFFF" },
       },
-    },
+    ],
     dimension: { width, height },
-    aspect_ratio: aspectRatio,
-    background: { type: "color", value: "#FFFFFF" },
     caption: false,
     test: !!test,
   };
+  if (aspectRatio === "9:16" || aspectRatio === "16:9") {
+    payload.aspect_ratio = aspectRatio;
+  }
   const callbackUrl = getHeygenWebhookUrl();
   if (callbackUrl) payload.callback_url = callbackUrl;
-  if (callbackId) payload.callback_id = String(callbackId);
-
-  const data = await heygenFetch("/v2/video/av4/generate", {
+  const data = await heygenFetch("/v2/video/generate", {
     method: "POST",
     headers: heygenHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify(payload),

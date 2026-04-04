@@ -19,3 +19,10 @@ attached_assets/*
 
 # Nested repo checkout — keep files, not embedded .git
 runpod-mdcln/.git/
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/

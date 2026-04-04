@@ -1246,8 +1246,38 @@ async function createVolcanicAssetKieInternal({ url, assetType }) {
   } catch {
     throw new Error(`Asset create invalid response: ${createText?.slice(0, 200) || "empty"}`);
   }
-  const taskId = createData?.id || createData?.data?.id || createData?.taskId || createData?.data?.taskId || null;
-  if (!taskId) throw new Error("Asset create did not return task id");
+  const taskId =
+    createData?.id
+    || createData?.data?.id
+    || createData?.taskId
+    || createData?.data?.taskId
+    || createData?.task_id
+    || createData?.data?.task_id
+    || null;
+  const directAssetId =
+    (typeof createData === "string" && String(createData).trim()
+      ? String(createData).trim().replace(/^asset:\/\//, "")
+      : null)
+    || (typeof createData?.data === "string" && String(createData.data).trim()
+      ? String(createData.data).trim().replace(/^asset:\/\//, "")
+      : null)
+    || parseKieAssetIdFromRecord(createData)
+    || parseKieAssetIdFromRecord(createData?.data)
+    || null;
+  if (!taskId && directAssetId) {
+    return {
+      success: true,
+      taskId: null,
+      assetId: String(directAssetId),
+      assetUri: `asset://${String(directAssetId)}`,
+      sourceUrl: normalizedUrl,
+      outputUrl: null,
+      assetType: normalizedAssetType,
+    };
+  }
+  if (!taskId) {
+    throw new Error(`Asset create did not return task id or asset id: ${JSON.stringify(createData).slice(0, 300)}`);
+  }
 
   const outputUrl = await kiePollTask(taskId, 3 * 60 * 1000, "create-asset");
   const statusRes = await getKieTaskStatus(taskId).catch(() => null);
@@ -1311,6 +1341,49 @@ async function generateWan27ImageProKieInternal(payload = {}) {
     seed = 0,
   } = payload;
 
+  const normalizedColorPalette = (() => {
+    if (!Array.isArray(colorPalette)) return [];
+    const mapped = colorPalette
+      .map((entry) => {
+        if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+          return {
+            color: String(entry.color || "").trim(),
+            proportion: String(entry.proportion || "").trim(),
+          };
+        }
+        if (typeof entry === "string") {
+          return { color: String(entry).trim(), proportion: "" };
+        }
+        return null;
+      })
+      .filter((entry) => entry && /^#[0-9a-fA-F]{6}$/.test(entry.color))
+      .slice(0, 10);
+    if (!mapped.length) return [];
+    const hasMissingProportion = mapped.some((entry) => !entry.proportion);
+    if (!hasMissingProportion) return mapped;
+    const share = (100 / mapped.length).toFixed(2);
+    return mapped.map((entry) => ({
+      color: entry.color,
+      proportion: entry.proportion || `${share}%`,
+    }));
+  })();
+
+  const normalizedBboxList = (() => {
+    if (!Array.isArray(bboxList)) return [];
+    const isBox = (row) =>
+      Array.isArray(row) && row.length === 4 && row.every((n) => Number.isFinite(Number(n)));
+    const toBox = (row) => row.map((n) => Number(n));
+    // [ [x1,y1,x2,y2], ... ] => wrap for one input image
+    if (bboxList.every((row) => isBox(row))) {
+      return [bboxList.map(toBox)];
+    }
+    // [ [ [x1,y1,x2,y2], ... ], ... ] => already grouped per image
+    if (bboxList.every((row) => Array.isArray(row) && row.every((box) => isBox(box)))) {
+      return bboxList.map((row) => row.map(toBox));
+    }
+    return [];
+  })();
+
   const reqBody = {
     model: "wan/2-7-image-pro",
     input: {
@@ -1321,8 +1394,8 @@ async function generateWan27ImageProKieInternal(payload = {}) {
       n: Math.max(1, Number.parseInt(String(n || 1), 10) || 1),
       resolution: String(resolution || "2K"),
       thinking_mode: !!thinkingMode,
-      ...(Array.isArray(colorPalette) && colorPalette.length ? { color_palette: colorPalette } : {}),
-      ...(Array.isArray(bboxList) && bboxList.length ? { bbox_list: bboxList } : {}),
+      ...(normalizedColorPalette.length ? { color_palette: normalizedColorPalette } : {}),
+      ...(normalizedBboxList.length ? { bbox_list: normalizedBboxList } : {}),
       watermark: !!watermark,
       seed: Math.max(0, Number.parseInt(String(seed || 0), 10) || 0),
     },
@@ -1388,7 +1461,9 @@ async function generateIdeogramV3KieInternal(payload = {}) {
         style: payload.style || "AUTO",
         expand_prompt: payload.expandPrompt !== false,
         image_size: payload.imageSize || "square_hd",
-        num_images: Number(payload.numImages || 1),
+        num_images: String(
+          Math.min(4, Math.max(1, Number.parseInt(String(payload.numImages || 1), 10) || 1)),
+        ),
         ...(payload.seed != null ? { seed: Number(payload.seed) } : {}),
         ...(payload.strength != null ? { strength: Number(payload.strength) } : {}),
         ...(payload.negativePrompt ? { negative_prompt: String(payload.negativePrompt) } : {}),
@@ -1430,7 +1505,7 @@ async function generateSeedance2KieInternal(payload = {}) {
     prompt: String(prompt || "").trim(),
     ...(firstFrameUrl ? { first_frame_url: String(firstFrameUrl).trim() } : {}),
     ...(lastFrameUrl ? { last_frame_url: String(lastFrameUrl).trim() } : {}),
-    ...(Array.isArray(referenceImageUrls) && referenceImageUrls.length ? { reference_image_urls: referenceImageUrls.slice(0, 7) } : {}),
+    ...(Array.isArray(referenceImageUrls) && referenceImageUrls.length ? { reference_image_urls: referenceImageUrls.slice(0, 9) } : {}),
     ...(Array.isArray(referenceVideoUrls) && referenceVideoUrls.length ? { reference_video_urls: referenceVideoUrls.slice(0, 3) } : {}),
     ...(Array.isArray(referenceAudioUrls) && referenceAudioUrls.length ? { reference_audio_urls: referenceAudioUrls.slice(0, 3) } : {}),
     return_last_frame: !!returnLastFrame,

@@ -12,6 +12,12 @@
     "start": "cross-env NODE_ENV=production node dist/index.js",
     "check": "tsc",
     "test": "npm run check",
+    "pw:test": "playwright test",
+    "pw:ui": "playwright test --ui",
+    "pw:headed": "playwright test --headed --workers=1",
+    "pw:debug": "playwright test --debug --workers=1",
+    "pw:codegen": "playwright codegen",
+    "pw:kie-docs": "node scripts/playwright-kie-docs.mjs",
     "db:push": "drizzle-kit push",
     "repurpose:devices": "node scripts/build-repurpose-device-catalog.mjs",
     "stripe:audit-subscriptions": "node scripts/audit-stripe-subscriptions.mjs",
@@ -141,6 +147,7 @@
     "zustand": "^4.5.4"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@replit/vite-plugin-cartographer": "^0.4.1",
     "@replit/vite-plugin-dev-banner": "^0.1.1",
     "@replit/vite-plugin-runtime-error-modal": "^0.0.3",

@@ -4000,11 +4000,14 @@ function validateCreatorStudioVideoDuration(family, mode, value) {
     return { valid: true, duration };
   }
   if (family === "seedance2") {
-    if (mode === "edit") {
+    if (String(mode || "").toLowerCase() === "edit") {
+      if (duration !== 8) {
+        return { valid: false, message: "Seedance edit duration must be 8 seconds." };
+      }
       return { valid: true, duration };
     }
-    if (![5, 10, 15].includes(duration)) {
-      return { valid: false, message: "Seedance duration must be 5, 10, or 15 seconds." };
+    if (![4, 8, 12].includes(duration)) {
+      return { valid: false, message: "Seedance duration must be 4, 8, or 12 seconds." };
     }
     return { valid: true, duration };
   }
@@ -4198,6 +4201,12 @@ export async function generateCreatorStudio(req, res) {
     }
     if (modelName === "ideogram-v3-remix" && !normalizedInputImage) {
       return res.status(400).json({ success: false, message: "Ideogram remix requires inputImageUrl." });
+    }
+    if (modelName.startsWith("flux-kontext") && !normalizedInputImage && refs.length === 0) {
+      return res.status(400).json({ success: false, message: "Flux Kontext requires an input image." });
+    }
+    if (modelName === "seedream-v4-5-edit" && !normalizedInputImage && refs.length === 0) {
+      return res.status(400).json({ success: false, message: "Seedream v4.5 Edit requires at least one input image." });
     }
 
     const pricing = await getGenerationPricing();
@@ -4678,7 +4687,7 @@ async function processCreatorStudioVideoInBackground({
           generateAudio: seedanceGenerateAudio === true,
           resolution: String(seedanceResolution || "720p"),
           aspectRatio: String(aspectRatio || "16:9"),
-          duration: Number(durationSeconds) || 5,
+          duration: Number(durationSeconds) || 8,
           onTaskCreated: onTaskSubmitted,
         }),
       );

@@ -291,10 +291,10 @@ function getDurationConfig(family, mode) {
     return { min: 8, max: 8, step: 1, fixed: true };
   }
   if (family === "seedance2" && mode === "edit") {
-    return { min: 5, max: 5, step: 1, fixed: true };
+    return { min: 8, max: 8, step: 1, fixed: true };
   }
   if (family === "seedance2") {
-    return { min: 5, max: 15, step: 5, fixed: false };
+    return { min: 4, max: 12, step: 4, fixed: false };
   }
   if (family === "wan22") {
     return { min: 5, max: 5, step: 1, fixed: true };
@@ -449,6 +449,10 @@ function MediaUploadField({ label, value, onUploaded, accept = "image/*", previe
               <div className="w-12 h-12 rounded-lg border border-white/20 bg-black/60 flex items-center justify-center flex-shrink-0">
                 <Video className="w-5 h-5 text-slate-300" />
               </div>
+            ) : preview === "audio" ? (
+              <div className="w-12 h-12 rounded-lg border border-white/20 bg-black/60 flex items-center justify-center flex-shrink-0">
+                <Mic className="w-5 h-5 text-slate-300" />
+              </div>
             ) : (
               <img src={value} alt="" className="w-12 h-12 rounded-lg object-cover border border-white/20 flex-shrink-0" />
             )}
@@ -483,6 +487,8 @@ function SeedanceAssetModal({ isOpen, onClose, onSelect }) {
   const [sourceUrl, setSourceUrl] = useState("");
   const [assetType, setAssetType] = useState("image");
   const [isCreating, setIsCreating] = useState(false);
+  const assetAccept = assetType === "video" ? "video/*" : assetType === "audio" ? "audio/*" : "image/*";
+  const assetLabel = assetType === "video" ? "Upload source video" : assetType === "audio" ? "Upload source audio" : "Upload source image";
   const refresh = useCallback(async () => {
     if (!isOpen) return;
     setIsLoading(true);
@@ -511,14 +517,24 @@ function SeedanceAssetModal({ isOpen, onClose, onSelect }) {
         </div>
         <div className="rounded-xl border border-white/10 p-3 bg-black/20 mb-3">
           <p className="text-xs text-slate-400 mb-2">Create asset (100 credits)</p>
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
-            <input
-              value={sourceUrl}
-              onChange={(e) => setSourceUrl(e.target.value)}
-              placeholder="https://... source image/video/audio URL"
-              className="md:col-span-3 rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-white outline-none"
-            />
-            <select value={assetType} onChange={(e) => setAssetType(e.target.value)} className="rounded-lg border border-white/15 bg-black/40 px-2 py-2 text-sm text-white outline-none">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-2 items-end">
+            <div className="md:col-span-3">
+              <MediaUploadField
+                label={assetLabel}
+                value={sourceUrl}
+                onUploaded={setSourceUrl}
+                accept={assetAccept}
+                preview={assetType === "video" ? "video" : assetType === "audio" ? "audio" : "image"}
+              />
+            </div>
+            <select
+              value={assetType}
+              onChange={(e) => {
+                setAssetType(e.target.value);
+                setSourceUrl("");
+              }}
+              className="rounded-lg border border-white/15 bg-black/40 px-2 py-2 text-sm text-white outline-none"
+            >
               <option value="image">Image</option>
               <option value="video">Video</option>
               <option value="audio">Audio</option>
@@ -1515,8 +1531,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
   const user        = useAuthStore((s) => s.user);
   const refreshUser = useAuthStore((s) => s.refreshUser);
   const { byKey } = useTutorialCatalog();
-  const isAdminUser = user?.role === "admin";
-  const visibleTabs = isAdminUser ? TABS : TABS.filter((t) => t.id !== "avatars");
+  const visibleTabs = TABS;
 
   // NanoBanana state
   const [prompt, setPrompt]             = useState("");
@@ -1574,6 +1589,23 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
   const [wanResolution, setWanResolution] = useState("580p");
   const [isVideoGenerating, setIsVideoGenerating] = useState(false);
   const [extendSourceId, setExtendSourceId] = useState("");
+  const isFluxImageModel = imageModel.startsWith("flux-kontext");
+  const isIdeogramImageModel = imageModel.startsWith("ideogram-v3");
+  const isWanImageModel = imageModel === "wan-2-7-image-pro";
+  const isSeedreamImageModel = imageModel === "seedream-v4-5-edit";
+  const showSingleInputUploader =
+    isFluxImageModel
+    || imageModel === "ideogram-v3-edit"
+    || imageModel === "ideogram-v3-remix"
+    || isSeedreamImageModel;
+  const supportsReferenceSlots =
+    imageModel === "nano-banana-pro"
+    || isWanImageModel
+    || isSeedreamImageModel;
+  const singleInputRequired =
+    isFluxImageModel
+    || imageModel === "ideogram-v3-edit"
+    || imageModel === "ideogram-v3-remix";
 
   const { isLoading: histLoading } = useQuery({
     queryKey: ["creator-studio-history"],
@@ -1602,12 +1634,6 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
   const generationPricing = generationPricingData?.pricing || {};
 
   useEffect(() => {
-    if (!isAdminUser && activeTab === "avatars") {
-      setActiveTab("generate");
-    }
-  }, [isAdminUser, activeTab]);
-
-  useEffect(() => {
     setActiveTab(initialTab);
   }, [initialTab]);
 
@@ -1634,6 +1660,12 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
 
   const handleGenerate = async () => {
     if (!prompt.trim()) { toast.error(copy.enterPrompt); return; }
+    const filledRefs = refs.filter(Boolean);
+    const primaryInputImage = imageInputUrl.trim() || (supportsReferenceSlots ? (filledRefs[0] || "") : "");
+    if (singleInputRequired && !primaryInputImage) {
+      toast.error("This model requires an input image.");
+      return;
+    }
     if (imageModel === "ideogram-v3-edit" && (!imageInputUrl.trim() || !imageMaskUrl.trim())) {
       toast.error("Ideogram Edit requires input image and mask.");
       return;
@@ -1642,16 +1674,69 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
       toast.error("Ideogram Remix requires input image.");
       return;
     }
-    const filledRefs = refs.filter(Boolean);
+    if (isSeedreamImageModel && !primaryInputImage && filledRefs.length === 0) {
+      toast.error("Seedream v4.5 Edit needs at least one input image.");
+      return;
+    }
     let parsedColorPalette = [];
     if (wanColorPaletteText.trim()) {
-      parsedColorPalette = wanColorPaletteText.split(",").map((x) => x.trim()).filter(Boolean).slice(0, 16);
+      try {
+        if (wanColorPaletteText.trim().startsWith("[")) {
+          const parsed = JSON.parse(wanColorPaletteText);
+          if (Array.isArray(parsed)) {
+            // Accept either [{color,proportion}] or ["#RRGGBB"] and normalize to API shape.
+            if (parsed.every((x) => typeof x === "string")) {
+              const colors = parsed
+                .map((x) => String(x).trim())
+                .filter((x) => /^#[0-9a-fA-F]{6}$/.test(x))
+                .slice(0, 10);
+              if (colors.length) {
+                const ratio = `${(100 / colors.length).toFixed(2)}%`;
+                parsedColorPalette = colors.map((color) => ({ color, proportion: ratio }));
+              }
+            } else {
+              parsedColorPalette = parsed.slice(0, 10);
+            }
+          }
+        } else {
+          const colors = wanColorPaletteText
+            .split(",")
+            .map((x) => x.trim())
+            .filter((x) => /^#[0-9a-fA-F]{6}$/.test(x))
+            .slice(0, 10);
+          if (colors.length) {
+            const ratio = `${(100 / colors.length).toFixed(2)}%`;
+            parsedColorPalette = colors.map((color) => ({ color, proportion: ratio }));
+          }
+        }
+      } catch {
+        toast.error("color_palette must be valid JSON array or comma-separated HEX colors.");
+        return;
+      }
     }
     let parsedBboxList = [];
     if (wanBboxListText.trim()) {
       try {
         const parsed = JSON.parse(wanBboxListText);
-        if (Array.isArray(parsed)) parsedBboxList = parsed;
+        if (Array.isArray(parsed)) {
+          // Accept [[x1,y1,x2,y2], ...] and wrap for a single input image, or already wrapped [[[...]]].
+          if (parsed.every((row) => Array.isArray(row) && row.length === 4 && row.every((n) => Number.isFinite(Number(n))))) {
+            parsedBboxList = [parsed.map((row) => row.map((n) => Number(n)))];
+          } else if (
+            parsed.every(
+              (row) =>
+                Array.isArray(row)
+                && row.every((box) => Array.isArray(box) && box.length === 4 && box.every((n) => Number.isFinite(Number(n)))),
+            )
+          ) {
+            parsedBboxList = parsed.map((row) => row.map((box) => box.map((n) => Number(n))));
+          } else if (parsed.every((row) => row && typeof row === "object" && !Array.isArray(row))) {
+            const converted = parsed
+              .map((row) => [Number(row.x1), Number(row.y1), Number(row.x2), Number(row.y2)])
+              .filter((box) => box.every((n) => Number.isFinite(n)));
+            if (converted.length) parsedBboxList = [converted];
+          }
+        }
       } catch {
         toast.error("bbox_list must be valid JSON array.");
         return;
@@ -1662,16 +1747,16 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
       const data = await creatorStudioAPI.generate({
         prompt: prompt.trim(),
         generationModel: imageModel,
-        referencePhotos: filledRefs,
-        inputImageUrl: imageInputUrl.trim() || filledRefs[0] || undefined,
+        referencePhotos: supportsReferenceSlots ? filledRefs : [],
+        inputImageUrl: primaryInputImage || undefined,
         maskUrl: imageMaskUrl.trim() || (imageModel === "ideogram-v3-edit" ? (filledRefs[1] || undefined) : undefined),
-        numImages: imageNumOutputs,
-        renderingSpeed: ideogramRenderingSpeed,
-        promptUpsampling: fluxPromptUpsampling,
-        safetyTolerance: fluxSafetyTolerance,
-        thinkingMode: wanThinkingMode,
-        colorPalette: parsedColorPalette,
-        bboxList: parsedBboxList,
+        numImages: (isIdeogramImageModel || isWanImageModel || isFluxImageModel) ? imageNumOutputs : 1,
+        renderingSpeed: isIdeogramImageModel ? ideogramRenderingSpeed : undefined,
+        promptUpsampling: isFluxImageModel ? fluxPromptUpsampling : undefined,
+        safetyTolerance: isFluxImageModel ? fluxSafetyTolerance : undefined,
+        thinkingMode: isWanImageModel ? wanThinkingMode : undefined,
+        colorPalette: isWanImageModel ? parsedColorPalette : undefined,
+        bboxList: isWanImageModel ? parsedBboxList : undefined,
         aspectRatio,
         resolution,
       });
@@ -1808,6 +1893,13 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
     }
     return Math.ceil(resolution === "4K" ? (generationPricing?.creatorStudio4K || 25) : (generationPricing?.creatorStudio1K2K || 20));
   }, [generationPricing, ideogramRenderingSpeed, imageModel, imageNumOutputs, resolution]);
+  const hasAnyReferenceSlot = refs.some(Boolean);
+  const imageGenerateDisabled =
+    isGenerating
+    || !prompt.trim()
+    || (singleInputRequired && !imageInputUrl.trim())
+    || (isSeedreamImageModel && !imageInputUrl.trim() && !hasAnyReferenceSlot)
+    || (imageModel === "ideogram-v3-edit" && !imageMaskUrl.trim());
   const creditsLeft = user?.credits ?? 0;
   const selectedAspect = ASPECT_RATIOS.find((ar) => ar.value === aspectRatio);
   const aspectSummary = selectedAspect?.hint ?? selectedAspect?.label ?? aspectRatio;
@@ -2074,7 +2166,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                     ))}
                   </div>
                 </div>
-                {(imageModel.startsWith("ideogram-v3") || imageModel === "wan-2-7-image-pro" || imageModel.startsWith("flux-kontext")) && (
+                {(isIdeogramImageModel || isWanImageModel || isFluxImageModel) && (
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Outputs</span>
                     <div className="flex items-center gap-1.5">
@@ -2084,7 +2176,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                         </Chip>
                       ))}
                     </div>
-                    {imageModel.startsWith("ideogram-v3") && (
+                    {isIdeogramImageModel && (
                       <>
                         <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0 ml-1">Speed</span>
                         <div className="flex items-center gap-1.5">
@@ -2098,9 +2190,13 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                     )}
                   </div>
                 )}
-                {imageModel !== "nano-banana-pro" && (
+                {showSingleInputUploader && (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                    <MediaUploadField label="Input image (optional)" value={imageInputUrl} onUploaded={setImageInputUrl} />
+                    <MediaUploadField
+                      label={singleInputRequired ? "Input image (required)" : "Input image (optional)"}
+                      value={imageInputUrl}
+                      onUploaded={setImageInputUrl}
+                    />
                     {imageModel === "ideogram-v3-edit" && (
                       <div className="rounded-xl border border-white/10 bg-black/20 p-3">
                         <p className="text-xs text-slate-300 mb-2">Inpainting mask</p>
@@ -2121,7 +2217,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                     )}
                   </div>
                 )}
-                {imageModel.startsWith("flux-kontext") && (
+                {isFluxImageModel && (
                   <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"
@@ -2137,7 +2233,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                     </div>
                   </div>
                 )}
-                {imageModel === "wan-2-7-image-pro" && (
+                {isWanImageModel && (
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
                     <button
                       type="button"
@@ -2149,26 +2245,28 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                     <input
                       value={wanColorPaletteText}
                       onChange={(e) => setWanColorPaletteText(e.target.value)}
-                      placeholder="color_palette (comma separated)"
+                      placeholder='color_palette JSON or HEX list, e.g. [{"color":"#FF0000","proportion":"50.00%"}] or #FF0000,#00FF00'
                       className="rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-xs text-white outline-none"
                     />
                     <input
                       value={wanBboxListText}
                       onChange={(e) => setWanBboxListText(e.target.value)}
-                      placeholder='bbox_list JSON, e.g. [{"x1":10}]'
+                      placeholder='bbox_list JSON, e.g. [[10,10,120,120]] or [[[10,10,120,120]]]'
                       className="rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-xs text-white outline-none"
                     />
                   </div>
                 )}
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">{copy.refs}</span>
-                  <div className="flex flex-wrap items-center gap-1.5 min-w-0">
-                    {refs.map((url, i) => (
-                      <RefSlot key={i} url={url} uploading={uploadingIdx === i}
-                        onRemove={() => removeRef(i)} onAdd={(file) => handleAddRef(file, i)} />
-                    ))}
+                {supportsReferenceSlots && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">{copy.refs}</span>
+                    <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+                      {refs.map((url, i) => (
+                        <RefSlot key={i} url={url} uploading={uploadingIdx === i}
+                          onRemove={() => removeRef(i)} onAdd={(file) => handleAddRef(file, i)} />
+                      ))}
+                    </div>
                   </div>
-                </div>
+                )}
                 <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 min-w-0">
                   <div className="flex items-center gap-2 min-w-0 overflow-x-auto pb-1 -mx-1 px-1 [scrollbar-width:thin]">
                     <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">{copy.aspect}</span>
@@ -2190,7 +2288,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                     <button
                       type="button"
                       onClick={handleGenerate}
-                      disabled={isGenerating || !prompt.trim()}
+                      disabled={imageGenerateDisabled}
                       className="relative flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold tracking-wide overflow-hidden transition-all disabled:opacity-40 disabled:cursor-not-allowed shrink-0 min-w-[10.5rem] whitespace-nowrap"
                       style={{
                         background: "rgba(109,40,217,0.35)",
@@ -2259,7 +2357,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                   <button
                     type="button"
                     onClick={handleGenerate}
-                    disabled={isGenerating || !prompt.trim()}
+                    disabled={imageGenerateDisabled}
                     className="flex-shrink-0 min-w-[7rem] min-h-[44px] px-3 rounded-xl text-xs font-semibold disabled:opacity-40 flex flex-col items-center justify-center gap-0.5 leading-tight"
                     style={{ background: "linear-gradient(135deg,#7c3aed,#4f46e5)", color: "white" }}
                   >
@@ -2337,7 +2435,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                       </div>
                     </div>
                   </div>
-                  <button type="button" onClick={handleGenerate} disabled={isGenerating || !prompt.trim()}
+                  <button type="button" onClick={handleGenerate} disabled={imageGenerateDisabled}
                     className="w-full min-h-[48px] shrink-0 px-4 py-3 rounded-xl text-sm font-semibold disabled:opacity-40 flex items-center justify-center gap-1.5"
                     style={{ background: "linear-gradient(135deg,#7c3aed,#4f46e5)", color: "white" }}>
                     {isGenerating
