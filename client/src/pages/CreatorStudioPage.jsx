@@ -1713,29 +1713,31 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
         if (wanColorPaletteText.trim().startsWith("[")) {
           const parsed = JSON.parse(wanColorPaletteText);
           if (Array.isArray(parsed)) {
-            // Accept either [{color,proportion}] or ["#RRGGBB"] and normalize to API shape.
             if (parsed.every((x) => typeof x === "string")) {
-              const colors = parsed
+              const hexes = parsed
                 .map((x) => String(x).trim())
                 .filter((x) => /^#[0-9a-fA-F]{6}$/.test(x))
                 .slice(0, 10);
-              if (colors.length) {
-                const ratio = `${(100 / colors.length).toFixed(2)}%`;
-                parsedColorPalette = colors.map((color) => ({ color, proportion: ratio }));
+              if (hexes.length) {
+                const share = `${(100 / hexes.length).toFixed(2)}%`;
+                parsedColorPalette = hexes.map((hex) => ({ hex, ratio: share }));
               }
             } else {
-              parsedColorPalette = parsed.slice(0, 10);
+              parsedColorPalette = parsed.slice(0, 10).map((entry) => ({
+                hex: String(entry.hex || entry.color || "").trim(),
+                ratio: String(entry.ratio || entry.proportion || "").trim(),
+              }));
             }
           }
         } else {
-          const colors = wanColorPaletteText
+          const hexes = wanColorPaletteText
             .split(",")
             .map((x) => x.trim())
             .filter((x) => /^#[0-9a-fA-F]{6}$/.test(x))
             .slice(0, 10);
-          if (colors.length) {
-            const ratio = `${(100 / colors.length).toFixed(2)}%`;
-            parsedColorPalette = colors.map((color) => ({ color, proportion: ratio }));
+          if (hexes.length) {
+            const share = `${(100 / hexes.length).toFixed(2)}%`;
+            parsedColorPalette = hexes.map((hex) => ({ hex, ratio: share }));
           }
         }
       } catch {
@@ -1877,6 +1879,9 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
         seedanceTaskType,
         seedanceResolution,
         seedanceGenerateAudio,
+        seedanceReferenceAudioUrls: selectedSeedanceAssets.audio?.assetUri
+          ? [selectedSeedanceAssets.audio.assetUri]
+          : undefined,
         wanResolution,
         veoSeeds: veoSeed ? Number(veoSeed) : undefined,
         veoEnableTranslation,
@@ -2271,7 +2276,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                     <input
                       value={wanColorPaletteText}
                       onChange={(e) => setWanColorPaletteText(e.target.value)}
-                      placeholder='color_palette JSON or HEX list, e.g. [{"color":"#FF0000","proportion":"50.00%"}] or #FF0000,#00FF00'
+                      placeholder='color_palette JSON or HEX list, e.g. [{"hex":"#FF0000","ratio":"50.00%"}] or #FF0000,#00FF00'
                       className="rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-xs text-white outline-none"
                     />
                     <input
@@ -2650,11 +2655,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                       <ToggleGroup value={videoNFrames} onChange={setVideoNFrames} options={[{ value: "10", label: "10s" }, { value: "15", label: "15s" }]} />
                     </div>
                     <div className="rounded-xl border border-white/10 p-3">
-                      <label className="block text-xs text-slate-400 mb-2">Quality</label>
-                      <ToggleGroup value={soraQuality} onChange={setSoraQuality} options={[{ value: "standard", label: "Standard" }, { value: "high", label: "High" }]} />
-                    </div>
-                    <div className="rounded-xl border border-white/10 p-3">
-                      <label className="block text-xs text-slate-400 mb-2">Size</label>
+                      <label className="block text-xs text-slate-400 mb-2">Output Quality</label>
                       <ToggleGroup value={videoSize} onChange={setVideoSize} options={[{ value: "standard", label: "Standard" }, { value: "high", label: "High" }]} />
                     </div>
                     <div className="rounded-xl border border-white/10 p-3">
@@ -2980,7 +2981,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                     {(videoMode === "t2v" || videoMode === "i2v" || videoMode === "edit" || videoMode === "multi-ref") && (
                       <div className="rounded-xl border border-white/10 p-3 col-span-2">
                         <label className="block text-xs text-slate-400 mb-2">Aspect Ratio</label>
-                        <ToggleGroup value={videoAspectRatio} onChange={setVideoAspectRatio} options={[{ value: "16:9", label: "16:9" }, { value: "9:16", label: "9:16" }, { value: "4:3", label: "4:3" }, { value: "3:4", label: "3:4" }]} />
+                        <ToggleGroup value={videoAspectRatio} onChange={setVideoAspectRatio} options={[{ value: "1:1", label: "1:1" }, { value: "16:9", label: "16:9" }, { value: "9:16", label: "9:16" }, { value: "4:3", label: "4:3" }, { value: "3:4", label: "3:4" }, { value: "21:9", label: "21:9" }]} />
                       </div>
                     )}
                   </>
@@ -3100,10 +3101,6 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
             setVideoInputVideoUrl(uri);
             setSelectedSeedanceAssets((prev) => ({ ...prev, video: normalized }));
           } else if (type === "audio") {
-            // Audio references are submitted via multimodal mode; append into prompt for now.
-            setVideoPrompt((prev) => (
-              String(prev || "").includes(`audio ref: ${uri}`) ? prev : `${prev}${prev ? "\n" : ""}audio ref: ${uri}`
-            ));
             setSelectedSeedanceAssets((prev) => ({ ...prev, audio: normalized }));
           } else {
             setVideoImageUrl(uri);

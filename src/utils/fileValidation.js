@@ -119,6 +119,11 @@ async function inspectRemoteFile(url) {
 }
 
 async function probeRemoteVideoDuration(url, extensionHint = "mp4") {
+  const meta = await probeRemoteVideoMeta(url, extensionHint);
+  return meta?.duration ?? null;
+}
+
+async function probeRemoteVideoMeta(url, extensionHint = "mp4") {
   const ext = extensionHint || getExtensionFromUrl(url) || "mp4";
   const tmpPath = path.join(
     os.tmpdir(),
@@ -132,7 +137,11 @@ async function probeRemoteVideoDuration(url, extensionHint = "mp4") {
     fs.writeFileSync(tmpPath, buffer);
     const { probeInput } = await import("../services/video-repurpose.service.js");
     const info = await probeInput(tmpPath);
-    return Number.isFinite(info?.duration) ? info.duration : null;
+    return {
+      duration: Number.isFinite(info?.duration) ? info.duration : null,
+      width: Number.isFinite(info?.width) ? info.width : null,
+      height: Number.isFinite(info?.height) ? info.height : null,
+    };
   } finally {
     try {
       if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
@@ -346,6 +355,29 @@ async function validateTalkingHeadAvatarImageUrl(url) {
   });
 }
 
+async function validateSeedanceReferenceVideoPixelsUrl(url) {
+  const basic = validateVideoUrl(url);
+  if (!basic.valid) return basic;
+  const maxPixels = Math.max(1, parseInt(process.env.PROVIDER_LIMIT_KIE_SEEDANCE2_R2V_MAX_PIXELS || "927408", 10) || 927408);
+  try {
+    const info = await probeRemoteVideoMeta(url);
+    const width = Number(info?.width || 0);
+    const height = Number(info?.height || 0);
+    if (width > 0 && height > 0 && width * height > maxPixels) {
+      return {
+        valid: false,
+        message: `Seedance reference video resolution is too high (${width}x${height} = ${width * height} px). Maximum allowed is ${maxPixels} pixels.`,
+      };
+    }
+    return { valid: true };
+  } catch (error) {
+    return {
+      valid: false,
+      message: `Could not validate Seedance reference video resolution (${error?.message || "unknown error"}).`,
+    };
+  }
+}
+
 export async function validateContentType(url, type = "image") {
   const supported = type === "video" ? SUPPORTED_VIDEO_MIMES : SUPPORTED_IMAGE_MIMES;
   const friendlyList = type === "video" ? "MP4, WebM, or MOV" : "JPG, PNG, or WebP";
@@ -374,6 +406,7 @@ export {
   validateKlingMotionInputs,
   validateFaceSwapSourceVideoUrl,
   validateTalkingHeadAvatarImageUrl,
+  validateSeedanceReferenceVideoPixelsUrl,
   SUPPORTED_IMAGE_EXTENSIONS,
   SUPPORTED_VIDEO_EXTENSIONS,
 };

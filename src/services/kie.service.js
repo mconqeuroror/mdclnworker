@@ -1082,7 +1082,15 @@ async function generateVideoWithKlingTextKieInternal(prompt, options = {}) {
     input.mode = options.quality === "pro" ? "pro" : "std";
     input.multi_shots = options.multiShots === true;
     if (options.multiShots === true) {
-      input.multi_prompt = [{ prompt: String(prompt || ""), duration: Math.min(12, Math.max(1, Number(duration) || 5)) }];
+      const shots = Array.isArray(options.multiShotEntries) ? options.multiShotEntries.filter((s) => s?.prompt?.trim()) : [];
+      if (shots.length > 0) {
+        input.multi_prompt = shots.slice(0, 5).map((s) => ({
+          prompt: String(s.prompt || "").trim(),
+          duration: Math.min(12, Math.max(1, Number(s.duration) || 5)),
+        }));
+      } else {
+        input.multi_prompt = [{ prompt: String(prompt || ""), duration: Math.min(12, Math.max(1, Number(duration) || 5)) }];
+      }
     }
     if (Array.isArray(options.klingElements) && options.klingElements.length) {
       input.kling_elements = options.klingElements.slice(0, 3);
@@ -1346,25 +1354,24 @@ async function generateWan27ImageProKieInternal(payload = {}) {
     const mapped = colorPalette
       .map((entry) => {
         if (entry && typeof entry === "object" && !Array.isArray(entry)) {
-          return {
-            color: String(entry.color || "").trim(),
-            proportion: String(entry.proportion || "").trim(),
-          };
+          const hex = String(entry.hex || entry.color || "").trim();
+          const ratio = String(entry.ratio || entry.proportion || "").trim();
+          return { hex, ratio };
         }
         if (typeof entry === "string") {
-          return { color: String(entry).trim(), proportion: "" };
+          return { hex: String(entry).trim(), ratio: "" };
         }
         return null;
       })
-      .filter((entry) => entry && /^#[0-9a-fA-F]{6}$/.test(entry.color))
+      .filter((entry) => entry && /^#[0-9a-fA-F]{6}$/.test(entry.hex))
       .slice(0, 10);
     if (!mapped.length) return [];
-    const hasMissingProportion = mapped.some((entry) => !entry.proportion);
-    if (!hasMissingProportion) return mapped;
+    const hasMissingRatio = mapped.some((entry) => !entry.ratio);
+    if (!hasMissingRatio) return mapped;
     const share = (100 / mapped.length).toFixed(2);
     return mapped.map((entry) => ({
-      color: entry.color,
-      proportion: entry.proportion || `${share}%`,
+      hex: entry.hex,
+      ratio: entry.ratio || `${share}%`,
     }));
   })();
 
@@ -1415,6 +1422,7 @@ async function generateIdeogramV3KieInternal(payload = {}) {
   const type = String(variant || "text").toLowerCase();
 
   if (type === "text") {
+    const numImages = Math.min(4, Math.max(1, Number.parseInt(String(payload.numImages || 1), 10) || 1));
     const reqBody = {
       model: "ideogram/v3-text-to-image",
       input: {
@@ -1423,6 +1431,7 @@ async function generateIdeogramV3KieInternal(payload = {}) {
         style: payload.style || "AUTO",
         expand_prompt: payload.expandPrompt !== false,
         image_size: payload.imageSize || "square_hd",
+        ...(numImages > 1 ? { num_images: String(numImages) } : {}),
         ...(payload.seed != null ? { seed: Number(payload.seed) } : {}),
         ...(payload.negativePrompt ? { negative_prompt: String(payload.negativePrompt) } : {}),
       },

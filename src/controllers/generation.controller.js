@@ -54,6 +54,7 @@ import {
   validateSeedreamEditImages,
   validateFaceSwapSourceVideoUrl,
   validateTalkingHeadAvatarImageUrl,
+  validateSeedanceReferenceVideoPixelsUrl,
 } from "../utils/fileValidation.js";
 import { waveSpeedConstraints } from "../config/providerMediaConstraints.js";
 import { getUserFriendlyGenerationError } from "../utils/generationErrorMessages.js";
@@ -4504,6 +4505,7 @@ async function processCreatorStudioVideoInBackground({
   soundPrompt,
   kling30Quality,
   kling30MultiShot,
+  kling30Shots = [],
   klingElements,
   aspectRatio,
   seedanceTaskType,
@@ -4603,6 +4605,7 @@ async function processCreatorStudioVideoInBackground({
             aspectRatio: String(aspectRatio || "16:9"),
             quality: kling30Quality || "std",
             multiShots: !!kling30MultiShot,
+            multiShotEntries: Array.isArray(kling30Shots) ? kling30Shots : [],
             klingElements: Array.isArray(klingElements) ? klingElements : [],
             onTaskSubmitted,
           }),
@@ -4751,6 +4754,7 @@ export async function generateCreatorStudioVideo(req, res) {
       soundPrompt = "",
       kling30Quality = "std",
       kling30MultiShot = false,
+      kling30Shots = [],
       klingElements = [],
       aspectRatio = "16:9",
       seedanceTaskType = "seedance-2-preview",
@@ -4895,8 +4899,14 @@ export async function generateCreatorStudioVideo(req, res) {
       if (normalizedMode === "multi-ref" && !normalizedImageUrl && !normalizedInputVideoUrl) {
         return res.status(400).json({ success: false, message: "Seedance multimodal mode requires at least one image or video reference." });
       }
-      if (!["16:9", "9:16", "4:3", "3:4"].includes(String(aspectRatio || ""))) {
-        return res.status(400).json({ success: false, message: "Seedance aspect ratio must be one of 16:9, 9:16, 4:3, 3:4." });
+      if (normalizedMode === "multi-ref" && normalizedInputVideoUrl && !normalizedInputVideoUrl.startsWith("asset://")) {
+        const pxCheck = await validateSeedanceReferenceVideoPixelsUrl(normalizedInputVideoUrl);
+        if (!pxCheck.valid) {
+          return res.status(400).json({ success: false, message: pxCheck.message });
+        }
+      }
+      if (!["1:1", "16:9", "9:16", "4:3", "3:4", "21:9"].includes(String(aspectRatio || ""))) {
+        return res.status(400).json({ success: false, message: "Seedance aspect ratio must be one of 1:1, 16:9, 9:16, 4:3, 3:4, 21:9." });
       }
     }
 
@@ -4970,6 +4980,7 @@ export async function generateCreatorStudioVideo(req, res) {
           soundPrompt,
           kling30Quality,
           kling30MultiShot,
+          kling30Shots: Array.isArray(kling30Shots) ? kling30Shots.slice(0, 5) : [],
           klingElements,
           aspectRatio,
           seedanceTaskType,
@@ -5007,6 +5018,7 @@ export async function generateCreatorStudioVideo(req, res) {
       soundPrompt,
       kling30Quality,
       kling30MultiShot,
+      kling30Shots: Array.isArray(kling30Shots) ? kling30Shots.slice(0, 5) : [],
       klingElements,
       aspectRatio,
       seedanceTaskType,
@@ -5217,6 +5229,12 @@ export async function createCreatorStudioAsset(req, res) {
       const dimCheck = await validateSeedanceAssetImageDimensions(sourceUrl);
       if (!dimCheck.valid) {
         return res.status(400).json({ success: false, message: dimCheck.message });
+      }
+    }
+    if (assetType === "Video") {
+      const pxCheck = await validateSeedanceReferenceVideoPixelsUrl(sourceUrl);
+      if (!pxCheck.valid) {
+        return res.status(400).json({ success: false, message: pxCheck.message });
       }
     }
 
