@@ -29,7 +29,7 @@ import {
   Mic,
 } from "lucide-react";
 import { SiTelegram, SiDiscord, SiInstagram } from "react-icons/si";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useBranding } from "../hooks/useBranding";
 import { hasPremiumAccess } from "../utils/premiumAccess";
 
@@ -138,6 +138,7 @@ export default function AppSidebar({
   onDesktopHoverChange,
 }) {
   const location = useLocation();
+  const navigate = useNavigate();
   const branding = useBranding();
   const canAccessPremium = hasPremiumAccess(user);
   const hideRestrictedTabs =
@@ -461,6 +462,9 @@ export default function AppSidebar({
             <button
               key={item.id}
               onClick={() => {
+                if (item.id === "home") {
+                  navigate("/dashboard");
+                }
                 setActiveTab(item.id);
               }}
           className={`w-full relative flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group backdrop-blur-xl shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)] ${
