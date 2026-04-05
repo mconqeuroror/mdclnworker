@@ -811,7 +811,7 @@ export default function DashboardPage() {
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
               className="relative w-full max-w-md rounded-2xl overflow-hidden"
-              style={{ background: 'rgba(15,15,25,0.98)', border: '1px solid rgba(255,255,255,0.1)' }}
+              style={{ background: 'var(--bg-surface)', backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)', border: '1px solid var(--border-subtle)' }}
             >
               <div className="absolute inset-0 bg-gradient-to-br from-violet-500/5 via-transparent to-violet-500/5 pointer-events-none" />
               <div className="relative p-6 sm:p-8 text-center">
@@ -1197,9 +1197,9 @@ function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, 
             <div
               className="rounded-xl p-4 text-center transition-all hover:scale-[1.02] hover:z-10 relative backdrop-blur-xl overflow-hidden"
               style={{
-                background: 'rgba(255,255,255,0.05)',
-                border: '1px solid rgba(255,255,255,0.12)',
-                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)',
+                background: 'var(--bg-elevated)',
+                border: '1px solid var(--mc-glass-border)',
+                boxShadow: 'inset 0 1px 0 var(--mc-glass-inset)',
               }}
             >
               <div
@@ -1234,9 +1234,9 @@ function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, 
         <div
           className="rounded-xl p-4 text-center transition-all hover:scale-[1.02] hover:z-10 relative backdrop-blur-xl overflow-hidden"
           style={{
-            background: 'rgba(255,255,255,0.05)',
-            border: '1px solid rgba(255,255,255,0.12)',
-            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)',
+            background: 'var(--bg-elevated)',
+            border: '1px solid var(--mc-glass-border)',
+            boxShadow: 'inset 0 1px 0 var(--mc-glass-inset)',
           }}
         >
           <div
@@ -1259,9 +1259,9 @@ function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, 
         <div
           className="rounded-xl p-4 text-center transition-all hover:scale-[1.02] hover:z-10 relative backdrop-blur-xl overflow-hidden"
           style={{
-            background: 'rgba(255,255,255,0.05)',
-            border: '1px solid rgba(255,255,255,0.12)',
-            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)',
+            background: 'var(--bg-elevated)',
+            border: '1px solid var(--mc-glass-border)',
+            boxShadow: 'inset 0 1px 0 var(--mc-glass-inset)',
           }}
         >
           <div
@@ -1287,9 +1287,9 @@ function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, 
           onClick={() => { setActiveTab("creator-studio"); }}
           className="group relative rounded-xl p-5 text-left transition-all hover:scale-[1.02] overflow-hidden"
           style={{
-            background: 'rgba(255,255,255,0.05)',
-            border: '1px solid rgba(255,255,255,0.12)',
-            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)',
+            background: 'var(--bg-elevated)',
+            border: '1px solid var(--mc-glass-border)',
+            boxShadow: 'inset 0 1px 0 var(--mc-glass-inset)',
           }}
         >
           <div className="absolute top-0 right-0 w-32 h-32 pointer-events-none rounded-xl" style={{ background: 'radial-gradient(circle at 100% 0%, rgba(255,255,255,0.06) 0%, transparent 70%)' }} />
@@ -1308,9 +1308,9 @@ function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, 
           onClick={() => { setActiveTab("generate"); }}
           className="group relative rounded-xl p-5 text-left transition-all hover:scale-[1.02] overflow-hidden"
           style={{
-            background: 'rgba(255,255,255,0.05)',
-            border: '1px solid rgba(255,255,255,0.12)',
-            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)',
+            background: 'var(--bg-elevated)',
+            border: '1px solid var(--mc-glass-border)',
+            boxShadow: 'inset 0 1px 0 var(--mc-glass-inset)',
           }}
         >
           <div className="absolute top-0 right-0 w-32 h-32 pointer-events-none rounded-xl" style={{ background: 'radial-gradient(circle at 100% 0%, rgba(255,255,255,0.06) 0%, transparent 70%)' }} />
@@ -1333,9 +1333,9 @@ function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, 
           onClick={() => { setActiveTab("models"); }}
           className="group relative rounded-xl p-5 text-left transition-all hover:scale-[1.02] overflow-hidden"
           style={{ 
-            background: 'rgba(255,255,255,0.05)',
-            border: '1px solid rgba(255,255,255,0.12)',
-            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)',
+            background: 'var(--bg-elevated)',
+            border: '1px solid var(--mc-glass-border)',
+            boxShadow: 'inset 0 1px 0 var(--mc-glass-inset)',
           }}
           data-testid="button-create-ai-model"
         >
@@ -1348,8 +1348,8 @@ function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, 
             <div 
               className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 transition-all duration-200 backdrop-blur-xl border border-white/20 group-hover:border-transparent relative"
               style={{ 
-                background: 'rgba(255,255,255,0.05)',
-                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)',
+                background: 'var(--bg-elevated)',
+                boxShadow: 'inset 0 1px 0 var(--mc-glass-inset)',
               }}
               data-icon-box
             >
@@ -1357,7 +1357,7 @@ function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, 
                 className="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-200 border border-white/10"
                 style={{ 
                   background: 'rgba(208, 171, 247, 0.12)',
-                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)',
+                  boxShadow: 'inset 0 1px 0 var(--mc-glass-inset)',
                 }}
               />
               <Plus className="w-6 h-6 text-white relative z-[1]" />
@@ -1370,9 +1370,9 @@ function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, 
           onClick={() => { setActiveTab("models"); }}
           className="group relative rounded-xl p-5 text-left transition-all hover:scale-[1.02] overflow-hidden"
           style={{ 
-            background: 'rgba(255,255,255,0.05)',
-            border: '1px solid rgba(255,255,255,0.12)',
-            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)',
+            background: 'var(--bg-elevated)',
+            border: '1px solid var(--mc-glass-border)',
+            boxShadow: 'inset 0 1px 0 var(--mc-glass-inset)',
           }}
           data-testid="button-upload-real-model"
         >
@@ -1385,15 +1385,15 @@ function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, 
             <div 
               className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 transition-all duration-200 backdrop-blur-xl border border-white/20 group-hover:border-transparent relative"
               style={{ 
-                background: 'rgba(255,255,255,0.05)',
-                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)',
+                background: 'var(--bg-elevated)',
+                boxShadow: 'inset 0 1px 0 var(--mc-glass-inset)',
               }}
             >
               <div 
                 className="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-200 border border-white/10"
                 style={{ 
                   background: 'linear-gradient(135deg, rgba(34, 211, 238, 0.12), rgba(20, 184, 166, 0.12))',
-                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)',
+                  boxShadow: 'inset 0 1px 0 var(--mc-glass-inset)',
                 }}
               />
               <Upload className="w-6 h-6 text-white relative z-[1]" />
@@ -1512,8 +1512,8 @@ function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, 
             onClick={() => { setActiveTab("models"); }}
             className="group relative rounded-xl p-4 text-left transition-all hover:scale-[1.02] overflow-hidden backdrop-blur-2xl shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)]"
             style={{ 
-              background: 'rgba(255,255,255,0.05)',
-              border: '1px solid rgba(255,255,255,0.12)'
+              background: 'var(--bg-elevated)',
+              border: '1px solid var(--mc-glass-border)'
             }}
             data-testid="button-quick-models"
           >
@@ -1528,7 +1528,7 @@ function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, 
                     className="absolute inset-0 rounded-lg opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-200 border border-white/10"
                     style={{ 
                       background: 'rgba(196, 181, 253, 0.12)',
-                      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)',
+                      boxShadow: 'inset 0 1px 0 var(--mc-glass-inset)',
                     }}
                   />
                   <User className="w-4 h-4 text-purple-300 relative z-[1]" />
@@ -1548,8 +1548,8 @@ function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, 
             onClick={() => { setShowEarnModal(true); }}
             className="group relative rounded-xl p-4 text-left transition-all hover:scale-[1.02] overflow-hidden backdrop-blur-2xl shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)]"
             style={{ 
-              background: 'rgba(255,255,255,0.05)',
-              border: '1px solid rgba(255,255,255,0.12)'
+              background: 'var(--bg-elevated)',
+              border: '1px solid var(--mc-glass-border)'
             }}
             data-testid="button-quick-earn"
           >
@@ -1564,7 +1564,7 @@ function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, 
                     className="absolute inset-0 rounded-lg opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-200 border border-white/10"
                     style={{ 
                       background: 'rgba(110, 231, 183, 0.12)',
-                      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)',
+                      boxShadow: 'inset 0 1px 0 var(--mc-glass-inset)',
                     }}
                   />
                   <DollarSign className="w-4 h-4 text-emerald-300 relative z-[1]" />
@@ -1584,8 +1584,8 @@ function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, 
             onClick={() => { setShowReferralModal(true); }}
             className="group relative rounded-xl p-4 text-left transition-all hover:scale-[1.02] overflow-hidden backdrop-blur-2xl shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)]"
             style={{ 
-              background: 'rgba(255,255,255,0.05)',
-              border: '1px solid rgba(255,255,255,0.12)'
+              background: 'var(--bg-elevated)',
+              border: '1px solid var(--mc-glass-border)'
             }}
             data-testid="button-quick-share"
           >
@@ -1600,7 +1600,7 @@ function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, 
                     className="absolute inset-0 rounded-lg opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-200 border border-white/10"
                     style={{ 
                       background: 'rgba(249, 168, 212, 0.12)',
-                      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)',
+                      boxShadow: 'inset 0 1px 0 var(--mc-glass-inset)',
                     }}
                   />
                   <Share2 className="w-4 h-4 text-pink-300 relative z-[1]" />
@@ -1621,8 +1621,8 @@ function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, 
       <div 
         className="rounded-2xl p-5 backdrop-blur-2xl shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)]"
         style={{ 
-          background: 'rgba(255,255,255,0.05)',
-          border: '1px solid rgba(255,255,255,0.12)',
+          background: 'var(--bg-elevated)',
+          border: '1px solid var(--mc-glass-border)',
         }}
       >
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
