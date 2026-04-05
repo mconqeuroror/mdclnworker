@@ -33,7 +33,7 @@ import {
 import { SiTelegram, SiDiscord, SiInstagram } from "react-icons/si";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useBranding } from "../hooks/useBranding";
-import { useTheme } from "../hooks/useTheme";
+import { useTheme } from "../hooks/useTheme.jsx";
 import { hasPremiumAccess } from "../utils/premiumAccess";
 
 const LOCALE_STORAGE_KEY = "app_locale";

@@ -40,7 +40,7 @@ import {
 import { SiTelegram, SiDiscord } from "react-icons/si";
 import toast from "react-hot-toast";
 import { useAuthStore } from "../store";
-import { useTheme } from "../hooks/useTheme";
+import { useTheme } from "../hooks/useTheme.jsx";
 import { systemAPI } from "../services/api";
 import { hasPremiumAccess } from "../utils/premiumAccess";
 import ModelsPage from "./ModelsPage";

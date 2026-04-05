@@ -12,7 +12,7 @@ import { Info, X, Gift } from 'lucide-react';
 import SplashScreen from './components/SplashScreen';
 import { useBranding } from './hooks/useBranding';
 import { sound } from './utils/sounds';
-import { ThemeProvider } from './hooks/useTheme';
+import { ThemeProvider } from './hooks/useTheme.jsx';
 
 // Hook to check if Zustand has hydrated
 function useHasHydrated() {
