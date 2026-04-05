@@ -11,13 +11,20 @@ function getInitialTheme() {
   return "dark";
 }
 
+function applyTheme(t) {
+  const html = document.documentElement;
+  html.setAttribute("data-theme", t);
+  html.classList.toggle("light", t === "light");
+  html.classList.toggle("dark", t !== "light");
+  try { localStorage.setItem(STORAGE_KEY, t); } catch {}
+}
+
+applyTheme(getInitialTheme());
+
 export function ThemeProvider({ children }) {
   const [theme, setTheme] = useState(getInitialTheme);
 
-  useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
-    try { localStorage.setItem(STORAGE_KEY, theme); } catch {}
-  }, [theme]);
+  useEffect(() => { applyTheme(theme); }, [theme]);
 
   const toggleTheme = useCallback(() => {
     setTheme((prev) => (prev === "dark" ? "light" : "dark"));

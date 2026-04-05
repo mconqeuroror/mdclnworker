@@ -2360,10 +2360,11 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
             className={`md:hidden fixed left-1/2 z-[35] w-[min(calc(100vw-1.25rem),26rem)] -translate-x-1/2 overflow-x-hidden rounded-2xl backdrop-blur-xl p-3 [scrollbar-width:thin] ${
               mobileGenBarExpanded ? "max-h-[min(52vh,420px)] overflow-y-auto" : ""
             }`}
-            style={{ background: "var(--bg-surface)", border: "1px solid var(--border-medium)", boxShadow: "0 16px 48px -16px var(--shadow-ambient)" }}
             style={{
-              bottom:
-                "max(0.75rem, calc(var(--dashboard-mobile-tab-stack, calc(3.5rem + env(safe-area-inset-bottom))) + 0.625rem))",
+              background: "var(--bg-surface)",
+              border: "1px solid var(--border-medium)",
+              boxShadow: "0 16px 48px -16px var(--shadow-ambient)",
+              bottom: "max(0.75rem, calc(var(--dashboard-mobile-tab-stack, calc(3.5rem + env(safe-area-inset-bottom))) + 0.625rem))",
             }}
           >
             <div className="flex items-stretch gap-2">
@@ -2947,8 +2948,10 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
             className={`md:hidden fixed left-1/2 z-[35] w-[min(calc(100vw-1.25rem),26rem)] -translate-x-1/2 overflow-x-hidden rounded-2xl backdrop-blur-xl p-3 [scrollbar-width:thin] ${
               mobileVideoBarExpanded ? "max-h-[min(60vh,480px)] overflow-y-auto" : ""
             }`}
-            style={{ background: "var(--bg-surface)", border: "1px solid var(--border-medium)", boxShadow: "0 16px 48px -16px var(--shadow-ambient)" }}
             style={{
+              background: "var(--bg-surface)",
+              border: "1px solid var(--border-medium)",
+              boxShadow: "0 16px 48px -16px var(--shadow-ambient)",
               bottom: "max(0.75rem, calc(var(--dashboard-mobile-tab-stack, calc(3.5rem + env(safe-area-inset-bottom))) + 0.625rem))",
             }}
           >
