@@ -752,7 +752,7 @@ function parseOutputUrls(outputUrl) {
   return [outputUrl];
 }
 
-function ResultCard({ gen, onExpand }) {
+function ResultCard({ gen, onExpand, isNew }) {
   const copy = PAGE_COPY[resolveLocale()] || PAGE_COPY.en;
   const isProcessing = gen.status === "processing" || gen.status === "pending";
   const isFailed     = gen.status === "failed";
@@ -762,8 +762,21 @@ function ResultCard({ gen, onExpand }) {
     <motion.div
       initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
       className="relative rounded-2xl overflow-hidden group backdrop-blur-sm"
-      style={{ aspectRatio: "1/1", minWidth: 220, maxWidth: 420, width: "100%", background: "var(--bg-content)", border: "1px solid var(--border-subtle)" }}
+      style={{
+        aspectRatio: "1/1", minWidth: 220, maxWidth: 420, width: "100%",
+        background: "var(--bg-content)", border: "1px solid var(--border-subtle)",
+        ...(isNew ? { boxShadow: "0 0 0 2px rgba(139,92,246,0.7), 0 0 28px rgba(139,92,246,0.45)" } : {}),
+      }}
     >
+      {isNew && (
+        <motion.div
+          initial={{ opacity: 0.9 }}
+          animate={{ opacity: [0.9, 0.25, 0.9] }}
+          transition={{ duration: 1.2, repeat: 2, ease: "easeInOut" }}
+          className="absolute inset-0 pointer-events-none z-10 rounded-2xl"
+          style={{ background: "radial-gradient(ellipse 80% 60% at 50% 30%, rgba(139,92,246,0.35) 0%, transparent 70%)" }}
+        />
+      )}
       {gen.status === "completed" && previewUrl ? (
         <>
           <img src={previewUrl} alt="" className="w-full h-full object-cover" />
@@ -1546,7 +1559,7 @@ const TABS = [
   { id: "avatars",     label: "Real Avatars",  icon: User, desc: "Photo avatar videos" },
 ];
 
-export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab = "generate", initialModelId = null }) {
+export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab = "generate", initialModelId = null, initialPrompt = "" }) {
   const copy = PAGE_COPY[resolveLocale()] || PAGE_COPY.en;
   const [activeTab, setActiveTab] = useState(initialTab);
   const user        = useAuthStore((s) => s.user);
@@ -1555,7 +1568,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
   const visibleTabs = TABS;
 
   // NanoBanana state
-  const [prompt, setPrompt]             = useState("");
+  const [prompt, setPrompt]             = useState(initialPrompt);
   const [imageModel, setImageModel]     = useState("nano-banana-pro");
   const [imageInputUrl, setImageInputUrl] = useState("");
   const [imageMaskUrl, setImageMaskUrl] = useState("");
@@ -1576,6 +1589,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
   const [videoHistory, setVideoHistory] = useState([]);
   const [lightboxGen, setLightboxGen]   = useState(null);
   const [mobileGenBarExpanded, setMobileGenBarExpanded] = useState(false);
+  const [newlyCompletedIds, setNewlyCompletedIds] = useState(new Set());
   const [videoFamily, setVideoFamily] = useState("kling30");
   const [videoMode, setVideoMode] = useState("t2v");
   const [videoPrompt, setVideoPrompt] = useState("");
@@ -1798,6 +1812,8 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
           toast.success(copy.done);
           refreshUser?.();
           setHistory((prev) => [{ ...gen, prompt: prompt.trim() }, ...prev.filter((g) => g.id !== gen.id)]);
+          setNewlyCompletedIds((prev) => { const s = new Set(prev); s.add(gen.id); return s; });
+          setTimeout(() => setNewlyCompletedIds((prev) => { const s = new Set(prev); s.delete(gen.id); return s; }), 3000);
         },
         onFailure: (gen) => toast.error(gen.errorMessage || copy.generationFailedRefunded),
       });
@@ -2140,7 +2156,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
               <div className="flex flex-wrap gap-4 justify-start">
                 <AnimatePresence mode="popLayout">
                   {displayGens.map((gen) => (
-                    <ResultCard key={gen.id} gen={gen} onExpand={setLightboxGen} />
+                    <ResultCard key={gen.id} gen={gen} onExpand={setLightboxGen} isNew={newlyCompletedIds.has(gen.id)} />
                   ))}
                 </AnimatePresence>
               </div>

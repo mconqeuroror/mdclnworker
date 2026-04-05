@@ -14,6 +14,8 @@ import {
   Layers,
   Zap,
   Info,
+  Wand2,
+  RefreshCw,
 } from "lucide-react";
 import api from "../services/api";
 import { usePageVisibility } from "../hooks/usePageVisibility";
@@ -367,6 +369,7 @@ export default function HistoryPage() {
   const [batchDeleting, setBatchDeleting] = useState(false);
   const [batchDownloading, setBatchDownloading] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState({ open: false, ids: [] });
+  const [milestoneBanner, setMilestoneBanner] = useState(null); // { count, milestone }
 
   useEffect(() => {
     loadModels();
@@ -379,6 +382,25 @@ export default function HistoryPage() {
     const interval = setInterval(() => loadHistory({ reset: false, refreshLatest: true }), 10000);
     return () => clearInterval(interval);
   }, [isPageVisibility]);
+
+  // Show a milestone celebration banner when total crosses a threshold (shown once per milestone)
+  useEffect(() => {
+    const total = pagination.total;
+    if (!total || total === 0) return;
+    const MILESTONES = [100, 500, 1000, 5000, 10000];
+    const seenKey = "mc_seen_milestones";
+    let seen = [];
+    try { seen = JSON.parse(localStorage.getItem(seenKey) || "[]"); } catch {}
+    for (let i = MILESTONES.length - 1; i >= 0; i--) {
+      const m = MILESTONES[i];
+      if (total >= m && !seen.includes(m)) {
+        seen.push(m);
+        try { localStorage.setItem(seenKey, JSON.stringify(seen)); } catch {}
+        setMilestoneBanner({ count: total, milestone: m });
+        break;
+      }
+    }
+  }, [pagination.total]);
 
   const loadModels = async () => {
     try {
@@ -648,6 +670,42 @@ export default function HistoryPage() {
           <p className="text-slate-400 text-sm">{copy.subtitle}</p>
         </div>
       </div>
+
+      {/* Milestone celebration banner */}
+      <AnimatePresence>
+        {milestoneBanner && (
+          <motion.div
+            key="milestone-banner"
+            initial={{ opacity: 0, y: -12, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -12, scale: 0.97 }}
+            transition={{ type: "spring", stiffness: 280, damping: 24 }}
+            className="mb-5 rounded-2xl p-4 sm:p-5 flex items-center gap-4 relative overflow-hidden"
+            style={{
+              background: 'linear-gradient(135deg, rgba(139,92,246,0.2) 0%, rgba(59,130,246,0.15) 100%)',
+              border: '1px solid rgba(139,92,246,0.35)',
+              boxShadow: '0 0 30px rgba(139,92,246,0.15)',
+            }}
+          >
+            <div className="absolute top-0 left-0 w-40 h-40 pointer-events-none" style={{ background: 'radial-gradient(ellipse 100% 100% at 0% 0%, rgba(139,92,246,0.3) 0%, transparent 70%)' }} />
+            <div className="relative text-3xl select-none">🎉</div>
+            <div className="relative flex-1 min-w-0">
+              <p className="text-white font-bold text-base sm:text-lg">
+                {milestoneBanner.milestone.toLocaleString()} generations milestone!
+              </p>
+              <p className="text-slate-300 text-sm mt-0.5">
+                You've created {milestoneBanner.count.toLocaleString()} pieces of content. Keep creating!
+              </p>
+            </div>
+            <button
+              onClick={() => setMilestoneBanner(null)}
+              className="relative shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 transition-all"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {loading ? (
         <div className="space-y-4">
@@ -1021,8 +1079,26 @@ const GenerationCard = memo(function GenerationCard({ generation, models, isSele
             ) : (
               <LazyImage src={getMediumUrl(primaryUrl)} alt={copy.altGenerated} className="w-full h-full object-cover" />
             )}
-            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center">
-              <Eye className="w-5 h-5 text-white" />
+            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center gap-2">
+              <button
+                onClick={(e) => { e.stopPropagation(); onPreview(); }}
+                className="w-8 h-8 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center hover:bg-white/30 transition-colors"
+              >
+                <Eye className="w-4 h-4 text-white" />
+              </button>
+              {generation.prompt && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigator.clipboard.writeText(generation.prompt).catch(() => {});
+                    toast.success("Prompt copied — paste in Creator Studio", { icon: "✨", duration: 2500 });
+                  }}
+                  className="w-8 h-8 rounded-full bg-violet-500/40 backdrop-blur-sm flex items-center justify-center hover:bg-violet-500/60 transition-colors"
+                  title="Copy prompt to recreate"
+                >
+                  <Wand2 className="w-4 h-4 text-white" />
+                </button>
+              )}
             </div>
           </>
         ) : generation.status === "processing" || generation.status === "pending" ? (

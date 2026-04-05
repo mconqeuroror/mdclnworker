@@ -2019,3 +2019,13 @@ textarea:focus-visible {
   .ale-body.with-preview { grid-template-columns: 1fr; }
   .ale-preview-pane { display: none; }
 }
+
+/* Credits card pulsing border for low/critical states */
+@keyframes credits-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+.credits-pulse-border {
+  animation: credits-pulse 2s ease-in-out infinite;
+}
+

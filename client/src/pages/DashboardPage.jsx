@@ -321,6 +321,7 @@ export default function DashboardPage() {
   /** Narrow rail (80px) only when pinned collapsed and not hovering the sidebar on desktop */
   const sidebarNarrow = isSidebarCollapsed && !sidebarDesktopHovered;
   const [voiceStudioInitialModelId, setVoiceStudioInitialModelId] = useState(null);
+  const [creatorStudioInitialPrompt, setCreatorStudioInitialPrompt] = useState("");
 
   // What's New popup - version key for tracking updates
   const WHATS_NEW_VERSION = "nsfw-feb-2026";
@@ -766,7 +767,7 @@ export default function DashboardPage() {
           {activeTab === "home" && <HomePage copy={copy} theme={theme} setActiveTab={setActiveTab} setShowEarnModal={setShowEarnModal} setShowReferralModal={setShowReferralModal} onOpenCreateModel={() => { setUploadRealMode(false); setShowCreateModelModal(true); }} onOpenUploadReal={() => { setUploadRealMode(true); setShowCreateModelModal(true); }} onOpenCredits={() => setShowAddCredits(true)} />}
           {activeTab === "models" && <ModelsPage sidebarCollapsed={sidebarNarrow} openVoiceStudioForModel={openVoiceStudioForModel} />}
 {activeTab === "generate" && <GeneratePage setActiveTab={setActiveTab} openVoiceStudioForModel={openVoiceStudioForModel} />}
-        {activeTab === "creator-studio" && <CreatorStudioPage sidebarCollapsed={sidebarNarrow} initialTab="generate" initialModelId={voiceStudioInitialModelId} />}
+        {activeTab === "creator-studio" && <CreatorStudioPage sidebarCollapsed={sidebarNarrow} initialTab="generate" initialModelId={voiceStudioInitialModelId} initialPrompt={creatorStudioInitialPrompt} />}
         {activeTab === "voice-studio" && <CreatorStudioPage sidebarCollapsed={sidebarNarrow} initialTab="voices" initialModelId={voiceStudioInitialModelId} />}
         {activeTab === "reformatter" && <ContentReformatterPage />}
           {activeTab === "history" && <HistoryPage />}
@@ -775,7 +776,7 @@ export default function DashboardPage() {
           {!hideRestrictedTabs && activeTab === "course" && <CoursePage setActiveTab={setActiveTab} onOpenCredits={() => setShowAddCredits(true)} initialVideoId={courseVideoId} onVideoIdConsumed={() => setCourseVideoId(null)} />}
           {activeTab === "jobs" && <JobBoardPage />}
           {activeTab === "repurposer" && <VideoRepurposerPage embedded />}
-          {activeTab === "reelfinder" && <ViralReelFinderPage embedded sidebarCollapsed={sidebarNarrow} onUpgrade={() => setActiveTab("settings")} />}
+          {activeTab === "reelfinder" && <ViralReelFinderPage embedded sidebarCollapsed={sidebarNarrow} onUpgrade={() => setActiveTab("settings")} onRecreate={(caption) => { setCreatorStudioInitialPrompt(caption); setActiveTab("creator-studio"); }} />}
           {activeTab === "referral" && <ReferralProgramPage />}
         </div>
       </main>
@@ -1118,10 +1119,30 @@ export default function DashboardPage() {
   );
 }
 
+function useCountUp(target, duration = 1000) {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    if (!target || target <= 0) { setCount(0); return; }
+    const start = Date.now();
+    const raf = { current: null };
+    const tick = () => {
+      const progress = Math.min((Date.now() - start) / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setCount(Math.floor(eased * target));
+      if (progress < 1) raf.current = requestAnimationFrame(tick);
+      else setCount(target);
+    };
+    raf.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf.current);
+  }, [target, duration]);
+  return count;
+}
+
 function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, onOpenCreateModel, onOpenUploadReal, onOpenCredits, theme }) {
   const { user } = useAuthStore();
   const isLightTheme = theme === "light";
   const [monthlyStats, setMonthlyStats] = useState({ images: 0, videos: 0 });
+  const [currentStreak, setCurrentStreak] = useState(0);
   const [showTutorial, setShowTutorial] = useState(() => {
     return safeLocalStorageGet("tutorial-dismissed") !== "true";
   });
@@ -1159,6 +1180,25 @@ function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, 
           .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
           .slice(0, 6);
         setRecentGenerations(recentWithMedia);
+
+        // Compute creation streak from generation dates
+        const completedGens = (historyData.generations || []).filter(g =>
+          g.status === 'completed' || g.status === 'done'
+        );
+        const dayKeys = new Set(completedGens.map(g => {
+          const d = new Date(g.createdAt);
+          return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+        }));
+        let streak = 0;
+        const today = new Date();
+        for (let i = 0; i < 60; i++) {
+          const d = new Date(today);
+          d.setDate(d.getDate() - i);
+          const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+          if (dayKeys.has(key)) streak++;
+          else break;
+        }
+        setCurrentStreak(streak);
       }
     } catch (error) {
       console.error("Failed to fetch monthly stats:", error);
@@ -1170,6 +1210,10 @@ function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, 
   const gradientPink = 'linear-gradient(135deg, #EC4899, #8B5CF6)';
   const gradientGreen = 'linear-gradient(135deg, #10B981, #22D3EE)';
 
+  const animatedCredits = useCountUp(user?.credits || 0, 1200);
+  const animatedImages = useCountUp(monthlyStats.images, 900);
+  const animatedVideos = useCountUp(monthlyStats.videos, 700);
+
   return (
     <div className="max-w-5xl mx-auto">
       {/* Header Section */}
@@ -1179,7 +1223,18 @@ function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, 
             <h1 className={`text-[40px] font-bold ${isLightTheme ? "text-slate-900" : "text-white"}`}>
               {copy.homeWelcomeBack} <span className={isLightTheme ? "text-slate-900" : "text-white"}>{user?.name || copy.homeFallbackCreator}</span>
             </h1>
-            <p className={`text-xl mt-2 ${isLightTheme ? "text-slate-700" : "text-slate-400"}`}>{copy.homeSubtitle}</p>
+            <div className="flex items-center gap-3 mt-2">
+              <p className={`text-xl ${isLightTheme ? "text-slate-700" : "text-slate-400"}`}>{copy.homeSubtitle}</p>
+              {currentStreak >= 2 && (
+                <div
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold"
+                  style={{ background: 'rgba(249,115,22,0.15)', border: '1px solid rgba(249,115,22,0.3)', color: '#fb923c' }}
+                >
+                  <Flame className="w-3.5 h-3.5" />
+                  {currentStreak}-day streak
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -1193,42 +1248,59 @@ function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, 
         {(() => {
           const credits = user?.credits || 0;
           const isCritical = credits < 50;
-          const accent = isCritical ? '239,68,68' : '234,179,8';
+          const isLow = credits < 200;
+          const isWarning = credits < 1000;
+          const accentRgb = isCritical ? '239,68,68' : isLow ? '249,115,22' : '234,179,8';
+          const iconCls = isCritical
+            ? (isLightTheme ? 'text-red-700' : 'text-red-400')
+            : isLow
+            ? (isLightTheme ? 'text-orange-700' : 'text-orange-400')
+            : (isLightTheme ? 'text-amber-700' : 'text-yellow-400');
+          const numCls = isCritical
+            ? (isLightTheme ? 'text-red-800' : 'text-red-300')
+            : isLow
+            ? (isLightTheme ? 'text-orange-800' : 'text-orange-300')
+            : (isLightTheme ? 'text-amber-800' : 'text-yellow-200');
+          const btnCls = isCritical
+            ? (isLightTheme ? 'bg-red-500/30 border border-red-600/60 text-red-900 hover:bg-red-500/40' : 'bg-red-500/20 border border-red-500/50 text-red-300 hover:bg-red-500/30')
+            : isLow
+            ? (isLightTheme ? 'bg-orange-500/30 border border-orange-600/60 text-orange-900 hover:bg-orange-500/40' : 'bg-orange-500/20 border border-orange-500/50 text-orange-300 hover:bg-orange-500/30')
+            : (isLightTheme ? 'bg-amber-500/30 border border-amber-600/60 text-amber-900 hover:bg-amber-500/40' : 'bg-yellow-500/20 border border-yellow-500/40 text-yellow-300 hover:bg-yellow-500/30');
           return (
             <div
-              className="rounded-xl p-4 text-center transition-all hover:scale-[1.02] hover:z-10 relative backdrop-blur-xl overflow-hidden"
+              className={`rounded-xl p-4 text-center transition-all hover:scale-[1.02] hover:z-10 relative backdrop-blur-xl overflow-hidden${(isCritical || isLow) ? ' credits-pulse-border' : ''}`}
               style={{
                 background: 'var(--bg-elevated)',
-                border: '1px solid var(--mc-glass-border)',
-                boxShadow: 'inset 0 1px 0 var(--mc-glass-inset)',
+                border: `1px solid rgba(${accentRgb},${isCritical ? 0.55 : isLow ? 0.4 : 0.15})`,
+                boxShadow: (isCritical || isLow)
+                  ? `inset 0 1px 0 var(--mc-glass-inset), 0 0 18px rgba(${accentRgb},0.18)`
+                  : 'inset 0 1px 0 var(--mc-glass-inset)',
               }}
             >
               <div
                 className="absolute top-0 left-0 w-28 h-28 pointer-events-none"
                 style={{
-                  background: `radial-gradient(ellipse 100% 100% at 0% 0%, rgba(${accent},0.22) 0%, rgba(${accent},0.06) 45%, transparent 70%)`,
+                  background: `radial-gradient(ellipse 100% 100% at 0% 0%, rgba(${accentRgb},0.28) 0%, rgba(${accentRgb},0.08) 45%, transparent 70%)`,
                 }}
               />
               <div className="relative">
                 <div className="flex items-center justify-center gap-2 mb-1">
-                  <Coins className={`w-4 h-4 ${isCritical ? (isLightTheme ? 'text-red-700' : 'text-red-400') : (isLightTheme ? 'text-amber-700' : 'text-yellow-400')}`} />
-                  <span className={`text-[10px] uppercase tracking-wider font-medium ${isCritical ? (isLightTheme ? 'text-red-700' : 'text-red-400') : (isLightTheme ? 'text-amber-700' : 'text-yellow-400')}`}>{copy.statsCredits}</span>
+                  <Coins className={`w-4 h-4 ${iconCls}`} />
+                  <span className={`text-[10px] uppercase tracking-wider font-medium ${iconCls}`}>{copy.statsCredits}</span>
                 </div>
-                <p className={`text-2xl sm:text-3xl font-bold tabular-nums ${isCritical ? (isLightTheme ? 'text-red-800' : 'text-red-300') : (isLightTheme ? 'text-amber-800' : 'text-yellow-200')}`}>{credits}</p>
+                <p className={`text-2xl sm:text-3xl font-bold tabular-nums ${numCls}`}>{animatedCredits.toLocaleString()}</p>
+                {isCritical && (
+                  <p className="text-[9px] text-red-400 mt-0.5 font-medium">Running low!</p>
+                )}
+                {!isCritical && isLow && (
+                  <p className="text-[9px] text-orange-400 mt-0.5 font-medium">Getting low</p>
+                )}
                 <button
                   onClick={(e) => { e.stopPropagation(); onOpenCredits?.(); }}
-                  className={`mt-2 inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-medium transition-all hover:scale-105 ${
-                    isCritical
-                      ? (isLightTheme
-                        ? 'bg-red-500/30 border border-red-600/60 text-red-900 hover:bg-red-500/40'
-                        : 'bg-red-500/20 border border-red-500/50 text-red-300 hover:bg-red-500/30')
-                      : (isLightTheme
-                        ? 'bg-amber-500/30 border border-amber-600/60 text-amber-900 hover:bg-amber-500/40'
-                        : 'bg-yellow-500/20 border border-yellow-500/40 text-yellow-300 hover:bg-yellow-500/30')
-                  }`}
+                  className={`mt-2 inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-medium transition-all hover:scale-105 ${btnCls}${(isCritical || isLow) ? ' font-semibold' : ''}`}
                 >
                   <Plus className="w-3 h-3" />
-                  {copy.statsAddCredits}
+                  {isCritical ? 'Buy credits now' : isLow ? 'Add credits' : copy.statsAddCredits}
                 </button>
               </div>
             </div>
@@ -1255,7 +1327,7 @@ function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, 
               <ImageIcon className={`w-4 h-4 ${isLightTheme ? "text-violet-700" : "text-purple-400"}`} />
               <span className={`text-[10px] uppercase tracking-wider font-medium ${isLightTheme ? "text-violet-700" : "text-purple-300"}`}>{copy.statsImages}</span>
             </div>
-            <p className={`text-2xl sm:text-3xl font-bold tabular-nums ${isLightTheme ? "text-violet-800" : "text-purple-200"}`}>{monthlyStats.images}</p>
+            <p className={`text-2xl sm:text-3xl font-bold tabular-nums ${isLightTheme ? "text-violet-800" : "text-purple-200"}`}>{animatedImages.toLocaleString()}</p>
             <p className={`text-[9px] mt-0.5 uppercase tracking-wide ${isLightTheme ? "text-slate-700" : "text-slate-500"}`}>{copy.statsThisMonth}</p>
           </div>
         </div>
@@ -1280,7 +1352,7 @@ function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, 
               <Video className={`w-4 h-4 ${isLightTheme ? "text-cyan-700" : "text-cyan-400"}`} />
               <span className={`text-[10px] uppercase tracking-wider font-medium ${isLightTheme ? "text-cyan-700" : "text-cyan-300"}`}>{copy.statsVideos}</span>
             </div>
-            <p className={`text-2xl sm:text-3xl font-bold tabular-nums ${isLightTheme ? "text-cyan-800" : "text-cyan-200"}`}>{monthlyStats.videos}</p>
+            <p className={`text-2xl sm:text-3xl font-bold tabular-nums ${isLightTheme ? "text-cyan-800" : "text-cyan-200"}`}>{animatedVideos.toLocaleString()}</p>
             <p className={`text-[9px] mt-0.5 uppercase tracking-wide ${isLightTheme ? "text-slate-700" : "text-slate-500"}`}>{copy.statsThisMonth}</p>
           </div>
         </div>

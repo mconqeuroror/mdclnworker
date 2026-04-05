@@ -3766,6 +3766,7 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
   const [selectedModel, setSelectedModel] = useState(null);
   const { byKey } = useTutorialCatalog();
   const [activePhase, setActivePhase] = useState("training"); // "training", "generate", or "video"
+  const hasAutoSwitchedPhaseRef = useRef(false);
   const [videoSelectedImage, setVideoSelectedImage] = useState(null);
   const [videoPrompt, setVideoPrompt] = useState("");
   const [videoDuration, setVideoDuration] = useState(5);
@@ -4120,27 +4121,27 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
   const prevSelectedModelRef = useRef(null);
 
   useEffect(() => {
-    if (selectedModel) {
-      loadModelLoras();
-      loadTrainingImages();
+    if (!selectedModel) {
+      setIsLoadingStatus(false);
+      return;
+    }
+    loadModelLoras();
+    loadTrainingImages();
 
-      const cachedStatus = getTrainingState(selectedModel);
-      if (cachedStatus === "training") {
-        setTrainingStatus("training");
-        setIsLoadingStatus(false);
-      }
-
-      checkTrainingStatus();
-      
-      const isModelSwitch = prevSelectedModelRef.current !== null && prevSelectedModelRef.current !== selectedModel;
-      if (isModelSwitch) {
-        setTrainingSelections([]);
-        setCurrentLoraId(null);
-      }
-      prevSelectedModelRef.current = selectedModel;
-    } else {
+    const cachedStatus = getTrainingState(selectedModel);
+    if (cachedStatus === "training") {
+      setTrainingStatus("training");
       setIsLoadingStatus(false);
     }
+
+    checkTrainingStatus();
+    
+    const isModelSwitch = prevSelectedModelRef.current !== null && prevSelectedModelRef.current !== selectedModel;
+    if (isModelSwitch) {
+      setTrainingSelections([]);
+      setCurrentLoraId(null);
+    }
+    prevSelectedModelRef.current = selectedModel;
   }, [selectedModel, models]);
 
   // Poll training status while in progress (no hard timeout)
@@ -4191,6 +4192,17 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
       setIsLoadingLoras(false);
     }
   };
+
+  // Auto-switch to "generate" tab once the active LoRA for the selected model is ready
+  useEffect(() => {
+    if (hasAutoSwitchedPhaseRef.current) return;
+    if (!activeLora || !modelLoras.length) return;
+    const loraObj = modelLoras.find(l => l.id === activeLora);
+    if (loraObj?.status === 'ready') {
+      hasAutoSwitchedPhaseRef.current = true;
+      setActivePhase('generate');
+    }
+  }, [activeLora, modelLoras]);
 
   // Create a new LoRA
   const handleCreateLora = async (name, defaultAppearance, trainingMode) => {

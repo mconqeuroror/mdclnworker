@@ -10,7 +10,7 @@ import { SiInstagram } from "react-icons/si";
 import {
   TrendingUp, RefreshCw, Play, X, Volume2, VolumeX,
   Download, ExternalLink, Heart, MessageCircle, Send,
-  Eye, Clock, Lock, Zap,
+  Eye, Clock, Lock, Zap, Wand2,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import api from "../services/api";
@@ -307,7 +307,7 @@ function ReelModal({ reel, onClose, token }) {
 
 // ── Card ─────────────────────────────────────────────────────────────────────
 
-function ReelCard({ reel, rank, onOpen, token }) {
+function ReelCard({ reel, rank, onOpen, token, onRecreate }) {
   const [imgErr, setImgErr] = useState(false);
   const thumb = thumbSrc(reel, token);
   const rate = engRate(reel);
@@ -374,6 +374,21 @@ function ReelCard({ reel, rank, onOpen, token }) {
           </span>
           {rate && <span className="text-emerald-400/80 ml-auto">{rate}%</span>}
         </div>
+        {onRecreate && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              const caption = reel.caption || reel.description || reel.hashtags?.[0] || "";
+              onRecreate(caption);
+            }}
+            className="mt-2 w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[11px] font-semibold text-purple-300 border border-violet-500/30 transition-all hover:bg-violet-500/15 hover:text-white hover:border-violet-400/50"
+            style={{ background: 'rgba(139,92,246,0.07)' }}
+          >
+            <Wand2 className="w-3 h-3" />
+            Recreate This
+          </button>
+        )}
       </div>
     </button>
   );
@@ -395,7 +410,7 @@ function Skeleton() {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-export default function ViralReelFinderPage({ embedded = false, onUpgrade }) {
+export default function ViralReelFinderPage({ embedded = false, onUpgrade, onRecreate }) {
   const { user, refreshUserCredits } = useAuthStore();
   const [selectedReel, setSelectedReel] = useState(null);
   const [token, setToken] = useState(null);
@@ -522,8 +537,8 @@ export default function ViralReelFinderPage({ embedded = false, onUpgrade }) {
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
           {isLoading
             ? Array.from({ length: 10 }).map((_, i) => <Skeleton key={i} />)
-            : ranked.map((reel, idx) => (
-                <ReelCard key={reel.id} reel={reel} rank={idx + 1} onOpen={setSelectedReel} token={token} />
+                : ranked.map((reel, idx) => (
+                <ReelCard key={reel.id} reel={reel} rank={idx + 1} onOpen={setSelectedReel} token={token} onRecreate={onRecreate} />
               ))}
         </div>
       )}
