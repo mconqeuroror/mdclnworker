@@ -139,6 +139,82 @@ html.dark {
   background-color: #050505 !important;
 }
 
+/* Light-mode contrast boost for dark-theme utility classes still used in app UIs */
+html[data-theme="light"] .text-slate-500,
+html.light .text-slate-500 {
+  color: #475569 !important;
+}
+html[data-theme="light"] .text-slate-400,
+html.light .text-slate-400 {
+  color: #334155 !important;
+}
+html[data-theme="light"] .text-slate-300,
+html.light .text-slate-300 {
+  color: #1f2937 !important;
+}
+html[data-theme="light"] .text-yellow-200,
+html.light .text-yellow-200 {
+  color: #92400e !important;
+}
+html[data-theme="light"] .text-yellow-300,
+html.light .text-yellow-300 {
+  color: #78350f !important;
+}
+html[data-theme="light"] .text-purple-200,
+html.light .text-purple-200 {
+  color: #6d28d9 !important;
+}
+html[data-theme="light"] .text-purple-300,
+html.light .text-purple-300 {
+  color: #5b21b6 !important;
+}
+html[data-theme="light"] .text-cyan-200,
+html.light .text-cyan-200 {
+  color: #0e7490 !important;
+}
+html[data-theme="light"] .text-cyan-300,
+html.light .text-cyan-300 {
+  color: #155e75 !important;
+}
+html[data-theme="light"] .bg-yellow-500\/20,
+html.light .bg-yellow-500\/20 {
+  background-color: rgba(234, 179, 8, 0.3) !important;
+}
+html[data-theme="light"] .border-yellow-500\/40,
+html.light .border-yellow-500\/40 {
+  border-color: rgba(161, 98, 7, 0.6) !important;
+}
+html[data-theme="light"] .bg-violet-500\/15,
+html.light .bg-violet-500\/15 {
+  background-color: rgba(109, 40, 217, 0.25) !important;
+}
+html[data-theme="light"] .text-violet-200,
+html.light .text-violet-200,
+html[data-theme="light"] .text-violet-300,
+html.light .text-violet-300 {
+  color: #5b21b6 !important;
+}
+
+/* Inline-style variants used by toolbar chips/buttons in Generate flows */
+html[data-theme="light"] button[style*="rgba(139, 92, 246, 0.28)"],
+html.light button[style*="rgba(139, 92, 246, 0.28)"] {
+  background: rgba(109, 40, 217, 0.46) !important;
+  color: #ffffff !important;
+  border-color: rgba(109, 40, 217, 0.72) !important;
+  box-shadow: 0 0 10px rgba(109, 40, 217, 0.32) !important;
+}
+html[data-theme="light"] button[style*="rgba(109, 40, 217, 0.35)"],
+html.light button[style*="rgba(109, 40, 217, 0.35)"] {
+  background: rgba(109, 40, 217, 0.52) !important;
+  border-color: rgba(109, 40, 217, 0.78) !important;
+  box-shadow: 0 0 20px rgba(109, 40, 217, 0.35) !important;
+}
+html[data-theme="light"] button[style*="background: rgba(109, 40, 217, 0.12)"],
+html.light button[style*="background: rgba(109, 40, 217, 0.12)"] {
+  background: rgba(109, 40, 217, 0.24) !important;
+  border-color: rgba(109, 40, 217, 0.5) !important;
+}
+
 /* Display / hero type — landers add .font-display on headings */
 .font-display {
   font-family: var(--font-syne);

@@ -760,10 +760,10 @@ export default function DashboardPage() {
 
       {/* Content - with left margin for sidebar on desktop; bottom padding clears mobile tab bar */}
       <main
-        className={`relative z-10 pt-[4.5rem] md:pt-14 max-md:pb-[calc(2.75rem+env(safe-area-inset-bottom)+1.25rem)] md:pb-12 min-h-screen transition-[margin] duration-300 ease-out overflow-x-hidden bg-none [background-clip:unset] [-webkit-background-clip:unset] ${theme === "light" ? "text-white" : ""} ${sidebarNarrow ? "md:ml-[80px]" : "md:ml-[260px]"}`}
+        className={`relative z-10 pt-[4.5rem] md:pt-14 max-md:pb-[calc(2.75rem+env(safe-area-inset-bottom)+1.25rem)] md:pb-12 min-h-screen transition-[margin] duration-300 ease-out overflow-x-hidden bg-none [background-clip:unset] [-webkit-background-clip:unset] ${sidebarNarrow ? "md:ml-[80px]" : "md:ml-[260px]"}`}
       >
         <div className={`relative z-10 p-3 sm:p-4 md:p-6 ${sidebarNarrow ? "mx-auto w-full max-w-[1600px]" : ""}`}>
-          {activeTab === "home" && <HomePage copy={copy} setActiveTab={setActiveTab} setShowEarnModal={setShowEarnModal} setShowReferralModal={setShowReferralModal} onOpenCreateModel={() => { setUploadRealMode(false); setShowCreateModelModal(true); }} onOpenUploadReal={() => { setUploadRealMode(true); setShowCreateModelModal(true); }} onOpenCredits={() => setShowAddCredits(true)} />}
+          {activeTab === "home" && <HomePage copy={copy} theme={theme} setActiveTab={setActiveTab} setShowEarnModal={setShowEarnModal} setShowReferralModal={setShowReferralModal} onOpenCreateModel={() => { setUploadRealMode(false); setShowCreateModelModal(true); }} onOpenUploadReal={() => { setUploadRealMode(true); setShowCreateModelModal(true); }} onOpenCredits={() => setShowAddCredits(true)} />}
           {activeTab === "models" && <ModelsPage sidebarCollapsed={sidebarNarrow} openVoiceStudioForModel={openVoiceStudioForModel} />}
 {activeTab === "generate" && <GeneratePage setActiveTab={setActiveTab} openVoiceStudioForModel={openVoiceStudioForModel} />}
         {activeTab === "creator-studio" && <CreatorStudioPage sidebarCollapsed={sidebarNarrow} initialTab="generate" initialModelId={voiceStudioInitialModelId} />}
@@ -1118,8 +1118,9 @@ export default function DashboardPage() {
   );
 }
 
-function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, onOpenCreateModel, onOpenUploadReal, onOpenCredits }) {
+function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, onOpenCreateModel, onOpenUploadReal, onOpenCredits, theme }) {
   const { user } = useAuthStore();
+  const isLightTheme = theme === "light";
   const [monthlyStats, setMonthlyStats] = useState({ images: 0, videos: 0 });
   const [showTutorial, setShowTutorial] = useState(() => {
     return safeLocalStorageGet("tutorial-dismissed") !== "true";
@@ -1175,10 +1176,10 @@ function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, 
       <div className="mb-4">
         <div className="flex items-center gap-3 mb-2">
           <div>
-            <h1 className="text-[40px] font-bold text-white">
-              {copy.homeWelcomeBack} <span className="text-white">{user?.name || copy.homeFallbackCreator}</span>
+            <h1 className={`text-[40px] font-bold ${isLightTheme ? "text-slate-900" : "text-white"}`}>
+              {copy.homeWelcomeBack} <span className={isLightTheme ? "text-slate-900" : "text-white"}>{user?.name || copy.homeFallbackCreator}</span>
             </h1>
-            <p className="text-slate-400 text-xl mt-2">{copy.homeSubtitle}</p>
+            <p className={`text-xl mt-2 ${isLightTheme ? "text-slate-700" : "text-slate-400"}`}>{copy.homeSubtitle}</p>
           </div>
         </div>
       </div>
@@ -1210,16 +1211,20 @@ function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, 
               />
               <div className="relative">
                 <div className="flex items-center justify-center gap-2 mb-1">
-                  <Coins className={`w-4 h-4 ${isCritical ? 'text-red-400' : 'text-yellow-400'}`} />
-                  <span className={`text-[10px] uppercase tracking-wider font-medium ${isCritical ? 'text-red-400' : 'text-yellow-400'}`}>{copy.statsCredits}</span>
+                  <Coins className={`w-4 h-4 ${isCritical ? (isLightTheme ? 'text-red-700' : 'text-red-400') : (isLightTheme ? 'text-amber-700' : 'text-yellow-400')}`} />
+                  <span className={`text-[10px] uppercase tracking-wider font-medium ${isCritical ? (isLightTheme ? 'text-red-700' : 'text-red-400') : (isLightTheme ? 'text-amber-700' : 'text-yellow-400')}`}>{copy.statsCredits}</span>
                 </div>
-                <p className={`text-2xl sm:text-3xl font-bold tabular-nums ${isCritical ? 'text-red-300' : 'text-yellow-200'}`}>{credits}</p>
+                <p className={`text-2xl sm:text-3xl font-bold tabular-nums ${isCritical ? (isLightTheme ? 'text-red-800' : 'text-red-300') : (isLightTheme ? 'text-amber-800' : 'text-yellow-200')}`}>{credits}</p>
                 <button
                   onClick={(e) => { e.stopPropagation(); onOpenCredits?.(); }}
                   className={`mt-2 inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-medium transition-all hover:scale-105 ${
                     isCritical
-                      ? 'bg-red-500/20 border border-red-500/50 text-red-300 hover:bg-red-500/30'
-                      : 'bg-yellow-500/20 border border-yellow-500/40 text-yellow-300 hover:bg-yellow-500/30'
+                      ? (isLightTheme
+                        ? 'bg-red-500/30 border border-red-600/60 text-red-900 hover:bg-red-500/40'
+                        : 'bg-red-500/20 border border-red-500/50 text-red-300 hover:bg-red-500/30')
+                      : (isLightTheme
+                        ? 'bg-amber-500/30 border border-amber-600/60 text-amber-900 hover:bg-amber-500/40'
+                        : 'bg-yellow-500/20 border border-yellow-500/40 text-yellow-300 hover:bg-yellow-500/30')
                   }`}
                 >
                   <Plus className="w-3 h-3" />
@@ -1247,11 +1252,11 @@ function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, 
           />
           <div className="relative">
             <div className="flex items-center justify-center gap-2 mb-1">
-              <ImageIcon className="w-4 h-4 text-purple-400" />
-              <span className="text-[10px] uppercase tracking-wider text-purple-300 font-medium" style={{ color: 'rgba(208, 171, 247, 1)' }}>{copy.statsImages}</span>
+              <ImageIcon className={`w-4 h-4 ${isLightTheme ? "text-violet-700" : "text-purple-400"}`} />
+              <span className={`text-[10px] uppercase tracking-wider font-medium ${isLightTheme ? "text-violet-700" : "text-purple-300"}`}>{copy.statsImages}</span>
             </div>
-            <p className="text-2xl sm:text-3xl font-bold text-purple-200 tabular-nums">{monthlyStats.images}</p>
-            <p className="text-[9px] text-slate-500 mt-0.5 uppercase tracking-wide">{copy.statsThisMonth}</p>
+            <p className={`text-2xl sm:text-3xl font-bold tabular-nums ${isLightTheme ? "text-violet-800" : "text-purple-200"}`}>{monthlyStats.images}</p>
+            <p className={`text-[9px] mt-0.5 uppercase tracking-wide ${isLightTheme ? "text-slate-700" : "text-slate-500"}`}>{copy.statsThisMonth}</p>
           </div>
         </div>
 
@@ -1272,11 +1277,11 @@ function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, 
           />
           <div className="relative">
             <div className="flex items-center justify-center gap-2 mb-1">
-              <Video className="w-4 h-4 text-cyan-400" />
-              <span className="text-[10px] uppercase tracking-wider text-cyan-300 font-medium">{copy.statsVideos}</span>
+              <Video className={`w-4 h-4 ${isLightTheme ? "text-cyan-700" : "text-cyan-400"}`} />
+              <span className={`text-[10px] uppercase tracking-wider font-medium ${isLightTheme ? "text-cyan-700" : "text-cyan-300"}`}>{copy.statsVideos}</span>
             </div>
-            <p className="text-2xl sm:text-3xl font-bold text-cyan-200 tabular-nums">{monthlyStats.videos}</p>
-            <p className="text-[9px] text-slate-500 mt-0.5 uppercase tracking-wide">{copy.statsThisMonth}</p>
+            <p className={`text-2xl sm:text-3xl font-bold tabular-nums ${isLightTheme ? "text-cyan-800" : "text-cyan-200"}`}>{monthlyStats.videos}</p>
+            <p className={`text-[9px] mt-0.5 uppercase tracking-wide ${isLightTheme ? "text-slate-700" : "text-slate-500"}`}>{copy.statsThisMonth}</p>
           </div>
         </div>
       </div>
