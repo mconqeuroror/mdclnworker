@@ -2219,7 +2219,7 @@ function buildComfyWorkflowLegacy(params) {
         width,
         height,
         aspect_ratio: aspectRatio,
-        swap_dimensions: (aspectRatio || "").toLowerCase().includes("landscape") ? "Off" : "On",
+        swap_dimensions: "Off",
         upscale_factor: 1,
         batch_size: 1,
       },
