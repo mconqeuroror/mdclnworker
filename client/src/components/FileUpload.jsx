@@ -4,10 +4,61 @@ import { Upload, Check, Image as ImageIcon, Video, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { uploadToCloudinary as uploadFile } from '../services/api';
 
-// Supported formats — MP4 only for video; JPG/PNG only for images.
-// Other formats should be converted first via the Content Reformatter.
-const VIDEO_ACCEPT = { 'video/mp4': ['.mp4'] };
-const IMAGE_ACCEPT = { 'image/jpeg': ['.jpg', '.jpeg'], 'image/png': ['.png'] };
+// Upload target formats (after optional auto-conversion).
+const VIDEO_ACCEPT = { 'video/mp4': ['.mp4'], 'video/quicktime': ['.mov'] };
+const IMAGE_ACCEPT = {
+  'image/jpeg': ['.jpg', '.jpeg'],
+  'image/png': ['.png'],
+  'image/heic': ['.heic'],
+  'image/heif': ['.heif'],
+};
+
+const SUPPORTED_IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png']);
+const SUPPORTED_VIDEO_EXTS = new Set(['mp4']);
+
+function getFileExt(file) {
+  const name = String(file?.name || '');
+  const ext = name.includes('.') ? name.split('.').pop() : '';
+  return String(ext || '').toLowerCase();
+}
+
+function isSupportedOutputFormat(file, type) {
+  const ext = getFileExt(file);
+  const mime = String(file?.type || '').toLowerCase();
+  if (type === 'image') {
+    return mime === 'image/jpeg' || mime === 'image/png' || SUPPORTED_IMAGE_EXTS.has(ext);
+  }
+  return mime === 'video/mp4' || SUPPORTED_VIDEO_EXTS.has(ext);
+}
+
+function shouldAutoConvert(file, type) {
+  if (isSupportedOutputFormat(file, type)) return false;
+  const ext = getFileExt(file);
+  const mime = String(file?.type || '').toLowerCase();
+  if (type === 'image') {
+    return ext === 'heic' || ext === 'heif' || mime.includes('heic') || mime.includes('heif');
+  }
+  return ext === 'mov' || mime === 'video/quicktime';
+}
+
+function buildConvertedFileName(file, type) {
+  const original = String(file?.name || (type === 'image' ? 'upload.heic' : 'upload.mov'));
+  const base = original.replace(/\.[^.]+$/, '') || 'upload';
+  return type === 'image' ? `${base}.jpg` : `${base}.mp4`;
+}
+
+async function autoConvertToSupported(file, type, onProgress) {
+  const { runReformatInBrowser } = await import('../utils/repurposeFfmpegWasm.js');
+  const targetKind = type === 'image' ? 'image' : 'video';
+  const convertedBlob = await runReformatInBrowser(file, targetKind, (percent) => {
+    if (typeof percent === 'number') onProgress?.(Math.max(5, Math.min(90, Math.round(percent))));
+  });
+  const convertedType = type === 'image' ? 'image/jpeg' : 'video/mp4';
+  return new File([convertedBlob], buildConvertedFileName(file, type), {
+    type: convertedType,
+    lastModified: Date.now(),
+  });
+}
 
 export default function FileUpload({ type = 'image', onUpload, preview, large, acceptOnlyMp4 = false }) {
   const [uploading, setUploading] = useState(false);
@@ -16,18 +67,39 @@ export default function FileUpload({ type = 'image', onUpload, preview, large, a
   const accept = type === 'image' ? IMAGE_ACCEPT : VIDEO_ACCEPT;
 
   const handleDrop = async (files) => {
-    const file = files[0];
-    if (!file) return;
+    const initialFile = files[0];
+    if (!initialFile) return;
 
     setUploading(true);
     setProgress(0);
 
     try {
-      const url = await uploadFile(file, setProgress);
-      onUpload({ url, file });
+      let uploadCandidate = initialFile;
+
+      if (shouldAutoConvert(initialFile, type)) {
+        const convertTargetLabel = type === 'image' ? 'JPEG' : 'MP4';
+        const ext = getFileExt(initialFile).toUpperCase() || (type === 'image' ? 'HEIC' : 'MOV');
+        toast.loading(`Converting ${ext} to ${convertTargetLabel}…`, { id: 'auto-convert-upload' });
+        setProgress(5);
+        try {
+          uploadCandidate = await autoConvertToSupported(initialFile, type, setProgress);
+          toast.success(`Converted to ${convertTargetLabel}. Uploading…`, { id: 'auto-convert-upload' });
+        } catch (conversionError) {
+          toast.error(`Could not convert this ${type}. Please use a ${convertTargetLabel} file.`, { id: 'auto-convert-upload' });
+          throw Object.assign(new Error('AUTO_CONVERT_FAILED'), { isAutoConvertFailed: true, cause: conversionError });
+        }
+      }
+
+      const url = await uploadFile(uploadCandidate, setProgress);
+      onUpload({
+        url,
+        file: uploadCandidate,
+        converted: uploadCandidate !== initialFile,
+        originalFile: uploadCandidate !== initialFile ? initialFile : null,
+      });
       toast.success('Upload complete!');
     } catch (error) {
-      toast.error('Upload failed');
+      if (!error?.isAutoConvertFailed) toast.error('Upload failed');
       console.error(error);
     } finally {
       setUploading(false);
@@ -38,7 +110,7 @@ export default function FileUpload({ type = 'image', onUpload, preview, large, a
   const handleDropRejected = (rejectedFiles) => {
     if (rejectedFiles?.length > 0) {
       toast.error(
-        'File type not supported. Use the Content Reformatter to change the file format.',
+        'File type not supported. MOV/HEIC are auto-converted; use MP4, JPG, or PNG for best results.',
         { duration: 5000, id: 'unsupported-file-type' }
       );
     }
@@ -169,7 +241,7 @@ export default function FileUpload({ type = 'image', onUpload, preview, large, a
               {isDragActive ? 'Drop here' : 'Upload'}
             </span>
             <span className="text-[10px] text-slate-500">
-              {type === 'image' ? 'JPG, PNG' : 'MP4 only'}
+              {type === 'image' ? 'JPG, PNG (HEIC auto-converts)' : 'MP4 (MOV auto-converts)'}
             </span>
           </div>
         </div>
