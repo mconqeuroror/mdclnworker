@@ -13,9 +13,12 @@ function getInitialTheme() {
 
 function applyTheme(t) {
   const html = document.documentElement;
+  // Remove all theme classes first to prevent stale mixed state
+  html.classList.remove("light", "dark");
+  html.removeAttribute("data-theme");
+  // Apply new theme cleanly
   html.setAttribute("data-theme", t);
-  html.classList.toggle("light", t === "light");
-  html.classList.toggle("dark", t !== "light");
+  html.classList.add(t === "light" ? "light" : "dark");
   try { localStorage.setItem(STORAGE_KEY, t); } catch {}
 }
 
