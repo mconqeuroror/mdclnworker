@@ -28,6 +28,7 @@ import {
   generateVariations,
   preprocessReferenceVideoForKling,
   preprocessAudioForTalkingHead,
+  ensureSeedanceReferenceVideoPixels,
 } from "../services/video.service.js";
 import requestQueue from "../services/queue.service.js";
 import {
@@ -54,7 +55,6 @@ import {
   validateSeedreamEditImages,
   validateFaceSwapSourceVideoUrl,
   validateTalkingHeadAvatarImageUrl,
-  validateSeedanceReferenceVideoPixelsUrl,
 } from "../utils/fileValidation.js";
 import { waveSpeedConstraints } from "../config/providerMediaConstraints.js";
 import { getUserFriendlyGenerationError } from "../utils/generationErrorMessages.js";
@@ -4900,10 +4900,7 @@ export async function generateCreatorStudioVideo(req, res) {
         return res.status(400).json({ success: false, message: "Seedance multimodal mode requires at least one image or video reference." });
       }
       if (normalizedMode === "multi-ref" && normalizedInputVideoUrl && !normalizedInputVideoUrl.startsWith("asset://")) {
-        const pxCheck = await validateSeedanceReferenceVideoPixelsUrl(normalizedInputVideoUrl);
-        if (!pxCheck.valid) {
-          return res.status(400).json({ success: false, message: pxCheck.message });
-        }
+        normalizedInputVideoUrl = await ensureSeedanceReferenceVideoPixels(normalizedInputVideoUrl);
       }
       if (!["1:1", "16:9", "9:16", "4:3", "3:4", "21:9"].includes(String(aspectRatio || ""))) {
         return res.status(400).json({ success: false, message: "Seedance aspect ratio must be one of 1:1, 16:9, 9:16, 4:3, 3:4, 21:9." });
@@ -5232,10 +5229,7 @@ export async function createCreatorStudioAsset(req, res) {
       }
     }
     if (assetType === "Video") {
-      const pxCheck = await validateSeedanceReferenceVideoPixelsUrl(sourceUrl);
-      if (!pxCheck.valid) {
-        return res.status(400).json({ success: false, message: pxCheck.message });
-      }
+      sourceUrl = await ensureSeedanceReferenceVideoPixels(sourceUrl);
     }
 
     const existingCount = await prisma.generation.count({

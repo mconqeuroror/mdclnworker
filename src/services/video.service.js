@@ -1,4 +1,5 @@
 import axios from "axios";
+import crypto from "crypto";
 import ffmpeg from "fluent-ffmpeg";
 import fs from "fs";
 import os from "os";
@@ -326,6 +327,82 @@ function calculateBestFrameTimestamp(videoDuration = 10) {
   return timestamp;
 }
 
+const SEEDANCE_MAX_PIXELS = Math.max(
+  1,
+  parseInt(process.env.PROVIDER_LIMIT_KIE_SEEDANCE2_R2V_MAX_PIXELS || "927408", 10) || 927408,
+);
+
+/**
+ * Ensure a Seedance reference video fits the pixel limit (~927k px ≈ 720p equivalent).
+ * If the video is within the limit, the original URL is returned unchanged.
+ * If over the limit AND the ffmpeg worker + R2 are available, the video is auto-downscaled
+ * (preserving aspect ratio) and the new URL is returned.
+ * Falls back silently to the original URL if probing or transcoding fails — the Seedance API
+ * will then return its own error, which is surfaced to the caller.
+ *
+ * @param {string} videoUrl - Publicly accessible video URL
+ * @returns {Promise<string>} Original or downscaled URL
+ */
+export async function ensureSeedanceReferenceVideoPixels(videoUrl) {
+  if (!videoUrl || !videoUrl.startsWith("http")) return videoUrl;
+
+  const { probeInput } = await import("./video-repurpose.service.js");
+  const ext = videoUrl.split("?")[0].split(".").pop()?.toLowerCase() || "mp4";
+  const safeExt = /^[a-z0-9]+$/i.test(ext) ? ext : "mp4";
+  const tmpPath = path.join(
+    os.tmpdir(),
+    `seedance-probe-${crypto.randomUUID()}.${safeExt}`,
+  );
+
+  let width = 0;
+  let height = 0;
+  try {
+    const res = await fetch(videoUrl, { signal: AbortSignal.timeout(60_000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const buffer = Buffer.from(await res.arrayBuffer());
+    fs.writeFileSync(tmpPath, buffer);
+    const info = await probeInput(tmpPath);
+    width = Number(info?.width || 0);
+    height = Number(info?.height || 0);
+  } catch (err) {
+    console.warn("⚠️ Seedance pixel probe failed, passing URL as-is:", err?.message);
+    return videoUrl;
+  } finally {
+    try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch {}
+  }
+
+  if (width <= 0 || height <= 0 || width * height <= SEEDANCE_MAX_PIXELS) {
+    return videoUrl;
+  }
+
+  console.log(`📐 Seedance reference video too large (${width}×${height} = ${width * height} px > ${SEEDANCE_MAX_PIXELS} px limit) — auto-downscaling…`);
+
+  if (isBlobOnlyStorageMode() || !isR2Configured()) {
+    console.warn("⚠️ Seedance downscale skipped (R2 not available) — video may be rejected by API");
+    return videoUrl;
+  }
+
+  try {
+    const scale = Math.sqrt(SEEDANCE_MAX_PIXELS / (width * height));
+    const newW = Math.floor(width * scale / 2) * 2;
+    const newH = Math.floor(height * scale / 2) * 2;
+    const key = `generations/${Date.now()}_${Math.random().toString(36).slice(2)}_seedance-ref.mp4`;
+    const { uploadUrl, publicUrl } = await getR2PresignedPutForKey(key, "video/mp4", 3600);
+    await postTranscodeJobToWorker({
+      inputUrl: videoUrl,
+      vfFilter: `scale=${newW}:${newH}`,
+      audioOptions: ["-c:a", "copy"],
+      extraOptions: ["-movflags", "+faststart"],
+      outputPutUrl: { putUrl: uploadUrl, publicUrl, contentType: "video/mp4" },
+    });
+    console.log(`✅ Seedance reference video downscaled to ${newW}×${newH}:`, publicUrl?.slice(0, 60));
+    return publicUrl;
+  } catch (err) {
+    console.warn("⚠️ Seedance reference video downscale failed, using original (may be rejected by API):", err?.message);
+    return videoUrl;
+  }
+}
+
 /**
  * Preprocess reference video for Kling: denoise and scale to 720p for better motion quality.
  * Uses the external ffmpeg worker (same as repurposer/reformatter) — no local ffmpeg required.
@@ -408,4 +485,5 @@ export {
   calculateBestFrameTimestamp,
   preprocessReferenceVideoForKling,
   preprocessAudioForTalkingHead,
+  ensureSeedanceReferenceVideoPixels,
 };
