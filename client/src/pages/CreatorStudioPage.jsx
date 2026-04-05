@@ -335,8 +335,8 @@ function Chip({ active, onClick, children }) {
         border: "1px solid rgba(139,92,246,0.55)",
         boxShadow: "0 0 8px 1px rgba(139,92,246,0.25)",
       } : {
-        color: "rgba(148,163,184,1)",
-        border: "1px solid rgba(255,255,255,0.18)",
+        color: "var(--text-secondary)",
+        border: "1px solid var(--border-medium)",
       }}
     >
       {children}
@@ -761,8 +761,8 @@ function ResultCard({ gen, onExpand }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-      className="relative rounded-2xl overflow-hidden border border-white/[0.07] bg-white/[0.03] group"
-      style={{ aspectRatio: "1/1", minWidth: 220, maxWidth: 420, width: "100%" }}
+      className="relative rounded-2xl overflow-hidden group backdrop-blur-sm"
+      style={{ aspectRatio: "1/1", minWidth: 220, maxWidth: 420, width: "100%", background: "var(--bg-content)", border: "1px solid var(--border-subtle)" }}
     >
       {gen.status === "completed" && previewUrl ? (
         <>
@@ -1204,7 +1204,8 @@ function VideoCard({ video }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
-      className="rounded-2xl border border-white/[0.07] bg-white/[0.03] overflow-hidden"
+      className="rounded-2xl overflow-hidden backdrop-blur-sm"
+      style={{ background: "var(--bg-content)", border: "1px solid var(--border-subtle)" }}
     >
       {isCompleted && video.outputUrl ? (
         <div className="relative">
@@ -2046,7 +2047,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
 
   return (
     <div
-      className={`relative flex flex-col min-h-full bg-[#0a0a0c]${
+      className={`relative flex flex-col min-h-full${
         activeTab === "generate"
           ? mobileGenBarExpanded
             ? " max-md:pb-[calc(22rem+env(safe-area-inset-bottom))]"
@@ -2073,7 +2074,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                 border: "1px solid rgba(139,92,246,0.18)",
                 boxShadow: "0 4px 18px -4px rgba(139,92,246,0.35), inset 0 1px 0 rgba(255,255,255,0.06)",
               } : {
-                color: "rgba(100,116,139,1)",
+                color: "var(--text-muted)",
                 border: "1px solid transparent",
               }}
             >
@@ -2173,14 +2174,14 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                 animation: "bar-spin 4s linear infinite",
                 pointerEvents: "none",
               }} />
-              {/* Inner card — solid opaque, 1.5px inset from edge to reveal border strip */}
+              {/* Inner card — glass, 1.5px inset from edge to reveal border strip */}
             <div
-              className="relative flex flex-col items-stretch justify-center p-3"
+              className="relative flex flex-col items-stretch justify-center p-3 backdrop-blur-xl"
               style={{
                 zIndex: 1,
                 margin: "1.5px",
                 borderRadius: "calc(1rem - 1.5px)",
-                background: "#0d0f11",
+                background: "var(--bg-surface)",
               }}
             >
               <textarea
@@ -2356,9 +2357,10 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
 
           {/* Mobile bar — collapsible: compact prompt + generate; expand for refs / aspect / res */}
           <div
-            className={`md:hidden fixed left-1/2 z-[35] w-[min(calc(100vw-1.25rem),26rem)] -translate-x-1/2 overflow-x-hidden rounded-2xl border border-white/[0.18] bg-[#0e0e12]/95 shadow-[0_16px_48px_-16px_rgba(0,0,0,0.9)] backdrop-blur-xl p-3 [scrollbar-width:thin] ${
+            className={`md:hidden fixed left-1/2 z-[35] w-[min(calc(100vw-1.25rem),26rem)] -translate-x-1/2 overflow-x-hidden rounded-2xl backdrop-blur-xl p-3 [scrollbar-width:thin] ${
               mobileGenBarExpanded ? "max-h-[min(52vh,420px)] overflow-y-auto" : ""
             }`}
+            style={{ background: "var(--bg-surface)", border: "1px solid var(--border-medium)", boxShadow: "0 16px 48px -16px var(--shadow-ambient)" }}
             style={{
               bottom:
                 "max(0.75rem, calc(var(--dashboard-mobile-tab-stack, calc(3.5rem + env(safe-area-inset-bottom))) + 0.625rem))",
@@ -2579,12 +2581,12 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                 pointerEvents: "none",
               }} />
             <div
-              className="relative flex flex-col items-stretch justify-center p-3"
+              className="relative flex flex-col items-stretch justify-center p-3 backdrop-blur-xl"
               style={{
                 zIndex: 1,
                 margin: "1.5px",
                 borderRadius: "calc(1rem - 1.5px)",
-                background: "#0d0f11",
+                background: "var(--bg-surface)",
               }}
             >
               <textarea
@@ -2942,9 +2944,10 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
 
           {/* Mobile bar — collapsible video controls */}
           <div
-            className={`md:hidden fixed left-1/2 z-[35] w-[min(calc(100vw-1.25rem),26rem)] -translate-x-1/2 overflow-x-hidden rounded-2xl border border-white/[0.18] bg-[#0e0e12]/95 shadow-[0_16px_48px_-16px_rgba(0,0,0,0.9)] backdrop-blur-xl p-3 [scrollbar-width:thin] ${
+            className={`md:hidden fixed left-1/2 z-[35] w-[min(calc(100vw-1.25rem),26rem)] -translate-x-1/2 overflow-x-hidden rounded-2xl backdrop-blur-xl p-3 [scrollbar-width:thin] ${
               mobileVideoBarExpanded ? "max-h-[min(60vh,480px)] overflow-y-auto" : ""
             }`}
+            style={{ background: "var(--bg-surface)", border: "1px solid var(--border-medium)", boxShadow: "0 16px 48px -16px var(--shadow-ambient)" }}
             style={{
               bottom: "max(0.75rem, calc(var(--dashboard-mobile-tab-stack, calc(3.5rem + env(safe-area-inset-bottom))) + 0.625rem))",
             }}

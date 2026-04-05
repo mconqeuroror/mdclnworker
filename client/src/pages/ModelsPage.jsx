@@ -562,7 +562,7 @@ export default function ModelsPage({ sidebarCollapsed = false, openVoiceStudioFo
               style={{
                 background: "rgba(139,92,246,0.05)",
                 border: "1px solid rgba(139,92,246,0.12)",
-                boxShadow: "inset 0 1px 0 rgba(255,255,255,0.04)",
+                boxShadow: "inset 0 1px 0 var(--mc-glass-inset)",
               }}
             >
               {/* Thumbnail - square aspect ratio */}

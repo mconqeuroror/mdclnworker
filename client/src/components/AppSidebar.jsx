@@ -27,10 +27,13 @@ import {
   FileType2,
   Wand2,
   Mic,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { SiTelegram, SiDiscord, SiInstagram } from "react-icons/si";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useBranding } from "../hooks/useBranding";
+import { useTheme } from "../hooks/useTheme";
 import { hasPremiumAccess } from "../utils/premiumAccess";
 
 const LOCALE_STORAGE_KEY = "app_locale";
@@ -140,6 +143,7 @@ export default function AppSidebar({
   const location = useLocation();
   const navigate = useNavigate();
   const branding = useBranding();
+  const { theme, toggleTheme } = useTheme();
   const canAccessPremium = hasPremiumAccess(user);
   const hideRestrictedTabs =
     typeof hideRestrictedTabsProp === "boolean"
@@ -254,9 +258,10 @@ export default function AppSidebar({
       initial={false}
       animate={{ width: visuallyCollapsed ? 80 : 260 }}
       transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
-      className="fixed left-0 top-0 h-screen z-50 flex flex-col max-md:pointer-events-auto md:overflow-visible"
+      className="fixed left-0 top-0 h-screen z-50 flex flex-col max-md:pointer-events-auto md:overflow-visible backdrop-blur-2xl"
       style={{
-        background: "linear-gradient(180deg, rgba(15,15,23,0.98) 0%, rgba(10,10,18,0.99) 50%, rgba(5,5,12,1) 100%)",
+        background: "var(--sidebar-bg)",
+        borderRight: "1px solid var(--border-subtle)",
       }}
       onPointerEnter={handleAsidePointerEnter}
       onPointerLeave={handleAsidePointerLeave}
@@ -714,6 +719,23 @@ export default function AppSidebar({
 
       {/* Bottom Section */}
       <div className="p-4 space-y-2">
+        {/* Theme Toggle */}
+        <button
+          onClick={toggleTheme}
+          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-500 hover:text-slate-300 transition-all duration-200 ${collapsedRow}`}
+          style={{ background: theme === "light" ? "var(--bg-elevated)" : undefined }}
+          data-testid="sidebar-theme-toggle"
+        >
+          {theme === "dark" ? <Sun className="w-5 h-5 flex-shrink-0" /> : <Moon className="w-5 h-5 flex-shrink-0" />}
+          <AnimatePresence>
+            {!visuallyCollapsed && (
+              <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-sm font-medium">
+                {theme === "dark" ? "Light mode" : "Dark mode"}
+              </motion.span>
+            )}
+          </AnimatePresence>
+        </button>
+
         {/* Collapse Toggle */}
         <button
           onClick={() => {

@@ -34,10 +34,13 @@ import {
   TrendingUp,
   Wand2,
   Mic,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { SiTelegram, SiDiscord } from "react-icons/si";
 import toast from "react-hot-toast";
 import { useAuthStore } from "../store";
+import { useTheme } from "../hooks/useTheme";
 import { systemAPI } from "../services/api";
 import { hasPremiumAccess } from "../utils/premiumAccess";
 import ModelsPage from "./ModelsPage";
@@ -296,6 +299,7 @@ export default function DashboardPage() {
   const { user, logout, updateUser, refreshUserCredits } = useAuthStore();
   const branding = useBranding();
   const navigate = useNavigate();
+  const { theme, toggleTheme } = useTheme();
   const canAccessPremiumTabs = hasPremiumAccess(user);
   const hideRestrictedTabs = !hasRestrictedFeatureAccess(user);
   const premiumTabs = ["course", "repurposer", "reelfinder", "voice-studio"];
@@ -486,7 +490,7 @@ export default function DashboardPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-black text-white overflow-x-hidden">
+    <div className="min-h-screen overflow-x-hidden" style={{ background: "var(--bg-page)", color: "var(--text-primary)" }}>
       {/* Desktop Sidebar - hidden on mobile */}
       <div className="hidden md:block">
         <AppSidebar
@@ -511,27 +515,35 @@ export default function DashboardPage() {
       {/* Mobile Header — compact glass pill */}
       <header className="md:hidden fixed z-50 top-1.5 left-2 right-2 pointer-events-none" aria-label="App bar">
         <div
-          className="pointer-events-auto rounded-xl border border-white/20 bg-white/[0.08] shadow-[0_8px_32px_rgba(0,0,0,0.45),inset_0_1px_0_0_rgba(255,255,255,0.1)] backdrop-blur-2xl backdrop-saturate-150"
-          style={{ WebkitBackdropFilter: "blur(28px) saturate(1.2)" }}
+          className="pointer-events-auto rounded-xl backdrop-blur-2xl backdrop-saturate-150"
+          style={{ WebkitBackdropFilter: "blur(28px) saturate(1.2)", background: "var(--bg-surface)", border: "1px solid var(--border-medium)", boxShadow: `0 8px 32px var(--shadow-ambient), inset 0 1px 0 var(--mc-glass-inset)` }}
         >
           <div className="px-3 py-1.5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
                 <img src={branding.logoUrl} alt={branding.appName} className="w-7 h-7 rounded-lg object-cover" />
-                <span className="text-sm font-bold text-white">{branding.appName}</span>
+                <span className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>{branding.appName}</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <button onClick={() => setShowAddCredits(true)}
-                  className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-white/10 border border-white/25 active:scale-[0.98] active:bg-white/20 transition-all"
+                  className="flex items-center gap-1 px-2 py-1.5 rounded-lg active:scale-[0.98] transition-all"
+                  style={{ background: "var(--bg-elevated)", border: "1px solid var(--border-medium)" }}
                   data-testid="mobile-credits">
                   <Coins className="w-3.5 h-3.5 text-yellow-400" />
-                  <span className="font-bold text-xs tabular-nums text-white">{user?.credits || 0}</span>
+                  <span className="font-bold text-xs tabular-nums" style={{ color: "var(--text-primary)" }}>{user?.credits || 0}</span>
                   <Plus className="w-3 h-3 text-yellow-300 rounded-full border border-yellow-300/80 bg-yellow-400/10 shadow-[0_0_8px_rgba(250,204,21,0.8)]" />
                 </button>
+                <button onClick={toggleTheme}
+                  className="p-1.5 rounded-lg transition-all"
+                  style={{ background: "var(--bg-elevated)", border: "1px solid var(--border-subtle)" }}
+                  data-testid="mobile-theme-toggle">
+                  {theme === "dark" ? <Sun className="w-4 h-4" style={{ color: "var(--text-secondary)" }} /> : <Moon className="w-4 h-4" style={{ color: "var(--text-secondary)" }} />}
+                </button>
                 <button onClick={() => setShowMobileMenu(!showMobileMenu)}
-                  className="p-1.5 rounded-lg bg-white/5 border border-white/10 active:bg-white/10 transition-all"
+                  className="p-1.5 rounded-lg transition-all"
+                  style={{ background: "var(--bg-elevated)", border: "1px solid var(--border-subtle)" }}
                   data-testid="mobile-menu-toggle">
-                  {showMobileMenu ? <X className="w-4.5 h-4.5 text-white" /> : <Menu className="w-4.5 h-4.5 text-white" />}
+                  {showMobileMenu ? <X className="w-4.5 h-4.5" style={{ color: "var(--text-primary)" }} /> : <Menu className="w-4.5 h-4.5" style={{ color: "var(--text-primary)" }} />}
                 </button>
               </div>
             </div>
@@ -552,8 +564,8 @@ export default function DashboardPage() {
             animate={{ x: 0 }}
             exit={{ x: "100%" }}
             transition={{ type: "spring", damping: 25, stiffness: 300 }}
-            className="md:hidden fixed right-0 top-0 h-full w-[min(92vw,20rem)] z-50 p-4"
-            style={{ background: "linear-gradient(180deg, rgba(15,15,23,0.98) 0%, rgba(10,10,18,0.99) 50%, rgba(5,5,12,1) 100%)" }}
+            className="md:hidden fixed right-0 top-0 h-full w-[min(92vw,20rem)] z-50 p-4 backdrop-blur-2xl"
+            style={{ background: "var(--sidebar-bg)", borderLeft: "1px solid var(--border-subtle)" }}
           >
             <div className="absolute left-0 top-0 bottom-0 w-px bg-gradient-to-b from-white/[0.08] via-white/[0.04] to-transparent" />
             <div className="flex justify-end mb-4">
@@ -720,8 +732,8 @@ export default function DashboardPage() {
 
       {/* Mobile bottom nav — compact pill */}
       <nav
-        className="md:hidden fixed bottom-1.5 left-2 right-2 z-[45] flex items-center justify-around gap-0.5 border border-white/15 rounded-xl px-1.5 py-0.5 pb-[max(0.125rem,env(safe-area-inset-bottom))] backdrop-blur-2xl"
-        style={{ background: "rgba(255,255,255,0.08)" }}
+        className="md:hidden fixed bottom-1.5 left-2 right-2 z-[45] flex items-center justify-around gap-0.5 rounded-xl px-1.5 py-0.5 pb-[max(0.125rem,env(safe-area-inset-bottom))] backdrop-blur-2xl"
+        style={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)" }}
         aria-label="Primary navigation"
       >
         {!hideRestrictedTabs && (

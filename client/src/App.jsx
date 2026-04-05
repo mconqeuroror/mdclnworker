@@ -12,6 +12,7 @@ import { Info, X, Gift } from 'lucide-react';
 import SplashScreen from './components/SplashScreen';
 import { useBranding } from './hooks/useBranding';
 import { sound } from './utils/sounds';
+import { ThemeProvider } from './hooks/useTheme';
 
 // Hook to check if Zustand has hydrated
 function useHasHydrated() {
@@ -466,6 +467,7 @@ function App() {
   }, [branding]);
 
   return (
+    <ThemeProvider>
     <QueryClientProvider client={queryClient}>
       <ErrorBoundary>
         <AnimatePresence mode="wait">
@@ -482,14 +484,16 @@ function App() {
           toastOptions={{
             duration: 4000,
             style: {
-              background: '#111',
-              color: '#fff',
-              border: '1px solid rgba(255, 255, 255, 0.1)',
+              background: 'var(--bg-surface)',
+              backdropFilter: 'blur(16px)',
+              WebkitBackdropFilter: 'blur(16px)',
+              color: 'var(--text-primary)',
+              border: '1px solid var(--border-subtle)',
             },
             success: {
               iconTheme: {
-                primary: '#ffffff',
-                secondary: '#000000',
+                primary: 'var(--text-primary)',
+                secondary: 'var(--bg-page)',
               },
             },
           }}
@@ -623,6 +627,7 @@ function App() {
       </BrowserRouter>
     </ErrorBoundary>
     </QueryClientProvider>
+    </ThemeProvider>
   );
 }
 
