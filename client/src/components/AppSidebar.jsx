@@ -258,7 +258,7 @@ export default function AppSidebar({
       initial={false}
       animate={{ width: visuallyCollapsed ? 80 : 260 }}
       transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
-      className="fixed left-0 top-0 h-screen z-50 flex flex-col max-md:pointer-events-auto md:overflow-visible backdrop-blur-2xl rounded-r-2xl overflow-hidden"
+      className="fixed left-0 top-0 h-screen z-50 flex flex-col max-md:pointer-events-auto md:overflow-visible backdrop-blur-2xl rounded-r-[2rem] overflow-hidden"
       style={{
         background:
           theme === "light"
