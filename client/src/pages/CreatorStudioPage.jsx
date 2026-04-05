@@ -509,7 +509,7 @@ function SeedanceAssetModal({ isOpen, onClose, onSelect }) {
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-      <div className="w-full max-w-2xl rounded-2xl border border-white/15 bg-[#0c0f14] p-4">
+      <div className="w-full max-w-2xl rounded-2xl border border-white/15 p-4" style={{ background: "var(--bg-surface)" }}>
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-base font-semibold text-white">Seedance Assets</h3>
           <button type="button" onClick={onClose} className="text-slate-400 hover:text-white">
@@ -664,7 +664,7 @@ function MaskEditorModal({ isOpen, imageUrl, onClose, onSave }) {
 
   return (
     <div className="fixed inset-0 z-[70] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="w-full max-w-4xl rounded-2xl border border-white/10 bg-[#0c1016] p-4">
+      <div className="w-full max-w-4xl rounded-2xl border border-white/10 p-4" style={{ background: "var(--bg-surface)" }}>
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-white font-semibold">Mask Editor</h3>
           <button type="button" onClick={onClose} className="text-slate-400 hover:text-white">
@@ -2531,7 +2531,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
             {videoHistory.length > 0 && (
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                 {videoHistory.map((item) => (
-                  <div key={item.id} className="rounded-2xl border border-white/10 bg-[#0d1016] overflow-hidden">
+                  <div key={item.id} className="rounded-2xl border border-white/10 overflow-hidden" style={{ background: "var(--bg-surface)" }}>
                     {item.outputUrl ? (
                       <video src={item.outputUrl} controls className="w-full h-48 object-cover bg-black" />
                     ) : (

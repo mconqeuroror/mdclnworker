@@ -609,7 +609,7 @@ export default function DashboardPage() {
                       <div className="absolute left-0 top-2 bottom-2 w-1 rounded-full bg-gradient-to-b from-white/90 to-white/45" />
                       <div
                         className="absolute top-0 left-0 w-20 h-20 pointer-events-none"
-                        style={{ background: "radial-gradient(circle at top left, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.03) 35%, transparent 70%)" }}
+                        style={{ background: "radial-gradient(circle at top left, var(--mc-glass-inset) 0%, transparent 70%)" }}
                       />
                     </>
                   )}
@@ -1292,7 +1292,7 @@ function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, 
             boxShadow: 'inset 0 1px 0 var(--mc-glass-inset)',
           }}
         >
-          <div className="absolute top-0 right-0 w-32 h-32 pointer-events-none rounded-xl" style={{ background: 'radial-gradient(circle at 100% 0%, rgba(255,255,255,0.06) 0%, transparent 70%)' }} />
+          <div className="absolute top-0 right-0 w-32 h-32 pointer-events-none rounded-xl" style={{ background: 'radial-gradient(circle at 100% 0%, var(--mc-glass-fill) 0%, transparent 70%)' }} />
           <div className="relative flex items-center gap-4">
             <div className="flex-1">
               <h3 className="text-lg font-bold text-white mb-1">Create Content</h3>
@@ -1313,7 +1313,7 @@ function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, 
             boxShadow: 'inset 0 1px 0 var(--mc-glass-inset)',
           }}
         >
-          <div className="absolute top-0 right-0 w-32 h-32 pointer-events-none rounded-xl" style={{ background: 'radial-gradient(circle at 100% 0%, rgba(255,255,255,0.06) 0%, transparent 70%)' }} />
+          <div className="absolute top-0 right-0 w-32 h-32 pointer-events-none rounded-xl" style={{ background: 'radial-gradient(circle at 100% 0%, var(--mc-glass-fill) 0%, transparent 70%)' }} />
           <div className="relative flex items-center gap-4">
             <div className="flex-1">
               <h3 className="text-lg font-bold text-white mb-1">Create Content with Avatar</h3>
@@ -1339,7 +1339,7 @@ function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, 
           }}
           data-testid="button-create-ai-model"
         >
-          <div className="absolute top-0 right-0 w-32 h-32 pointer-events-none rounded-xl" style={{ background: 'radial-gradient(circle at 100% 0%, rgba(255,255,255,0.06) 0%, transparent 70%)' }} />
+          <div className="absolute top-0 right-0 w-32 h-32 pointer-events-none rounded-xl" style={{ background: 'radial-gradient(circle at 100% 0%, var(--mc-glass-fill) 0%, transparent 70%)' }} />
           <div className="relative flex items-center gap-4">
             <div className="flex-1">
               <h3 className="text-lg font-bold text-white mb-1">{copy.mainCreateModelTitle}</h3>
@@ -1376,7 +1376,7 @@ function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, 
           }}
           data-testid="button-upload-real-model"
         >
-          <div className="absolute top-0 right-0 w-32 h-32 pointer-events-none rounded-xl" style={{ background: 'radial-gradient(circle at 100% 0%, rgba(255,255,255,0.06) 0%, transparent 70%)' }} />
+          <div className="absolute top-0 right-0 w-32 h-32 pointer-events-none rounded-xl" style={{ background: 'radial-gradient(circle at 100% 0%, var(--mc-glass-fill) 0%, transparent 70%)' }} />
           <div className="relative flex items-center gap-4">
             <div className="flex-1">
               <h3 className="text-lg font-bold text-white mb-1">{copy.mainUploadRealTitle}</h3>
@@ -1409,7 +1409,7 @@ function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, 
           style={{ 
             background: 'rgba(139,92,246,0.04)',
             border: '1px solid rgba(139,92,246,0.08)',
-            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
+            boxShadow: 'inset 0 1px 0 var(--mc-glass-inset)',
           }}
         >
           <div className="flex items-center justify-between mb-3">
@@ -1517,7 +1517,7 @@ function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, 
             }}
             data-testid="button-quick-models"
           >
-            <div className="absolute top-0 right-0 w-20 h-20 pointer-events-none rounded-xl" style={{ background: 'radial-gradient(circle at 100% 0%, rgba(255,255,255,0.05) 0%, transparent 70%)' }} />
+            <div className="absolute top-0 right-0 w-20 h-20 pointer-events-none rounded-xl" style={{ background: 'radial-gradient(circle at 100% 0%, var(--mc-glass-fill) 0%, transparent 70%)' }} />
             <div className="relative">
               <div className="flex items-center gap-3 mb-2">
                 <div 
@@ -1553,7 +1553,7 @@ function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, 
             }}
             data-testid="button-quick-earn"
           >
-            <div className="absolute top-0 right-0 w-20 h-20 pointer-events-none rounded-xl" style={{ background: 'radial-gradient(circle at 100% 0%, rgba(255,255,255,0.05) 0%, transparent 70%)' }} />
+            <div className="absolute top-0 right-0 w-20 h-20 pointer-events-none rounded-xl" style={{ background: 'radial-gradient(circle at 100% 0%, var(--mc-glass-fill) 0%, transparent 70%)' }} />
             <div className="relative">
               <div className="flex items-center gap-3 mb-2">
                 <div 
@@ -1589,7 +1589,7 @@ function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, 
             }}
             data-testid="button-quick-share"
           >
-            <div className="absolute top-0 right-0 w-20 h-20 pointer-events-none rounded-xl" style={{ background: 'radial-gradient(circle at 100% 0%, rgba(255,255,255,0.05) 0%, transparent 70%)' }} />
+            <div className="absolute top-0 right-0 w-20 h-20 pointer-events-none rounded-xl" style={{ background: 'radial-gradient(circle at 100% 0%, var(--mc-glass-fill) 0%, transparent 70%)' }} />
             <div className="relative">
               <div className="flex items-center gap-3 mb-2">
                 <div 
