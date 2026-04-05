@@ -2029,3 +2029,78 @@ textarea:focus-visible {
   animation: credits-pulse 2s ease-in-out infinite;
 }
 
+/* ── Light mode: FileUpload dropzone ───────────────────────────────────────── */
+html[data-theme="light"] .file-upload-dropzone,
+html.light .file-upload-dropzone {
+  background: rgba(255,255,255,0.88) !important;
+  border: 1px solid rgba(0,0,0,0.1) !important;
+  box-shadow: none !important;
+}
+/* dashed border */
+html[data-theme="light"] .file-upload-dropzone [class*="border-dashed"],
+html.light .file-upload-dropzone [class*="border-dashed"] {
+  border-color: rgba(0,0,0,0.15) !important;
+}
+html[data-theme="light"] .file-upload-dropzone [class*="border-white/20"],
+html.light .file-upload-dropzone [class*="border-white/20"] {
+  border-color: rgba(0,0,0,0.12) !important;
+}
+/* text labels inside dropzone */
+html[data-theme="light"] .file-upload-dropzone .text-slate-300,
+html.light .file-upload-dropzone .text-slate-300 { color: #334155 !important; }
+html[data-theme="light"] .file-upload-dropzone .text-slate-400,
+html.light .file-upload-dropzone .text-slate-400 { color: #475569 !important; }
+html[data-theme="light"] .file-upload-dropzone .text-slate-500,
+html.light .file-upload-dropzone .text-slate-500 { color: #64748b !important; }
+/* icon bg pill inside dropzone */
+html[data-theme="light"] .file-upload-dropzone [class*="bg-white/5"],
+html.light .file-upload-dropzone [class*="bg-white/5"] {
+  background: rgba(0,0,0,0.05) !important;
+}
+html[data-theme="light"] .file-upload-dropzone [class*="bg-white/10"],
+html.light .file-upload-dropzone [class*="bg-white/10"] {
+  background: rgba(0,0,0,0.06) !important;
+}
+
+/* ── Light mode: Generate / action buttons ─────────────────────────────────── */
+/* Identity Recreation – "Generate Image" (has dark inline bg) */
+html[data-theme="light"] [data-testid="button-generate-image"],
+html.light [data-testid="button-generate-image"] {
+  background-color: #0f172a !important;
+  color: #ffffff !important;
+  border-color: transparent !important;
+}
+
+/* Faceswap image button disabled state (inline rgba(255,255,255,0.05)) */
+html[data-theme="light"] [data-testid="button-generate-faceswap-image"]:disabled,
+html.light [data-testid="button-generate-faceswap-image"]:disabled {
+  background: rgba(0,0,0,0.06) !important;
+  color: rgba(0,0,0,0.35) !important;
+}
+
+/* All generate-page disabled Tailwind buttons (bg-white/10 text-white/40) */
+html[data-theme="light"] .generate-page button:disabled[class*="text-white"],
+html.light .generate-page button:disabled[class*="text-white"] {
+  background: rgba(0,0,0,0.06) !important;
+  color: rgba(0,0,0,0.3) !important;
+  border-color: rgba(0,0,0,0.08) !important;
+}
+
+/* ── Light mode: AI Enhanced / Custom Prompt toggle ────────────────────────── */
+html[data-theme="light"] [data-testid="button-use-ai-enhance"],
+html[data-theme="light"] [data-testid="button-use-custom"],
+html.light [data-testid="button-use-ai-enhance"],
+html.light [data-testid="button-use-custom"] {
+  color: #1e293b !important;
+  border-color: rgba(0,0,0,0.15) !important;
+  background: rgba(0,0,0,0.05) !important;
+}
+/* Active state gets slightly stronger bg */
+html[data-theme="light"] [data-testid="button-use-ai-enhance"][class*="bg-white/10"],
+html[data-theme="light"] [data-testid="button-use-custom"][class*="bg-white/10"],
+html.light [data-testid="button-use-ai-enhance"][class*="bg-white/10"],
+html.light [data-testid="button-use-custom"][class*="bg-white/10"] {
+  background: rgba(0,0,0,0.08) !important;
+  border-color: rgba(0,0,0,0.2) !important;
+}
+

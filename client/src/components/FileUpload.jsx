@@ -129,6 +129,7 @@ export default function FileUpload({ type = 'image', onUpload, preview, large, a
     <div
       {...getRootProps()}
       className={`
+        file-upload-dropzone
         relative cursor-pointer overflow-hidden rounded-xl transition-all duration-300 group
         ${large ? 'aspect-video' : 'h-24 sm:h-28'}
         ${isDragActive ? 'scale-[1.02]' : ''}
