@@ -2096,6 +2096,13 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
         })}
       </div>
 
+      <style>{`
+        @keyframes bar-spin {
+          from { transform: rotate(0deg); }
+          to   { transform: rotate(360deg); }
+        }
+      `}</style>
+
       {/* ── NanoBanana Generate tab ───────────────────────────────────────── */}
       {activeTab === "generate" && (
         <>
@@ -2144,12 +2151,6 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
           </div>
 
           {/* Floating bottom bar — desktop */}
-          <style>{`
-            @keyframes bar-spin {
-              from { transform: rotate(0deg); }
-              to   { transform: rotate(360deg); }
-            }
-          `}</style>
           <div
             className="hidden md:flex justify-center fixed bottom-4 right-6 z-20 pointer-events-none transition-all duration-300"
             style={{ left: sidebarCollapsed ? "72px" : "260px" }}
@@ -2578,23 +2579,33 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                 className="w-full bg-transparent text-sm text-white placeholder-slate-500 resize-none outline-none px-1 py-1 leading-relaxed"
               />
               <div className="h-px bg-white/[0.06] mt-2 mb-1" />
-              <div className="flex flex-col gap-2 min-w-0">
-                <div className="flex flex-wrap items-center gap-1.5 min-w-0">
-                  {VIDEO_FAMILIES.map((family) => (
-                    <Chip key={family.id} active={videoFamily === family.id} onClick={() => { setVideoFamily(family.id); setVideoMode(defaultModeByFamily(family.id)); }}>
-                      {family.label}
-                    </Chip>
-                  ))}
-                  <span className="w-px h-4 bg-white/10 mx-0.5" />
-                  {videoModes.map((m) => (
-                    <Chip key={m} active={videoMode === m} onClick={() => setVideoMode(m)}>
-                      {m === "t2v" ? "Text" : m === "i2v" ? "Image" : m === "multi-ref" ? "Multi-Ref" : m === "ref2v" ? "Ref" : m === "move" ? "Animate" : m === "replace" ? "Replace" : m === "edit" ? "First+Last" : "Extend"}
-                    </Chip>
-                  ))}
+              <div className="flex flex-col gap-2.5 min-w-0">
+                {/* ── Model ────────────────────────────────────────── */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Model</span>
+                  <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+                    {VIDEO_FAMILIES.map((family) => (
+                      <Chip key={family.id} active={videoFamily === family.id} onClick={() => { setVideoFamily(family.id); setVideoMode(defaultModeByFamily(family.id)); }}>
+                        {family.label}
+                      </Chip>
+                    ))}
+                  </div>
+                </div>
+                {/* ── Mode ─────────────────────────────────────────── */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Mode</span>
+                  <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+                    {videoModes.map((m) => (
+                      <Chip key={m} active={videoMode === m} onClick={() => setVideoMode(m)}>
+                        {m === "t2v" ? "Text → Video" : m === "i2v" ? "Image → Video" : m === "multi-ref" ? "Multi-Ref" : m === "ref2v" ? "Ref → Video" : m === "move" ? "Animate" : m === "replace" ? "Replace" : m === "edit" ? "First + Last" : "Extend"}
+                      </Chip>
+                    ))}
+                  </div>
                   <span className="text-[10px] text-violet-300/80 ml-auto flex items-center gap-1 shrink-0">
                     <Coins className="w-3 h-3 text-yellow-400/70" /> {videoPricingInfo.details}
                   </span>
                 </div>
+                {/* ── Uploads ──────────────────────────────────────── */}
                 {((videoFamily === "sora2" || videoFamily === "kling26") && videoMode === "i2v") && (
                   <div className="flex flex-wrap items-start gap-2">
                     <MediaUploadField label="Input Image" value={videoImageUrl} onUploaded={setVideoImageUrl} />
@@ -2650,47 +2661,60 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                       ))}
                   </select>
                 )}
+                {/* ── Settings row (family-specific) ───────────────── */}
                 {videoFamily !== "sora2" && videoFamily !== "kling26" && videoFamily !== "veo31" && videoFamily !== "kling30" && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-slate-500 shrink-0">{videoDuration}s</span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Duration</span>
+                    <span className="text-[10px] text-white font-medium shrink-0">{videoDuration}s</span>
                     <input type="range" min={durationConfig.min} max={durationConfig.max} step={durationConfig.step} disabled={durationConfig.fixed} value={videoDuration} onChange={(e) => setVideoDuration(Number(e.target.value))} className="w-24 accent-violet-500 disabled:opacity-50" />
                   </div>
                 )}
                 {videoFamily === "sora2" && (
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <Chip active={videoNFrames === "10"} onClick={() => setVideoNFrames("10")}>10s</Chip>
-                    <Chip active={videoNFrames === "15"} onClick={() => setVideoNFrames("15")}>15s</Chip>
-                    <span className="w-px h-4 bg-white/10 mx-0.5" />
-                    <Chip active={videoSize === "standard"} onClick={() => setVideoSize("standard")}>Standard</Chip>
-                    <Chip active={videoSize === "high"} onClick={() => setVideoSize("high")}>High</Chip>
-                    <span className="w-px h-4 bg-white/10 mx-0.5" />
-                    <Chip active={videoAspectRatio === "portrait"} onClick={() => setVideoAspectRatio("portrait")}>Portrait</Chip>
-                    <Chip active={videoAspectRatio === "landscape"} onClick={() => setVideoAspectRatio("landscape")}>Landscape</Chip>
-                    <span className="w-px h-4 bg-white/10 mx-0.5" />
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Duration</span>
+                    <div className="flex items-center gap-1.5">
+                      <Chip active={videoNFrames === "10"} onClick={() => setVideoNFrames("10")}>10s</Chip>
+                      <Chip active={videoNFrames === "15"} onClick={() => setVideoNFrames("15")}>15s</Chip>
+                    </div>
+                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Quality</span>
+                    <div className="flex items-center gap-1.5">
+                      <Chip active={videoSize === "standard"} onClick={() => setVideoSize("standard")}>Standard</Chip>
+                      <Chip active={videoSize === "high"} onClick={() => setVideoSize("high")}>High</Chip>
+                    </div>
+                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Aspect</span>
+                    <div className="flex items-center gap-1.5">
+                      <Chip active={videoAspectRatio === "portrait"} onClick={() => setVideoAspectRatio("portrait")}>Portrait</Chip>
+                      <Chip active={videoAspectRatio === "landscape"} onClick={() => setVideoAspectRatio("landscape")}>Landscape</Chip>
+                    </div>
                     <button type="button" onClick={() => setSoraRemoveWatermark((v) => !v)}
                       className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-all ${soraRemoveWatermark ? "bg-violet-600 text-white border border-violet-500" : "bg-white/5 text-slate-400 border border-white/10"}`}>
                       Watermark {soraRemoveWatermark ? "Off" : "On"}
                     </button>
                   </div>
                 )}
-                {/* ── Kling 3.0 ──────────────────────────────────────── */}
                 {videoFamily === "kling30" && (
                   <>
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <Chip active={kling30Quality === "std"} onClick={() => setKling30Quality("std")}>Standard</Chip>
-                      <Chip active={kling30Quality === "pro"} onClick={() => setKling30Quality("pro")}>Pro</Chip>
-                      <span className="w-px h-4 bg-white/10 mx-0.5" />
-                      <Chip active={videoAspectRatio === "16:9"} onClick={() => setVideoAspectRatio("16:9")}>16:9</Chip>
-                      <Chip active={videoAspectRatio === "9:16"} onClick={() => setVideoAspectRatio("9:16")}>9:16</Chip>
-                      <Chip active={videoAspectRatio === "1:1"} onClick={() => setVideoAspectRatio("1:1")}>1:1</Chip>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                      <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Quality</span>
+                      <div className="flex items-center gap-1.5">
+                        <Chip active={kling30Quality === "std"} onClick={() => setKling30Quality("std")}>Standard</Chip>
+                        <Chip active={kling30Quality === "pro"} onClick={() => setKling30Quality("pro")}>Pro</Chip>
+                      </div>
+                      <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Aspect</span>
+                      <div className="flex items-center gap-1.5">
+                        <Chip active={videoAspectRatio === "16:9"} onClick={() => setVideoAspectRatio("16:9")}>16:9</Chip>
+                        <Chip active={videoAspectRatio === "9:16"} onClick={() => setVideoAspectRatio("9:16")}>9:16</Chip>
+                        <Chip active={videoAspectRatio === "1:1"} onClick={() => setVideoAspectRatio("1:1")}>1:1</Chip>
+                      </div>
                       {!kling30MultiShot && (
                         <>
-                          <span className="w-px h-4 bg-white/10 mx-0.5" />
-                          <span className="text-[10px] text-slate-500 shrink-0">{videoDuration}s</span>
-                          <input type="range" min={3} max={15} step={1} value={videoDuration} onChange={(e) => setVideoDuration(Number(e.target.value))} className="w-20 accent-violet-500" />
+                          <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Duration</span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] text-white font-medium">{videoDuration}s</span>
+                            <input type="range" min={3} max={15} step={1} value={videoDuration} onChange={(e) => setVideoDuration(Number(e.target.value))} className="w-20 accent-violet-500" />
+                          </div>
                         </>
                       )}
-                      <span className="w-px h-4 bg-white/10 mx-0.5" />
                       <button type="button" onClick={() => setKling30MultiShot((v) => !v)}
                         className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-all ${kling30MultiShot ? "bg-violet-600 text-white border border-violet-500" : "bg-white/5 text-slate-400 border border-white/10"}`}>
                         Multi-shot
@@ -2764,75 +2788,88 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                     )}
                   </>
                 )}
-                {/* ── Kling 2.6 ──────────────────────────────────────── */}
                 {videoFamily === "kling26" && (
-                  <div className="flex flex-wrap items-center gap-1.5">
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                     {videoMode === "t2v" && (
                       <>
-                        <Chip active={videoAspectRatio === "1:1"} onClick={() => setVideoAspectRatio("1:1")}>1:1</Chip>
-                        <Chip active={videoAspectRatio === "16:9"} onClick={() => setVideoAspectRatio("16:9")}>16:9</Chip>
-                        <Chip active={videoAspectRatio === "9:16"} onClick={() => setVideoAspectRatio("9:16")}>9:16</Chip>
-                        <span className="w-px h-4 bg-white/10 mx-0.5" />
+                        <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Aspect</span>
+                        <div className="flex items-center gap-1.5">
+                          <Chip active={videoAspectRatio === "1:1"} onClick={() => setVideoAspectRatio("1:1")}>1:1</Chip>
+                          <Chip active={videoAspectRatio === "16:9"} onClick={() => setVideoAspectRatio("16:9")}>16:9</Chip>
+                          <Chip active={videoAspectRatio === "9:16"} onClick={() => setVideoAspectRatio("9:16")}>9:16</Chip>
+                        </div>
                       </>
                     )}
-                    <Chip active={videoDuration === 5} onClick={() => setVideoDuration(5)}>5s</Chip>
-                    <Chip active={videoDuration === 10} onClick={() => setVideoDuration(10)}>10s</Chip>
+                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Duration</span>
+                    <div className="flex items-center gap-1.5">
+                      <Chip active={videoDuration === 5} onClick={() => setVideoDuration(5)}>5s</Chip>
+                      <Chip active={videoDuration === 10} onClick={() => setVideoDuration(10)}>10s</Chip>
+                    </div>
                   </div>
                 )}
-                {/* ── Veo 3.1 ────────────────────────────────────────── */}
                 {videoFamily === "veo31" && (
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <Chip active={videoSpeed === "fast"} onClick={() => setVideoSpeed("fast")}>Fast</Chip>
-                    <Chip active={videoSpeed === "quality"} onClick={() => setVideoSpeed("quality")}>Quality</Chip>
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Speed</span>
+                    <div className="flex items-center gap-1.5">
+                      <Chip active={videoSpeed === "fast"} onClick={() => setVideoSpeed("fast")}>Fast</Chip>
+                      <Chip active={videoSpeed === "quality"} onClick={() => setVideoSpeed("quality")}>Quality</Chip>
+                    </div>
                     {(videoMode === "ref2v" || videoMode === "i2v") && (
                       <>
-                        <span className="w-px h-4 bg-white/10 mx-0.5" />
-                        <Chip active={videoAspectRatio === "Auto"} onClick={() => setVideoAspectRatio("Auto")}>Auto</Chip>
-                        <Chip active={videoAspectRatio === "16:9"} onClick={() => setVideoAspectRatio("16:9")}>16:9</Chip>
-                        <Chip active={videoAspectRatio === "9:16"} onClick={() => setVideoAspectRatio("9:16")}>9:16</Chip>
+                        <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Aspect</span>
+                        <div className="flex items-center gap-1.5">
+                          <Chip active={videoAspectRatio === "Auto"} onClick={() => setVideoAspectRatio("Auto")}>Auto</Chip>
+                          <Chip active={videoAspectRatio === "16:9"} onClick={() => setVideoAspectRatio("16:9")}>16:9</Chip>
+                          <Chip active={videoAspectRatio === "9:16"} onClick={() => setVideoAspectRatio("9:16")}>9:16</Chip>
+                        </div>
                       </>
                     )}
-                    <span className="w-px h-4 bg-white/10 mx-0.5" />
                     <button type="button" onClick={() => setVeoEnableTranslation((v) => !v)}
                       className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-all ${veoEnableTranslation ? "bg-violet-600 text-white border border-violet-500" : "bg-white/5 text-slate-400 border border-white/10"}`}>
                       Translate
                     </button>
-                    <span className="text-[10px] text-slate-500">8s</span>
-                    <span className="w-px h-4 bg-white/10 mx-0.5" />
+                    <span className="text-[10px] text-slate-500">8s fixed</span>
                     <input type="number" min={10000} max={99999} value={veoSeed} onChange={(e) => setVeoSeed(e.target.value)} placeholder="Seed"
                       className="w-20 rounded-lg border border-white/10 bg-black/40 px-2 py-1 text-xs text-white outline-none placeholder:text-slate-600" />
                     <input value={veoWatermark} onChange={(e) => setVeoWatermark(e.target.value)} placeholder="Watermark"
                       className="w-24 rounded-lg border border-white/10 bg-black/40 px-2 py-1 text-xs text-white outline-none placeholder:text-slate-600" />
                   </div>
                 )}
-                {/* ── WAN 2.2 ────────────────────────────────────────── */}
                 {videoFamily === "wan22" && (
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <Chip active={wanResolution === "480p"} onClick={() => setWanResolution("480p")}>480p</Chip>
-                    <Chip active={wanResolution === "580p"} onClick={() => setWanResolution("580p")}>580p</Chip>
-                    <Chip active={wanResolution === "720p"} onClick={() => setWanResolution("720p")}>720p</Chip>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Resolution</span>
+                    <div className="flex items-center gap-1.5">
+                      <Chip active={wanResolution === "480p"} onClick={() => setWanResolution("480p")}>480p</Chip>
+                      <Chip active={wanResolution === "580p"} onClick={() => setWanResolution("580p")}>580p</Chip>
+                      <Chip active={wanResolution === "720p"} onClick={() => setWanResolution("720p")}>720p</Chip>
+                    </div>
                   </div>
                 )}
-                {/* ── Seedance 2.0 ───────────────────────────────────── */}
                 {videoFamily === "seedance2" && (
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <Chip active={seedanceTaskType === "seedance-2-preview"} onClick={() => setSeedanceTaskType("seedance-2-preview")}>Quality</Chip>
-                    <Chip active={seedanceTaskType === "seedance-2-fast-preview"} onClick={() => setSeedanceTaskType("seedance-2-fast-preview")}>Fast</Chip>
-                    <span className="w-px h-4 bg-white/10 mx-0.5" />
-                    <Chip active={seedanceResolution === "480p"} onClick={() => setSeedanceResolution("480p")}>480p</Chip>
-                    <Chip active={seedanceResolution === "720p"} onClick={() => setSeedanceResolution("720p")}>720p</Chip>
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Variant</span>
+                    <div className="flex items-center gap-1.5">
+                      <Chip active={seedanceTaskType === "seedance-2-preview"} onClick={() => setSeedanceTaskType("seedance-2-preview")}>Quality</Chip>
+                      <Chip active={seedanceTaskType === "seedance-2-fast-preview"} onClick={() => setSeedanceTaskType("seedance-2-fast-preview")}>Fast</Chip>
+                    </div>
+                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Res</span>
+                    <div className="flex items-center gap-1.5">
+                      <Chip active={seedanceResolution === "480p"} onClick={() => setSeedanceResolution("480p")}>480p</Chip>
+                      <Chip active={seedanceResolution === "720p"} onClick={() => setSeedanceResolution("720p")}>720p</Chip>
+                    </div>
                     {(videoMode === "t2v" || videoMode === "i2v" || videoMode === "edit" || videoMode === "multi-ref") && (
                       <>
-                        <span className="w-px h-4 bg-white/10 mx-0.5" />
-                        {["1:1", "16:9", "9:16", "4:3", "3:4", "21:9"].map((ar) => (
-                          <Chip key={ar} active={videoAspectRatio === ar} onClick={() => setVideoAspectRatio(ar)}>{ar}</Chip>
-                        ))}
+                        <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Aspect</span>
+                        <div className="flex items-center gap-1">
+                          {["1:1", "16:9", "9:16", "4:3", "3:4", "21:9"].map((ar) => (
+                            <Chip key={ar} active={videoAspectRatio === ar} onClick={() => setVideoAspectRatio(ar)}>{ar}</Chip>
+                          ))}
+                        </div>
                       </>
                     )}
-                    <span className="w-px h-4 bg-white/10 mx-0.5" />
                     <button type="button" onClick={() => setSeedanceGenerateAudio((v) => !v)}
                       className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-all ${seedanceGenerateAudio ? "bg-violet-600 text-white border border-violet-500" : "bg-white/5 text-slate-400 border border-white/10"}`}>
-                      Audio
+                      Audio {seedanceGenerateAudio ? "On" : "Off"}
                     </button>
                     <button type="button" onClick={() => setSeedanceAssetModalOpen(true)}
                       className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-all border ${(selectedSeedanceAssets.image || selectedSeedanceAssets.video || selectedSeedanceAssets.audio) ? "bg-white/10 text-slate-200 border-white/15" : "bg-white/5 text-slate-400 border-white/10"} hover:bg-white/10`}>
@@ -2840,15 +2877,16 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                     </button>
                   </div>
                 )}
-                <div className="flex items-center gap-2 mt-0.5">
+                {/* ── Generate row ──────────────────────────────────── */}
+                <div className="flex items-center gap-2 pt-0.5">
                   {soundAvailable && (
                     <>
                       <button type="button" onClick={() => setSoundEnabled((v) => !v)}
                         className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-all shrink-0 ${soundEnabled ? "bg-violet-600 text-white border border-violet-500" : "bg-white/5 text-slate-400 border border-white/10"}`}>
-                        Sound
+                        Sound {soundEnabled ? "On" : "Off"}
                       </button>
                       {soundEnabled && (
-                        <input value={soundPrompt} onChange={(e) => setSoundPrompt(e.target.value)} placeholder="Sound prompt…"
+                        <input value={soundPrompt} onChange={(e) => setSoundPrompt(e.target.value)} placeholder="Sound prompt (speech, ambience, SFX…)"
                           className="flex-1 min-w-[8rem] rounded-lg border border-white/10 bg-black/40 px-2 py-1 text-xs text-white outline-none placeholder:text-slate-600" />
                       )}
                     </>
@@ -2942,32 +2980,43 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
               </p>
             )}
             {mobileVideoBarExpanded && (
-              <div className="mt-3 space-y-2.5 border-t border-white/10 pt-3">
-                <textarea value={videoPrompt} onChange={(e) => setVideoPrompt(e.target.value)}
-                  placeholder="Describe motion, camera, timing…" rows={2}
-                  className="w-full rounded-xl border border-white/15 bg-black/50 px-3 py-2 text-sm text-white placeholder:text-slate-500 resize-none outline-none" />
-                <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-0.5 px-0.5 snap-x [scrollbar-width:thin]">
-                  {VIDEO_FAMILIES.map((family) => (
-                    <Chip key={family.id} active={videoFamily === family.id} onClick={() => { setVideoFamily(family.id); setVideoMode(defaultModeByFamily(family.id)); }}>
-                      {family.label}
-                    </Chip>
-                  ))}
-                  <span className="w-px h-5 bg-white/10 mx-0.5 shrink-0 self-center" />
-                  {videoModes.map((m) => (
-                    <Chip key={m} active={videoMode === m} onClick={() => setVideoMode(m)}>
-                      {m === "t2v" ? "Text" : m === "i2v" ? "Image" : m === "multi-ref" ? "Multi-Ref" : m === "ref2v" ? "Ref" : m === "move" ? "Animate" : m === "replace" ? "Replace" : m === "edit" ? "First+Last" : "Extend"}
-                    </Chip>
-                  ))}
+              <div className="mt-3 space-y-3 border-t border-white/10 pt-3">
+                <div className="rounded-xl border border-white/20 bg-black/65 px-3 py-2">
+                  <textarea value={videoPrompt} onChange={(e) => setVideoPrompt(e.target.value)}
+                    placeholder="Describe motion, camera, timing…" rows={2}
+                    className="w-full bg-transparent text-sm text-white placeholder:text-slate-500 resize-none outline-none min-h-[2.75rem]" />
                 </div>
-                <button type="button" onClick={handleGenerateVideo} disabled={isVideoGenerating}
-                  className="w-full min-h-[44px] shrink-0 px-4 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-40 flex items-center justify-center gap-1.5"
-                  style={{ background: "linear-gradient(135deg,#7c3aed,#4f46e5)", color: "white" }}>
-                  {isVideoGenerating
-                    ? <Loader2 className="w-5 h-5 animate-spin" />
-                    : <span className="flex items-center gap-1.5 whitespace-nowrap">{copy.generateVideo} {videoPricingInfo.cost} <Coins className="w-4 h-4 text-yellow-400" /></span>
-                  }
-                </button>
-                <p className="text-[10px] text-slate-500 text-center">{formatCopy(copy.creditsAvailable, { credits: creditsLeft })}</p>
+                <div>
+                  <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-2 font-medium">Model</span>
+                  <div className="flex gap-2 overflow-x-auto pb-1 -mx-0.5 px-0.5 snap-x [scrollbar-width:thin]">
+                    {VIDEO_FAMILIES.map((family) => (
+                      <Chip key={family.id} active={videoFamily === family.id} onClick={() => { setVideoFamily(family.id); setVideoMode(defaultModeByFamily(family.id)); }}>
+                        {family.label}
+                      </Chip>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-2 font-medium">Mode</span>
+                  <div className="flex gap-2 overflow-x-auto pb-1 -mx-0.5 px-0.5 snap-x [scrollbar-width:thin]">
+                    {videoModes.map((m) => (
+                      <Chip key={m} active={videoMode === m} onClick={() => setVideoMode(m)}>
+                        {m === "t2v" ? "Text → Video" : m === "i2v" ? "Image → Video" : m === "multi-ref" ? "Multi-Ref" : m === "ref2v" ? "Ref → Video" : m === "move" ? "Animate" : m === "replace" ? "Replace" : m === "edit" ? "First + Last" : "Extend"}
+                      </Chip>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex flex-col gap-3">
+                  <button type="button" onClick={handleGenerateVideo} disabled={isVideoGenerating}
+                    className="w-full min-h-[48px] shrink-0 px-4 py-3 rounded-xl text-sm font-semibold disabled:opacity-40 flex items-center justify-center gap-1.5"
+                    style={{ background: "linear-gradient(135deg,#7c3aed,#4f46e5)", color: "white" }}>
+                    {isVideoGenerating
+                      ? <Loader2 className="w-5 h-5 animate-spin" />
+                      : <span className="flex items-center gap-1.5 whitespace-nowrap">{copy.generateVideo} {videoPricingInfo.cost} <Coins className="w-4 h-4 text-yellow-400" /></span>
+                    }
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-500 text-center leading-snug">{formatCopy(copy.creditsAvailable, { credits: creditsLeft })}</p>
               </div>
             )}
           </div>
