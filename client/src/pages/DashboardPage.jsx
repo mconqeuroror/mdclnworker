@@ -363,7 +363,7 @@ export default function DashboardPage() {
   useEffect(() => {
     document.documentElement.style.setProperty(
       "--dashboard-mobile-tab-stack",
-      "calc(3.5rem + env(safe-area-inset-bottom))",
+      "calc(2.75rem + env(safe-area-inset-bottom))",
     );
     return () => {
       document.documentElement.style.removeProperty("--dashboard-mobile-tab-stack");
@@ -508,53 +508,34 @@ export default function DashboardPage() {
       {/* Desktop Top Header - hidden on mobile (empty; profile moved to sidebar) */}
 
 
-      {/* Mobile Header — floating glass pill (10% fill + blur); logged-in app shell only */}
-      <header
-        className="md:hidden fixed z-50 top-3 left-3 right-3 pointer-events-none"
-        aria-label="App bar"
-      >
+      {/* Mobile Header — compact glass pill */}
+      <header className="md:hidden fixed z-50 top-1.5 left-2 right-2 pointer-events-none" aria-label="App bar">
         <div
-          className="pointer-events-auto rounded-2xl border border-white/25 bg-white/[0.1] shadow-[0_12px_40px_rgba(0,0,0,0.5),inset_0_1px_0_0_rgba(255,255,255,0.14)] backdrop-blur-2xl backdrop-saturate-150"
-          style={{
-            WebkitBackdropFilter: "blur(28px) saturate(1.2)",
-          }}
+          className="pointer-events-auto rounded-xl border border-white/20 bg-white/[0.08] shadow-[0_8px_32px_rgba(0,0,0,0.45),inset_0_1px_0_0_rgba(255,255,255,0.1)] backdrop-blur-2xl backdrop-saturate-150"
+          style={{ WebkitBackdropFilter: "blur(28px) saturate(1.2)" }}
         >
-        <div className="px-3.5 py-2.5 sm:px-4 sm:py-3">
-          <div className="flex items-center justify-between">
-            {/* Logo */}
-            <div className="flex items-center gap-2">
-              <img src={branding.logoUrl} alt={branding.appName} className="w-8 h-8 rounded-lg object-cover" />
-              <span className="text-base font-bold text-white">{branding.appName}</span>
-            </div>
-
-            {/* Right Actions */}
-            <div className="flex items-center gap-2">
-              {/* Credits - clickable to add more */}
-              <button
-                onClick={() => {
-                 
-                  setShowAddCredits(true);
-                }}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 border border-white/35 active:scale-[0.98] active:bg-white/20 transition-all"
-                data-testid="mobile-credits"
-              >
-                <Coins className="w-4 h-4 text-yellow-400" />
-                <span className="font-bold text-sm tabular-nums text-white">{user?.credits || 0}</span>
-                <div className="w-px h-3 bg-white/20" />
-                <Plus className="w-3.5 h-3.5 text-yellow-300 rounded-full p-[1px] border border-yellow-300/90 bg-yellow-400/10 shadow-[0_0_10px_rgba(250,204,21,0.95)] drop-shadow-[0_0_8px_rgba(250,204,21,0.75)]" />
-              </button>
-
-              {/* Menu Toggle */}
-              <button
-                onClick={() => setShowMobileMenu(!showMobileMenu)}
-                className="p-2.5 rounded-xl bg-white/5 border border-white/10 active:bg-white/10 transition-all"
-                data-testid="mobile-menu-toggle"
-              >
-                {showMobileMenu ? <X className="w-5 h-5 text-white" /> : <Menu className="w-5 h-5 text-white" />}
-              </button>
+          <div className="px-3 py-1.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <img src={branding.logoUrl} alt={branding.appName} className="w-7 h-7 rounded-lg object-cover" />
+                <span className="text-sm font-bold text-white">{branding.appName}</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <button onClick={() => setShowAddCredits(true)}
+                  className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-white/10 border border-white/25 active:scale-[0.98] active:bg-white/20 transition-all"
+                  data-testid="mobile-credits">
+                  <Coins className="w-3.5 h-3.5 text-yellow-400" />
+                  <span className="font-bold text-xs tabular-nums text-white">{user?.credits || 0}</span>
+                  <Plus className="w-3 h-3 text-yellow-300 rounded-full border border-yellow-300/80 bg-yellow-400/10 shadow-[0_0_8px_rgba(250,204,21,0.8)]" />
+                </button>
+                <button onClick={() => setShowMobileMenu(!showMobileMenu)}
+                  className="p-1.5 rounded-lg bg-white/5 border border-white/10 active:bg-white/10 transition-all"
+                  data-testid="mobile-menu-toggle">
+                  {showMobileMenu ? <X className="w-4.5 h-4.5 text-white" /> : <Menu className="w-4.5 h-4.5 text-white" />}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
         </div>
       </header>
 
@@ -737,64 +718,37 @@ export default function DashboardPage() {
       )}
       </AnimatePresence>
 
-      {/* Mobile bottom nav (Instagram-style): NSFW · Home · Generate — desktop uses sidebar */}
+      {/* Mobile bottom nav — compact pill */}
       <nav
-        className="md:hidden fixed bottom-2 left-2 right-2 z-[45] flex items-center justify-around gap-1 border border-white/20 rounded-2xl px-2 min-h-[3.5rem] py-1 pb-[max(0.25rem,env(safe-area-inset-bottom))] backdrop-blur-2xl"
-        style={{
-          background: "rgba(255,255,255,0.10)",
-        }}
+        className="md:hidden fixed bottom-1.5 left-2 right-2 z-[45] flex items-center justify-around gap-0.5 border border-white/15 rounded-xl px-1.5 py-0.5 pb-[max(0.125rem,env(safe-area-inset-bottom))] backdrop-blur-2xl"
+        style={{ background: "rgba(255,255,255,0.08)" }}
         aria-label="Primary navigation"
       >
         {!hideRestrictedTabs && (
-          <button
-            type="button"
-            onClick={() => handleTabChange("nsfw")}
-            className={`flex flex-1 flex-col items-center justify-center gap-0.5 rounded-xl py-1.5 max-w-[5.5rem] transition-colors active:scale-[0.97] ${
-              activeTab === "nsfw" ? "text-rose-400" : "text-slate-500 hover:text-slate-300"
-            }`}
-            aria-label={copy.mobileNavNsfw}
-            aria-current={activeTab === "nsfw" ? "page" : undefined}
-            data-testid="mobile-tab-nsfw"
-          >
-            <Flame className={`w-6 h-6 ${activeTab === "nsfw" ? "drop-shadow-[0_0_10px_rgba(251,113,133,0.45)]" : ""}`} />
-            <span className="text-[10px] font-semibold tracking-wide">{copy.mobileNavNsfw}</span>
+          <button type="button" onClick={() => handleTabChange("nsfw")}
+            className={`flex flex-1 flex-col items-center justify-center gap-0 rounded-lg py-1 max-w-[5rem] transition-colors active:scale-[0.97] ${activeTab === "nsfw" ? "text-rose-400" : "text-slate-500 hover:text-slate-300"}`}
+            aria-label={copy.mobileNavNsfw} aria-current={activeTab === "nsfw" ? "page" : undefined} data-testid="mobile-tab-nsfw">
+            <Flame className={`w-5 h-5 ${activeTab === "nsfw" ? "drop-shadow-[0_0_8px_rgba(251,113,133,0.4)]" : ""}`} />
+            <span className="text-[9px] font-semibold">{copy.mobileNavNsfw}</span>
           </button>
         )}
-
-        <button
-          type="button"
-          onClick={() => handleTabChange("home")}
-          className={`flex flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl py-2 max-w-[6rem] border transition-all active:scale-[0.97] scale-[1.05] ${
-            activeTab === "home"
-              ? "text-white bg-white/[0.14] border-white/25 shadow-[0_0_20px_rgba(139,92,246,0.18)]"
-              : "text-slate-300 border-white/12 bg-white/[0.06] hover:text-white hover:bg-white/[0.09]"
-          }`}
-          aria-label={copy.mobileNavDashboard}
-          aria-current={activeTab === "home" ? "page" : undefined}
-          data-testid="mobile-tab-home"
-        >
-          <Home className="w-7 h-7" />
-          <span className="text-[10px] font-semibold tracking-wide">{copy.mobileNavDashboard}</span>
+        <button type="button" onClick={() => handleTabChange("home")}
+          className={`flex flex-1 flex-col items-center justify-center gap-0 rounded-xl py-1.5 max-w-[5rem] border transition-all active:scale-[0.97] ${activeTab === "home" ? "text-white bg-white/[0.12] border-white/20 shadow-[0_0_14px_rgba(139,92,246,0.15)]" : "text-slate-300 border-white/10 bg-white/[0.04] hover:text-white hover:bg-white/[0.08]"}`}
+          aria-label={copy.mobileNavDashboard} aria-current={activeTab === "home" ? "page" : undefined} data-testid="mobile-tab-home">
+          <Home className="w-5 h-5" />
+          <span className="text-[9px] font-semibold">{copy.mobileNavDashboard}</span>
         </button>
-
-        <button
-          type="button"
-          onClick={() => handleTabChange("generate")}
-          className={`flex flex-1 flex-col items-center justify-center gap-0.5 rounded-xl py-1.5 max-w-[5.5rem] transition-colors active:scale-[0.97] ${
-            activeTab === "generate" ? "text-amber-300" : "text-slate-500 hover:text-slate-300"
-          }`}
-          aria-label={copy.mobileNavGenerate}
-          aria-current={activeTab === "generate" ? "page" : undefined}
-          data-testid="mobile-tab-generate"
-        >
-          <Zap className={`w-6 h-6 ${activeTab === "generate" ? "drop-shadow-[0_0_10px_rgba(252,211,77,0.45)]" : ""}`} />
-          <span className="text-[10px] font-semibold tracking-wide">{copy.mobileNavGenerate}</span>
+        <button type="button" onClick={() => handleTabChange("generate")}
+          className={`flex flex-1 flex-col items-center justify-center gap-0 rounded-lg py-1 max-w-[5rem] transition-colors active:scale-[0.97] ${activeTab === "generate" ? "text-amber-300" : "text-slate-500 hover:text-slate-300"}`}
+          aria-label={copy.mobileNavGenerate} aria-current={activeTab === "generate" ? "page" : undefined} data-testid="mobile-tab-generate">
+          <Zap className={`w-5 h-5 ${activeTab === "generate" ? "drop-shadow-[0_0_8px_rgba(252,211,77,0.4)]" : ""}`} />
+          <span className="text-[9px] font-semibold">{copy.mobileNavGenerate}</span>
         </button>
       </nav>
 
       {/* Content - with left margin for sidebar on desktop; bottom padding clears mobile tab bar */}
       <main
-        className={`relative z-10 pt-[5.5rem] md:pt-14 max-md:pb-[calc(3.5rem+env(safe-area-inset-bottom)+1.5rem)] md:pb-12 min-h-screen transition-[margin] duration-300 ease-out overflow-x-hidden ${sidebarNarrow ? "md:ml-[80px]" : "md:ml-[260px]"}`}
+        className={`relative z-10 pt-[4.5rem] md:pt-14 max-md:pb-[calc(2.75rem+env(safe-area-inset-bottom)+1.25rem)] md:pb-12 min-h-screen transition-[margin] duration-300 ease-out overflow-x-hidden ${sidebarNarrow ? "md:ml-[80px]" : "md:ml-[260px]"}`}
       >
         <div className={`relative z-10 p-3 sm:p-4 md:p-6 ${sidebarNarrow ? "mx-auto w-full max-w-[1600px]" : ""}`}>
           {activeTab === "home" && <HomePage copy={copy} setActiveTab={setActiveTab} setShowEarnModal={setShowEarnModal} setShowReferralModal={setShowReferralModal} onOpenCreateModel={() => { setUploadRealMode(false); setShowCreateModelModal(true); }} onOpenUploadReal={() => { setUploadRealMode(true); setShowCreateModelModal(true); }} onOpenCredits={() => setShowAddCredits(true)} />}

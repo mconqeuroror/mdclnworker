@@ -2430,56 +2430,72 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
             )}
 
             {mobileGenBarExpanded && (
-              <div className="mt-3 space-y-3 border-t border-white/10 pt-3">
-                <div className="rounded-xl border border-white/20 bg-black/65 px-3 py-2">
-                  <textarea
-                    value={prompt}
-                    onChange={(e) => setPrompt(e.target.value)}
-                    placeholder={copy.promptPlaceholder}
-                    rows={2}
-                    className="w-full bg-transparent text-sm text-white placeholder:text-slate-500 resize-none outline-none min-h-[2.75rem]"
-                  />
+              <div className="mt-3 space-y-2.5 border-t border-white/10 pt-3">
+                <div className="rounded-xl border border-white/15 bg-black/50 px-3 py-2">
+                  <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)}
+                    placeholder={copy.promptPlaceholder} rows={2}
+                    className="w-full bg-transparent text-sm text-white placeholder:text-slate-500 resize-none outline-none min-h-[2.5rem]" />
                 </div>
                 <div>
-                  <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-2 font-medium">{copy.refs}</span>
-                  <div className="flex gap-2 overflow-x-auto pb-1 -mx-0.5 px-0.5 snap-x snap-mandatory [scrollbar-width:thin]">
-                    {refs.map((url, i) => (
-                      <RefSlot key={i} url={url} uploading={uploadingIdx === i}
-                        onRemove={() => removeRef(i)} onAdd={(file) => handleAddRef(file, i)} />
+                  <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">{copy.model || "Model"}</span>
+                  <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-0.5 px-0.5 snap-x [scrollbar-width:thin]">
+                    {IMAGE_MODELS.map((model) => (
+                      <Chip key={model.id} active={imageModel === model.id} onClick={() => setImageModel(model.id)}>
+                        <span className="whitespace-nowrap">{model.label}</span>
+                      </Chip>
+                    ))}
+                  </div>
+                </div>
+                {supportsReferenceSlots && (
+                  <div>
+                    <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">{copy.refs}</span>
+                    <div className="flex gap-2 overflow-x-auto pb-1 -mx-0.5 px-0.5 snap-x [scrollbar-width:thin]">
+                      {refs.map((url, i) => (
+                        <RefSlot key={i} url={url} uploading={uploadingIdx === i}
+                          onRemove={() => removeRef(i)} onAdd={(file) => handleAddRef(file, i)} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {showSingleInputUploader && (
+                  <div>
+                    <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Input Image</span>
+                    <MediaUploadField
+                      label={singleInputRequired ? "Required" : "Optional"}
+                      value={imageInputUrl}
+                      onUploaded={setImageInputUrl}
+                    />
+                  </div>
+                )}
+                <div>
+                  <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">{copy.aspect}</span>
+                  <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-0.5 px-0.5 snap-x [scrollbar-width:thin]">
+                    {ASPECT_RATIOS.map((ar) => (
+                      <Chip key={ar.value} active={aspectRatio === ar.value} onClick={() => setAspectRatio(ar.value)}>
+                        <span className="whitespace-nowrap">{ar.hint ?? ar.label}</span>
+                      </Chip>
                     ))}
                   </div>
                 </div>
                 <div>
-                  <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-2 font-medium">{copy.aspect}</span>
-                  <div className="flex gap-2 overflow-x-auto pb-1 -mx-0.5 px-0.5 snap-x [scrollbar-width:thin]">
-                    <div className="flex items-center gap-2 shrink-0 pr-2">
-                      {ASPECT_RATIOS.map((ar) => (
-                        <Chip key={ar.value} active={aspectRatio === ar.value} onClick={() => setAspectRatio(ar.value)}>{ar.hint ?? ar.label}</Chip>
-                      ))}
-                    </div>
+                  <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">{copy.res}</span>
+                  <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-0.5 px-0.5 [scrollbar-width:thin]">
+                    {RESOLUTIONS.map((r) => (
+                      <Chip key={r} active={resolution === r} onClick={() => setResolution(r)}>
+                        <span className="whitespace-nowrap">{r}</span>
+                      </Chip>
+                    ))}
                   </div>
                 </div>
-                <div className="flex flex-col gap-3">
-                  <div>
-                    <span className="text-[11px] text-slate-400 uppercase tracking-widest font-medium">{copy.res}</span>
-                    <div className="flex gap-2 overflow-x-auto mt-2 pb-0.5 -mx-0.5 px-0.5 [scrollbar-width:thin]">
-                      <div className="flex items-center gap-2 shrink-0">
-                        {RESOLUTIONS.map((r) => (
-                          <Chip key={r} active={resolution === r} onClick={() => setResolution(r)}>{r}</Chip>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                  <button type="button" onClick={handleGenerate} disabled={imageGenerateDisabled}
-                    className="w-full min-h-[48px] shrink-0 px-4 py-3 rounded-xl text-sm font-semibold disabled:opacity-40 flex items-center justify-center gap-1.5"
-                    style={{ background: "linear-gradient(135deg,#7c3aed,#4f46e5)", color: "white" }}>
-                    {isGenerating
-                      ? <Loader2 className="w-5 h-5 animate-spin" />
-                      : <span className="flex items-center gap-1.5 whitespace-nowrap">{formatCopy(copy.buttonGenerateCost, { cost: COST })} <Coins className="w-4 h-4 text-yellow-400" /></span>
-                    }
-                  </button>
-                </div>
-                <p className="text-[11px] text-slate-500 text-center leading-snug">{formatCopy(copy.creditsAvailable, { credits: creditsLeft })}</p>
+                <button type="button" onClick={handleGenerate} disabled={imageGenerateDisabled}
+                  className="w-full min-h-[44px] shrink-0 px-4 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-40 flex items-center justify-center gap-1.5"
+                  style={{ background: "linear-gradient(135deg,#7c3aed,#4f46e5)", color: "white" }}>
+                  {isGenerating
+                    ? <Loader2 className="w-5 h-5 animate-spin" />
+                    : <span className="flex items-center gap-1.5 whitespace-nowrap">{formatCopy(copy.buttonGenerateCost, { cost: COST })} <Coins className="w-4 h-4 text-yellow-400" /></span>
+                  }
+                </button>
+                <p className="text-[10px] text-slate-500 text-center">{formatCopy(copy.creditsAvailable, { credits: creditsLeft })}</p>
               </div>
             )}
           </div>
@@ -2980,43 +2996,219 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
               </p>
             )}
             {mobileVideoBarExpanded && (
-              <div className="mt-3 space-y-3 border-t border-white/10 pt-3">
-                <div className="rounded-xl border border-white/20 bg-black/65 px-3 py-2">
+              <div className="mt-3 space-y-2.5 border-t border-white/10 pt-3">
+                <div className="rounded-xl border border-white/15 bg-black/50 px-3 py-2">
                   <textarea value={videoPrompt} onChange={(e) => setVideoPrompt(e.target.value)}
                     placeholder="Describe motion, camera, timing…" rows={2}
-                    className="w-full bg-transparent text-sm text-white placeholder:text-slate-500 resize-none outline-none min-h-[2.75rem]" />
+                    className="w-full bg-transparent text-sm text-white placeholder:text-slate-500 resize-none outline-none min-h-[2.5rem]" />
                 </div>
                 <div>
-                  <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-2 font-medium">Model</span>
-                  <div className="flex gap-2 overflow-x-auto pb-1 -mx-0.5 px-0.5 snap-x [scrollbar-width:thin]">
+                  <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Model</span>
+                  <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-0.5 px-0.5 snap-x [scrollbar-width:thin]">
                     {VIDEO_FAMILIES.map((family) => (
                       <Chip key={family.id} active={videoFamily === family.id} onClick={() => { setVideoFamily(family.id); setVideoMode(defaultModeByFamily(family.id)); }}>
-                        {family.label}
+                        <span className="whitespace-nowrap">{family.label}</span>
                       </Chip>
                     ))}
                   </div>
                 </div>
                 <div>
-                  <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-2 font-medium">Mode</span>
-                  <div className="flex gap-2 overflow-x-auto pb-1 -mx-0.5 px-0.5 snap-x [scrollbar-width:thin]">
+                  <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Mode</span>
+                  <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-0.5 px-0.5 snap-x [scrollbar-width:thin]">
                     {videoModes.map((m) => (
                       <Chip key={m} active={videoMode === m} onClick={() => setVideoMode(m)}>
-                        {m === "t2v" ? "Text → Video" : m === "i2v" ? "Image → Video" : m === "multi-ref" ? "Multi-Ref" : m === "ref2v" ? "Ref → Video" : m === "move" ? "Animate" : m === "replace" ? "Replace" : m === "edit" ? "First + Last" : "Extend"}
+                        <span className="whitespace-nowrap">{m === "t2v" ? "Text → Video" : m === "i2v" ? "Image → Video" : m === "multi-ref" ? "Multi-Ref" : m === "ref2v" ? "Ref → Video" : m === "move" ? "Animate" : m === "replace" ? "Replace" : m === "edit" ? "First + Last" : "Extend"}</span>
                       </Chip>
                     ))}
                   </div>
                 </div>
-                <div className="flex flex-col gap-3">
-                  <button type="button" onClick={handleGenerateVideo} disabled={isVideoGenerating}
-                    className="w-full min-h-[48px] shrink-0 px-4 py-3 rounded-xl text-sm font-semibold disabled:opacity-40 flex items-center justify-center gap-1.5"
-                    style={{ background: "linear-gradient(135deg,#7c3aed,#4f46e5)", color: "white" }}>
-                    {isVideoGenerating
-                      ? <Loader2 className="w-5 h-5 animate-spin" />
-                      : <span className="flex items-center gap-1.5 whitespace-nowrap">{copy.generateVideo} {videoPricingInfo.cost} <Coins className="w-4 h-4 text-yellow-400" /></span>
-                    }
-                  </button>
-                </div>
-                <p className="text-[11px] text-slate-500 text-center leading-snug">{formatCopy(copy.creditsAvailable, { credits: creditsLeft })}</p>
+                {/* Uploads — conditional by family + mode */}
+                {((videoFamily === "sora2" || videoFamily === "kling26") && videoMode === "i2v") && (
+                  <MediaUploadField label="Input Image" value={videoImageUrl} onUploaded={setVideoImageUrl} />
+                )}
+                {(videoFamily === "kling30" || videoFamily === "veo31") && videoMode === "i2v" && (
+                  <div className="flex flex-wrap gap-2">
+                    <MediaUploadField label="Start Frame" value={videoImageUrl} onUploaded={setVideoImageUrl} />
+                    <MediaUploadField label="End Frame (opt)" value={videoEndFrameUrl} onUploaded={setVideoEndFrameUrl} />
+                  </div>
+                )}
+                {videoFamily === "veo31" && videoMode === "ref2v" && (
+                  <div className="flex flex-wrap gap-2">
+                    <MediaUploadField label="Ref 1" value={videoImageUrl} onUploaded={setVideoImageUrl} />
+                    <MediaUploadField label="Ref 2 (opt)" value={videoRefImageUrl} onUploaded={setVideoRefImageUrl} />
+                    <MediaUploadField label="Ref 3 (opt)" value={videoThirdImageUrl} onUploaded={setVideoThirdImageUrl} />
+                  </div>
+                )}
+                {videoFamily === "wan22" && (
+                  <div className="flex flex-wrap gap-2">
+                    <MediaUploadField label="Input Video" value={videoInputVideoUrl} onUploaded={setVideoInputVideoUrl} accept="video/*" preview="video" />
+                    <MediaUploadField label="Input Image" value={videoImageUrl} onUploaded={setVideoImageUrl} />
+                  </div>
+                )}
+                {videoFamily === "seedance2" && videoMode === "edit" && (
+                  <div className="flex flex-wrap gap-2">
+                    <MediaUploadField label="First Frame" value={videoImageUrl} onUploaded={setVideoImageUrl} />
+                    <MediaUploadField label="Last Frame" value={videoEndFrameUrl} onUploaded={setVideoEndFrameUrl} />
+                  </div>
+                )}
+                {videoFamily === "seedance2" && videoMode === "i2v" && (
+                  <MediaUploadField label="First Frame" value={videoImageUrl} onUploaded={setVideoImageUrl} />
+                )}
+                {videoFamily === "seedance2" && videoMode === "multi-ref" && (
+                  <div className="flex flex-wrap gap-2">
+                    <MediaUploadField label="Ref 1 (opt)" value={videoImageUrl} onUploaded={setVideoImageUrl} />
+                    <MediaUploadField label="Ref 2 (opt)" value={videoRefImageUrl} onUploaded={setVideoRefImageUrl} />
+                    <MediaUploadField label="Ref 3 (opt)" value={videoThirdImageUrl} onUploaded={setVideoThirdImageUrl} />
+                    <MediaUploadField label="Ref Video (opt)" value={videoInputVideoUrl} onUploaded={setVideoInputVideoUrl} accept="video/*" preview="video" />
+                  </div>
+                )}
+                {/* Family-specific settings */}
+                {videoFamily === "sora2" && (
+                  <div className="space-y-2">
+                    <div>
+                      <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Duration</span>
+                      <div className="flex gap-1.5">
+                        <Chip active={videoNFrames === "10"} onClick={() => setVideoNFrames("10")}><span className="whitespace-nowrap">10s</span></Chip>
+                        <Chip active={videoNFrames === "15"} onClick={() => setVideoNFrames("15")}><span className="whitespace-nowrap">15s</span></Chip>
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Quality</span>
+                      <div className="flex gap-1.5">
+                        <Chip active={videoSize === "standard"} onClick={() => setVideoSize("standard")}><span className="whitespace-nowrap">Standard</span></Chip>
+                        <Chip active={videoSize === "high"} onClick={() => setVideoSize("high")}><span className="whitespace-nowrap">High</span></Chip>
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Aspect</span>
+                      <div className="flex gap-1.5">
+                        <Chip active={videoAspectRatio === "portrait"} onClick={() => setVideoAspectRatio("portrait")}><span className="whitespace-nowrap">Portrait</span></Chip>
+                        <Chip active={videoAspectRatio === "landscape"} onClick={() => setVideoAspectRatio("landscape")}><span className="whitespace-nowrap">Landscape</span></Chip>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {videoFamily === "kling30" && (
+                  <div className="space-y-2">
+                    <div>
+                      <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Quality</span>
+                      <div className="flex gap-1.5">
+                        <Chip active={kling30Quality === "std"} onClick={() => setKling30Quality("std")}><span className="whitespace-nowrap">Standard</span></Chip>
+                        <Chip active={kling30Quality === "pro"} onClick={() => setKling30Quality("pro")}><span className="whitespace-nowrap">Pro</span></Chip>
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Aspect</span>
+                      <div className="flex gap-1.5">
+                        <Chip active={videoAspectRatio === "16:9"} onClick={() => setVideoAspectRatio("16:9")}><span className="whitespace-nowrap">16:9</span></Chip>
+                        <Chip active={videoAspectRatio === "9:16"} onClick={() => setVideoAspectRatio("9:16")}><span className="whitespace-nowrap">9:16</span></Chip>
+                        <Chip active={videoAspectRatio === "1:1"} onClick={() => setVideoAspectRatio("1:1")}><span className="whitespace-nowrap">1:1</span></Chip>
+                      </div>
+                    </div>
+                    {!kling30MultiShot && (
+                      <div>
+                        <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Duration</span>
+                        <div className="flex items-center gap-2">
+                          <input type="range" min={3} max={15} step={1} value={videoDuration} onChange={(e) => setVideoDuration(Number(e.target.value))} className="flex-1 accent-violet-500" />
+                          <span className="text-xs text-white font-medium w-6 text-right">{videoDuration}s</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {videoFamily === "kling26" && (
+                  <div className="space-y-2">
+                    {videoMode === "t2v" && (
+                      <div>
+                        <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Aspect</span>
+                        <div className="flex gap-1.5">
+                          <Chip active={videoAspectRatio === "1:1"} onClick={() => setVideoAspectRatio("1:1")}><span className="whitespace-nowrap">1:1</span></Chip>
+                          <Chip active={videoAspectRatio === "16:9"} onClick={() => setVideoAspectRatio("16:9")}><span className="whitespace-nowrap">16:9</span></Chip>
+                          <Chip active={videoAspectRatio === "9:16"} onClick={() => setVideoAspectRatio("9:16")}><span className="whitespace-nowrap">9:16</span></Chip>
+                        </div>
+                      </div>
+                    )}
+                    <div>
+                      <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Duration</span>
+                      <div className="flex gap-1.5">
+                        <Chip active={videoDuration === 5} onClick={() => setVideoDuration(5)}><span className="whitespace-nowrap">5s</span></Chip>
+                        <Chip active={videoDuration === 10} onClick={() => setVideoDuration(10)}><span className="whitespace-nowrap">10s</span></Chip>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {videoFamily === "veo31" && (
+                  <div className="space-y-2">
+                    <div>
+                      <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Speed</span>
+                      <div className="flex gap-1.5">
+                        <Chip active={videoSpeed === "fast"} onClick={() => setVideoSpeed("fast")}><span className="whitespace-nowrap">Fast</span></Chip>
+                        <Chip active={videoSpeed === "quality"} onClick={() => setVideoSpeed("quality")}><span className="whitespace-nowrap">Quality</span></Chip>
+                      </div>
+                    </div>
+                    {(videoMode === "ref2v" || videoMode === "i2v") && (
+                      <div>
+                        <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Aspect</span>
+                        <div className="flex gap-1.5">
+                          <Chip active={videoAspectRatio === "Auto"} onClick={() => setVideoAspectRatio("Auto")}><span className="whitespace-nowrap">Auto</span></Chip>
+                          <Chip active={videoAspectRatio === "16:9"} onClick={() => setVideoAspectRatio("16:9")}><span className="whitespace-nowrap">16:9</span></Chip>
+                          <Chip active={videoAspectRatio === "9:16"} onClick={() => setVideoAspectRatio("9:16")}><span className="whitespace-nowrap">9:16</span></Chip>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {videoFamily === "wan22" && (
+                  <div>
+                    <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Resolution</span>
+                    <div className="flex gap-1.5">
+                      <Chip active={wanResolution === "480p"} onClick={() => setWanResolution("480p")}><span className="whitespace-nowrap">480p</span></Chip>
+                      <Chip active={wanResolution === "580p"} onClick={() => setWanResolution("580p")}><span className="whitespace-nowrap">580p</span></Chip>
+                      <Chip active={wanResolution === "720p"} onClick={() => setWanResolution("720p")}><span className="whitespace-nowrap">720p</span></Chip>
+                    </div>
+                  </div>
+                )}
+                {videoFamily === "seedance2" && (
+                  <div className="space-y-2">
+                    <div>
+                      <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Variant / Res</span>
+                      <div className="flex gap-1.5 flex-wrap">
+                        <Chip active={seedanceTaskType === "seedance-2-preview"} onClick={() => setSeedanceTaskType("seedance-2-preview")}><span className="whitespace-nowrap">Quality</span></Chip>
+                        <Chip active={seedanceTaskType === "seedance-2-fast-preview"} onClick={() => setSeedanceTaskType("seedance-2-fast-preview")}><span className="whitespace-nowrap">Fast</span></Chip>
+                        <Chip active={seedanceResolution === "480p"} onClick={() => setSeedanceResolution("480p")}><span className="whitespace-nowrap">480p</span></Chip>
+                        <Chip active={seedanceResolution === "720p"} onClick={() => setSeedanceResolution("720p")}><span className="whitespace-nowrap">720p</span></Chip>
+                      </div>
+                    </div>
+                    {(videoMode === "t2v" || videoMode === "i2v" || videoMode === "edit" || videoMode === "multi-ref") && (
+                      <div>
+                        <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Aspect</span>
+                        <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-0.5 px-0.5 snap-x [scrollbar-width:thin]">
+                          {["1:1", "16:9", "9:16", "4:3", "3:4", "21:9"].map((ar) => (
+                            <Chip key={ar} active={videoAspectRatio === ar} onClick={() => setVideoAspectRatio(ar)}><span className="whitespace-nowrap">{ar}</span></Chip>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {videoFamily !== "sora2" && videoFamily !== "kling26" && videoFamily !== "veo31" && videoFamily !== "kling30" && (
+                  <div>
+                    <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Duration</span>
+                    <div className="flex items-center gap-2">
+                      <input type="range" min={durationConfig.min} max={durationConfig.max} step={durationConfig.step} disabled={durationConfig.fixed} value={videoDuration} onChange={(e) => setVideoDuration(Number(e.target.value))} className="flex-1 accent-violet-500 disabled:opacity-50" />
+                      <span className="text-xs text-white font-medium w-6 text-right">{videoDuration}s</span>
+                    </div>
+                  </div>
+                )}
+                <button type="button" onClick={handleGenerateVideo} disabled={isVideoGenerating}
+                  className="w-full min-h-[44px] shrink-0 px-4 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-40 flex items-center justify-center gap-1.5"
+                  style={{ background: "linear-gradient(135deg,#7c3aed,#4f46e5)", color: "white" }}>
+                  {isVideoGenerating
+                    ? <Loader2 className="w-5 h-5 animate-spin" />
+                    : <span className="flex items-center gap-1.5 whitespace-nowrap">{copy.generateVideo} {videoPricingInfo.cost} <Coins className="w-4 h-4 text-yellow-400" /></span>
+                  }
+                </button>
+                <p className="text-[10px] text-slate-500 text-center">{formatCopy(copy.creditsAvailable, { credits: creditsLeft })}</p>
               </div>
             )}
           </div>
