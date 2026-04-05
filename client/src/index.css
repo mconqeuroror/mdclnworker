@@ -62,7 +62,7 @@ html.light {
   --border-subtle:    rgba(0,0,0,0.09);
   --border-medium:    rgba(0,0,0,0.16);
   /* Shadows */
-  --shadow-ambient:   0 4px 24px rgba(0,0,0,0.10);
+  --shadow-ambient:   rgba(0,0,0,0.10);
   /* Scrollbars */
   --scrollbar-track:  rgba(0,0,0,0.04);
   --scrollbar-thumb:  rgba(0,0,0,0.14);
