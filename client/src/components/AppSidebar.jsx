@@ -287,11 +287,12 @@ export default function AppSidebar({
       {/* Logo Section */}
       <div className="p-5 mb-2">
         <Link to="/dashboard" className={`flex items-center gap-3 hover:opacity-80 transition-opacity ${visuallyCollapsed ? "justify-center" : ""}`}>
-          <div className="relative">
+          <div className="relative flex-shrink-0">
             <img
               src={branding.logoUrl}
               alt={branding.appName}
-              className="w-11 h-11 rounded-xl object-cover"
+              className="w-11 h-11 rounded-xl object-contain"
+              style={{ transform: 'translateZ(0)', backfaceVisibility: 'hidden', imageRendering: 'auto' }}
             />
           </div>
           <AnimatePresence>
