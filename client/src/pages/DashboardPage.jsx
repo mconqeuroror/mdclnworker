@@ -490,7 +490,7 @@ export default function DashboardPage() {
   ];
 
   return (
-    <div className="min-h-screen overflow-x-hidden" style={{ background: "var(--bg-page)", color: "var(--text-primary)" }}>
+    <div className="min-h-screen overflow-x-hidden" style={{ color: "var(--text-primary)" }}>
       {/* Desktop Sidebar - hidden on mobile */}
       <div className="hidden md:block">
         <AppSidebar

@@ -13,12 +13,16 @@ function getInitialTheme() {
 
 function applyTheme(t) {
   const html = document.documentElement;
-  // Remove all theme classes first to prevent stale mixed state
+  // Remove stale state
   html.classList.remove("light", "dark");
   html.removeAttribute("data-theme");
-  // Apply new theme cleanly
+  // Apply new theme
   html.setAttribute("data-theme", t);
   html.classList.add(t === "light" ? "light" : "dark");
+  // Force background directly — inline style beats all CSS cascade issues
+  const pageBg = t === "light" ? "#eef1f7" : "#050505";
+  html.style.background = pageBg;
+  if (document.body) document.body.style.background = pageBg;
   try { localStorage.setItem(STORAGE_KEY, t); } catch {}
 }
 
