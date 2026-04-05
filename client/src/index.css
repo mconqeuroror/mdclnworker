@@ -2150,3 +2150,58 @@ html.light .creator-studio-page [style*="rgba(255,255,255,0.04)"] {
   background: rgba(0,0,0,0.03) !important;
 }
 
+/* ── Light mode: Clothing mode tabs (Model / Source) ───────────────────────── */
+html[data-theme="light"] [data-testid="button-clothes-model"],
+html[data-theme="light"] [data-testid="button-clothes-reference"],
+html.light [data-testid="button-clothes-model"],
+html.light [data-testid="button-clothes-reference"] {
+  color: #1e293b !important;
+  border-color: rgba(0,0,0,0.15) !important;
+}
+html[data-theme="light"] [data-testid="button-clothes-model"][class*="bg-white\/10"],
+html[data-theme="light"] [data-testid="button-clothes-reference"][class*="bg-white\/10"],
+html.light [data-testid="button-clothes-model"][class*="bg-white\/10"],
+html.light [data-testid="button-clothes-reference"][class*="bg-white\/10"] {
+  background: rgba(0,0,0,0.07) !important;
+}
+html[data-theme="light"] [data-testid="button-clothes-model"][class*="bg-white\/\[0.04\]"],
+html[data-theme="light"] [data-testid="button-clothes-reference"][class*="bg-white\/\[0.04\]"],
+html.light [data-testid="button-clothes-model"][class*="bg-white\/\[0.04\]"],
+html.light [data-testid="button-clothes-reference"][class*="bg-white\/\[0.04\]"] {
+  background: rgba(0,0,0,0.04) !important;
+}
+
+/* ── Light mode: Language filter buttons (English / Slovak / Czech) ──────────── */
+html[data-theme="light"] [data-testid^="filter-lang-"] span,
+html.light [data-testid^="filter-lang-"] span {
+  color: #1e293b !important;
+}
+
+/* ── Light mode: Voice card buttons ────────────────────────────────────────── */
+html[data-theme="light"] [data-testid^="voice-card-"] p,
+html.light [data-testid^="voice-card-"] p {
+  color: #334155 !important;
+}
+/* voice preview play button bg (rgba(255,255,255,0.05) = invisible in light) */
+html[data-theme="light"] [data-testid^="preview-voice-"],
+html.light [data-testid^="preview-voice-"] {
+  background: rgba(0,0,0,0.05) !important;
+  color: #475569 !important;
+}
+
+/* ── Light mode: Duration + Casual/Sexy/NSFW mode text-white active state ───── */
+html[data-theme="light"] [data-testid="button-duration-5"] span,
+html[data-theme="light"] [data-testid="button-duration-10"] span,
+html.light [data-testid="button-duration-5"] span,
+html.light [data-testid="button-duration-10"] span,
+html[data-theme="light"] [data-testid="button-mode-sfw"] span,
+html[data-theme="light"] [data-testid="button-mode-nsfw"] span,
+html.light [data-testid="button-mode-sfw"] span,
+html.light [data-testid="button-mode-nsfw"] span {
+  color: #334155 !important;
+}
+
+/* video method selector labels (Recreate / Prompt / Face Swap / Talking) */
+html[data-theme="light"] [data-testid^="button-method-"] span,
+html.light [data-testid^="button-method-"] span { color: #1e293b !important; }
+

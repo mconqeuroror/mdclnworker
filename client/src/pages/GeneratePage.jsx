@@ -3221,7 +3221,7 @@ function VideoGeneration() {
             <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={() => setPromptVideoDuration(5)}
-                className="relative p-3 rounded-xl text-left group"
+                className="relative p-3 rounded-xl text-left group overflow-hidden"
                 style={promptVideoDuration === 5 ? SELECTED_GLASS_STYLE : UNSELECTED_GLASS_STYLE}
                 data-testid="button-duration-5"
               >
@@ -3240,7 +3240,7 @@ function VideoGeneration() {
               </button>
               <button
                 onClick={() => setPromptVideoDuration(10)}
-                className="relative p-3 rounded-xl text-left group"
+                className="relative p-3 rounded-xl text-left group overflow-hidden"
                 style={promptVideoDuration === 10 ? SELECTED_GLASS_STYLE : UNSELECTED_GLASS_STYLE}
                 data-testid="button-duration-10"
               >
@@ -3431,7 +3431,7 @@ function VideoGeneration() {
                   key={lang.id}
                   onClick={() => { setLanguageFilter(lang.id); setSelectedVoice(""); }}
                   data-testid={`filter-lang-${lang.id}`}
-                  className="relative p-2 rounded-xl text-center group"
+                  className="relative p-2 rounded-xl text-center group overflow-hidden"
                   style={languageFilter === lang.id ? SELECTED_GLASS_STYLE : UNSELECTED_GLASS_STYLE}
                 >
                   {languageFilter === lang.id && <div className="absolute top-0 left-0 w-20 h-20 pointer-events-none" style={PURPLE_CORNER_GLOW_STYLE} />}
@@ -3458,7 +3458,7 @@ function VideoGeneration() {
                     key={voice.id}
                     onClick={() => { setSelectedVoice(voice.id); }}
                     data-testid={`voice-card-${voice.id}`}
-                    className={`relative p-2 rounded-lg text-left group ${
+                    className={`relative p-2 rounded-lg text-left group overflow-hidden ${
                       selectedVoice === voice.id 
                         ? '' 
                         : 'bg-white/[0.02] hover:bg-white/[0.04]'
@@ -3919,7 +3919,7 @@ function PromptImageContent({ onGenerationUpdate, models, selectedModel, setSele
                 setUseNsfw(false);
               }}
               data-testid="button-mode-sfw"
-              className="relative p-3 rounded-xl text-left group"
+              className="relative p-3 rounded-xl text-left group overflow-hidden"
               style={{
                 background: !isNsfwMode 
                   ? 'rgba(139, 92, 246, 0.14)'
@@ -3960,7 +3960,7 @@ function PromptImageContent({ onGenerationUpdate, models, selectedModel, setSele
                   setUseNsfw(true);
                 }}
                 data-testid="button-mode-nsfw"
-                className="relative p-3 rounded-xl text-left group"
+                className="relative p-3 rounded-xl text-left group overflow-hidden"
                 style={{
                   background: isNsfwMode 
                     ? 'rgba(139, 92, 246, 0.14)'
