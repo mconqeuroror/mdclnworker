@@ -328,7 +328,7 @@ function Chip({ active, onClick, children }) {
     <button
       onClick={onClick}
       type="button"
-      className="px-3 py-2.5 min-h-[44px] md:min-h-0 md:px-2.5 md:py-1.5 rounded-xl md:rounded-lg text-xs md:text-[11px] font-semibold whitespace-nowrap transition-all select-none inline-flex items-center justify-center"
+      className="px-3 py-2.5 min-h-[44px] md:min-h-0 md:px-2.5 md:py-1.5 rounded-xl md:rounded-lg text-xs md:text-[11px] font-semibold whitespace-nowrap transition-all select-none inline-flex items-center justify-center shrink-0"
       style={active ? {
         background: "rgba(139,92,246,0.28)",
         color: "#e9d5ff",
@@ -2056,7 +2056,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
     >
 
       {/* ── Tab switcher ─────────────────────────────────────────────────── */}
-      <div className="flex items-center gap-1 px-6 pt-5 pb-1 z-10 relative">
+      <div className="flex items-center gap-1 px-6 pt-5 pb-1 z-10 relative overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
         {visibleTabs.map(tab => {
           const Icon = tab.icon;
           const active = activeTab === tab.id;
@@ -2064,7 +2064,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all relative"
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all relative whitespace-nowrap shrink-0"
               style={active ? {
                 background: "rgba(139,92,246,0.10)",
                 backdropFilter: "blur(12px)",
