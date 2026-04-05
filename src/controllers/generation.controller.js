@@ -4796,7 +4796,7 @@ export async function generateCreatorStudioVideo(req, res) {
     const normalizedReferenceImageUrl = String(referenceImageUrl || "").trim();
     const normalizedEndFrameUrl = String(endFrameUrl || "").trim();
     const normalizedThirdImageUrl = String(thirdImageUrl || "").trim();
-    const normalizedInputVideoUrl = String(inputVideoUrl || "").trim();
+    let normalizedInputVideoUrl = String(inputVideoUrl || "").trim();
 
     if (normalizedImageUrl && !normalizedImageUrl.startsWith("asset://")) {
       const imageCheck = validateImageUrl(normalizedImageUrl);
@@ -5212,7 +5212,7 @@ export async function createCreatorStudioAsset(req, res) {
   const userId = req.user.userId;
   let generationId = null;
   try {
-    const sourceUrl = String(req.body?.url || "").trim();
+    let sourceUrl = String(req.body?.url || "").trim();
     const assetName = String(req.body?.name || "").trim().slice(0, 80);
     const assetTypeRaw = String(req.body?.assetType || "").trim().toLowerCase();
     const assetType = assetTypeRaw === "image" ? "Image" : assetTypeRaw === "video" ? "Video" : assetTypeRaw === "audio" ? "Audio" : null;

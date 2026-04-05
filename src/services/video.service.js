@@ -485,5 +485,4 @@ export {
   calculateBestFrameTimestamp,
   preprocessReferenceVideoForKling,
   preprocessAudioForTalkingHead,
-  ensureSeedanceReferenceVideoPixels,
 };
