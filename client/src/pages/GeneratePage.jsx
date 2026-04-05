@@ -866,7 +866,7 @@ export default function GeneratePage({ setActiveTab: setDashboardTab, openVoiceS
   }, []);
 
   return (
-    <div className="max-w-6xl mx-auto w-full">
+    <div className="generate-content-page max-w-6xl mx-auto w-full">
       {/* Premium Header */}
       <div className="mb-6 sm:mb-10">
         <h1 className="text-2xl sm:text-4xl font-bold mb-2 text-white">

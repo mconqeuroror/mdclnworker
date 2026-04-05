@@ -2104,3 +2104,49 @@ html.light [data-testid="button-use-custom"][class*="bg-white/10"] {
   border-color: rgba(0,0,0,0.2) !important;
 }
 
+/* ── Light mode: Generate content page – text-slate-200 / text-white/95 ─────── */
+html[data-theme="light"] .generate-content-page .text-slate-200,
+html.light .generate-content-page .text-slate-200 { color: #334155 !important; }
+
+html[data-theme="light"] .generate-content-page .text-fuchsia-300,
+html.light .generate-content-page .text-fuchsia-300 { color: #a21caf !important; }
+
+html[data-theme="light"] .generate-content-page .text-emerald-300,
+html.light .generate-content-page .text-emerald-300 { color: #047857 !important; }
+
+/* text areas with dark-bg inline style inside generate page */
+html[data-theme="light"] .generate-content-page textarea[class*="bg-white"],
+html.light .generate-content-page textarea[class*="bg-white"] {
+  background: rgba(0,0,0,0.04) !important;
+  border-color: rgba(0,0,0,0.12) !important;
+  color: #1e293b !important;
+}
+html[data-theme="light"] .generate-content-page input[style*="rgba(255,255,255,0.03)"],
+html.light .generate-content-page input[style*="rgba(255,255,255,0.03)"] {
+  background: rgba(0,0,0,0.04) !important;
+  border-color: rgba(0,0,0,0.12) !important;
+  color: #1e293b !important;
+}
+/* placeholder colour in generate page inputs/textareas */
+html[data-theme="light"] .generate-content-page ::placeholder,
+html.light .generate-content-page ::placeholder { color: #94a3b8 !important; }
+
+/* ── Light mode: Creator Studio – text-slate-200 + white/10 buttons ──────────── */
+html[data-theme="light"] .creator-studio-page .text-slate-200,
+html.light .creator-studio-page .text-slate-200 { color: #334155 !important; }
+
+html[data-theme="light"] .creator-studio-page button[class*="bg-white\/10"],
+html[data-theme="light"] .creator-studio-page button[class*="bg-white\/5"],
+html.light .creator-studio-page button[class*="bg-white\/10"],
+html.light .creator-studio-page button[class*="bg-white\/5"] {
+  background: rgba(0,0,0,0.05) !important;
+  color: #334155 !important;
+  border-color: rgba(0,0,0,0.1) !important;
+}
+
+/* panels with near-transparent dark backgrounds in creator studio */
+html[data-theme="light"] .creator-studio-page [style*="rgba(255,255,255,0.04)"],
+html.light .creator-studio-page [style*="rgba(255,255,255,0.04)"] {
+  background: rgba(0,0,0,0.03) !important;
+}
+
