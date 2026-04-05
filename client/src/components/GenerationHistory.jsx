@@ -20,9 +20,9 @@ import { useGenerations } from "../hooks/useGenerations";
 import { downloadFromPublicUrl } from "../utils/directDownload";
 
 const PREVIEW_BADGE_STYLE = {
-  background: "rgba(255,255,255,0.04)",
-  border: "1px solid rgba(255,255,255,0.18)",
-  color: "#E5E7EB",
+  background: "var(--bg-glass)",
+  border: "1px solid var(--border-subtle)",
+  color: "var(--text-secondary)",
 };
 
 // Helper to parse outputUrl - can be single URL or JSON array
@@ -141,12 +141,11 @@ export function GenerationHistory({
       <div
         className="rounded-2xl p-5"
         style={{
-          background:
-            "linear-gradient(180deg, rgba(22,22,30,0.72) 0%, rgba(14,14,22,0.78) 100%)",
-          border: "1px solid rgba(255,255,255,0.12)",
+          background: "var(--bg-surface)",
+          border: "1px solid var(--border-subtle)",
           backdropFilter: "blur(16px)",
           WebkitBackdropFilter: "blur(16px)",
-          boxShadow: "inset 0 1px 0 rgba(255,255,255,0.04)",
+          boxShadow: "inset 0 1px 0 var(--mc-glass-inset)",
         }}
       >
         <div className="flex items-center gap-2 mb-4">
@@ -167,9 +166,8 @@ export function GenerationHistory({
       <div
         className="rounded-2xl p-5"
         style={{
-          background:
-            "linear-gradient(180deg, rgba(22,22,30,0.72) 0%, rgba(14,14,22,0.78) 100%)",
-          border: "1px solid rgba(255,255,255,0.12)",
+          background: "var(--bg-surface)",
+          border: "1px solid var(--border-subtle)",
           backdropFilter: "blur(16px)",
           WebkitBackdropFilter: "blur(16px)",
           boxShadow: "inset 0 1px 0 rgba(255,255,255,0.04)",
@@ -185,7 +183,7 @@ export function GenerationHistory({
           <div
             className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3"
             style={{
-              background: "rgba(255,255,255,0.03)",
+              background: "var(--bg-glass)",
               border: "1px solid rgba(255,255,255,0.06)",
             }}
           >
@@ -204,12 +202,11 @@ export function GenerationHistory({
     <div
       className="rounded-2xl p-5"
       style={{
-        background:
-          "linear-gradient(180deg, rgba(22,22,30,0.72) 0%, rgba(14,14,22,0.78) 100%)",
-        border: "1px solid rgba(255,255,255,0.12)",
+        background: "var(--bg-surface)",
+        border: "1px solid var(--border-subtle)",
         backdropFilter: "blur(16px)",
         WebkitBackdropFilter: "blur(16px)",
-        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.04)",
+        boxShadow: "inset 0 1px 0 var(--mc-glass-inset)",
       }}
     >
       <div className="flex items-center gap-2 mb-4">
@@ -539,8 +536,8 @@ function GenerationHistoryCard({ generation, onPreview, onDownload, index }) {
     <div
       className="flex items-center gap-3 p-2 rounded-xl group cursor-pointer"
       style={{
-        background: "rgba(255,255,255,0.02)",
-        border: "1px solid rgba(255,255,255,0.04)",
+        background: "var(--bg-elevated)",
+        border: "1px solid var(--border-subtle)",
       }}
       onClick={() =>
         isCompleted && generation.outputUrl && onPreview(generation)
@@ -550,9 +547,8 @@ function GenerationHistoryCard({ generation, onPreview, onDownload, index }) {
       <div
         className="relative w-12 h-12 rounded-lg overflow-hidden flex-shrink-0"
         style={{
-          background:
-            "linear-gradient(135deg, rgba(139,92,246,0.1), rgba(59,130,246,0.08))",
-          border: "1px solid rgba(255,255,255,0.08)",
+          background: "var(--bg-glass)",
+          border: "1px solid var(--border-subtle)",
         }}
       >
         {isCompleted && thumbnailUrl ? (

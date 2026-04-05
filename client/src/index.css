@@ -28,6 +28,7 @@
   --bg-surface: rgba(255, 255, 255, 0.10);
   --bg-surface-hover: rgba(255, 255, 255, 0.14);
   --bg-elevated: rgba(255, 255, 255, 0.06);
+  --bg-glass: rgba(22, 22, 30, 0.50);
   --bg-input: rgba(255, 255, 255, 0.05);
   --text-primary: #ffffff;
   --text-secondary: #94a3b8;
@@ -52,6 +53,7 @@ html.light {
   --bg-surface:       rgba(255,255,255,0.80);
   --bg-surface-hover: rgba(255,255,255,0.95);
   --bg-elevated:      rgba(255,255,255,0.90);
+  --bg-glass:         rgba(255,255,255,0.80);
   --bg-input:         rgba(255,255,255,0.95);
   /* Text */
   --text-primary:     #1a2336;
@@ -564,6 +566,8 @@ button[data-testid^="button-generate"] {
 :is(html[data-theme="light"], html.light) .text-white,
 :is(html[data-theme="light"], html.light) .text-white\/90,
 :is(html[data-theme="light"], html.light) .text-white\/80 { color: var(--text-primary) !important; }
+:is(html[data-theme="light"], html.light) .hover\:text-white:hover { color: var(--text-primary) !important; }
+:is(html[data-theme="light"], html.light) .group:hover .group-hover\:text-white { color: var(--text-primary) !important; }
 :is(html[data-theme="light"], html.light) .text-slate-100,
 :is(html[data-theme="light"], html.light) .text-slate-200,
 :is(html[data-theme="light"], html.light) .text-slate-300 { color: #475569 !important; }

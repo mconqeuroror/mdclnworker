@@ -70,11 +70,11 @@ export default function LivePreviewPanel({
       <div 
         className="rounded-2xl p-4 flex-shrink-0"
         style={{
-          background: 'linear-gradient(180deg, rgba(22,22,30,0.72) 0%, rgba(14,14,22,0.78) 100%)',
-          border: '1px solid rgba(255,255,255,0.12)',
+          background: 'var(--bg-surface)',
+          border: '1px solid var(--border-subtle)',
           backdropFilter: 'blur(16px)',
           WebkitBackdropFilter: 'blur(16px)',
-          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
+          boxShadow: 'inset 0 1px 0 var(--mc-glass-inset)',
         }}
       >
         {/* Header */}
@@ -83,8 +83,8 @@ export default function LivePreviewPanel({
             <div
               className="w-5 h-5 rounded-full flex items-center justify-center"
               style={{
-                background: "rgba(255, 255, 255, 0.05)",
-                border: "1px solid rgba(148, 163, 184, 0.5)",
+                background: "var(--bg-elevated)",
+                border: "1px solid var(--border-subtle)",
                 boxShadow: isProcessing
                   ? "0 0 10px rgba(74, 222, 128, 0.55)"
                   : "none",
@@ -122,15 +122,15 @@ export default function LivePreviewPanel({
         <div 
           className="relative aspect-[3/4] rounded-xl overflow-hidden"
           style={{
-            background: 'linear-gradient(135deg, rgba(139,92,246,0.08) 0%, rgba(59,130,246,0.04) 100%)',
-            border: '1px solid rgba(255,255,255,0.1)',
+            background: 'var(--bg-elevated)',
+            border: '1px solid var(--border-subtle)',
             backdropFilter: 'blur(14px)',
             WebkitBackdropFilter: 'blur(14px)',
           }}
         >
           {!latestGeneration ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+              <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3" style={{ background: 'var(--bg-glass)', border: '1px solid var(--border-subtle)' }}>
                 <Clock className="w-6 h-6 text-slate-600" />
               </div>
               <p className="text-[11px] text-slate-500">{t.emptyHint}</p>
@@ -138,7 +138,7 @@ export default function LivePreviewPanel({
           ) : isProcessing ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center">
               <div className="relative mb-4">
-                <div className="w-14 h-14 rounded-full" style={{ border: '3px solid rgba(255,255,255,0.1)' }} />
+                <div className="w-14 h-14 rounded-full" style={{ border: '3px solid var(--border-subtle)' }} />
                 <div className="absolute inset-0 w-14 h-14 rounded-full animate-spin" style={{ border: '3px solid transparent', borderTopColor: 'rgba(255,255,255,0.7)' }} />
               </div>
               <p className="text-sm font-medium text-slate-300">{t.generating}</p>
@@ -187,7 +187,7 @@ export default function LivePreviewPanel({
                   <button
                     onClick={() => setPreviewOpen(true)}
                     className="flex-1 py-2 px-3 rounded-lg text-[11px] font-medium flex items-center justify-center gap-1.5"
-                    style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.1)' }}
+                    style={{ background: 'var(--bg-glass)', border: '1px solid var(--border-subtle)' }}
                     data-testid="button-preview-fullscreen"
                   >
                     <Maximize2 className="w-3.5 h-3.5" />

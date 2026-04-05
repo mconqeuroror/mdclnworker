@@ -532,15 +532,15 @@ function GalleryImagePicker({ modelId, selectedImage, onSelect, accentColor = "p
 }
 
 const SELECTED_GLASS_STYLE = {
-  background: "rgba(255,255,255,0.05)",
-  border: "1px solid rgba(255,255,255,0.12)",
-  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06)",
+  background: "var(--bg-elevated)",
+  border: "1px solid var(--border-subtle)",
+  boxShadow: "inset 0 1px 0 var(--mc-glass-inset)",
 };
 
 const UNSELECTED_GLASS_STYLE = {
-  background: "rgba(20,20,30,0.45)",
-  border: "1px solid rgba(255,255,255,0.1)",
-  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.04)",
+  background: "var(--bg-glass)",
+  border: "1px solid var(--border-subtle)",
+  boxShadow: "inset 0 1px 0 var(--mc-glass-inset)",
 };
 
 const PURPLE_CORNER_GLOW_STYLE = {
@@ -686,12 +686,12 @@ function ModelSelector({ models, selectedModel, onSelect, accentColor = "purple"
       {/* Main container with connected styling */}
       <div 
         className="rounded-xl overflow-hidden"
-        style={{ 
-          background: isOpen ? bgGradients[accentColor] : 'rgba(22,22,30,0.55)',
-          border: isOpen ? `1px solid ${accents[accentColor].borderActive}` : `1px solid ${selectedModelData ? accents[accentColor].border : 'rgba(255,255,255,0.14)'}`,
+                style={{ 
+          background: isOpen ? bgGradients[accentColor] : 'var(--bg-glass)',
+          border: isOpen ? `1px solid ${accents[accentColor].borderActive}` : `1px solid ${selectedModelData ? accents[accentColor].border : 'var(--border-subtle)'}`,
           backdropFilter: 'blur(16px)',
           WebkitBackdropFilter: 'blur(16px)',
-          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
+          boxShadow: 'inset 0 1px 0 var(--mc-glass-inset)',
         }}
       >
         {/* Toggle Button */}
@@ -1513,7 +1513,7 @@ function ImageGeneration() {
       {/* Split-screen layout: Controls left, Preview right */}
       <div className="flex flex-col lg:flex-row gap-6">
         {/* Left side - Controls */}
-        <div className="relative z-10 flex-1 lg:max-w-[55%] bg-black">
+        <div className="relative z-10 flex-1 lg:max-w-[55%]">
 
       {/* v41: Identity Recreation Mode */}
       {imageMode === "identity" && (
@@ -2960,7 +2960,7 @@ function VideoGeneration() {
       {/* Split-screen layout: Controls left, Preview right */}
       <div className="flex flex-col lg:flex-row lg:gap-8">
         {/* Left side - Controls */}
-        <div className="lg:w-[55%] bg-black">
+        <div className="lg:w-[55%]">
 
       {/* Recreate Video Method UI */}
       {method === "2-step" && (
@@ -3917,11 +3917,11 @@ function PromptImageContent({ onGenerationUpdate, models, selectedModel, setSele
               style={{
                 background: !isNsfwMode 
                   ? 'rgba(139, 92, 246, 0.14)'
-                  : 'rgba(20,20,30,0.45)',
+                  : 'var(--bg-glass)',
                 border: !isNsfwMode
-                  ? '1px solid rgba(255, 255, 255, 0.16)'
-                  : '1px solid rgba(255,255,255,0.1)',
-                boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.04)',
+                  ? '1px solid var(--border-subtle)'
+                  : '1px solid var(--border-subtle)',
+                boxShadow: 'inset 0 1px 0 var(--mc-glass-inset)',
               }}
             >
               {!isNsfwMode && (
@@ -3958,11 +3958,11 @@ function PromptImageContent({ onGenerationUpdate, models, selectedModel, setSele
                 style={{
                   background: isNsfwMode 
                     ? 'rgba(139, 92, 246, 0.14)'
-                    : 'rgba(20,20,30,0.45)',
+                    : 'var(--bg-glass)',
                   border: isNsfwMode
-                    ? '1px solid rgba(255, 255, 255, 0.16)'
-                    : '1px solid rgba(255,255,255,0.1)',
-                  boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.04)',
+                    ? '1px solid var(--border-subtle)'
+                    : '1px solid var(--border-subtle)',
+                  boxShadow: 'inset 0 1px 0 var(--mc-glass-inset)',
                 }}
               >
                 {isNsfwMode && (
