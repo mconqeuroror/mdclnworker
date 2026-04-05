@@ -25,7 +25,7 @@ import {
   ChevronDown,
   CreditCard,
   FileType2,
-  Wand2,
+  Clapperboard,
   Mic,
   Sun,
   Moon,
@@ -223,7 +223,7 @@ export default function AppSidebar({
     { id: "home", label: copy.dashboard, icon: Home },
     { id: "models", label: copy.myModels, icon: Users },
     { id: "generate", label: copy.generate, icon: Zap },
-    { id: "creator-studio", label: copy.creatorStudio, icon: Wand2, isCreatorStudio: true },
+    { id: "creator-studio", label: copy.creatorStudio, icon: Clapperboard, isCreatorStudio: true },
     { id: "voice-studio", label: copy.voiceStudio, icon: Mic, premium: true },
     { id: "reformatter", label: copy.reformatter, icon: FileType2 },
     { id: "history", label: copy.history, icon: Clock },
@@ -258,14 +258,29 @@ export default function AppSidebar({
       initial={false}
       animate={{ width: visuallyCollapsed ? 80 : 260 }}
       transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
-      className="fixed left-0 top-0 h-screen z-50 flex flex-col max-md:pointer-events-auto md:overflow-visible backdrop-blur-2xl"
+      className="fixed left-0 top-0 h-screen z-50 flex flex-col max-md:pointer-events-auto md:overflow-visible backdrop-blur-2xl rounded-r-2xl overflow-hidden"
       style={{
-        background: "var(--sidebar-bg)",
-        borderRight: "1px solid var(--border-subtle)",
+        background:
+          theme === "light"
+            ? "linear-gradient(180deg, rgba(255,255,255,0.72) 0%, rgba(241,245,249,0.62) 100%)"
+            : "linear-gradient(180deg, rgba(15,15,23,0.78) 0%, rgba(10,10,18,0.82) 100%)",
+        border: "1px solid var(--border-subtle)",
+        boxShadow:
+          theme === "light"
+            ? "0 12px 32px rgba(15,23,42,0.12), inset 0 1px 0 rgba(255,255,255,0.55)"
+            : "0 14px 34px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.08), 0 0 38px rgba(139,92,246,0.12)",
       }}
       onPointerEnter={handleAsidePointerEnter}
       onPointerLeave={handleAsidePointerLeave}
     >
+      {/* Subtle purple glow under glass panel */}
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          background:
+            "radial-gradient(ellipse 120% 75% at 0% 0%, rgba(139,92,246,0.16) 0%, rgba(139,92,246,0.06) 38%, transparent 72%)",
+        }}
+      />
       {/* Subtle right border */}
       <div className="absolute right-0 top-0 bottom-0 w-px bg-gradient-to-b from-white/[0.08] via-white/[0.04] to-transparent" />
 

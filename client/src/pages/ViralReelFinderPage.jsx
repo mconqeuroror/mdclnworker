@@ -162,11 +162,11 @@ function ReelModal({ reel, onClose, token }) {
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-5 bg-black/85 backdrop-blur-sm"
+      className="reelfinder-reel-modal-overlay fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-5 bg-black/85 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-[360px] rounded-xl border border-white/[0.16] bg-[#0a0a12] flex flex-col overflow-hidden"
+        className="reelfinder-reel-modal-card w-full max-w-[360px] rounded-xl border border-white/[0.16] bg-[#0a0a12] flex flex-col overflow-hidden"
         style={{ maxHeight: "calc(100dvh - 48px)", boxShadow: "0 30px 80px rgba(0,0,0,0.6)" }}
         onClick={(e) => e.stopPropagation()}
       >

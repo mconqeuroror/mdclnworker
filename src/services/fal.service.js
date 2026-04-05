@@ -2025,6 +2025,10 @@ function buildComfyWorkflow(params) {
     const node50 = findNode(50);
     if (node50 && node50.widgets_values && node50.widgets_values.length >= 3) {
       node50.widgets_values[2] = aspectRatio;
+      // Prevent portrait/landscape inversion when selecting explicit ratios in UI.
+      if (node50.widgets_values.length >= 4) {
+        node50.widgets_values[3] = "Off";
+      }
     }
 
     // Node 302 / 303: DF_Integer → node 50 width/height inputs (links 1344/1345). Template uses 2× base resolution.
@@ -2111,6 +2115,9 @@ function buildComfyWorkflow(params) {
       }
       if (typeof api50.inputs.aspect_ratio === "string" || api50.inputs.aspect_ratio == null) {
         api50.inputs.aspect_ratio = aspectRatio;
+      }
+      if (typeof api50.inputs.swap_dimensions === "string" || api50.inputs.swap_dimensions == null) {
+        api50.inputs.swap_dimensions = "Off";
       }
     }
 

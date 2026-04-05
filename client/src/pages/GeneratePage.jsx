@@ -546,6 +546,7 @@ const UNSELECTED_GLASS_STYLE = {
 const PURPLE_CORNER_GLOW_STYLE = {
   background:
     "radial-gradient(ellipse 80% 80% at 0% 0%, rgba(139,92,246,0.22) 0%, rgba(139,92,246,0.06) 40%, transparent 65%)",
+  filter: "blur(0.2px)",
 };
 
 function getApiErrorMessage(error, fallback = "Generation failed") {
@@ -655,9 +656,9 @@ function ModelSelector({ models, selectedModel, onSelect, accentColor = "purple"
     violet: 'rgba(255,255,255,0.06)',
   };
   const accents = {
-    purple: { border: 'rgba(255,255,255,0.15)', borderActive: 'rgba(255,255,255,0.35)', text: 'text-white/70', glow: 'rgba(255,255,255,0.08)' },
+    purple: { border: 'rgba(255,255,255,0.15)', borderActive: 'rgba(255,255,255,0.35)', text: 'text-[color:var(--text-secondary)]', glow: 'rgba(255,255,255,0.08)' },
     cyan: { border: 'rgba(34,211,238,0.3)', borderActive: 'rgba(34,211,238,0.6)', text: 'text-cyan-300', glow: 'rgba(34,211,238,0.2)' },
-    violet: { border: 'rgba(255,255,255,0.15)', borderActive: 'rgba(255,255,255,0.35)', text: 'text-white/70', glow: 'rgba(255,255,255,0.08)' },
+    violet: { border: 'rgba(255,255,255,0.15)', borderActive: 'rgba(255,255,255,0.35)', text: 'text-[color:var(--text-secondary)]', glow: 'rgba(255,255,255,0.08)' },
   };
 
   const handleSelect = (modelId) => {
@@ -698,7 +699,7 @@ function ModelSelector({ models, selectedModel, onSelect, accentColor = "purple"
         <button
           onClick={() => { setIsOpen(!isOpen); }}
           data-testid="button-select-model"
-          className="relative overflow-hidden w-full flex items-center gap-3 p-3 group text-white"
+          className="relative overflow-hidden w-full flex items-center gap-3 p-3 group text-[color:var(--text-primary)]"
         >
           {(isOpen || selectedModelData) && (
             <span className="absolute top-0 left-0 w-24 h-24 pointer-events-none" style={PURPLE_CORNER_GLOW_STYLE} />
@@ -719,7 +720,7 @@ function ModelSelector({ models, selectedModel, onSelect, accentColor = "purple"
             </>
           ) : models.length === 0 ? (
             <div className="flex-1 text-left">
-              <p className="text-sm text-white">{copy.modelSelectorNoModels}</p>
+              <p className="text-sm text-[color:var(--text-primary)]">{copy.modelSelectorNoModels}</p>
               <p className="text-[10px] text-slate-500">{copy.modelHintCreateInModels}</p>
             </div>
           ) : (
@@ -1878,12 +1879,17 @@ function ImageGeneration() {
                 onClick={enhanceAdvancedPrompt}
                 disabled={advancedEnhancing || !advancedPrompt.trim()}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-                style={{ background: "linear-gradient(135deg, rgba(139,92,246,0.25), rgba(109,40,217,0.15))", border: "1px solid rgba(139,92,246,0.35)", color: "#c4b5fd" }}
+                style={{
+                  background: "rgba(255,255,255,0.1)",
+                  border: "1px solid rgba(255,255,255,0.45)",
+                  color: "#ffffff",
+                  boxShadow: "0 0 16px rgba(255,255,255,0.22), inset 0 1px 0 rgba(255,255,255,0.35)",
+                }}
                 data-testid="button-enhance-advanced-prompt"
               >
                 {advancedEnhancing
                   ? <Loader2 className="w-3 h-3 animate-spin" />
-                  : <Sparkles className="w-3 h-3" />}
+                  : null}
                 {advancedEnhancing ? copy.advancedEnhancingPrompt : copy.advancedEnhancePrompt}
               </button>
             </div>
@@ -2812,7 +2818,7 @@ function VideoGeneration() {
         </div>
       )}
       {/* Premium Method Selection - ABOVE split layout */}
-      <div className="mb-6">
+      <div className="generate-page mb-6">
         <p className="text-[10px] uppercase tracking-[0.25em] text-slate-500 font-medium mb-4">Select Method</p>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           {/* Recreate Video */}
@@ -2822,8 +2828,8 @@ function VideoGeneration() {
               setReferenceVideo(null);
               setReferenceVideoDuration(0);
             }}
-            className={`relative p-3 rounded-xl group ${
-              method === "2-step" ? "text-white" : "text-slate-400 hover:text-white"
+            className={`relative p-3 rounded-xl group overflow-hidden ${
+              method === "2-step" ? "text-[color:var(--text-primary)]" : "text-[color:var(--text-muted)] hover:text-[color:var(--text-primary)]"
             }`}
             style={{
               ...(method === "2-step" ? SELECTED_GLASS_STYLE : UNSELECTED_GLASS_STYLE),
@@ -2861,8 +2867,8 @@ function VideoGeneration() {
               setReferenceVideo(null);
               setReferenceVideoDuration(0);
             }}
-            className={`relative p-3 rounded-xl group ${
-              method === "prompt" ? "text-white" : "text-slate-400 hover:text-white"
+            className={`relative p-3 rounded-xl group overflow-hidden ${
+              method === "prompt" ? "text-[color:var(--text-primary)]" : "text-[color:var(--text-muted)] hover:text-[color:var(--text-primary)]"
             }`}
             style={{
               ...(method === "prompt" ? SELECTED_GLASS_STYLE : UNSELECTED_GLASS_STYLE),
@@ -2895,8 +2901,8 @@ function VideoGeneration() {
               setReferenceVideoDuration(0);
               setPromptVideoImage(null);
             }}
-            className={`relative p-3 rounded-xl group ${
-              method === "face-swap" ? "text-white" : "text-slate-400 hover:text-white"
+            className={`relative p-3 rounded-xl group overflow-hidden ${
+              method === "face-swap" ? "text-[color:var(--text-primary)]" : "text-[color:var(--text-muted)] hover:text-[color:var(--text-primary)]"
             }`}
             style={{
               ...(method === "face-swap" ? SELECTED_GLASS_STYLE : UNSELECTED_GLASS_STYLE),
@@ -2929,8 +2935,8 @@ function VideoGeneration() {
               setReferenceVideoDuration(0);
               setPromptVideoImage(null);
             }}
-            className={`relative p-3 rounded-xl group ${
-              method === "talking-head" ? "text-white" : "text-slate-400 hover:text-white"
+            className={`relative p-3 rounded-xl group overflow-hidden ${
+              method === "talking-head" ? "text-[color:var(--text-primary)]" : "text-[color:var(--text-muted)] hover:text-[color:var(--text-primary)]"
             }`}
             style={{
               ...(method === "talking-head" ? SELECTED_GLASS_STYLE : UNSELECTED_GLASS_STYLE),

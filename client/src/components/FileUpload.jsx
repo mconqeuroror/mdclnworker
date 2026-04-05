@@ -222,7 +222,7 @@ export default function FileUpload({ type = 'image', onUpload, preview, large, a
             Ready
           </div>
           {/* Replace overlay on hover */}
-          <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center rounded-xl">
+          <div className="fileupload-replace-overlay absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center rounded-xl">
             <div className="text-center">
               <Upload className="w-6 h-6 mx-auto mb-2 text-white" />
               <span className="text-sm text-white">Replace</span>

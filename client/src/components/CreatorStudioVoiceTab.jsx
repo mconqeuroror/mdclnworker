@@ -861,16 +861,30 @@ export default function CreatorStudioVoiceTab({ initialModelId = null }) {
                       <button
                         type="button"
                         onClick={() => setCreationMode("design")}
-                        className={`rounded-xl px-3 py-2 text-xs font-medium ${creationMode === "design" ? "bg-violet-600 text-white" : "text-slate-400"}`}
+                        className={`relative overflow-hidden rounded-xl px-3 py-2 text-xs font-medium transition-all ${
+                          creationMode === "design"
+                            ? "border border-violet-400/35 bg-white/[0.06] text-white"
+                            : "border border-transparent text-slate-400 hover:border-white/15"
+                        }`}
                       >
-                        <Wand2 className="mr-1 inline h-3.5 w-3.5" /> {copy.modeDesign}
+                        {creationMode === "design" && (
+                          <span className="absolute top-0 left-0 w-16 h-16 pointer-events-none" style={{ background: "radial-gradient(ellipse 80% 80% at 0% 0%, rgba(139,92,246,0.22) 0%, rgba(139,92,246,0.06) 45%, transparent 70%)" }} />
+                        )}
+                        <Wand2 className="mr-1 inline h-3.5 w-3.5 relative z-[1]" /> <span className="relative z-[1]">{copy.modeDesign}</span>
                       </button>
                       <button
                         type="button"
                         onClick={() => setCreationMode("clone")}
-                        className={`rounded-xl px-3 py-2 text-xs font-medium ${creationMode === "clone" ? "bg-violet-600 text-white" : "text-slate-400"}`}
+                        className={`relative overflow-hidden rounded-xl px-3 py-2 text-xs font-medium transition-all ${
+                          creationMode === "clone"
+                            ? "border border-violet-400/35 bg-white/[0.06] text-white"
+                            : "border border-transparent text-slate-400 hover:border-white/15"
+                        }`}
                       >
-                        <Upload className="mr-1 inline h-3.5 w-3.5" /> {copy.modeClone}
+                        {creationMode === "clone" && (
+                          <span className="absolute top-0 left-0 w-16 h-16 pointer-events-none" style={{ background: "radial-gradient(ellipse 80% 80% at 0% 0%, rgba(139,92,246,0.22) 0%, rgba(139,92,246,0.06) 45%, transparent 70%)" }} />
+                        )}
+                        <Upload className="mr-1 inline h-3.5 w-3.5 relative z-[1]" /> <span className="relative z-[1]">{copy.modeClone}</span>
                       </button>
                     </div>
                   </div>
@@ -976,7 +990,7 @@ export default function CreatorStudioVoiceTab({ initialModelId = null }) {
                           type="button"
                           onClick={handleConfirmDesignedVoice}
                           disabled={busyAction === "design-confirm" || !pickedPreviewId || !consent || voices.length >= (limits.maxSavedVoicesPerModel || 3)}
-                          className="inline-flex items-center gap-2 rounded-2xl bg-violet-600 px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
+                          className="inline-flex items-center gap-2 rounded-2xl border border-violet-400/45 bg-violet-500/10 px-4 py-3 text-sm font-semibold text-white shadow-[0_0_14px_rgba(139,92,246,0.22)] disabled:opacity-50"
                         >
                           {busyAction === "design-confirm" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
                           {copy.buttonSaveDesigned}

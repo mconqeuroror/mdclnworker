@@ -268,7 +268,7 @@ export default function ContentReformatterPage() {
               onChange={(e) => onFilePicked(e.target.files?.[0])}
             />
             <div className="flex items-center gap-3 text-slate-200">
-              <Upload className="w-5 h-5 text-cyan-300" />
+              <Upload className="w-5 h-5 text-[color:var(--text-primary)]" />
               <span className="font-medium">{copy.chooseFile}</span>
             </div>
             <p className="text-xs text-slate-500 mt-3">

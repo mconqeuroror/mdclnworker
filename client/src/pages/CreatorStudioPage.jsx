@@ -1366,10 +1366,6 @@ function RealAvatarsTab({ sidebarCollapsed }) {
 
       {/* Section header */}
       <div className="flex items-center gap-3 mb-6">
-        <div className="w-9 h-9 rounded-xl flex items-center justify-center"
-          style={{ background: "linear-gradient(135deg,#0ea5e9,#6366f1)" }}>
-          <User className="w-4 h-4 text-white" />
-        </div>
         <div>
           <h2 className="text-sm font-bold text-white">{copy.realAvatars}</h2>
           <p className="text-[11px] text-slate-500">{formatCopy(copy.realAvatarsSub, { max: MAX_AVATARS })}</p>
@@ -2047,7 +2043,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
 
   return (
     <div
-      className={`relative flex flex-col min-h-full${
+      className={`creator-studio-page relative flex flex-col min-h-full${
         activeTab === "generate"
           ? mobileGenBarExpanded
             ? " max-md:pb-[calc(22rem+env(safe-area-inset-bottom))]"
@@ -2067,15 +2063,15 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
               onClick={() => setActiveTab(tab.id)}
               className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all relative whitespace-nowrap shrink-0"
               style={active ? {
-                background: "rgba(139,92,246,0.10)",
+                background: "rgba(139,92,246,0.16)",
                 backdropFilter: "blur(12px)",
                 WebkitBackdropFilter: "blur(12px)",
-                color: "#e9d5ff",
-                border: "1px solid rgba(139,92,246,0.18)",
+                color: "var(--text-primary)",
+                border: "1px solid rgba(139,92,246,0.36)",
                 boxShadow: "0 4px 18px -4px rgba(139,92,246,0.35), inset 0 1px 0 rgba(255,255,255,0.06)",
               } : {
                 color: "var(--text-muted)",
-                border: "1px solid transparent",
+                border: "1px solid var(--border-subtle)",
               }}
             >
               {active && (
@@ -2169,18 +2165,23 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
               <div style={{
                 position: "absolute",
                 zIndex: 0,
-                inset: "-200%",
+                inset: 0,
+                padding: "1.5px",
+                borderRadius: "1rem",
                 background: "conic-gradient(from 0deg, transparent 300deg, rgba(255,255,255,0.06) 335deg, rgba(255,255,255,0.5) 357deg, rgba(255,255,255,0.06) 360deg)",
                 animation: "bar-spin 4s linear infinite",
                 pointerEvents: "none",
+                WebkitMask: "linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)",
+                WebkitMaskComposite: "xor",
+                maskComposite: "exclude",
               }} />
               {/* Inner card — glass, 1.5px inset from edge to reveal border strip */}
             <div
               className="relative flex flex-col items-stretch justify-center p-3 backdrop-blur-xl"
               style={{
                 zIndex: 1,
-                margin: "1.5px",
-                borderRadius: "calc(1rem - 1.5px)",
+                margin: 0,
+                borderRadius: "1rem",
                 background: "var(--bg-surface)",
               }}
             >
@@ -2576,17 +2577,22 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
               <div style={{
                 position: "absolute",
                 zIndex: 0,
-                inset: "-200%",
+                inset: 0,
+                padding: "1.5px",
+                borderRadius: "1rem",
                 background: "conic-gradient(from 0deg, transparent 300deg, rgba(255,255,255,0.06) 335deg, rgba(255,255,255,0.5) 357deg, rgba(255,255,255,0.06) 360deg)",
                 animation: "bar-spin 4s linear infinite",
                 pointerEvents: "none",
+                WebkitMask: "linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)",
+                WebkitMaskComposite: "xor",
+                maskComposite: "exclude",
               }} />
             <div
               className="relative flex flex-col items-stretch justify-center p-3 backdrop-blur-xl"
               style={{
                 zIndex: 1,
-                margin: "1.5px",
-                borderRadius: "calc(1rem - 1.5px)",
+                margin: 0,
+                borderRadius: "1rem",
                 background: "var(--bg-surface)",
               }}
             >

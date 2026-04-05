@@ -1734,15 +1734,15 @@ function NsfwImg2ImgTab({ modelId, activeLoraObj, chipSelections = {} }) {
             className="w-full py-3 rounded-xl text-sm font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             style={{
               background: !isGenerating
-                ? "linear-gradient(135deg, rgba(168,85,247,0.5) 0%, rgba(236,72,153,0.35) 100%)"
+                ? "rgba(0,0,0,0.10)"
                 : "rgba(255,255,255,0.05)",
-              border: "1px solid rgba(168,85,247,0.4)",
+              border: "1px solid rgba(255,255,255,0.5)",
             }}
           >
             {isGenerating ? (
               <><Loader2 className="w-4 h-4 animate-spin" /><span>{statusLabel || copy.i2iProcessing}</span></>
             ) : (
-              <><Flame className="w-4 h-4 text-white/70" /><span>{copy.labelGenerate}</span><span className="inline-flex items-center gap-0.5 text-yellow-400">30 <Coins className="w-3.5 h-3.5" /></span></>
+              <><Flame className="w-4 h-4 text-white" /><span>{copy.labelGenerate}</span><span className="inline-flex items-center gap-0.5 text-yellow-400">30 <Coins className="w-3.5 h-3.5" /></span></>
             )}
           </button>
 
@@ -3453,9 +3453,14 @@ function LoRAManager({ modelId, loras, activeLora, onCreateLora, onSetActive, on
                 }`}
                 data-testid="button-mode-standard"
               >
-                <span className="text-xs font-medium text-white">{copy.loraStandard}</span>
-                <p className="text-[10px] text-slate-400 mt-0.5 inline-flex items-center gap-1">15 images, 750 <Coins className="w-3 h-3 text-yellow-400" /></p>
-                <p className="text-[10px] text-slate-500 mt-0.5">{copy.loraTime1h}</p>
+                <div className="flex flex-col gap-0.5 leading-tight">
+                  <span className="text-xs font-medium text-white">{copy.loraStandard}</span>
+                  <p className="text-[10px] text-slate-400 flex items-center gap-1">
+                    <span>15 images, 750</span>
+                    <Coins className="w-3 h-3 text-yellow-400 flex-shrink-0" />
+                  </p>
+                  <p className="text-[10px] text-slate-500">{copy.loraTime1h}</p>
+                </div>
               </button>
               <button
                 type="button"
@@ -3467,12 +3472,17 @@ function LoRAManager({ modelId, loras, activeLora, onCreateLora, onSetActive, on
                 }`}
                 data-testid="button-mode-pro"
               >
-                <span className="text-xs font-medium text-rose-300 flex items-center gap-1">
-                  <Flame className="w-3 h-3" />
-                  Pro
-                </span>
-                <p className="text-[10px] text-slate-400 mt-0.5 inline-flex items-center gap-1">30 curated images, 1500 <Coins className="w-3 h-3 text-yellow-400" /></p>
-                <p className="text-[10px] text-slate-500 mt-0.5">{copy.loraTime2h}</p>
+                <div className="flex flex-col gap-0.5 leading-tight">
+                  <span className="text-xs font-medium text-rose-300 flex items-center gap-1">
+                    <Flame className="w-3 h-3" />
+                    Pro
+                  </span>
+                  <p className="text-[10px] text-slate-400 flex items-center gap-1">
+                    <span>30 curated images, 1500</span>
+                    <Coins className="w-3 h-3 text-yellow-400 flex-shrink-0" />
+                  </p>
+                  <p className="text-[10px] text-slate-500">{copy.loraTime2h}</p>
+                </div>
               </button>
             </div>
           </div>

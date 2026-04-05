@@ -366,6 +366,7 @@ export default function HistoryPage() {
   const [selectedGenerations, setSelectedGenerations] = useState([]);
   const [batchDeleting, setBatchDeleting] = useState(false);
   const [batchDownloading, setBatchDownloading] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState({ open: false, ids: [] });
 
   useEffect(() => {
     loadModels();
@@ -507,17 +508,23 @@ export default function HistoryPage() {
     }
   };
 
-  const handleBatchDelete = async () => {
-    if (selectedGenerations.length === 0) return;
-    if (!confirm(formatCopy(copy.confirmDeleteSelected, { count: selectedGenerations.length }))) return;
+  const requestDelete = useCallback((ids) => {
+    const normalized = Array.isArray(ids) ? ids.filter(Boolean) : [];
+    if (normalized.length === 0) return;
+    setDeleteConfirm({ open: true, ids: normalized });
+  }, []);
+
+  const handleBatchDelete = async (idsOverride) => {
+    const idsToDelete = Array.isArray(idsOverride) && idsOverride.length > 0 ? idsOverride : selectedGenerations;
+    if (idsToDelete.length === 0) return;
 
     setBatchDeleting(true);
     try {
       const response = await api.post("/generations/batch-delete", {
-        generationIds: selectedGenerations,
+        generationIds: idsToDelete,
       });
       if (response.data.success) {
-        toast.success(formatCopy(copy.toastDeleted, { count: selectedGenerations.length }));
+        toast.success(formatCopy(copy.toastDeleted, { count: idsToDelete.length }));
         setSelectedGenerations([]);
         loadHistory();
       } else {
@@ -842,7 +849,7 @@ export default function HistoryPage() {
                 </button>
 
                 <button
-                  onClick={handleBatchDelete}
+                  onClick={() => requestDelete(selectedGenerations)}
                   disabled={batchDeleting}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 rounded-md text-xs font-medium text-red-300 disabled:opacity-50"
                   data-testid="batch-delete"
@@ -885,7 +892,7 @@ export default function HistoryPage() {
                   onToggleSelect={() => toggleSelection(gen.id)}
                   onPreview={() => setPreviewItem(gen)}
                   onDownload={() => handleSingleDownload(gen)}
-                  onDelete={() => { setSelectedGenerations([gen.id]); handleBatchDelete(); }}
+                  onDelete={() => requestDelete([gen.id])}
                   index={index}
                 />
               ))}
@@ -901,7 +908,7 @@ export default function HistoryPage() {
                   onToggleSelect={() => toggleSelection(gen.id)}
                   onPreview={() => setPreviewItem(gen)}
                   onDownload={() => handleSingleDownload(gen)}
-                  onDelete={() => { setSelectedGenerations([gen.id]); handleBatchDelete(); }}
+                  onDelete={() => requestDelete([gen.id])}
                   index={index}
                 />
               ))}
@@ -929,6 +936,51 @@ export default function HistoryPage() {
       {/* Preview Modal */}
       <AnimatePresence>
         {previewItem && <PreviewModal item={previewItem} onClose={() => setPreviewItem(null)} onDownload={() => handleSingleDownload(previewItem)} />}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {deleteConfirm.open && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+            onClick={() => setDeleteConfirm({ open: false, ids: [] })}
+          >
+            <motion.div
+              initial={{ scale: 0.96, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.96, opacity: 0 }}
+              className="w-full max-w-sm rounded-2xl border border-white/20 bg-[rgba(17,17,26,0.96)] p-5"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="text-base font-semibold text-white mb-2">Confirm delete</h3>
+              <p className="text-sm text-slate-300 mb-4">
+                {formatCopy(copy.confirmDeleteSelected, { count: deleteConfirm.ids.length })}
+              </p>
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setDeleteConfirm({ open: false, ids: [] })}
+                  className="px-3 py-2 rounded-lg text-sm text-slate-300 hover:text-white hover:bg-white/10 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const ids = deleteConfirm.ids;
+                    setDeleteConfirm({ open: false, ids: [] });
+                    await handleBatchDelete(ids);
+                  }}
+                  className="px-3 py-2 rounded-lg text-sm font-semibold border border-red-400/35 bg-red-500/10 text-red-200 hover:bg-red-500/20 transition"
+                >
+                  Delete
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
       </AnimatePresence>
     </div>
   );
@@ -1018,8 +1070,8 @@ const GenerationCard = memo(function GenerationCard({ generation, models, isSele
           <div className="flex gap-1.5 mt-2">
             <button
               onClick={onDownload}
-              className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-md text-[10px] font-medium text-white"
-              style={{ background: gradientCyan }}
+              className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-md text-[10px] font-medium text-white border border-white/35"
+              style={{ background: "rgba(255,255,255,0.10)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.25)" }}
               data-testid={`download-${generation.id}`}
             >
               <Download className="w-3 h-3" />
@@ -1027,7 +1079,7 @@ const GenerationCard = memo(function GenerationCard({ generation, models, isSele
             </button>
             <button
               onClick={onDelete}
-              className="px-2 py-1.5 bg-red-500/20 hover:bg-red-500/30 rounded-md"
+              className="px-2 py-1.5 rounded-md border border-red-400/40 bg-red-500/10 hover:bg-red-500/20 transition-all"
               data-testid={`delete-${generation.id}`}
             >
               <Trash2 className="w-3 h-3 text-red-400" />
@@ -1092,8 +1144,8 @@ const GenerationListItem = memo(function GenerationListItem({ generation, models
         <div className="flex gap-1.5">
           <button
             onClick={onDownload}
-            className="px-3 py-1.5 rounded-md text-xs font-medium text-white flex items-center gap-1"
-            style={{ background: gradientCyan }}
+            className="px-3 py-1.5 rounded-md text-xs font-medium text-white flex items-center gap-1 border border-white/35"
+            style={{ background: "rgba(255,255,255,0.10)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.25)" }}
             data-testid={`download-${generation.id}`}
           >
             <Download className="w-3.5 h-3.5" />
@@ -1101,7 +1153,7 @@ const GenerationListItem = memo(function GenerationListItem({ generation, models
           </button>
           <button
             onClick={onDelete}
-            className="px-2 py-1.5 bg-red-500/20 hover:bg-red-500/30 rounded-md"
+            className="px-2 py-1.5 rounded-md border border-red-400/40 bg-red-500/10 hover:bg-red-500/20 transition-all"
             data-testid={`delete-${generation.id}`}
           >
             <Trash2 className="w-3.5 h-3.5 text-red-400" />

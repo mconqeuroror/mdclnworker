@@ -215,6 +215,110 @@ html.light button[style*="background: rgba(109, 40, 217, 0.12)"] {
   border-color: rgba(109, 40, 217, 0.5) !important;
 }
 
+/* Bright-mode readability pass for Generate/Creator Studio heavy controls */
+html[data-theme="light"] .generate-page .text-white\/70,
+html.light .generate-page .text-white\/70,
+html[data-theme="light"] .creator-studio-page .text-white\/70,
+html.light .creator-studio-page .text-white\/70 {
+  color: #334155 !important;
+}
+html[data-theme="light"] .generate-page .text-amber-200,
+html.light .generate-page .text-amber-200 {
+  color: #92400e !important;
+}
+html[data-theme="light"] .generate-page [data-testid="button-enhance-advanced-prompt"],
+html.light .generate-page [data-testid="button-enhance-advanced-prompt"] {
+  background: linear-gradient(135deg, rgba(109, 40, 217, 0.3), rgba(109, 40, 217, 0.2)) !important;
+  border-color: rgba(109, 40, 217, 0.52) !important;
+  color: #4c1d95 !important;
+}
+html[data-theme="light"] .generate-page select.bg-slate-800\/90,
+html.light .generate-page select.bg-slate-800\/90 {
+  background: rgba(255, 255, 255, 0.94) !important;
+  color: #0f172a !important;
+  border-color: rgba(51, 65, 85, 0.24) !important;
+}
+html[data-theme="light"] .generate-page select.bg-slate-800\/90 option,
+html.light .generate-page select.bg-slate-800\/90 option {
+  background: #ffffff !important;
+  color: #0f172a !important;
+}
+html[data-theme="light"] .generate-page button[style*="rgba(255, 255, 255, 0.03)"][style*="rgba(255, 255, 255, 0.08)"],
+html.light .generate-page button[style*="rgba(255, 255, 255, 0.03)"][style*="rgba(255, 255, 255, 0.08)"] {
+  background: rgba(255, 255, 255, 0.82) !important;
+  border-color: rgba(51, 65, 85, 0.26) !important;
+  color: #334155 !important;
+}
+html[data-theme="light"] .generate-page button[style*="rgba(56, 189, 248, 0.16)"],
+html.light .generate-page button[style*="rgba(56, 189, 248, 0.16)"] {
+  background: rgba(56, 189, 248, 0.24) !important;
+  border-color: rgba(8, 145, 178, 0.55) !important;
+  color: #0e7490 !important;
+}
+html[data-theme="light"] .creator-studio-page button[style*="background: rgba(139,92,246,0.10)"],
+html.light .creator-studio-page button[style*="background: rgba(139,92,246,0.10)"] {
+  background: rgba(109, 40, 217, 0.2) !important;
+  border-color: rgba(109, 40, 217, 0.42) !important;
+  color: #4c1d95 !important;
+}
+html[data-theme="light"] .creator-studio-page button[style*="color: var(--text-muted); border: 1px solid transparent"],
+html.light .creator-studio-page button[style*="color: var(--text-muted); border: 1px solid transparent"] {
+  background: rgba(255, 255, 255, 0.62) !important;
+  border-color: rgba(71, 85, 105, 0.28) !important;
+  color: #334155 !important;
+}
+html[data-theme="light"] .text-gray-200,
+html.light .text-gray-200 {
+  color: #1f2937 !important;
+}
+
+/* ReelFinder reel modal should be bright in light mode */
+html[data-theme="light"] .reelfinder-reel-modal-overlay,
+html.light .reelfinder-reel-modal-overlay {
+  background: rgba(255, 255, 255, 0.75) !important;
+}
+html[data-theme="light"] .reelfinder-reel-modal-card,
+html.light .reelfinder-reel-modal-card {
+  background: #ffffff !important;
+  border-color: rgba(51, 65, 85, 0.2) !important;
+  box-shadow: 0 24px 72px rgba(15, 23, 42, 0.22) !important;
+}
+html[data-theme="light"] .reelfinder-reel-modal-card .text-white,
+html.light .reelfinder-reel-modal-card .text-white {
+  color: #0f172a !important;
+}
+html[data-theme="light"] .fileupload-replace-overlay,
+html.light .fileupload-replace-overlay {
+  background: rgba(255, 255, 255, 0.72) !important;
+}
+html[data-theme="light"] .fileupload-replace-overlay .text-white,
+html.light .fileupload-replace-overlay .text-white {
+  color: #0f172a !important;
+}
+html[data-theme="light"] button[data-testid^="toggle-"].bg-white\/90,
+html.light button[data-testid^="toggle-"].bg-white\/90 {
+  background: #334155 !important;
+}
+
+/* NSFW i2i generate button: dark mode = dark glass + white text, light mode = inverse */
+html[data-theme="light"] [data-testid="button-i2i-generate"],
+html.light [data-testid="button-i2i-generate"] {
+  background: rgba(255, 255, 255, 0.1) !important;
+  border-color: rgba(0, 0, 0, 0.5) !important;
+  color: #111827 !important;
+}
+html[data-theme="light"] [data-testid="button-i2i-generate"] .lucide-flame,
+html.light [data-testid="button-i2i-generate"] .lucide-flame {
+  color: #111827 !important;
+}
+
+/* History actions: translucent white fill with readable light-mode text */
+html[data-theme="light"] [data-testid^="download-"],
+html.light [data-testid^="download-"] {
+  color: #111827 !important;
+  border-color: rgba(0, 0, 0, 0.35) !important;
+}
+
 /* Display / hero type — landers add .font-display on headings */
 .font-display {
   font-family: var(--font-syne);
