@@ -253,11 +253,10 @@ function HeroCTA() {
         to="/signup"
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
-        className="relative px-7 py-3.5 rounded-2xl font-semibold text-black bg-white hover:bg-slate-100 transition-colors inline-flex items-center gap-2.5 overflow-hidden mc-cta-glow-lg"
+        className="relative px-7 py-3.5 rounded-2xl font-semibold text-black bg-white hover:bg-slate-100 transition-colors inline-flex items-center gap-2.5 overflow-hidden"
         data-testid="button-hero-signup"
       >
-        <span className="pointer-events-none absolute top-0 left-0 w-20 h-20 rounded-full bg-purple-400/30 blur-xl -translate-x-6 -translate-y-6" />
-        <AnimatePresence mode="wait">
+        <span className="pointer-events-none absolute top-0 left-0 w-20 h-20 rounded-full blur-xl -translate-x-6 -translate-y-6" />
           <motion.span
             key={hovered ? 'hover' : 'default'}
             initial={{ opacity: 0, y: 4 }}
@@ -427,7 +426,7 @@ function LossAversionSection({ isCreator }) {
           <div className="text-center">
             <Link
               to="/signup"
-              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-black bg-white hover:bg-slate-100 transition-all text-sm mc-cta-glow-md"
+              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-black bg-white hover:bg-slate-100 transition-all text-sm"
             >
               Stop losing time — Start free
               <ArrowRight className="w-4 h-4" />
@@ -845,7 +844,6 @@ export default function LandingPage() {
 
   return (
     <div className="min-h-screen bg-black text-white overflow-x-hidden relative">
-      <CursorGlow />
       <div className="aurora-bg" />
       <ScrollProgress />
       <LiveActivityToast isCreator={isCreator} />
@@ -884,7 +882,7 @@ export default function LandingPage() {
             </Link>
             <Link
               to="/signup"
-              className="px-4 py-2 rounded-xl text-sm font-semibold text-black bg-white hover:bg-slate-100 transition-all mc-cta-glow-sm"
+              className="px-4 py-2 rounded-xl text-sm font-semibold text-black bg-white hover:bg-slate-100 transition-all"
               data-testid="button-nav-signup"
             >
               Start Free
@@ -1434,10 +1432,10 @@ export default function LandingPage() {
 
               <Link
                 to="/signup"
-                className="relative inline-flex items-center justify-center gap-2.5 px-8 py-4 rounded-2xl font-semibold text-black bg-white hover:bg-slate-100 transition-all overflow-hidden mc-cta-glow-lg"
+                className="relative inline-flex items-center justify-center gap-2.5 px-8 py-4 rounded-2xl font-semibold text-black bg-white hover:bg-slate-100 transition-all overflow-hidden"
                 data-testid="button-cta-signup"
               >
-                <span className="pointer-events-none absolute top-0 left-0 w-20 h-20 rounded-full bg-purple-400/30 blur-xl -translate-x-6 -translate-y-6" />
+                <span className="pointer-events-none absolute top-0 left-0 w-20 h-20 rounded-full blur-xl -translate-x-6 -translate-y-6" />
                 <span className="relative z-10">Start Creating Today</span>
                 <ArrowRight className="w-4 h-4 relative z-10" />
               </Link>
@@ -1508,7 +1506,7 @@ export default function LandingPage() {
       >
         <Link
           to="/signup"
-          className="flex items-center justify-center gap-2 w-full py-4 rounded-2xl font-semibold text-black bg-white mc-cta-glow-md"
+          className="flex items-center justify-center gap-2 w-full py-4 rounded-2xl font-semibold text-black bg-white"
           data-testid="button-sticky-cta"
         >
           Start Creating Free

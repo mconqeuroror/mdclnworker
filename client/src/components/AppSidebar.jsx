@@ -264,7 +264,10 @@ export default function AppSidebar({
           theme === "light"
             ? "linear-gradient(180deg, rgba(255,255,255,0.72) 0%, rgba(241,245,249,0.62) 100%)"
             : "linear-gradient(180deg, rgba(15,15,23,0.78) 0%, rgba(10,10,18,0.82) 100%)",
-        border: "1px solid var(--border-subtle)",
+        borderTop: "1px solid var(--border-subtle)",
+        borderBottom: "1px solid var(--border-subtle)",
+        borderLeft: "1px solid var(--border-subtle)",
+        borderRight: "none",
         boxShadow:
           theme === "light"
             ? "0 12px 32px rgba(15,23,42,0.12), inset 0 1px 0 rgba(255,255,255,0.55)"
@@ -281,8 +284,6 @@ export default function AppSidebar({
             "radial-gradient(ellipse 120% 75% at 0% 0%, rgba(139,92,246,0.16) 0%, rgba(139,92,246,0.06) 38%, transparent 72%)",
         }}
       />
-      {/* Subtle right border */}
-      <div className="absolute right-0 top-0 bottom-0 w-px bg-gradient-to-b from-white/[0.08] via-white/[0.04] to-transparent" />
 
       {/* Logo Section */}
       <div className="p-5 mb-2">
