@@ -760,7 +760,7 @@ export default function DashboardPage() {
 
       {/* Content - with left margin for sidebar on desktop; bottom padding clears mobile tab bar */}
       <main
-        className={`relative z-10 pt-[4.5rem] md:pt-14 max-md:pb-[calc(2.75rem+env(safe-area-inset-bottom)+1.25rem)] md:pb-12 min-h-screen transition-[margin] duration-300 ease-out overflow-x-hidden ${sidebarNarrow ? "md:ml-[80px]" : "md:ml-[260px]"}`}
+        className={`relative z-10 pt-[4.5rem] md:pt-14 max-md:pb-[calc(2.75rem+env(safe-area-inset-bottom)+1.25rem)] md:pb-12 min-h-screen transition-[margin] duration-300 ease-out overflow-x-hidden bg-none [background-clip:unset] [-webkit-background-clip:unset] ${theme === "light" ? "text-white" : ""} ${sidebarNarrow ? "md:ml-[80px]" : "md:ml-[260px]"}`}
       >
         <div className={`relative z-10 p-3 sm:p-4 md:p-6 ${sidebarNarrow ? "mx-auto w-full max-w-[1600px]" : ""}`}>
           {activeTab === "home" && <HomePage copy={copy} setActiveTab={setActiveTab} setShowEarnModal={setShowEarnModal} setShowReferralModal={setShowReferralModal} onOpenCreateModel={() => { setUploadRealMode(false); setShowCreateModelModal(true); }} onOpenUploadReal={() => { setUploadRealMode(true); setShowCreateModelModal(true); }} onOpenCredits={() => setShowAddCredits(true)} />}
