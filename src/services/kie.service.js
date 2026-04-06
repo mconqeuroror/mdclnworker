@@ -521,7 +521,11 @@ async function kiePollTask(taskId, timeoutMs, label = "task") {
  * Retries up to 3 times on transient KIE failures (busy, server error, timeout).
  */
 async function kieRun(requestBody, label, timeoutMs, options = {}) {
-  const MAX_ATTEMPTS = 4;
+  const modelName = String(requestBody?.model || "");
+  const isSeedance = /seedance/i.test(label || "") || /seedance/i.test(modelName);
+  // Seedance currently returns transient 422 "generate playground failed, task id is blank"
+  // more often than other models, so give it a larger retry window.
+  const MAX_ATTEMPTS = isSeedance ? 8 : 4;
   let lastErr;
   const callbackUrl = getKieCallbackUrl();
   const forcePolling = options.forcePolling === true; // e.g. create-model-with-AI reference image — no generation record to pair callback to
@@ -587,7 +591,11 @@ async function kieRun(requestBody, label, timeoutMs, options = {}) {
       if (isTransient && attempt < MAX_ATTEMPTS) {
         const is422 = msg.includes("http 422") || msg.includes("playground failed") || msg.includes("task id is blank");
         const is429 = msg.includes("http 429") || msg.includes("rate limit");
-        const backoffMs = is422 ? 15_000 : is429 ? 11_000 : attempt * 5_000;
+        const backoffMs = is422
+          ? (isSeedance ? Math.min(45_000, 12_000 + attempt * 6_000) : 15_000)
+          : is429
+            ? 11_000
+            : attempt * 5_000;
         console.warn(`[KIE] Transient failure on ${label} (attempt ${attempt}/${MAX_ATTEMPTS}): ${err.message} — retrying in ${backoffMs / 1000}s`);
         await new Promise(r => setTimeout(r, backoffMs));
         continue;
