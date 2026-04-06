@@ -3053,6 +3053,8 @@ router.get("/soulx/config", authMiddleware, async (_req, res) => {
         maxSteps: 100,
         minCfg: 0,
         maxCfg: 6,
+        defaultSteps: 50,
+        defaultCfg: 2,
       },
     });
   } catch (error) {
@@ -3071,8 +3073,8 @@ router.post("/soulx/generate", authMiddleware, generationLimiter, async (req, re
     characterLoraId = null,
     aspectRatio = "9:16",
     quantity = 1,
-    steps = 20,
-    cfg = 3,
+    steps = 50,
+    cfg = 2,
     loraStrength = 0.8,
   } = req.body;
 
@@ -3082,7 +3084,7 @@ router.post("/soulx/generate", authMiddleware, generationLimiter, async (req, re
 
   const qty = quantity === 2 ? 2 : 1;
   const useCharacter = Boolean(modelId && characterLoraId);
-  const safeSteps = Math.max(1, Math.min(100, Math.round(Number(steps) || 20)));
+  const safeSteps = Math.max(1, Math.min(100, Math.round(Number(steps) || 50)));
   const safeCfg = Math.max(0, Math.min(6, Number(cfg) || 0));
   const safeLoraStrength = Math.max(0, Math.min(1, Number(loraStrength) || 0.8));
 

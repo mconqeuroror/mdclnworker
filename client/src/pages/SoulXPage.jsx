@@ -41,6 +41,8 @@ const DEFAULT_SOULX_LIMITS = Object.freeze({
   minCfg: 0,
   maxCfg: 6,
 });
+const SOULX_DEFAULT_STEPS = 50;
+const SOULX_DEFAULT_CFG = 2;
 
 const ASPECT_OPTIONS = [
   { id: "9:16", label: "9:16", hint: "Portrait" },
@@ -147,14 +149,13 @@ function ResultCard({ imageUrl, isDark, onDownload }) {
     <motion.div
       initial={{ opacity: 0, scale: 0.96 }}
       animate={{ opacity: 1, scale: 1 }}
-      className={`relative rounded-2xl overflow-hidden border
-        ${isDark ? "border-white/10 bg-white/[0.03]" : "border-black/8 bg-black/[0.02]"}`}
+      className="relative rounded-2xl overflow-hidden border border-white/[0.10] glass-card"
     >
       <img src={imageUrl} alt="Soul-X generated" className="w-full h-auto block" />
       <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/60 to-transparent flex justify-end">
         <button
           onClick={() => onDownload(imageUrl)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 text-white text-xs font-medium backdrop-blur-sm transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-black/35 hover:bg-black/50 text-white text-xs font-medium backdrop-blur-sm transition-colors border border-white/20"
         >
           <Download className="w-3.5 h-3.5" /> Download
         </button>
@@ -284,9 +285,10 @@ function CharacterTab({ isDark }) {
     failed: "Failed",
   };
 
-  const base = isDark
-    ? "bg-white/[0.04] border-white/[0.08]"
-    : "bg-black/[0.02] border-black/[0.08]";
+  const base = "glass-card border border-white/[0.10]";
+  const inputBase =
+    "w-full appearance-none pl-3 pr-9 py-2.5 rounded-xl text-sm border outline-none glass-card border-white/[0.10] text-white focus:border-white/20";
+  const neutralBtn = "border border-white/[0.10] text-slate-400 hover:text-white hover:border-white/20 hover:bg-white/[0.04]";
 
   return (
     <div className="space-y-5">
@@ -299,8 +301,7 @@ function CharacterTab({ isDark }) {
           <select
             value={selectedModelId}
             onChange={(e) => setSelectedModelId(e.target.value)}
-            className={`w-full appearance-none pl-3 pr-9 py-2.5 rounded-xl text-sm border outline-none
-              ${isDark ? "bg-white/[0.05] border-white/10 text-white" : "bg-white border-black/10 text-slate-900"}`}
+            className={inputBase}
           >
             <option
               value=""
@@ -363,8 +364,7 @@ function CharacterTab({ isDark }) {
                   placeholder="Character name (optional)"
                   value={charName}
                   onChange={(e) => setCharName(e.target.value)}
-                  className={`w-full px-3 py-2.5 rounded-xl text-sm border outline-none
-                    ${isDark ? "bg-white/[0.05] border-white/10 text-white placeholder-slate-500" : "bg-white border-black/10 text-slate-900 placeholder-slate-400"}`}
+                  className="w-full px-3 py-2.5 rounded-xl text-sm border outline-none glass-card border-white/[0.10] text-white placeholder:text-slate-500 focus:border-white/20"
                 />
 
                 <div className="flex gap-2">
@@ -374,8 +374,8 @@ function CharacterTab({ isDark }) {
                       onClick={() => setTrainingMode(m)}
                       className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-all
                         ${trainingMode === m
-                          ? "bg-violet-500/20 border-violet-500/50 text-violet-300"
-                          : isDark ? "bg-white/[0.03] border-white/[0.08] text-slate-400 hover:border-white/20" : "bg-white border-black/10 text-slate-500 hover:border-black/20"
+                          ? "bg-violet-500/20 border-violet-500/50 text-violet-200 shadow-[0_0_0_1px_rgba(139,92,246,0.2)]"
+                          : neutralBtn
                         }`}
                     >
                       {m.charAt(0).toUpperCase() + m.slice(1)}
@@ -386,7 +386,7 @@ function CharacterTab({ isDark }) {
                 <button
                   onClick={handleCreate}
                   disabled={creating}
-                  className="w-full py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+                  className="w-full py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:brightness-110 disabled:opacity-50 text-white text-sm font-semibold transition-all flex items-center justify-center gap-2 shadow-lg shadow-violet-500/20"
                 >
                   {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
                   Create Character Identity
@@ -430,8 +430,7 @@ function CharacterTab({ isDark }) {
                   <button
                     onClick={() => fileInputRef.current?.click()}
                     disabled={uploading || character.status === "training"}
-                    className={`text-xs px-2.5 py-1 rounded-lg border transition-colors disabled:opacity-40
-                      ${isDark ? "border-white/15 text-slate-300 hover:bg-white/[0.08]" : "border-black/15 text-slate-600 hover:bg-black/[0.04]"}`}
+                    className="text-xs px-2.5 py-1 rounded-lg border transition-colors disabled:opacity-40 border-white/15 text-slate-300 hover:bg-white/[0.08]"
                   >
                     {uploading ? "Uploading…" : "+ Add Photos"}
                   </button>
@@ -456,7 +455,7 @@ function CharacterTab({ isDark }) {
                       </div>
                     ))}
                     {uploadedImages.length > 8 && (
-                      <div className={`aspect-square rounded-lg flex items-center justify-center text-xs ${isDark ? "bg-white/[0.04] text-slate-400" : "bg-black/[0.03] text-slate-500"}`}>
+                      <div className="aspect-square rounded-lg flex items-center justify-center text-xs glass-card text-slate-400">
                         +{uploadedImages.length - 8}
                       </div>
                     )}
@@ -465,8 +464,7 @@ function CharacterTab({ isDark }) {
                 {uploadedImages.length === 0 && (
                   <button
                     onClick={() => fileInputRef.current?.click()}
-                    className={`w-full py-6 rounded-xl border-2 border-dashed text-sm transition-colors
-                      ${isDark ? "border-white/10 text-slate-500 hover:border-violet-500/40 hover:text-slate-400" : "border-black/10 text-slate-400 hover:border-violet-400/50"}`}
+                    className="w-full py-6 rounded-xl border-2 border-dashed text-sm transition-colors border-white/10 text-slate-500 hover:border-violet-500/40 hover:text-slate-300"
                   >
                     <Upload className="w-5 h-5 mx-auto mb-1.5 opacity-50" />
                     Upload training photos
@@ -479,7 +477,7 @@ function CharacterTab({ isDark }) {
                 <button
                   onClick={handleTrain}
                   disabled={training || uploadedImages.length < 5}
-                  className="w-full py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+                  className="w-full py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:brightness-110 disabled:opacity-50 text-white text-sm font-semibold transition-all flex items-center justify-center gap-2 shadow-lg shadow-violet-500/20"
                 >
                   {training ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
                   {uploadedImages.length < 5 ? `Need ${5 - uploadedImages.length} more photos` : "Start Training"}
@@ -487,14 +485,14 @@ function CharacterTab({ isDark }) {
               )}
 
               {character.status === "training" && (
-                <div className={`flex items-center gap-2.5 p-3 rounded-xl ${isDark ? "bg-amber-500/10 border border-amber-500/25" : "bg-amber-50 border border-amber-200"}`}>
+                <div className="flex items-center gap-2.5 p-3 rounded-xl bg-amber-500/10 border border-amber-500/25">
                   <Loader2 className="w-4 h-4 text-amber-400 animate-spin flex-shrink-0" />
                   <p className="text-xs text-amber-400">Training in progress — typically 10–20 minutes.</p>
                 </div>
               )}
 
               {character.status === "ready" && (
-                <div className={`flex items-center gap-2.5 p-3 rounded-xl ${isDark ? "bg-emerald-500/10 border border-emerald-500/25" : "bg-emerald-50 border border-emerald-200"}`}>
+                <div className="flex items-center gap-2.5 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/25">
                   <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
                   <p className="text-xs text-emerald-400">Character identity is ready for generation.</p>
                 </div>
@@ -510,7 +508,7 @@ function CharacterTab({ isDark }) {
 // ── Generate Tab ──────────────────────────────────────────────────────────────
 
 function GenerateTab({ isDark, copy }) {
-  const { user, setUser } = useAuthStore();
+  const { user, refreshUserCredits } = useAuthStore();
   const { models } = useCachedModels();
 
   const [mode, setMode] = useState("without"); // "without" | "character"
@@ -520,10 +518,10 @@ function GenerateTab({ isDark, copy }) {
   const [aspect, setAspect] = useState("9:16");
   const [qty, setQty] = useState(1);
   const [prompt, setPrompt] = useState("");
-  const [steps, setSteps] = useState(DEFAULT_SOULX_LIMITS.includedSteps);
-  const [cfg, setCfg] = useState(3);
+  const [steps, setSteps] = useState(SOULX_DEFAULT_STEPS);
+  const [cfg, setCfg] = useState(SOULX_DEFAULT_CFG);
   const [loraStrength, setLoraStrength] = useState(0.8);
-  const [generating, setGenerating] = useState(false);
+  const [submitInFlight, setSubmitInFlight] = useState(0);
   const [results, setResults] = useState([]); // [{generationId, imageUrl, status}]
   const [pricing, setPricing] = useState(DEFAULT_SOULX_PRICING);
   const [limits, setLimits] = useState(DEFAULT_SOULX_LIMITS);
@@ -546,7 +544,21 @@ function GenerateTab({ isDark, copy }) {
       .then((res) => {
         if (res.data?.success) {
           if (res.data.pricing) setPricing({ ...DEFAULT_SOULX_PRICING, ...res.data.pricing });
-          if (res.data.limits) setLimits({ ...DEFAULT_SOULX_LIMITS, ...res.data.limits });
+          if (res.data.limits) {
+            const nextLimits = { ...DEFAULT_SOULX_LIMITS, ...res.data.limits };
+            setLimits(nextLimits);
+            const suggestedSteps = Number(res.data.limits.defaultSteps ?? SOULX_DEFAULT_STEPS);
+            const suggestedCfg = Number(res.data.limits.defaultCfg ?? SOULX_DEFAULT_CFG);
+            setSteps((prev) => {
+              if (prev !== SOULX_DEFAULT_STEPS) return prev;
+              return Math.max(1, Math.min(nextLimits.maxSteps, Math.round(suggestedSteps) || SOULX_DEFAULT_STEPS));
+            });
+            setCfg((prev) => {
+              if (prev !== SOULX_DEFAULT_CFG) return prev;
+              const parsed = Number.isFinite(suggestedCfg) ? suggestedCfg : SOULX_DEFAULT_CFG;
+              return Math.max(nextLimits.minCfg, Math.min(nextLimits.maxCfg, parsed));
+            });
+          }
         }
       })
       .catch(() => {});
@@ -599,13 +611,12 @@ function GenerateTab({ isDark, copy }) {
   }, []);
 
   const handleGenerate = async () => {
-    if (generating) return;
     if (!prompt.trim()) { toast.error("Enter a prompt first"); return; }
     if (mode === "character" && !selectedModelId) { toast.error("Select a model"); return; }
     if (mode === "character" && !selectedCharacterId) { toast.error("Select a character identity"); return; }
     if (!hasEnough) { toast.error("Insufficient balance"); return; }
 
-    setGenerating(true);
+    setSubmitInFlight((n) => n + 1);
     try {
       const token = localStorage.getItem("token");
       const res = await axios.post("/api/soulx/generate", {
@@ -648,12 +659,8 @@ function GenerateTab({ isDark, copy }) {
       setResults((prev) => [...newResults, ...prev]);
       generationIds.forEach(startPoll);
 
-      // Deduct credits from local state
-      if (user) {
-        const deducted = cost;
-        const remaining = Math.max(0, (user.credits || 0) - deducted);
-        setUser({ ...user, credits: remaining });
-      }
+      // Sync credit balance from backend after successful submission.
+      refreshUserCredits();
     } catch (err) {
       const apiError = err?.response?.data?.error;
       if (apiError) {
@@ -692,7 +699,7 @@ function GenerateTab({ isDark, copy }) {
 
       toast.error("Generation submission failed. Please retry.");
     } finally {
-      setGenerating(false);
+      setSubmitInFlight((n) => Math.max(0, n - 1));
     }
   };
 
@@ -713,9 +720,7 @@ function GenerateTab({ isDark, copy }) {
     }
   };
 
-  const inputBase = isDark
-    ? "bg-white/[0.05] border-white/[0.08] text-white placeholder-slate-500"
-    : "bg-white border-black/10 text-slate-900 placeholder-slate-400";
+  const inputBase = "glass-card border border-white/[0.10] text-white placeholder-slate-400 focus:border-white/20";
 
   const labelBase = `block text-xs font-semibold mb-2 ${isDark ? "text-slate-400" : "text-slate-500"}`;
 
@@ -724,7 +729,7 @@ function GenerateTab({ isDark, copy }) {
       {/* Mode toggle */}
       <div>
         <label className={labelBase}>{copy.mode.toUpperCase()}</label>
-        <div className={`flex rounded-xl p-1 border ${isDark ? "bg-white/[0.03] border-white/[0.08]" : "bg-black/[0.02] border-black/[0.07]"}`}>
+        <div className="flex rounded-xl p-1 border glass-card border-white/[0.10]">
           {[
             { id: "without", label: copy.noCharacter, icon: ImageIcon },
             { id: "character", label: copy.useCharacter, icon: User },
@@ -735,7 +740,7 @@ function GenerateTab({ isDark, copy }) {
               className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium transition-all
                 ${mode === id
                   ? "bg-violet-600 text-white shadow-sm"
-                  : isDark ? "text-slate-400 hover:text-slate-300" : "text-slate-500 hover:text-slate-700"}`}
+                  : "text-slate-400 hover:text-white"}`}
             >
               <Icon className="w-3.5 h-3.5" />
               {label}
@@ -791,7 +796,7 @@ function GenerateTab({ isDark, copy }) {
               <div>
                 <label className={labelBase}>{copy.characterIdentity.toUpperCase()}</label>
                 {characters.length === 0 ? (
-                  <div className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border text-sm ${isDark ? "bg-amber-500/10 border-amber-500/25 text-amber-400" : "bg-amber-50 border-amber-200 text-amber-600"}`}>
+                  <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl border text-sm bg-amber-500/10 border-amber-500/25 text-amber-300">
                     <AlertCircle className="w-4 h-4 flex-shrink-0" />
                     {copy.noReadyLora}
                   </div>
@@ -804,7 +809,7 @@ function GenerateTab({ isDark, copy }) {
                         className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border text-left transition-all
                           ${selectedCharacterId === c.id
                             ? "bg-violet-500/20 border-violet-500/50"
-                            : isDark ? "bg-white/[0.03] border-white/[0.08] hover:border-white/20" : "bg-white border-black/10 hover:border-black/20"}`}
+                            : "glass-card border border-white/[0.10] hover:border-white/20"}`}
                       >
                         <div className="w-7 h-7 rounded-full bg-violet-500/20 flex items-center justify-center flex-shrink-0">
                           <User className="w-3.5 h-3.5 text-violet-400" />
@@ -853,7 +858,7 @@ function GenerateTab({ isDark, copy }) {
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all
                 ${aspect === opt.id
                   ? "bg-violet-600 border-violet-500 text-white"
-                  : isDark ? "bg-white/[0.04] border-white/[0.08] text-slate-400 hover:border-white/20 hover:text-slate-300" : "bg-white border-black/10 text-slate-500 hover:border-black/20"}`}
+                  : "glass-card border border-white/[0.10] text-slate-400 hover:border-white/20 hover:text-white"}`}
             >
               {opt.label}
               <span className={`ml-1 opacity-60`}>{opt.hint}</span>
@@ -865,7 +870,7 @@ function GenerateTab({ isDark, copy }) {
       {/* Quantity */}
       <div>
         <label className={labelBase}>{copy.images.toUpperCase()}</label>
-        <div className={`flex rounded-xl p-1 border w-fit ${isDark ? "bg-white/[0.03] border-white/[0.08]" : "bg-black/[0.02] border-black/[0.07]"}`}>
+        <div className="flex rounded-xl p-1 border w-fit glass-card border-white/[0.10]">
           {[1, 2].map((n) => (
             <button
               key={n}
@@ -873,7 +878,7 @@ function GenerateTab({ isDark, copy }) {
               className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all
                 ${qty === n
                   ? "bg-violet-600 text-white shadow-sm"
-                  : isDark ? "text-slate-400 hover:text-slate-300" : "text-slate-500 hover:text-slate-700"}`}
+                  : "text-slate-400 hover:text-white"}`}
             >
               {n}
             </button>
@@ -881,7 +886,7 @@ function GenerateTab({ isDark, copy }) {
         </div>
       </div>
 
-      <div className={`rounded-xl border p-3 space-y-3 ${isDark ? "bg-white/[0.03] border-white/[0.08]" : "bg-white/80 border-black/10"}`}>
+      <div className="rounded-xl border p-3 space-y-3 glass-card border-white/[0.10]">
         <p className={`text-xs font-semibold ${isDark ? "text-slate-300" : "text-slate-700"}`}>{copy.advanced}</p>
         <div className="grid sm:grid-cols-3 gap-3">
           <label className="flex flex-col gap-1.5">
@@ -904,7 +909,7 @@ function GenerateTab({ isDark, copy }) {
               max={limits.maxCfg}
               step={0.1}
               value={cfg}
-              onChange={(e) => setCfg(Math.max(limits.minCfg, Math.min(limits.maxCfg, Number(e.target.value) || 3)))}
+              onChange={(e) => setCfg(Math.max(limits.minCfg, Math.min(limits.maxCfg, Number(e.target.value) || SOULX_DEFAULT_CFG)))}
             />
             <span className={`text-xs ${isDark ? "text-slate-300" : "text-slate-700"}`}>{cfg.toFixed(1)}</span>
           </label>
@@ -928,21 +933,20 @@ function GenerateTab({ isDark, copy }) {
       <div className="flex items-center gap-3">
         <button
           onClick={handleGenerate}
-          disabled={generating || !hasEnough}
+          disabled={!hasEnough}
           className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold transition-all
             ${!hasEnough
               ? "opacity-50 cursor-not-allowed bg-violet-600 text-white"
-              : "bg-violet-600 hover:bg-violet-500 active:scale-[0.98] text-white shadow-lg shadow-violet-500/20"
+              : "bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:brightness-110 active:scale-[0.98] text-white shadow-lg shadow-violet-500/20"
             }`}
         >
-          {generating ? (
+          {submitInFlight > 0 ? (
             <><Loader2 className="w-4 h-4 animate-spin" /> {copy.generating}</>
           ) : (
             <><Sparkles className="w-4 h-4" /> {copy.generate}</>
           )}
         </button>
-        <div className={`flex items-center gap-1.5 px-3 py-3 rounded-xl border text-sm
-          ${isDark ? "bg-white/[0.04] border-white/[0.08]" : "bg-white border-black/10"}`}>
+        <div className="flex items-center gap-1.5 px-3 py-3 rounded-xl border text-sm glass-card border-white/[0.10]">
           <Coins className="w-4 h-4 text-violet-400" />
           <span className={`font-bold ${isDark ? "text-white" : "text-slate-900"}`}>{cost}</span>
           {extraCost > 0 && (
@@ -968,8 +972,7 @@ function GenerateTab({ isDark, copy }) {
                   Object.keys(pollRefs.current).forEach(stopPoll);
                   setResults([]);
                 }}
-                className={`text-xs px-2.5 py-1 rounded-lg border transition-colors
-                  ${isDark ? "border-white/10 text-slate-400 hover:bg-white/[0.06]" : "border-black/10 text-slate-500 hover:bg-black/[0.04]"}`}
+                className="text-xs px-2.5 py-1 rounded-lg border transition-colors border-white/10 text-slate-400 hover:bg-white/[0.06]"
               >
                 {copy.clear}
               </button>
@@ -981,14 +984,12 @@ function GenerateTab({ isDark, copy }) {
                   {r.status === "done" && r.imageUrl ? (
                     <ResultCard imageUrl={r.imageUrl} isDark={isDark} onDownload={handleDownload} />
                   ) : r.status === "failed" ? (
-                    <div className={`aspect-[9/16] rounded-2xl border flex flex-col items-center justify-center gap-2
-                      ${isDark ? "bg-rose-500/10 border-rose-500/20" : "bg-rose-50 border-rose-200"}`}>
+                    <div className="aspect-[9/16] rounded-2xl border flex flex-col items-center justify-center gap-2 bg-rose-500/10 border-rose-500/20">
                       <AlertCircle className="w-6 h-6 text-rose-400" />
                       <p className="text-xs text-rose-400">{copy.failed}</p>
                     </div>
                   ) : (
-                    <div className={`aspect-[9/16] rounded-2xl border flex flex-col items-center justify-center gap-3
-                      ${isDark ? "bg-white/[0.03] border-white/[0.08]" : "bg-black/[0.02] border-black/[0.06]"}`}>
+                    <div className="aspect-[9/16] rounded-2xl border flex flex-col items-center justify-center gap-3 glass-card border-white/[0.10]">
                       <div className="relative">
                         <div className="w-10 h-10 rounded-full bg-violet-500/20 flex items-center justify-center">
                           <Sparkles className="w-5 h-5 text-violet-400" />
@@ -1017,23 +1018,21 @@ export default function SoulXPage() {
   const copy = COPY[locale] || COPY.en;
   const [activeTab, setActiveTab] = useState("generate");
 
-  const cardBase = isDark
-    ? "bg-[rgba(255,255,255,0.03)] border border-white/[0.07]"
-    : "bg-white/90 border border-slate-200 shadow-[0_10px_30px_rgba(15,23,42,0.08)]";
+  const cardBase = "glass-card border border-white/[0.10]";
 
   return (
     <div className={`min-h-full p-4 md:p-6 ${isDark ? "text-white" : "text-slate-900"}`}>
-      <div className="max-w-xl mx-auto space-y-5">
+      <div className="max-w-4xl mx-auto space-y-6">
         {/* Header */}
-        <div className={`rounded-2xl border p-4 flex items-start gap-3 ${isDark ? "bg-white/[0.02] border-white/[0.08]" : "bg-white border-slate-200 shadow-[0_8px_24px_rgba(15,23,42,0.06)]"}`}>
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500/30 to-fuchsia-600/20 border border-violet-500/25 flex items-center justify-center flex-shrink-0">
+        <div className="rounded-2xl border p-5 md:p-6 flex items-start gap-4 glass-card border-white/[0.10]">
+          <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-violet-500/30 to-fuchsia-600/20 border border-violet-500/25 flex items-center justify-center flex-shrink-0 shadow-[0_0_24px_rgba(139,92,246,0.25)]">
             <Sparkles className="w-5 h-5 text-violet-400" />
           </div>
           <div className="flex-1">
-            <h1 className={`text-xl font-bold tracking-tight ${isDark ? "text-white" : "text-slate-900"}`}>
+            <h1 className={`text-2xl md:text-3xl font-bold tracking-tight ${isDark ? "text-white" : "text-slate-900"}`}>
               {copy.title}
             </h1>
-            <p className={`text-sm mt-0.5 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+            <p className={`text-sm md:text-base mt-1 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
               {copy.subtitle}
             </p>
             <span className={`inline-flex mt-2 items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold ${
@@ -1046,7 +1045,7 @@ export default function SoulXPage() {
         </div>
 
         {/* Tab switcher */}
-        <div className={`flex rounded-2xl p-1 border ${isDark ? "bg-white/[0.03] border-white/[0.07]" : "bg-black/[0.02] border-black/[0.06]"}`}>
+        <div className="flex rounded-2xl p-1 border glass-card border-white/[0.10] max-w-md">
           {[
             { id: "generate", label: copy.tabGenerate, icon: Sparkles },
             { id: "character", label: copy.tabCharacter, icon: User },
@@ -1056,8 +1055,8 @@ export default function SoulXPage() {
               onClick={() => setActiveTab(id)}
               className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-all
                 ${activeTab === id
-                  ? isDark ? "bg-white/[0.09] text-white" : "bg-white text-slate-900 shadow-sm"
-                  : isDark ? "text-slate-400 hover:text-slate-300" : "text-slate-500 hover:text-slate-700"}`}
+                  ? "bg-white/[0.10] text-white"
+                  : "text-slate-400 hover:text-white"}`}
             >
               <Icon className="w-4 h-4" />
               {label}
@@ -1066,7 +1065,7 @@ export default function SoulXPage() {
         </div>
 
         {/* Tab content */}
-        <div className={`rounded-2xl border p-5 ${cardBase}`}>
+        <div className={`rounded-2xl border p-5 md:p-6 ${cardBase}`}>
           <AnimatePresence mode="wait">
             {activeTab === "generate" ? (
               <motion.div
@@ -1093,7 +1092,7 @@ export default function SoulXPage() {
         </div>
 
         {/* Credit info */}
-        <div className={`rounded-xl border p-3 text-xs ${isDark ? "border-white/[0.07] bg-white/[0.02]" : "border-black/[0.06] bg-black/[0.02]"}`}>
+        <div className="rounded-xl border p-4 text-xs glass-card border-white/[0.10]">
           <p className={`font-semibold mb-1.5 ${isDark ? "text-slate-300" : "text-slate-700"}`}>{copy.pricingTitle}</p>
           <div className={`grid grid-cols-2 gap-x-4 gap-y-1 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
             <span>{copy.p1}</span><span className="font-semibold text-violet-400 inline-flex items-center gap-1">10 <Coins className="w-3 h-3" /></span>
