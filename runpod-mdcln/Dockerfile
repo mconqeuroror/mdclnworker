@@ -97,6 +97,8 @@ RUN test -d /workspace/ComfyUI/custom_nodes/was-node-suite-comfyui || \
     (echo "ERROR: WASasquatch/was-node-suite-comfyui failed to clone" && exit 1)
 RUN test -d /workspace/ComfyUI/custom_nodes/ComfyUI_UltimateSDUpscale || \
     (echo "ERROR: ssitu/ComfyUI_UltimateSDUpscale failed to clone" && exit 1)
+RUN test -d /workspace/ComfyUI/custom_nodes/ComfyUI-SeedVR2_VideoUpscaler || \
+    (echo "ERROR: numz/ComfyUI-SeedVR2_VideoUpscaler failed to clone" && exit 1)
 
 # Install requirements for each custom node
 RUN for dir in /workspace/ComfyUI/custom_nodes/*/; do \
@@ -123,6 +125,17 @@ RUN pip install --no-cache-dir \
     peft \
     einops
 
+# SeedVR2 VideoUpscaler requirements (numz/ComfyUI-SeedVR2_VideoUpscaler)
+RUN pip install --no-cache-dir \
+    "omegaconf>=2.3.0" \
+    "diffusers>=0.33.1" \
+    "peft>=0.17.0" \
+    "rotary_embedding_torch>=0.5.3" \
+    opencv-python \
+    gguf \
+    matplotlib \
+    psutil
+
 # Optional GGUF support deps for 1038lab/ComfyUI-JoyCaption
 RUN if [ -f /workspace/ComfyUI/custom_nodes/ComfyUI-JoyCaption/requirements_gguf.txt ]; then \
       pip install --no-cache-dir -r /workspace/ComfyUI/custom_nodes/ComfyUI-JoyCaption/requirements_gguf.txt; \
@@ -136,7 +149,8 @@ RUN mkdir -p /workspace/ComfyUI/models/checkpoints \
              /workspace/ComfyUI/models/vae \
              /workspace/ComfyUI/models/loras \
              /workspace/ComfyUI/models/unet \
-             /workspace/ComfyUI/models/upscale_models
+             /workspace/ComfyUI/models/upscale_models \
+             /workspace/ComfyUI/models/seedvr2
 
 # upscale_models is EMPTY in the image. 4xFaceUpDAT.pth (~148MB) is fetched at runtime by
 # start.sh (Google Drive + Hugging Face fallback) into /runpod-volume/models or ComfyUI/models.

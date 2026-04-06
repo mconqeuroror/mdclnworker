@@ -1294,6 +1294,170 @@ function loadNsfwCoreWorkflowGraph() {
   return null;
 }
 
+// ─── Pro workflow (SeedVR2 upscaler + film grain) ────────────────────────────
+
+let _nsfwProApiCache = null;
+function loadNsfwProWorkflow() {
+  if (_nsfwProApiCache) return JSON.parse(JSON.stringify(_nsfwProApiCache));
+  const candidates = [
+    path.join(process.cwd(), "runpod-mdcln", "workflows", "nsfw_pro_api.json"),
+    path.join(__dirname, "..", "..", "runpod-mdcln", "workflows", "nsfw_pro_api.json"),
+  ];
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) {
+        _nsfwProApiCache = JSON.parse(fs.readFileSync(p, "utf8"));
+        console.log("[Pro workflow] Loaded nsfw_pro_api.json from:", p);
+        return JSON.parse(JSON.stringify(_nsfwProApiCache));
+      }
+    } catch (e) {
+      console.warn("[Pro workflow] Load failed:", p, e?.message);
+    }
+  }
+  return null;
+}
+
+/**
+ * Build a ComfyUI API workflow using the new Pro pipeline:
+ *   UNet → LoRA chain → KSampler (20 steps, β scheduler) → VAEDecode
+ *   → SeedVR2 upscale → Film Grain → Blur → SaveImage (node 289)
+ *
+ * Set NSFW_COMFY_BYPASS_SEEDVR2=1 to skip SeedVR2 and route VAEDecode
+ * output directly to Film Grain (useful when SeedVR2 models are absent).
+ */
+function buildComfyWorkflowPro(params) {
+  const {
+    prompt,
+    loraUrl,
+    girlLoraStrength,
+    poseStrengths = {},
+    makeupStrength = 0,
+    cumStrength = 0,
+    enhancementStrengths = {},
+    postProcessing = {},
+    seed,
+    width = 1344,
+    height = 768,
+    aspectRatio = "16:9 landscape 1344x768",
+    steps,
+    cfg,
+    negativePrompt: explicitNegativePrompt,
+    useWorkflowPostProcessing = false,
+  } = params;
+
+  const wf = loadNsfwProWorkflow();
+  if (!wf) {
+    console.warn("[Pro workflow] nsfw_pro_api.json not found — falling back to core workflow");
+    return null;
+  }
+
+  // ── LoRA chain ──────────────────────────────────────────────────────────────
+  const allLoraEntries = buildNsfwLoraStackEntries({
+    loraUrl,
+    girlLoraStrength,
+    poseStrengths,
+    makeupStrength,
+    cumStrength,
+    enhancementStrengths,
+  });
+
+  const primaryLora = allLoraEntries[0];
+  if (wf["363"]) {
+    wf["363"].inputs.url = primaryLora?.url ?? "";
+    wf["363"].inputs.strength = Math.min(1, Math.max(0, Number(primaryLora?.strength) || 0.6));
+  }
+
+  // Chain additives after node 363 (each takes model from previous, feeds next)
+  const additives = allLoraEntries.slice(1, 4); // up to 3 additives
+  let lastLoraNodeId = "363";
+  additives.forEach((addLora, i) => {
+    if (!addLora?.url) return;
+    const nodeId = `900${i + 1}`;
+    wf[nodeId] = {
+      inputs: {
+        url: addLora.url,
+        strength: Math.min(1, Math.max(0, Number(addLora.strength) || 0)),
+        model: [lastLoraNodeId, 0],
+      },
+      class_type: "Load LoRA From URL",
+      _meta: { title: `Additive LoRA ${i + 1}` },
+    };
+    lastLoraNodeId = nodeId;
+  });
+
+  // Wire KSampler to last LoRA in chain
+  if (wf["276"]) {
+    wf["276"].inputs.model = [lastLoraNodeId, 0];
+  }
+
+  // ── Aspect ratio (node 50) ──────────────────────────────────────────────────
+  if (wf["50"]) {
+    wf["50"].inputs.width = Number(width) || 1344;
+    wf["50"].inputs.height = Number(height) || 768;
+    wf["50"].inputs.aspect_ratio = aspectRatio;
+    wf["50"].inputs.swap_dimensions = "Off";
+  }
+
+  // ── Sampler (node 276) ──────────────────────────────────────────────────────
+  if (wf["276"]) {
+    if (steps != null && Number.isFinite(Number(steps))) {
+      wf["276"].inputs.steps = Math.min(150, Math.max(1, Math.round(Number(steps))));
+    }
+    if (cfg != null && Number.isFinite(Number(cfg))) {
+      wf["276"].inputs.cfg = Number(cfg);
+    }
+  }
+
+  // ── Seed (node 57) ─────────────────────────────────────────────────────────
+  if (seed != null && wf["57"]) {
+    wf["57"].inputs.seed = seed;
+  }
+
+  // ── Prompts ─────────────────────────────────────────────────────────────────
+  let negText = wf["41"]?.inputs?.string ?? DEFAULT_NSFW_NEGATIVE_PROMPT;
+  if (explicitNegativePrompt != null && String(explicitNegativePrompt).trim() !== "") {
+    negText = String(explicitNegativePrompt).trim();
+  }
+  if (isOralBlowjobScenePrompt(prompt) && !/\bdisembodied penis\b/i.test(negText)) {
+    negText = `${negText}, ${NSFW_NEG_ORAL_DISCONNECTED_PHALLUS}`;
+  }
+  const posText = prompt || "";
+
+  // Inline String Literal refs then remove those nodes
+  inlineStringLiteralRefsInApiWorkflow(wf, { 41: negText, 56: posText });
+  delete wf["41"];
+  delete wf["56"];
+
+  // ── Post-processing (blur / grain) ──────────────────────────────────────────
+  if (useWorkflowPostProcessing) {
+    const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+    const blurEnabled  = postProcessing?.blur?.enabled  !== false;
+    const grainEnabled = postProcessing?.grain?.enabled !== false;
+    const blurStrength  = clamp(Number(postProcessing?.blur?.strength)  ?? 1.0, 0, 1);
+    const grainStrength = clamp(Number(postProcessing?.grain?.strength) ?? 1.0, 0, 1);
+    if (wf["284"]) {
+      wf["284"].inputs.density   = grainEnabled ? Math.max(0.01, +(0.06 * grainStrength).toFixed(4)) : 0.01;
+      wf["284"].inputs.intensity = grainEnabled ? Math.max(0.01, +(0.1  * grainStrength).toFixed(4)) : 0.01;
+    }
+    if (wf["286"]) {
+      wf["286"].inputs.blur_radius = blurEnabled ? Math.max(1, Math.round(2 * blurStrength)) : 1;
+      wf["286"].inputs.sigma       = blurEnabled ? Math.max(0.1, +(0.3 * blurStrength).toFixed(3)) : 0.1;
+    }
+  }
+
+  // ── Bypass SeedVR2 (NSFW_COMFY_BYPASS_SEEDVR2=1) ───────────────────────────
+  if (process.env.NSFW_COMFY_BYPASS_SEEDVR2 === "1") {
+    console.log("[Pro workflow] Bypassing SeedVR2 — routing VAEDecode → Film Grain directly");
+    if (wf["284"]) wf["284"].inputs.image = ["25", 0];
+    delete wf["359"];
+    delete wf["360"];
+    delete wf["361"];
+    delete wf["362"];
+  }
+
+  return wf;
+}
+
 const CUM_KEYWORDS = ["cum on", "cum dripping", "cum facial", "covered in cum", "cum shot", "cumshot", "creampie", "cum on face", "cum on tits", "cum on stomach", "cum on ass", "cum on thighs", "cum on back", "cum on breasts", "cum on chest", "facial cum", "messy cum", "dripping cum", "cum load"];
 
 /**
@@ -1902,6 +2066,13 @@ function bypassUpscaleChainInNsfwCoreApi(apiWorkflow) {
 }
 
 function buildComfyWorkflow(params) {
+  // Route to Pro workflow unless NSFW_WORKFLOW_VERSION=core is explicitly set
+  if (process.env.NSFW_WORKFLOW_VERSION !== "core") {
+    const proResult = buildComfyWorkflowPro(params);
+    if (proResult) return proResult;
+    console.warn("[buildComfyWorkflow] Pro workflow failed — falling back to core workflow");
+  }
+
   const {
     prompt,
     loraUrl,

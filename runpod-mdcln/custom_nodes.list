@@ -31,3 +31,5 @@ chflame163/ComfyUI_LayerStyle_Advance
 1038lab/ComfyUI-JoyCaption
 yolain/ComfyUI-Easy-Use
 ssitu/ComfyUI_UltimateSDUpscale
+# SeedVR2VideoUpscaler nodes (SeedVR2LoadVAEModel, SeedVR2LoadDiTModel, SeedVR2VideoUpscaler)
+numz/ComfyUI-SeedVR2_VideoUpscaler

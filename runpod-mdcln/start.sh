@@ -116,21 +116,22 @@ setup_models() {
     mkdir -p "${target_dir}/diffusion_models"
     mkdir -p "${target_dir}/unet"
     mkdir -p "${target_dir}/LLavacheckpoints"
+    mkdir -p "${target_dir}/seedvr2"
 
     echo ""
-    echo "--- [1/4] VAE: ae.safetensors (335MB) ---"
+    echo "--- [1/6] VAE: ae.safetensors (335MB) ---"
     download_if_missing \
         "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors" \
         "${target_dir}/vae/ae.safetensors"
 
     echo ""
-    echo "--- [2/4] CLIP: qwen_3_4b.safetensors (8GB) ---"
+    echo "--- [2/6] CLIP: qwen_3_4b.safetensors (8GB) ---"
     download_if_missing \
         "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/text_encoders/qwen_3_4b.safetensors" \
         "${target_dir}/clip/qwen_3_4b.safetensors"
 
     echo ""
-    echo "--- [3/4] UNet: zImageTurboNSFW_43BF16AIO.safetensors (CivitAI) ---"
+    echo "--- [3/6] UNet: zImageTurboNSFW_43BF16AIO.safetensors (CivitAI) ---"
     if [ -f "${target_dir}/unet/zImageTurboNSFW_43BF16AIO.safetensors" ]; then
         echo "  [OK] Already exists: zImageTurboNSFW_43BF16AIO.safetensors"
     else
@@ -151,9 +152,26 @@ setup_models() {
     fi
 
     echo ""
-    echo "--- [4/4] Upscaler: 4xFaceUpDAT.pth ---"
+    echo "--- [4/6] Upscaler: 4xFaceUpDAT.pth ---"
     mkdir -p "${target_dir}/upscale_models"
     download_4x_face_up_dat "${target_dir}/upscale_models/4xFaceUpDAT.pth"
+
+    echo ""
+    echo "--- [5/6] SeedVR2 VAE: ema_vae_fp16.safetensors (~501MB) ---"
+    download_if_missing \
+        "https://huggingface.co/Osrivers/SEEDVR2/resolve/main/ema_vae_fp16.safetensors" \
+        "${target_dir}/seedvr2/ema_vae_fp16.safetensors"
+
+    echo ""
+    echo "--- [6/6] SeedVR2 DiT: seedvr2_ema_7b_fp16.safetensors (~16.5GB) ---"
+    if [ "${SKIP_SEEDVR2_MODELS:-0}" = "1" ]; then
+        echo "  [SKIP] SKIP_SEEDVR2_MODELS=1 — skipping 16.5GB DiT model download."
+        echo "         Set NSFW_COMFY_BYPASS_SEEDVR2=1 on the worker to run without SeedVR2 upscaling."
+    else
+        download_if_missing \
+            "https://huggingface.co/numz/SeedVR2_comfyUI/resolve/main/seedvr2_ema_7b_fp16.safetensors" \
+            "${target_dir}/seedvr2/seedvr2_ema_7b_fp16.safetensors"
+    fi
 }
 
 # -----------------------------------------------
@@ -173,7 +191,7 @@ if [ -d "$VOLUME_DIR" ]; then
     # Always mkdir + link each subdir. Linking only when the volume path already existed could
     # skip upscale_models on some boots; ComfyUI would then keep the empty image layer directory
     # and UpscaleModelLoader would see [] (workflow validation: 4xFaceUpDAT.pth not in list).
-    for subdir in checkpoints clip loras vae unet diffusion_models LLavacheckpoints upscale_models; do
+    for subdir in checkpoints clip loras vae unet diffusion_models LLavacheckpoints upscale_models seedvr2; do
         mkdir -p "${VOLUME_MODELS}/${subdir}"
         rm -rf "${MODELS_DIR}/${subdir}"
         ln -sfn "${VOLUME_MODELS}/${subdir}" "${MODELS_DIR}/${subdir}"
@@ -249,6 +267,20 @@ else
         pip install -q --no-cache-dir -r "${ULTIMATESD_DIR}/requirements.txt" || true
     fi
     echo "  [OK] ComfyUI_UltimateSDUpscale installed!"
+fi
+
+echo ""
+echo "--- Checking numz/ComfyUI-SeedVR2_VideoUpscaler (SeedVR2 nodes) ---"
+SEEDVR2_DIR="${COMFYUI_DIR}/custom_nodes/ComfyUI-SeedVR2_VideoUpscaler"
+if [ -d "${SEEDVR2_DIR}" ]; then
+    echo "  [OK] ComfyUI-SeedVR2_VideoUpscaler already installed"
+else
+    echo "  [!!] ComfyUI-SeedVR2_VideoUpscaler missing — installing..."
+    git clone --depth 1 "https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler.git" "${SEEDVR2_DIR}"
+    if [ -f "${SEEDVR2_DIR}/requirements.txt" ]; then
+        pip install -q --no-cache-dir -r "${SEEDVR2_DIR}/requirements.txt" || true
+    fi
+    echo "  [OK] ComfyUI-SeedVR2_VideoUpscaler installed!"
 fi
 
 echo ""
@@ -492,6 +524,7 @@ import urllib.request
 
 required = {
     "LoadLoraFromUrlOrPath",
+    "Load LoRA From URL",
     "CR Apply LoRA Stack",
     "CR SDXL Aspect Ratio",
     "UltimateSDUpscale",
@@ -500,6 +533,9 @@ required = {
     "Image Film Grain",
     "UNETLoader",
     "CLIPLoader",
+    "SeedVR2LoadVAEModel",
+    "SeedVR2LoadDiTModel",
+    "SeedVR2VideoUpscaler",
     "LayerUtility: LoadJoyCaptionBeta1Model",
     "LayerUtility: JoyCaption2ExtraOptions",
     "LayerUtility: JoyCaptionBeta1",
