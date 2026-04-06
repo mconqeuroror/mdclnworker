@@ -130,7 +130,7 @@
       "scheduler": "beta",
       "denoise": 1,
       "model": [
-        "363",
+        "364",
         0
       ],
       "positive": [
@@ -275,16 +275,35 @@
   },
   "363": {
     "inputs": {
-      "url": "",
-      "strength": 0.6,
+      "toggle": true,
+      "mode": "simple",
+      "num_loras": 1,
+      "lora_1_url": "",
+      "lora_1_strength": 0.6
+    },
+    "class_type": "LoadLoraFromUrlOrPath",
+    "_meta": {
+      "title": "LoRA Stack (URL)"
+    }
+  },
+  "364": {
+    "inputs": {
       "model": [
         "247",
         0
+      ],
+      "clip": [
+        "248",
+        0
+      ],
+      "lora_stack": [
+        "363",
+        0
       ]
     },
-    "class_type": "Load LoRA From URL",
+    "class_type": "CR Apply LoRA Stack",
     "_meta": {
-      "title": "Load LoRA From URL"
+      "title": "Apply LoRA Stack"
     }
   },
   "369": {

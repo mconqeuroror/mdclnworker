@@ -253,7 +253,7 @@ else
 fi
 
 echo ""
-echo "--- Checking glifxyz/ComfyUI-GlifNodes ('Load LoRA From URL' used by nsfw_pro workflow) ---"
+echo "--- Checking glifxyz/ComfyUI-GlifNodes ---"
 GLIFNODES_DIR="${COMFYUI_DIR}/custom_nodes/ComfyUI-GlifNodes"
 if [ -d "${GLIFNODES_DIR}" ]; then
     echo "  [OK] ComfyUI-GlifNodes already installed"
@@ -538,7 +538,6 @@ import urllib.request
 
 required = {
     "LoadLoraFromUrlOrPath",
-    "Load LoRA From URL",
     "CR Apply LoRA Stack",
     "CR SDXL Aspect Ratio",
     "UltimateSDUpscale",

@@ -1330,10 +1330,6 @@ function buildComfyWorkflowPro(params) {
     prompt,
     loraUrl,
     girlLoraStrength,
-    poseStrengths = {},
-    makeupStrength = 0,
-    cumStrength = 0,
-    enhancementStrengths = {},
     postProcessing = {},
     seed,
     width = 1344,
@@ -1351,43 +1347,13 @@ function buildComfyWorkflowPro(params) {
     return null;
   }
 
-  // ── LoRA chain ──────────────────────────────────────────────────────────────
-  const allLoraEntries = buildNsfwLoraStackEntries({
-    loraUrl,
-    girlLoraStrength,
-    poseStrengths,
-    makeupStrength,
-    cumStrength,
-    enhancementStrengths,
-  });
-
-  const primaryLora = allLoraEntries[0];
+  // ── LoRA (node 363 = LoadLoraFromUrlOrPath, node 364 = CR Apply LoRA Stack) ─
+  // Single slot: girl LoRA URL, one strength value applied to both model & clip.
   if (wf["363"]) {
-    wf["363"].inputs.url = primaryLora?.url ?? "";
-    wf["363"].inputs.strength = Math.min(1, Math.max(0, Number(primaryLora?.strength) || 0.6));
-  }
-
-  // Chain additives after node 363 (each takes model from previous, feeds next)
-  const additives = allLoraEntries.slice(1, 4); // up to 3 additives
-  let lastLoraNodeId = "363";
-  additives.forEach((addLora, i) => {
-    if (!addLora?.url) return;
-    const nodeId = `900${i + 1}`;
-    wf[nodeId] = {
-      inputs: {
-        url: addLora.url,
-        strength: Math.min(1, Math.max(0, Number(addLora.strength) || 0)),
-        model: [lastLoraNodeId, 0],
-      },
-      class_type: "Load LoRA From URL",
-      _meta: { title: `Additive LoRA ${i + 1}` },
-    };
-    lastLoraNodeId = nodeId;
-  });
-
-  // Wire KSampler to last LoRA in chain
-  if (wf["276"]) {
-    wf["276"].inputs.model = [lastLoraNodeId, 0];
+    const strength = Math.min(1, Math.max(0, Number(girlLoraStrength) || 0.6));
+    wf["363"].inputs.num_loras = 1;
+    wf["363"].inputs.lora_1_url = loraUrl ?? "";
+    wf["363"].inputs.lora_1_strength = strength;
   }
 
   // ── Aspect ratio (node 50) ──────────────────────────────────────────────────
