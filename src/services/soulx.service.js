@@ -17,6 +17,7 @@ const RUNPOD_API_KEY = process.env.RUNPOD_API_KEY;
 const RUNPOD_SOULX_ENDPOINT_ID = process.env.RUNPOD_SOULX_ENDPOINT_ID;
 const RUNPOD_NSFW_ENDPOINT_ID = process.env.RUNPOD_ENDPOINT_ID;
 const RUNPOD_UPSCALER_ENDPOINT_ID = process.env.RUNPOD_UPSCALER_ENDPOINT_ID;
+const SOULX_ALLOW_SHARED_ENDPOINT = String(process.env.SOULX_ALLOW_SHARED_ENDPOINT || "").trim() === "1";
 
 if (!RUNPOD_SOULX_ENDPOINT_ID) {
   console.warn("⚠️  RUNPOD_SOULX_ENDPOINT_ID not set — Soul-X will not work");
@@ -128,11 +129,20 @@ export async function submitSoulXJob(opts, webhookUrl = null) {
   if (!RUNPOD_API_KEY || !RUNPOD_SOULX_ENDPOINT_ID) {
     throw new Error("Soul-X service not configured (missing RUNPOD_API_KEY or RUNPOD_SOULX_ENDPOINT_ID)");
   }
-  if (
-    (RUNPOD_NSFW_ENDPOINT_ID && RUNPOD_SOULX_ENDPOINT_ID === RUNPOD_NSFW_ENDPOINT_ID) ||
-    (RUNPOD_UPSCALER_ENDPOINT_ID && RUNPOD_SOULX_ENDPOINT_ID === RUNPOD_UPSCALER_ENDPOINT_ID)
-  ) {
-    throw new Error("Soul-X endpoint misconfigured: RUNPOD_SOULX_ENDPOINT_ID must be a dedicated endpoint");
+  const overlapsNsfw = RUNPOD_NSFW_ENDPOINT_ID && RUNPOD_SOULX_ENDPOINT_ID === RUNPOD_NSFW_ENDPOINT_ID;
+  const overlapsUpscaler =
+    RUNPOD_UPSCALER_ENDPOINT_ID && RUNPOD_SOULX_ENDPOINT_ID === RUNPOD_UPSCALER_ENDPOINT_ID;
+  if (overlapsNsfw || overlapsUpscaler) {
+    if (!SOULX_ALLOW_SHARED_ENDPOINT) {
+      throw new Error(
+        "Soul-X endpoint misconfigured: RUNPOD_SOULX_ENDPOINT_ID overlaps another endpoint. " +
+          "Set a dedicated endpoint, or set SOULX_ALLOW_SHARED_ENDPOINT=1 to override.",
+      );
+    }
+    console.warn(
+      "[SoulX] WARNING: shared endpoint override enabled (SOULX_ALLOW_SHARED_ENDPOINT=1). " +
+        "Soul-X jobs may compete with NSFW/upscaler capacity.",
+    );
   }
 
   const payload = buildSoulXPayload(opts);
