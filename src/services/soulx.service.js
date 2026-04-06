@@ -28,7 +28,11 @@ export const SOULX_CREDITS = {
   withModel_2: 25,
 };
 
-export const SOULX_OUTPUT_NODE = "373";
+// Use node 369 (post-generation SaveImage, before SeedVR2 upscale).
+// The SeedVR2 nodes (370-373) are stripped at build time to avoid OOM on the worker.
+export const SOULX_OUTPUT_NODE = "369";
+// SeedVR2 upscaler nodes to remove from workflow to reduce VRAM usage
+const SOULX_UPSCALE_NODES = ["370", "371", "372", "373"];
 
 // Aspect ratio presets matching CR SDXL Aspect Ratio node values
 const ASPECT_RATIO_MAP = {
@@ -72,6 +76,11 @@ export function buildSoulXPayload({ prompt, aspectRatio = "9:16", loraUrl = null
   const variant = loraUrl ? "lora" : "nolora";
   const wf = loadWorkflow(variant);
   if (!wf) throw new Error("Soul-X workflow not found");
+
+  // Strip SeedVR2 upscaler nodes to avoid OOM — output comes from node 369 directly
+  for (const nodeId of SOULX_UPSCALE_NODES) {
+    delete wf[nodeId];
+  }
 
   // Randomise seed
   if (wf["57"]) {
