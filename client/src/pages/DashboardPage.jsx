@@ -54,6 +54,7 @@ import VideoRepurposerPage from "./VideoRepurposerPage";
 import ReferralProgramPage from "./ReferralProgramPage";
 import ViralReelFinderPage from "./ViralReelFinderPage";
 import ContentReformatterPage from "./ContentReformatterPage";
+import UpscalerPage from "./UpscalerPage";
 import CreatorStudioPage from "./CreatorStudioPage";
 import AddCreditsModal from "../components/AddCreditsModal";
 import PurchaseSuccessModal from "../components/PurchaseSuccessModal";
@@ -770,6 +771,7 @@ export default function DashboardPage() {
         {activeTab === "creator-studio" && <CreatorStudioPage sidebarCollapsed={sidebarNarrow} initialTab="generate" initialModelId={voiceStudioInitialModelId} initialPrompt={creatorStudioInitialPrompt} />}
         {activeTab === "voice-studio" && <CreatorStudioPage sidebarCollapsed={sidebarNarrow} initialTab="voices" initialModelId={voiceStudioInitialModelId} />}
         {activeTab === "reformatter" && <ContentReformatterPage />}
+          {activeTab === "upscaler" && <UpscalerPage />}
           {activeTab === "history" && <HistoryPage />}
           {activeTab === "settings" && <SettingsPage />}
           {!hideRestrictedTabs && activeTab === "nsfw" && <NSFWPage embedded sidebarCollapsed={sidebarNarrow} setDashboardTab={(tab, videoId) => { setActiveTab(tab); if (videoId) setCourseVideoId(videoId); }} />}

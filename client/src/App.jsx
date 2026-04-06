@@ -44,6 +44,7 @@ import FaceRefTestPage from './pages/FaceRefTestPage';
 import NSFWPage from './pages/NSFWPage';
 import FreeCourseFunnelPage from './pages/FreeCourseFunnelPage';
 import ContentReformatterPage from './pages/ContentReformatterPage';
+import UpscalerPage from './pages/UpscalerPage';
 import LanderNewPage from './pages/LanderNewPage';
 import AdminLanderEditorPage from './pages/AdminLanderEditorPage';
 import AdminLanderPreviewFrame from './pages/AdminLanderPreviewFrame';
@@ -605,6 +606,14 @@ function App() {
             element={
               <ProtectedRouteWithOnboarding>
                 <ContentReformatterPage />
+              </ProtectedRouteWithOnboarding>
+            }
+          />
+          <Route
+            path="/upscaler"
+            element={
+              <ProtectedRouteWithOnboarding>
+                <UpscalerPage />
               </ProtectedRouteWithOnboarding>
             }
           />

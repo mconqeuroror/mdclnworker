@@ -2674,4 +2674,180 @@ router.get("/download", authMiddleware, downloadLimiter, async (req, res) => {
   }
 });
 
+// ── Upscaler ──────────────────────────────────────────────────────────────────
+import {
+  UPSCALER_CREDIT_COST,
+  submitUpscalerJob,
+  pollUpscalerJob,
+  extractUpscalerImage,
+} from "../services/upscaler.service.js";
+import { uploadBufferToBlobOrR2 } from "../utils/kieUpload.js";
+
+const upscalerUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith("image/")) cb(null, true);
+    else cb(new Error("Only image files are supported for upscaling."));
+  },
+});
+
+router.post(
+  "/upscale",
+  authMiddleware,
+  generationLimiter,
+  upscalerUpload.single("image"),
+  async (req, res) => {
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json({ success: false, error: "Unauthorized" });
+    if (!req.file) return res.status(400).json({ success: false, error: "No image file provided" });
+
+    const { deductCredits, checkAndExpireCredits, refundCredits } = await import("../services/credit.service.js");
+
+    let generationId = null;
+    let creditDeducted = false;
+
+    try {
+      const user = await checkAndExpireCredits(userId);
+      const totalCredits = (user?.credits ?? 0) + (user?.bonusCredits ?? 0);
+      if (totalCredits < UPSCALER_CREDIT_COST) {
+        return res.status(402).json({
+          success: false,
+          error: `Not enough credits. Upscaling costs ${UPSCALER_CREDIT_COST} credits (you have ${totalCredits}).`,
+          creditsNeeded: UPSCALER_CREDIT_COST,
+          creditsAvailable: totalCredits,
+        });
+      }
+
+      const imageBuffer = req.file.buffer;
+      const imageBase64 = imageBuffer.toString("base64");
+      const filename = `upscale_${Date.now()}.jpg`;
+
+      // Create generation record
+      const gen = await prisma.generation.create({
+        data: {
+          userId,
+          type: "upscale",
+          status: "processing",
+          inputImageUrl: JSON.stringify({ submitting: true }),
+        },
+      });
+      generationId = gen.id;
+
+      // Deduct credits
+      await deductCredits(userId, UPSCALER_CREDIT_COST);
+      creditDeducted = true;
+
+      // Submit to RunPod
+      const runpodJobId = await submitUpscalerJob(imageBase64, filename);
+
+      // Update record with job ID
+      await prisma.generation.update({
+        where: { id: generationId },
+        data: { inputImageUrl: JSON.stringify({ runpodJobId }) },
+      });
+
+      return res.json({ success: true, generationId, runpodJobId });
+    } catch (err) {
+      console.error("[Upscaler] submit error:", err.message);
+      if (creditDeducted && userId) {
+        try { await refundCredits(userId, UPSCALER_CREDIT_COST); } catch {}
+      }
+      if (generationId) {
+        await prisma.generation.update({
+          where: { id: generationId },
+          data: { status: "failed", errorMessage: err.message.slice(0, 500) },
+        }).catch(() => {});
+      }
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  }
+);
+
+router.get("/upscale/status/:generationId", authMiddleware, async (req, res) => {
+  const userId = req.user?.userId;
+  const { generationId } = req.params;
+
+  try {
+    const gen = await prisma.generation.findUnique({ where: { id: generationId } });
+    if (!gen || gen.userId !== userId) {
+      return res.status(404).json({ success: false, error: "Not found" });
+    }
+
+    // Already done
+    if (gen.status === "completed" || gen.status === "failed") {
+      return res.json({
+        success: true,
+        status: gen.status,
+        imageUrl: gen.outputImageUrl ?? null,
+        error: gen.errorMessage ?? null,
+      });
+    }
+
+    // Poll RunPod
+    let meta = {};
+    try { meta = JSON.parse(gen.inputImageUrl || "{}"); } catch {}
+    const { runpodJobId } = meta;
+
+    if (!runpodJobId) {
+      return res.json({ success: true, status: "processing" });
+    }
+
+    const rpStatus = await pollUpscalerJob(runpodJobId);
+    const st = rpStatus.status;
+
+    if (st === "FAILED" || st === "CANCELLED") {
+      const errMsg = rpStatus.output?.error || rpStatus.error || "RunPod job failed";
+      await prisma.generation.update({
+        where: { id: gen.id },
+        data: { status: "failed", errorMessage: String(errMsg).slice(0, 500), completedAt: new Date() },
+      });
+      // Refund
+      try {
+        const { refundCredits } = await import("../services/credit.service.js");
+        await refundCredits(userId, UPSCALER_CREDIT_COST);
+      } catch {}
+      return res.json({ success: true, status: "failed", error: String(errMsg) });
+    }
+
+    if (st === "COMPLETED") {
+      const imageData = extractUpscalerImage(rpStatus.output ?? rpStatus);
+      if (!imageData) {
+        await prisma.generation.update({
+          where: { id: gen.id },
+          data: { status: "failed", errorMessage: "No image in output", completedAt: new Date() },
+        });
+        return res.json({ success: true, status: "failed", error: "No image in output" });
+      }
+
+      // Upload to blob storage
+      let outputUrl;
+      try {
+        if (imageData.startsWith("http")) {
+          outputUrl = imageData;
+        } else {
+          const buf = Buffer.from(imageData, "base64");
+          outputUrl = await uploadBufferToBlobOrR2(buf, "upscaled", "png", "image/png");
+        }
+      } catch (uploadErr) {
+        console.error("[Upscaler] upload error:", uploadErr.message);
+        outputUrl = `data:image/png;base64,${imageData}`;
+      }
+
+      await prisma.generation.update({
+        where: { id: gen.id },
+        data: { status: "completed", outputImageUrl: outputUrl, completedAt: new Date() },
+      });
+
+      return res.json({ success: true, status: "completed", imageUrl: outputUrl });
+    }
+
+    // Still in queue / running
+    return res.json({ success: true, status: "processing" });
+  } catch (err) {
+    console.error("[Upscaler] status error:", err.message);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 export default router;
