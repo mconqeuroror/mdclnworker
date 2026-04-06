@@ -473,6 +473,7 @@ function GenerateTab({ isDark }) {
   }, []);
 
   const handleGenerate = async () => {
+    if (generating) return;
     if (!prompt.trim()) { toast.error("Enter a prompt first"); return; }
     if (mode === "character" && !selectedModelId) { toast.error("Select a model"); return; }
     if (mode === "character" && !selectedCharacterId) { toast.error("Select a character identity"); return; }
@@ -489,9 +490,29 @@ function GenerateTab({ isDark }) {
         quantity: qty,
       }, { headers: { Authorization: `Bearer ${token}` } });
 
-      const generationIds = Array.isArray(res.data?.generationIds) ? res.data.generationIds : [];
+      let generationIds = Array.isArray(res.data?.generationIds) ? res.data.generationIds : [];
       if (!generationIds.length) {
-        toast.error(res.data?.error || "Server did not return a generation id");
+        // Sometimes upstream/proxy returns 200 with an empty/partial body.
+        // Try to recover by finding a very recent Soul-X generation in processing.
+        try {
+          const recent = await axios.get("/api/generations", {
+            params: { type: "soulx", limit: 8, offset: 0 },
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const rows = Array.isArray(recent.data?.generations) ? recent.data.generations : [];
+          const now = Date.now();
+          const recovered = rows.find((g) => {
+            const st = String(g?.status || "").toLowerCase();
+            const ts = g?.createdAt ? new Date(g.createdAt).getTime() : 0;
+            return g?.id && (st === "processing" || st === "pending") && ts > 0 && (now - ts) < 2 * 60 * 1000;
+          });
+          generationIds = recovered?.id ? [recovered.id] : [];
+        } catch {
+          generationIds = [];
+        }
+      }
+      if (!generationIds.length) {
+        toast.error(res.data?.error || "Submission unstable. Please retry once.");
         return;
       }
       const newResults = generationIds.map((id) => ({ generationId: id, status: "processing", imageUrl: null }));
