@@ -2728,6 +2728,8 @@ router.post(
         data: {
           userId,
           type: "upscale",
+          prompt: "",
+          creditsCost: UPSCALER_CREDIT_COST,
           status: "processing",
           inputImageUrl: JSON.stringify({ submitting: true }),
         },
@@ -2779,7 +2781,7 @@ router.get("/upscale/status/:generationId", authMiddleware, async (req, res) => 
       return res.json({
         success: true,
         status: gen.status,
-        imageUrl: gen.outputImageUrl ?? null,
+        imageUrl: gen.outputUrl ?? null,
         error: gen.errorMessage ?? null,
       });
     }
@@ -2836,7 +2838,7 @@ router.get("/upscale/status/:generationId", authMiddleware, async (req, res) => 
 
       await prisma.generation.update({
         where: { id: gen.id },
-        data: { status: "completed", outputImageUrl: outputUrl, completedAt: new Date() },
+        data: { status: "completed", outputUrl, completedAt: new Date() },
       });
 
       return res.json({ success: true, status: "completed", imageUrl: outputUrl });
