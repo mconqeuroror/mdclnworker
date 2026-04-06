@@ -82,6 +82,8 @@ RUN chmod +x /workspace/setup_custom_nodes.sh && /workspace/setup_custom_nodes.s
 # Verify required custom nodes cloned correctly
 RUN test -d /workspace/ComfyUI/custom_nodes/ComfyUI-load-lora-from-url || \
     (echo "ERROR: bollerdominik/ComfyUI-load-lora-from-url failed to clone" && exit 1)
+RUN test -d /workspace/ComfyUI/custom_nodes/ComfyUI-GlifNodes || \
+    (echo "ERROR: glifxyz/ComfyUI-GlifNodes failed to clone (provides 'Load LoRA From URL' used by nsfw_pro workflow)" && exit 1)
 RUN test -d /workspace/ComfyUI/custom_nodes/ComfyUI_Comfyroll_CustomNodes || \
     (echo "ERROR: Suzie1/ComfyUI_Comfyroll_CustomNodes failed to clone" && exit 1)
 RUN test -d /workspace/ComfyUI/custom_nodes/ComfyUI_LayerStyle_Advance || \

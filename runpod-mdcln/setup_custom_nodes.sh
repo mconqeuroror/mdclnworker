@@ -8,6 +8,7 @@ mkdir -p "${CUSTOM_NODES_DIR}"
 REQUIRED_REPOS=(
   "Acly/comfyui-tooling-nodes"
   "bollerdominik/ComfyUI-load-lora-from-url"
+  "glifxyz/ComfyUI-GlifNodes"
   "Suzie1/ComfyUI_Comfyroll_CustomNodes"
   "chflame163/ComfyUI_LayerStyle_Advance"
   "1038lab/ComfyUI-JoyCaption"

@@ -251,6 +251,20 @@ else
     fi
     echo "  [OK] ComfyUI-load-lora-from-url installed!"
 fi
+
+echo ""
+echo "--- Checking glifxyz/ComfyUI-GlifNodes ('Load LoRA From URL' used by nsfw_pro workflow) ---"
+GLIFNODES_DIR="${COMFYUI_DIR}/custom_nodes/ComfyUI-GlifNodes"
+if [ -d "${GLIFNODES_DIR}" ]; then
+    echo "  [OK] ComfyUI-GlifNodes already installed"
+else
+    echo "  [!!] ComfyUI-GlifNodes missing — installing..."
+    git clone --depth 1 "https://github.com/glifxyz/ComfyUI-GlifNodes.git" "${GLIFNODES_DIR}"
+    if [ -f "${GLIFNODES_DIR}/requirements.txt" ]; then
+        pip install -q --no-cache-dir -r "${GLIFNODES_DIR}/requirements.txt" || true
+    fi
+    echo "  [OK] ComfyUI-GlifNodes installed!"
+fi
 # Remove old node packages if they exist (superseded)
 rm -rf "${COMFYUI_DIR}/custom_nodes/ComfyUI_LoRA_from_URL" 2>/dev/null || true
 rm -rf "${COMFYUI_DIR}/custom_nodes/ComfyUI-EasyCivitai-XTNodes" 2>/dev/null || true
