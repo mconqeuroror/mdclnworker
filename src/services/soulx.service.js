@@ -15,6 +15,8 @@ const __dirname = path.dirname(__filename);
 
 const RUNPOD_API_KEY = process.env.RUNPOD_API_KEY;
 const RUNPOD_SOULX_ENDPOINT_ID = process.env.RUNPOD_SOULX_ENDPOINT_ID;
+const RUNPOD_NSFW_ENDPOINT_ID = process.env.RUNPOD_ENDPOINT_ID;
+const RUNPOD_UPSCALER_ENDPOINT_ID = process.env.RUNPOD_UPSCALER_ENDPOINT_ID;
 
 if (!RUNPOD_SOULX_ENDPOINT_ID) {
   console.warn("⚠️  RUNPOD_SOULX_ENDPOINT_ID not set — Soul-X will not work");
@@ -126,9 +128,18 @@ export async function submitSoulXJob(opts, webhookUrl = null) {
   if (!RUNPOD_API_KEY || !RUNPOD_SOULX_ENDPOINT_ID) {
     throw new Error("Soul-X service not configured (missing RUNPOD_API_KEY or RUNPOD_SOULX_ENDPOINT_ID)");
   }
+  if (
+    (RUNPOD_NSFW_ENDPOINT_ID && RUNPOD_SOULX_ENDPOINT_ID === RUNPOD_NSFW_ENDPOINT_ID) ||
+    (RUNPOD_UPSCALER_ENDPOINT_ID && RUNPOD_SOULX_ENDPOINT_ID === RUNPOD_UPSCALER_ENDPOINT_ID)
+  ) {
+    throw new Error("Soul-X endpoint misconfigured: RUNPOD_SOULX_ENDPOINT_ID must be a dedicated endpoint");
+  }
 
   const payload = buildSoulXPayload(opts);
   const base = `https://api.runpod.ai/v2/${RUNPOD_SOULX_ENDPOINT_ID}`;
+  console.log(
+    `[SoulX] submit endpoint=${RUNPOD_SOULX_ENDPOINT_ID} output_node=${payload.output_node_id} has_lora=${!!opts?.loraUrl}`,
+  );
 
   const body = { input: payload };
   if (webhookUrl) {

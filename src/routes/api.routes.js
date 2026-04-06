@@ -2961,7 +2961,7 @@ router.post("/soulx/generate", authMiddleware, generationLimiter, async (req, re
 
       await prisma.generation.update({
         where: { id: gen.id },
-        data: { inputImageUrl: JSON.stringify({ runpodJobId: jobId }) },
+        data: { inputImageUrl: JSON.stringify({ runpodJobId: jobId, provider: "runpod-soulx" }) },
       });
 
       generationIds.push(gen.id);
