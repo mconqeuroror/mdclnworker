@@ -2852,4 +2852,385 @@ router.get("/upscale/status/:generationId", authMiddleware, async (req, res) => 
   }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// SOUL-X GENERATION ROUTES
+// ─────────────────────────────────────────────────────────────────────────────
+import {
+  submitSoulXJob,
+  pollSoulXJob,
+  extractSoulXImages,
+  SOULX_CREDITS,
+} from "../services/soulx.service.js";
+
+// POST /api/soulx/generate
+router.post("/soulx/generate", authMiddleware, generationLimiter, async (req, res) => {
+  const userId = req.user?.userId;
+  if (!userId) return res.status(401).json({ success: false, error: "Unauthorized" });
+
+  const {
+    prompt,
+    modelId = null,
+    characterLoraId = null,
+    aspectRatio = "9:16",
+    quantity = 1,
+  } = req.body;
+
+  if (!prompt || !prompt.trim()) {
+    return res.status(400).json({ success: false, error: "Prompt is required" });
+  }
+
+  const qty = quantity === 2 ? 2 : 1;
+  const useCharacter = Boolean(modelId && characterLoraId);
+
+  const { deductCredits, checkAndExpireCredits, refundCredits } = await import("../services/credit.service.js");
+
+  await checkAndExpireCredits(userId);
+
+  // Determine credit cost
+  let costPer;
+  if (qty === 2) {
+    costPer = useCharacter ? SOULX_CREDITS.withModel_2 : SOULX_CREDITS.noModel_2;
+  } else {
+    costPer = useCharacter ? SOULX_CREDITS.withModel_1 : SOULX_CREDITS.noModel_1;
+  }
+
+  let loraUrl = null;
+  let triggerWord = null;
+
+  if (useCharacter) {
+    const lora = await prisma.trainedLora.findFirst({
+      where: { id: characterLoraId, modelId, status: "ready", category: "soulx" },
+    });
+    if (!lora) {
+      return res.status(400).json({ success: false, error: "Character identity not found or not ready for generation." });
+    }
+    loraUrl = lora.loraUrl;
+    triggerWord = lora.triggerWord;
+  }
+
+  const deducted = await deductCredits(userId, costPer);
+  if (!deducted) {
+    return res.status(402).json({ success: false, error: "Insufficient credits" });
+  }
+
+  const generationIds = [];
+  const numJobs = qty === 2 ? 2 : 1;
+  const costEach = qty === 2
+    ? (useCharacter ? [15, 10] : [10, 5])
+    : [costPer];
+
+  // For qty=2, submit two separate single-image jobs
+  for (let i = 0; i < numJobs; i++) {
+    const thisCost = costEach[i] || costPer;
+    let gen;
+    try {
+      gen = await prisma.generation.create({
+        data: {
+          userId,
+          modelId: modelId || null,
+          type: "soulx",
+          prompt: prompt.trim(),
+          status: "processing",
+          creditsCost: thisCost,
+          replicateModel: "comfyui-soulx",
+        },
+      });
+
+      const jobId = await submitSoulXJob({
+        prompt: prompt.trim(),
+        aspectRatio,
+        loraUrl,
+        loraStrength: 0.8,
+        triggerWord,
+      });
+
+      await prisma.generation.update({
+        where: { id: gen.id },
+        data: { inputImageUrl: JSON.stringify({ runpodJobId: jobId }) },
+      });
+
+      generationIds.push(gen.id);
+    } catch (err) {
+      console.error("[SoulX] Generation submit error:", err.message);
+      if (gen) {
+        await prisma.generation.update({
+          where: { id: gen.id },
+          data: { status: "failed", errorMessage: err.message },
+        });
+      }
+      await refundCredits(userId, costPer);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  }
+
+  return res.json({ success: true, generationIds });
+});
+
+// GET /api/soulx/status/:generationId
+router.get("/soulx/status/:generationId", authMiddleware, async (req, res) => {
+  const userId = req.user?.userId;
+  const { generationId } = req.params;
+
+  try {
+    const gen = await prisma.generation.findUnique({ where: { id: generationId } });
+    if (!gen || gen.userId !== userId) {
+      return res.status(404).json({ success: false, error: "Generation not found" });
+    }
+
+    if (gen.status === "completed") {
+      return res.json({ success: true, status: "completed", imageUrl: gen.outputUrl });
+    }
+    if (gen.status === "failed") {
+      return res.json({ success: true, status: "failed", error: gen.errorMessage });
+    }
+
+    // Parse RunPod job ID
+    let runpodJobId;
+    try {
+      const meta = JSON.parse(gen.inputImageUrl || "{}");
+      runpodJobId = meta.runpodJobId;
+    } catch (_) { /* ignore */ }
+
+    if (!runpodJobId) {
+      return res.json({ success: true, status: "processing" });
+    }
+
+    const jobData = await pollSoulXJob(runpodJobId);
+    const rpStatus = (jobData.status || "").toLowerCase();
+
+    if (rpStatus === "failed" || rpStatus === "error") {
+      const errMsg = jobData.error || "Worker failed";
+      await prisma.generation.update({
+        where: { id: gen.id },
+        data: { status: "failed", errorMessage: errMsg },
+      });
+      const { refundCredits } = await import("../services/credit.service.js");
+      await refundCredits(userId, gen.creditsCost || 0);
+      return res.json({ success: true, status: "failed", error: errMsg });
+    }
+
+    if (rpStatus === "completed") {
+      const images = extractSoulXImages(jobData);
+      if (!images.length) {
+        const errMsg = "No image returned from worker";
+        await prisma.generation.update({
+          where: { id: gen.id },
+          data: { status: "failed", errorMessage: errMsg },
+        });
+        return res.json({ success: true, status: "failed", error: errMsg });
+      }
+
+      const imageData = images[0];
+      let outputUrl;
+      try {
+        if (imageData.startsWith("http")) {
+          outputUrl = imageData;
+        } else {
+          const buf = Buffer.from(imageData, "base64");
+          outputUrl = await uploadBufferToBlobOrR2(buf, "soulx", "png", "image/png");
+        }
+      } catch (uploadErr) {
+        console.error("[SoulX] upload error:", uploadErr.message);
+        outputUrl = `data:image/png;base64,${imageData}`;
+      }
+
+      await prisma.generation.update({
+        where: { id: gen.id },
+        data: { status: "completed", outputUrl, completedAt: new Date() },
+      });
+
+      return res.json({ success: true, status: "completed", imageUrl: outputUrl });
+    }
+
+    return res.json({ success: true, status: "processing" });
+  } catch (err) {
+    console.error("[SoulX] status error:", err.message);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SOUL-X CHARACTER IDENTITY ROUTES (reuse TrainedLora with category="soulx")
+// ─────────────────────────────────────────────────────────────────────────────
+
+// POST /api/soulx/character/create
+router.post("/soulx/character/create", authMiddleware, generationLimiter, async (req, res) => {
+  try {
+    const { modelId, name, trainingMode } = req.body;
+    const userId = req.user.userId;
+    const mode = trainingMode === "pro" ? "pro" : "standard";
+
+    if (!modelId) return res.status(400).json({ success: false, message: "modelId is required" });
+
+    const model = await prisma.savedModel.findUnique({ where: { id: modelId } });
+    if (!model) return res.status(404).json({ success: false, message: "Model not found" });
+    if (model.userId !== userId) return res.status(403).json({ success: false, message: "Not authorized" });
+
+    // Only one SoulX character per model
+    const existing = await prisma.trainedLora.findFirst({
+      where: { modelId, category: "soulx" },
+    });
+    if (existing) {
+      return res.status(409).json({
+        success: false,
+        message: "A Soul-X character identity already exists for this model.",
+        lora: existing,
+      });
+    }
+
+    const loraName = name?.trim() || `${model.name || "Character"} Soul-X`;
+
+    const lora = await prisma.trainedLora.create({
+      data: {
+        modelId,
+        name: loraName,
+        status: "awaiting_images",
+        trainingMode: mode,
+        category: "soulx",
+      },
+    });
+
+    return res.json({ success: true, lora });
+  } catch (err) {
+    console.error("[SoulX] create character error:", err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// GET /api/soulx/characters/:modelId
+router.get("/soulx/characters/:modelId", authMiddleware, async (req, res) => {
+  try {
+    const { modelId } = req.params;
+    const userId = req.user.userId;
+
+    const model = await prisma.savedModel.findUnique({ where: { id: modelId } });
+    if (!model || model.userId !== userId) {
+      return res.status(403).json({ success: false, message: "Not authorized" });
+    }
+
+    const characters = await prisma.trainedLora.findMany({
+      where: { modelId, category: "soulx" },
+      include: { trainingImages: { select: { id: true, imageUrl: true, status: true } } },
+      orderBy: { createdAt: "desc" },
+    });
+
+    return res.json({ success: true, characters });
+  } catch (err) {
+    console.error("[SoulX] get characters error:", err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// DELETE /api/soulx/character/:loraId
+router.delete("/soulx/character/:loraId", authMiddleware, async (req, res) => {
+  try {
+    const { loraId } = req.params;
+    const userId = req.user.userId;
+
+    const lora = await prisma.trainedLora.findUnique({
+      where: { id: loraId },
+      include: { model: { select: { userId: true } } },
+    });
+    if (!lora || lora.model.userId !== userId) {
+      return res.status(403).json({ success: false, message: "Not authorized" });
+    }
+    if (lora.category !== "soulx") {
+      return res.status(400).json({ success: false, message: "Not a Soul-X character" });
+    }
+
+    await prisma.trainedLora.delete({ where: { id: loraId } });
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("[SoulX] delete character error:", err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Re-use NSFW image upload routes for SoulX character training
+// POST /api/soulx/character/upload-images  → proxies to NSFW upload logic
+router.post(
+  "/soulx/character/upload-images",
+  authMiddleware,
+  upload.array("photos", 30),
+  async (req, res) => {
+    // Inject loraId from body; the NSFW upload handler requires loraId
+    // Verify the lora is actually a soulx category lora owned by this user
+    const { loraId, modelId } = req.body;
+    const userId = req.user.userId;
+
+    if (!loraId) return res.status(400).json({ success: false, message: "loraId required" });
+
+    try {
+      const lora = await prisma.trainedLora.findUnique({
+        where: { id: loraId },
+        include: { model: { select: { userId: true } } },
+      });
+      if (!lora || lora.model.userId !== userId || lora.category !== "soulx") {
+        return res.status(403).json({ success: false, message: "Not authorized" });
+      }
+
+      // Forward to same handler used by NSFW (duplicate logic inline for isolation)
+      const files = req.files;
+      if (!files || files.length === 0) {
+        return res.status(400).json({ success: false, message: "No files uploaded" });
+      }
+
+      const { uploadFileToR2 } = await import("../utils/r2.js");
+      const uploadedUrls = [];
+
+      for (const file of files) {
+        const url = await uploadFileToR2(file, "training");
+        await prisma.loraTrainingImage.create({
+          data: {
+            modelId: lora.modelId,
+            loraId: lora.id,
+            imageUrl: url,
+            status: "completed",
+          },
+        });
+        uploadedUrls.push(url);
+      }
+
+      return res.json({ success: true, uploadedUrls });
+    } catch (err) {
+      console.error("[SoulX] upload images error:", err);
+      return res.status(500).json({ success: false, message: err.message });
+    }
+  }
+);
+
+// GET /api/soulx/character/training-status/:loraId
+router.get("/soulx/character/training-status/:loraId", authMiddleware, async (req, res) => {
+  try {
+    const { loraId } = req.params;
+    const userId = req.user.userId;
+
+    const lora = await prisma.trainedLora.findUnique({
+      where: { id: loraId },
+      include: {
+        model: { select: { userId: true } },
+        trainingImages: { select: { id: true, imageUrl: true, status: true } },
+      },
+    });
+
+    if (!lora || lora.model.userId !== userId || lora.category !== "soulx") {
+      return res.status(403).json({ success: false, message: "Not authorized" });
+    }
+
+    return res.json({ success: true, lora });
+  } catch (err) {
+    console.error("[SoulX] training status error:", err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// POST /api/soulx/character/train  → trigger fal.ai training (same as NSFW)
+router.post("/soulx/character/train", authMiddleware, generationLimiter, async (req, res) => {
+  // Delegate to the same trainLora controller but for soulx
+  const { trainLora } = await import("../controllers/nsfw.controller.js");
+  // Inject category into body so trainLora can find the correct lora
+  req.body._soulxCategory = "soulx";
+  return trainLora(req, res);
+});
+
 export default router;

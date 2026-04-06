@@ -328,11 +328,13 @@ model TrainedLora {
   updatedAt         DateTime            @updatedAt
   defaultAppearance Json?
   trainingMode      String              @default("standard")
+  category          String              @default("nsfw")
   trainingImages    LoraTrainingImage[]
   model             SavedModel          @relation(fields: [modelId], references: [id], onDelete: Cascade)
 
   @@index([modelId])
   @@index([status])
+  @@index([category])
 }
 
 model LoraTrainingImage {

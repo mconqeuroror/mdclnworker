@@ -30,6 +30,7 @@ import {
   Sun,
   Moon,
   ZoomIn,
+  Wand2,
 } from "lucide-react";
 import { SiTelegram, SiDiscord, SiInstagram } from "react-icons/si";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -65,6 +66,7 @@ const SIDEBAR_COPY = {
     voiceStudio: "Voice Studio",
     reformatter: "Reformatter",
     upscaler: "Upscaler",
+    soulx: "Soul-X",
     history: "History",
     settings: "Settings",
     courses: "Courses",
@@ -93,6 +95,7 @@ const SIDEBAR_COPY = {
     voiceStudio: "Голосовая студия",
     reformatter: "Конвертер",
     upscaler: "Апскейлер",
+    soulx: "Soul-X",
     history: "История",
     settings: "Настройки",
     courses: "Курсы",
@@ -230,6 +233,7 @@ export default function AppSidebar({
     { id: "voice-studio", label: copy.voiceStudio, icon: Mic, premium: true },
     { id: "reformatter", label: copy.reformatter, icon: FileType2 },
     { id: "upscaler", label: copy.upscaler, icon: ZoomIn },
+    { id: "soulx", label: copy.soulx, icon: Wand2 },
     { id: "history", label: copy.history, icon: Clock },
     { id: "settings", label: copy.settings, icon: SettingsIcon },
     { id: "course", label: copy.courses, icon: BookOpen, premium: true },
