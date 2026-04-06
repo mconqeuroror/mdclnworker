@@ -3,12 +3,17 @@
 # ============================================
 FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
 
+# Build-time secret for CivitAI model download (docker build --build-arg CIVITAI_API_KEY=...)
+ARG CIVITAI_API_KEY=""
+
 ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONFAULTHANDLER=1
 ENV TRANSFORMERS_USE_FAST_IMAGE_PROCESSING=0
+# Expose key to setup_models.sh during build
+ENV CIVITAI_API_KEY=${CIVITAI_API_KEY}
 
 # -----------------------------------------------
 # 1. System dependencies
@@ -152,16 +157,14 @@ RUN mkdir -p /workspace/ComfyUI/models/checkpoints \
              /workspace/ComfyUI/models/upscale_models \
              /workspace/ComfyUI/models/seedvr2
 
-# upscale_models is EMPTY in the image. 4xFaceUpDAT.pth (~148MB) is fetched at runtime by
-# start.sh (Google Drive + Hugging Face fallback) into /runpod-volume/models or ComfyUI/models.
-# There is no baked URL in the Dockerfile for that file — see runpod-mdcln/start.sh (download_4x_face_up_dat).
-
-# Models: auto-downloaded to Network Volume by start.sh
-#    OR uncomment below to bake HuggingFace models into image
+# Models: baked into image at build time via setup_models.sh.
+# Requires --build-arg CIVITAI_API_KEY=<key> for the UNet model.
+# Total baked size: ~26GB (VAE 335MB + CLIP 8GB + UNet ~4GB + upscaler 148MB +
+#                          SeedVR2 VAE 501MB + SeedVR2 DiT 16.5GB)
+# Set SKIP_SEEDVR2_MODELS=1 to skip the 16.5GB SeedVR2 DiT for a lighter build.
 COPY setup_models.sh /workspace/setup_models.sh
 RUN chmod +x /workspace/setup_models.sh
-# Optional: bake models into image (adds ~21GB to image size)
-# RUN /workspace/setup_models.sh
+RUN /workspace/setup_models.sh
 
 # -----------------------------------------------
 # 7. Install RunPod SDK + handler
