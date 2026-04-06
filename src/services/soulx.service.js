@@ -95,9 +95,21 @@ export function buildSoulXPayload({ prompt, aspectRatio = "9:16", loraUrl = null
   if (triggerWord && finalPrompt && !finalPrompt.toLowerCase().includes(triggerWord.toLowerCase())) {
     finalPrompt = `${triggerWord}, ${finalPrompt}`;
   }
-  if (wf["56"]) {
-    wf["56"].inputs.string = finalPrompt;
+
+  // Some workers do not have the custom "String Literal" node.
+  // Inline text directly into CLIPTextEncode nodes to avoid workflow validation failures.
+  const negativeFromNode41 =
+    typeof wf["41"]?.inputs?.string === "string"
+      ? wf["41"].inputs.string
+      : "";
+  if (wf["2"]?.inputs) {
+    wf["2"].inputs.text = finalPrompt;
   }
+  if (wf["1"]?.inputs && typeof wf["1"].inputs.text !== "string") {
+    wf["1"].inputs.text = negativeFromNode41;
+  }
+  delete wf["41"];
+  delete wf["56"];
 
   // Patch aspect ratio
   const arValue = ASPECT_RATIO_MAP[aspectRatio] || ASPECT_RATIO_MAP["9:16"];
