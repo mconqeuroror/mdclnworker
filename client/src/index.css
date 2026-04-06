@@ -330,6 +330,12 @@ html.light [data-testid^="download-"] {
 :focus {
   outline: none;
 }
+
+/* Landing page: suppress all focus outlines (no purple edge on click/hover) */
+.landing-page *:focus,
+.landing-page *:focus-visible {
+  outline: none !important;
+}
 :focus-visible {
   outline: 2px solid rgba(226, 217, 255, 0.9);
   outline-offset: 2px;

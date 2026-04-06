@@ -843,7 +843,7 @@ export default function LandingPage() {
   const formatPerCredit = (value) => value.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
 
   return (
-    <div className="min-h-screen bg-black text-white overflow-x-hidden relative">
+    <div className="landing-page min-h-screen bg-black text-white overflow-x-hidden relative">
       <div className="aurora-bg" />
       <ScrollProgress />
       <LiveActivityToast isCreator={isCreator} />
