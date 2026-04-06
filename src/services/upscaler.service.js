@@ -121,7 +121,9 @@ export function extractUpscalerImage(runpodOutput) {
   const images = out.images;
   if (Array.isArray(images) && images.length > 0) {
     const first = images[0];
-    if (typeof first === "string") return first; // raw base64
+    if (typeof first === "string") return first;
+    // handler.py encodes images as { filename, node_id, base64 }
+    if (first?.base64) return first.base64;
     if (first?.data) return first.data;
     if (first?.url) return first.url;
   }

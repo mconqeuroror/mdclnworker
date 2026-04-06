@@ -174,11 +174,12 @@ export function extractSoulXImages(runpodOutput) {
   const out = runpodOutput?.output ?? runpodOutput;
   if (!out) return [];
 
-  // Handler returns { images: [ {data: base64} | base64_string, ... ] }
+  // handler.py encodes images as { filename, node_id, base64 }
   const images = out.images;
   if (Array.isArray(images) && images.length > 0) {
     return images.map((img) => {
       if (typeof img === "string") return img;
+      if (img?.base64) return img.base64;
       if (img?.data) return img.data;
       if (img?.url) return img.url;
       return null;
