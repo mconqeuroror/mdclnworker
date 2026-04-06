@@ -17,7 +17,7 @@
     "api/index.js": {
       "maxDuration": 300,
       "excludeFiles": "node_modules/{ffmpeg-static,ffprobe-static,@ffmpeg-installer}/**",
-      "includeFiles": "attached_assets/nsfw_core_workflow.json"
+      "includeFiles": "{attached_assets/nsfw_core_workflow.json,runpod-mdcln/workflows/**}"
     }
   },
   "headers": [
