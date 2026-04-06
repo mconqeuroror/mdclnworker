@@ -2795,7 +2795,14 @@ router.get("/upscale/status/:generationId", authMiddleware, async (req, res) => 
       return res.json({ success: true, status: "processing" });
     }
 
-    const rpStatus = await pollUpscalerJob(runpodJobId);
+    let rpStatus;
+    try {
+      rpStatus = await pollUpscalerJob(runpodJobId);
+    } catch (pollErr) {
+      // Transient network error — tell client to keep polling
+      console.warn("[Upscaler] poll network error, returning processing:", pollErr.message);
+      return res.json({ success: true, status: "processing" });
+    }
     const st = rpStatus.status;
 
     if (st === "FAILED" || st === "CANCELLED") {
@@ -2995,7 +3002,13 @@ router.get("/soulx/status/:generationId", authMiddleware, async (req, res) => {
       return res.json({ success: true, status: "processing" });
     }
 
-    const jobData = await pollSoulXJob(runpodJobId);
+    let jobData;
+    try {
+      jobData = await pollSoulXJob(runpodJobId);
+    } catch (pollErr) {
+      console.warn("[SoulX] poll network error, returning processing:", pollErr.message);
+      return res.json({ success: true, status: "processing" });
+    }
     const rpStatus = (jobData.status || "").toLowerCase();
 
     if (rpStatus === "failed" || rpStatus === "error") {

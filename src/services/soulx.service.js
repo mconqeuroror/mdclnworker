@@ -153,17 +153,32 @@ export async function pollSoulXJob(runpodJobId) {
   }
 
   const base = `https://api.runpod.ai/v2/${RUNPOD_SOULX_ENDPOINT_ID}`;
-  const resp = await fetch(`${base}/status/${runpodJobId}`, {
-    headers: { Authorization: `Bearer ${RUNPOD_API_KEY}` },
-    signal: AbortSignal.timeout(15_000),
-  });
+  const url = `${base}/status/${runpodJobId}`;
 
-  if (!resp.ok) {
-    const text = await resp.text();
-    throw new Error(`Soul-X poll failed ${resp.status}: ${text.slice(0, 400)}`);
+  let lastErr;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 20_000);
+    try {
+      const resp = await fetch(url, {
+        headers: { Authorization: `Bearer ${RUNPOD_API_KEY}` },
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      if (!resp.ok) {
+        const text = await resp.text();
+        throw new Error(`Soul-X poll failed ${resp.status}: ${text.slice(0, 400)}`);
+      }
+      return resp.json();
+    } catch (err) {
+      clearTimeout(timer);
+      lastErr = err;
+      const cause = err.cause?.message || err.cause?.code || "";
+      console.warn(`[SoulX] poll attempt ${attempt}/3 failed: ${err.message}${cause ? ` (${cause})` : ""}`);
+      if (attempt < 3) await new Promise((r) => setTimeout(r, 2000 * attempt));
+    }
   }
-
-  return resp.json();
+  throw lastErr;
 }
 
 /**

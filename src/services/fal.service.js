@@ -2755,12 +2755,17 @@ export function normalizeRunpodNsfwOutput(raw) {
  */
 export async function checkNsfwGenerationStatus(jobId) {
   try {
-    const response = await fetch(`${RUNPOD_BASE_URL}/status/${jobId}`, {
-      headers: {
-        "Authorization": `Bearer ${RUNPOD_API_KEY}`,
-      },
-      signal: AbortSignal.timeout(15000),
-    });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 20_000);
+    let response;
+    try {
+      response = await fetch(`${RUNPOD_BASE_URL}/status/${jobId}`, {
+        headers: { "Authorization": `Bearer ${RUNPOD_API_KEY}` },
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
 
     if (!response.ok) {
       if (response.status === 404) {
@@ -2846,7 +2851,8 @@ export async function pollNsfwJob(
     try {
       status = await checkNsfwGenerationStatus(jobId);
     } catch (err) {
-      console.warn(`[NSFW poll] Fetch error for ${jobId}: ${err.message} — retrying`);
+      const cause = err.cause?.message || err.cause?.code || "";
+      console.warn(`[NSFW poll] Fetch error for ${jobId}: ${err.message}${cause ? ` (${cause})` : ""} — retrying`);
       continue;
     }
 
