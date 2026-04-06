@@ -3013,9 +3013,14 @@ router.get("/soulx/status/:generationId", authMiddleware, async (req, res) => {
       return res.json({ success: true, status: "processing" });
     }
     const rpStatus = (jobData.status || "").toLowerCase();
+    console.log(`[SoulX] RunPod status for ${runpodJobId}: ${rpStatus} | raw:`, JSON.stringify(jobData).slice(0, 400));
 
-    if (rpStatus === "failed" || rpStatus === "error") {
-      const errMsg = jobData.error || "Worker failed";
+    if (rpStatus === "failed" || rpStatus === "error" || rpStatus === "timed_out" || rpStatus === "cancelled") {
+      const errMsg =
+        jobData.error ||
+        jobData.output?.error ||
+        (typeof jobData.output === "string" ? jobData.output : null) ||
+        `Worker ${rpStatus}`;
       await prisma.generation.update({
         where: { id: gen.id },
         data: { status: "failed", errorMessage: errMsg },
