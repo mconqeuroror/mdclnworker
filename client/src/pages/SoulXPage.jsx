@@ -505,7 +505,42 @@ function GenerateTab({ isDark }) {
         setUser({ ...user, credits: remaining });
       }
     } catch (err) {
-      toast.error(err.response?.data?.error || "Generation failed");
+      const apiError = err?.response?.data?.error;
+      if (apiError) {
+        toast.error(apiError);
+        return;
+      }
+
+      // Network/parse failures can happen after backend already accepted the job.
+      // Recover by looking for a very recent Soul-X processing generation.
+      try {
+        const token = localStorage.getItem("token");
+        const recent = await axios.get("/api/generations", {
+          params: { type: "soulx", limit: 8, offset: 0 },
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const rows = Array.isArray(recent.data?.generations) ? recent.data.generations : [];
+        const now = Date.now();
+        const recovered = rows.find((g) => {
+          const st = String(g?.status || "").toLowerCase();
+          const ts = g?.createdAt ? new Date(g.createdAt).getTime() : 0;
+          return g?.id && (st === "processing" || st === "pending") && ts > 0 && (now - ts) < 2 * 60 * 1000;
+        });
+        if (recovered?.id) {
+          setResults((prev) =>
+            prev.some((r) => r.generationId === recovered.id)
+              ? prev
+              : [{ generationId: recovered.id, status: "processing", imageUrl: null }, ...prev]
+          );
+          startPoll(recovered.id);
+          toast.success("Submission received. Tracking your generation...");
+          return;
+        }
+      } catch {
+        // swallow recovery failures and show a single fallback toast below
+      }
+
+      toast.error("Generation submission failed. Please retry.");
     } finally {
       setGenerating(false);
     }
