@@ -402,7 +402,11 @@ async function generateImageWithSeedream(images, prompt, options = {}) {
         ]
       : [{ url: baseUrl, label: "plain-body" }];
 
-    const MAX_RETRIES = 2; // retries per endpoint before moving to fallback
+    // Seedream submit must return a task ID quickly — use a short per-attempt timeout
+    // so we fail fast and retry rather than blocking the serverless function for 2 minutes.
+    // With 2 retries × 2 endpoints each backoff is 4s/8s → worst case ~3 min, safely inside maxDuration:300.
+    const SEEDREAM_ATTEMPT_TIMEOUT_MS = 30_000;
+    const MAX_RETRIES = 2; // retries per endpoint before trying the fallback endpoint
     let lastError = null;
 
     for (const baseUrl of endpoints) {
@@ -412,7 +416,6 @@ async function generateImageWithSeedream(images, prompt, options = {}) {
         console.log(`[Seedream] WaveSpeed webhook: ${callbackUrl}`);
       }
 
-      let succeeded = false;
       for (let retry = 0; retry <= MAX_RETRIES; retry++) {
         if (retry > 0) {
           const backoffMs = retry * 4_000;
@@ -424,21 +427,29 @@ async function generateImageWithSeedream(images, prompt, options = {}) {
         let submitResponse = null;
         let responseText = "";
 
-        for (const attempt of urlAttempts) {
-          submitResponse = await fetch(attempt.url, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${WAVESPEED_API_KEY}`,
-            },
-            body: JSON.stringify(requestBody),
-            signal: AbortSignal.timeout(WAVESPEED_SUBMIT_TIMEOUT_MS),
-          });
-          responseText = await submitResponse.text();
-          if (submitResponse.ok) break;
-          if (urlAttempts.length > 1) {
-            console.warn(`[Seedream] Submit failed (${attempt.label}) HTTP ${submitResponse.status}; trying next URL variant`);
+        try {
+          for (const attempt of urlAttempts) {
+            submitResponse = await fetch(attempt.url, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${WAVESPEED_API_KEY}`,
+              },
+              body: JSON.stringify(requestBody),
+              signal: AbortSignal.timeout(SEEDREAM_ATTEMPT_TIMEOUT_MS),
+            });
+            responseText = await submitResponse.text();
+            if (submitResponse.ok) break;
+            if (urlAttempts.length > 1) {
+              console.warn(`[Seedream] Submit failed (${attempt.label}) HTTP ${submitResponse.status}; trying next URL variant`);
+            }
           }
+        } catch (fetchErr) {
+          // TimeoutError, AbortError, or "fetch failed" (network down) — treat as transient
+          lastError = fetchErr;
+          const isTimeout = fetchErr.name === "TimeoutError" || fetchErr.name === "AbortError";
+          console.warn(`[Seedream] ${isTimeout ? "Timeout" : "Network error"} on ${endpointLabel} attempt ${retry + 1}/${MAX_RETRIES + 1}: ${fetchErr.message}`);
+          continue; // retry loop will handle backoff
         }
 
         if (submitResponse?.ok) {
@@ -493,10 +504,7 @@ async function generateImageWithSeedream(images, prompt, options = {}) {
           // Hard error (400, 401, 403…) — no point retrying this endpoint
           break;
         }
-        succeeded = false;
       }
-
-      if (succeeded) break;
     }
 
     // All endpoints and retries exhausted
