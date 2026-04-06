@@ -16,7 +16,7 @@ ENV TRANSFORMERS_USE_FAST_IMAGE_PROCESSING=0
 ENV CIVITAI_API_KEY=${CIVITAI_API_KEY}
 
 # -----------------------------------------------
-# 1. System dependencies
+# 1. System dependencies  [rarely changes → stays cached]
 # -----------------------------------------------
 RUN apt-get update && apt-get install -y --no-install-recommends \
     software-properties-common \
@@ -34,12 +34,12 @@ RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1
 WORKDIR /workspace
 
 # -----------------------------------------------
-# 2. Clone ComfyUI
+# 2. Clone ComfyUI  [rarely changes → stays cached]
 # -----------------------------------------------
 RUN git clone https://github.com/comfyanonymous/ComfyUI.git /workspace/ComfyUI
 
 # -----------------------------------------------
-# 3. Install PyTorch with CUDA 12.4
+# 3. PyTorch + ComfyUI requirements  [rarely changes → stays cached]
 # -----------------------------------------------
 RUN pip install --no-cache-dir \
     torch==2.6.0+cu124 \
@@ -47,16 +47,9 @@ RUN pip install --no-cache-dir \
     torchaudio==2.6.0+cu124 \
     --index-url https://download.pytorch.org/whl/cu124
 
-# -----------------------------------------------
-# 4. Install ComfyUI requirements
-# -----------------------------------------------
 RUN pip install --no-cache-dir -r /workspace/ComfyUI/requirements.txt
 
-# -----------------------------------------------
-# 4b. Pre-install ML deps required by ComfyUI_LayerStyle_Advance (JoyCaption Beta1)
-#     Must happen BEFORE custom node installs so layerstyle registers correctly.
-#     bitsandbytes: bf16 mode works without it, but install for 4/8-bit support.
-# -----------------------------------------------
+# ML deps required by ComfyUI_LayerStyle_Advance (JoyCaption Beta1)
 RUN pip install --no-cache-dir \
     "transformers==4.56.1" \
     "tokenizers>=0.20.3" \
@@ -67,13 +60,31 @@ RUN pip install --no-cache-dir \
     bitsandbytes
 
 # -----------------------------------------------
-# 4c. Patch ComfyUI: SDXL encode_adm handles missing pooled_output (Qwen CLIP)
+# 4. Patch ComfyUI  [rarely changes → stays cached]
 # -----------------------------------------------
 COPY patch_comfy_sdxl_pooled.py /workspace/patch_comfy_sdxl_pooled.py
 RUN python3 /workspace/patch_comfy_sdxl_pooled.py
 
 # -----------------------------------------------
-# 5. Install custom nodes
+# 5. Pre-create model directories
+# -----------------------------------------------
+RUN mkdir -p /workspace/ComfyUI/models/checkpoints \
+             /workspace/ComfyUI/models/clip \
+             /workspace/ComfyUI/models/vae \
+             /workspace/ComfyUI/models/loras \
+             /workspace/ComfyUI/models/unet \
+             /workspace/ComfyUI/models/upscale_models \
+             /workspace/ComfyUI/models/seedvr2
+
+# Models are NOT baked into the image — they are downloaded at container start
+# by start.sh into the RunPod network volume and symlinked into ComfyUI.
+# This keeps the image build under the 30-minute CI limit.
+# First boot on a fresh volume downloads ~26 GB; every subsequent boot is instant.
+COPY setup_models.sh /workspace/setup_models.sh
+RUN chmod +x /workspace/setup_models.sh
+
+# -----------------------------------------------
+# 6. Custom nodes  [changes occasionally — cached independently of models above]
 # -----------------------------------------------
 COPY custom_nodes.list /workspace/custom_nodes.list
 COPY setup_custom_nodes.sh /workspace/setup_custom_nodes.sh
@@ -107,7 +118,7 @@ RUN test -d /workspace/ComfyUI/custom_nodes/ComfyUI_UltimateSDUpscale || \
 RUN test -d /workspace/ComfyUI/custom_nodes/ComfyUI-SeedVR2_VideoUpscaler || \
     (echo "ERROR: numz/ComfyUI-SeedVR2_VideoUpscaler failed to clone" && exit 1)
 
-# Install requirements for each custom node
+# Install pip requirements for every custom node
 RUN for dir in /workspace/ComfyUI/custom_nodes/*/; do \
       if [ -f "$dir/requirements.txt" ]; then \
         echo "Installing requirements for $(basename $dir)..." && \
@@ -119,8 +130,7 @@ RUN for dir in /workspace/ComfyUI/custom_nodes/*/; do \
       fi; \
     done
 
-# Explicitly install ComfyUI_LayerStyle_Advance JoyCaption requirements
-# (belt-and-suspenders: guarantees these are present even if requirements.txt install above was partial)
+# Belt-and-suspenders: re-pin JoyCaption + SeedVR2 deps after node installs
 RUN pip install --no-cache-dir \
     "transformers==4.56.1" \
     "tokenizers>=0.20.3" \
@@ -132,7 +142,6 @@ RUN pip install --no-cache-dir \
     peft \
     einops
 
-# SeedVR2 VideoUpscaler requirements (numz/ComfyUI-SeedVR2_VideoUpscaler)
 RUN pip install --no-cache-dir \
     "omegaconf>=2.3.0" \
     "diffusers>=0.33.1" \
@@ -143,33 +152,12 @@ RUN pip install --no-cache-dir \
     matplotlib \
     psutil
 
-# Optional GGUF support deps for 1038lab/ComfyUI-JoyCaption
 RUN if [ -f /workspace/ComfyUI/custom_nodes/ComfyUI-JoyCaption/requirements_gguf.txt ]; then \
       pip install --no-cache-dir -r /workspace/ComfyUI/custom_nodes/ComfyUI-JoyCaption/requirements_gguf.txt; \
     fi
 
 # -----------------------------------------------
-# 6. Pre-create model directories so start.sh can skip mkdir
-# -----------------------------------------------
-RUN mkdir -p /workspace/ComfyUI/models/checkpoints \
-             /workspace/ComfyUI/models/clip \
-             /workspace/ComfyUI/models/vae \
-             /workspace/ComfyUI/models/loras \
-             /workspace/ComfyUI/models/unet \
-             /workspace/ComfyUI/models/upscale_models \
-             /workspace/ComfyUI/models/seedvr2
-
-# Models: baked into image at build time via setup_models.sh.
-# Requires --build-arg CIVITAI_API_KEY=<key> for the UNet model.
-# Total baked size: ~26GB (VAE 335MB + CLIP 8GB + UNet ~4GB + upscaler 148MB +
-#                          SeedVR2 VAE 501MB + SeedVR2 DiT 16.5GB)
-# Set SKIP_SEEDVR2_MODELS=1 to skip the 16.5GB SeedVR2 DiT for a lighter build.
-COPY setup_models.sh /workspace/setup_models.sh
-RUN chmod +x /workspace/setup_models.sh
-RUN /workspace/setup_models.sh
-
-# -----------------------------------------------
-# 7. Install RunPod SDK + handler
+# 7. RunPod handler + startup  [changes frequently — always last so rebuilds are instant]
 # -----------------------------------------------
 RUN pip install --no-cache-dir runpod requests
 
