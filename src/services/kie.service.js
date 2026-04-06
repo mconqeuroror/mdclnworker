@@ -521,7 +521,7 @@ async function kiePollTask(taskId, timeoutMs, label = "task") {
  * Retries up to 3 times on transient KIE failures (busy, server error, timeout).
  */
 async function kieRun(requestBody, label, timeoutMs, options = {}) {
-  const MAX_ATTEMPTS = 3;
+  const MAX_ATTEMPTS = 4;
   let lastErr;
   const callbackUrl = getKieCallbackUrl();
   const forcePolling = options.forcePolling === true; // e.g. create-model-with-AI reference image — no generation record to pair callback to
@@ -531,13 +531,6 @@ async function kieRun(requestBody, label, timeoutMs, options = {}) {
   }
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    if (attempt > 1) {
-      const isRateLimit = lastErr && (lastErr.message || "").toLowerCase().includes("429") || (lastErr?.message || "").toLowerCase().includes("rate limit");
-      // Rate limit: wait just past the 10s KIE window. Other transient: short backoff.
-      const backoff = isRateLimit ? 11_000 : attempt * 5_000; // 11s for 429, 5s/10s otherwise
-      console.log(`[KIE] Retrying ${label} (attempt ${attempt}/${MAX_ATTEMPTS}) after ${backoff / 1000}s — reason: ${lastErr?.message?.slice(0, 100)}`);
-      await new Promise(r => setTimeout(r, backoff));
-    }
 
     try {
       const body = { ...requestBody };
@@ -577,19 +570,26 @@ async function kieRun(requestBody, label, timeoutMs, options = {}) {
         msg.includes("unavailable") ||
         msg.includes("http 5") ||
         msg.includes("http 429") ||
+        msg.includes("http 422") ||            // "generate playground failed, task id is blank" — upstream transient
+        msg.includes("playground failed") ||   // KIE transient: task slot not ready
+        msg.includes("task id is blank") ||
         msg.includes("rate limit") ||
-        msg.includes("fetch failed") ||       // Node.js network-level fetch error
+        msg.includes("fetch failed") ||        // Node.js network-level fetch error
         msg.includes("network") ||
         msg.includes("econnreset") ||
         msg.includes("econnrefused") ||
         msg.includes("socket") ||
         msg.includes("dns") ||
-        err?.name === "TypeError" ||           // fetch() throws TypeError on network failure
+        err?.name === "TypeError" ||            // fetch() throws TypeError on network failure
         err?.code === "ECONNRESET" ||
         err?.code === "ETIMEDOUT";
 
       if (isTransient && attempt < MAX_ATTEMPTS) {
-        console.warn(`[KIE] Transient failure on ${label} (attempt ${attempt}): ${err.message}`);
+        const is422 = msg.includes("http 422") || msg.includes("playground failed") || msg.includes("task id is blank");
+        const is429 = msg.includes("http 429") || msg.includes("rate limit");
+        const backoffMs = is422 ? 15_000 : is429 ? 11_000 : attempt * 5_000;
+        console.warn(`[KIE] Transient failure on ${label} (attempt ${attempt}/${MAX_ATTEMPTS}): ${err.message} — retrying in ${backoffMs / 1000}s`);
+        await new Promise(r => setTimeout(r, backoffMs));
         continue;
       }
       // Hard failure or last attempt — propagate
