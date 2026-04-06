@@ -60,7 +60,7 @@ export function buildUpscalerPayload(imageBase64, filename = "upscale_input.jpg"
   };
 }
 
-export async function submitUpscalerJob(imageBase64, filename = "upscale_input.jpg") {
+export async function submitUpscalerJob(imageBase64, filename = "upscale_input.jpg", webhookUrl = null) {
   if (!RUNPOD_API_KEY || !RUNPOD_UPSCALER_ENDPOINT_ID) {
     throw new Error("Upscaler service not configured (missing RUNPOD_API_KEY or RUNPOD_UPSCALER_ENDPOINT_ID)");
   }
@@ -68,15 +68,24 @@ export async function submitUpscalerJob(imageBase64, filename = "upscale_input.j
   const payload = buildUpscalerPayload(imageBase64, filename);
   const base = `https://api.runpod.ai/v2/${RUNPOD_UPSCALER_ENDPOINT_ID}`;
 
+  const body = { input: payload };
+  if (webhookUrl) {
+    body.webhook = webhookUrl;
+    console.log(`[Upscaler] webhook: ${webhookUrl.slice(0, 80)}`);
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 25_000);
   const resp = await fetch(`${base}/run`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${RUNPOD_API_KEY}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ input: payload }),
-    signal: AbortSignal.timeout(25_000),
+    body: JSON.stringify(body),
+    signal: controller.signal,
   });
+  clearTimeout(timer);
 
   if (!resp.ok) {
     const text = await resp.text();

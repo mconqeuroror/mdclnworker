@@ -113,7 +113,7 @@ export function buildSoulXPayload({ prompt, aspectRatio = "9:16", loraUrl = null
  * Submit a Soul-X generation job to RunPod.
  * Returns the RunPod job ID.
  */
-export async function submitSoulXJob(opts) {
+export async function submitSoulXJob(opts, webhookUrl = null) {
   if (!RUNPOD_API_KEY || !RUNPOD_SOULX_ENDPOINT_ID) {
     throw new Error("Soul-X service not configured (missing RUNPOD_API_KEY or RUNPOD_SOULX_ENDPOINT_ID)");
   }
@@ -121,15 +121,24 @@ export async function submitSoulXJob(opts) {
   const payload = buildSoulXPayload(opts);
   const base = `https://api.runpod.ai/v2/${RUNPOD_SOULX_ENDPOINT_ID}`;
 
+  const body = { input: payload };
+  if (webhookUrl) {
+    body.webhook = webhookUrl;
+    console.log(`[SoulX] webhook: ${webhookUrl.slice(0, 80)}`);
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 25_000);
   const resp = await fetch(`${base}/run`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${RUNPOD_API_KEY}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ input: payload }),
-    signal: AbortSignal.timeout(25_000),
+    body: JSON.stringify(body),
+    signal: controller.signal,
   });
+  clearTimeout(timer);
 
   if (!resp.ok) {
     const text = await resp.text();

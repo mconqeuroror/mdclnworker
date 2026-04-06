@@ -16,6 +16,9 @@ import {
   injectModelIntoPrompt,
   parseRunpodHandlerOutput,
 } from "../services/img2img.service.js";
+import { extractUpscalerImage } from "../services/upscaler.service.js";
+import { extractSoulXImages } from "../services/soulx.service.js";
+import { uploadBufferToBlobOrR2 } from "../utils/kieUpload.js";
 
 const router = express.Router();
 const SECRET = process.env.RUNPOD_WEBHOOK_SECRET?.trim();
@@ -57,6 +60,25 @@ async function findNsfwGenerationByRunpodJobId(jobId) {
       }
     }) || null
   );
+}
+
+async function findGenerationByRunpodJobId(jobId, types) {
+  if (!jobId) return null;
+  const rows = await prisma.generation.findMany({
+    where: {
+      type: { in: types },
+      status: { in: ["processing", "pending"] },
+      createdAt: { gt: new Date(Date.now() - 48 * 60 * 60 * 1000) },
+    },
+    take: 100,
+    orderBy: { createdAt: "desc" },
+  });
+  return rows.find((g) => {
+    try {
+      const j = JSON.parse(g.inputImageUrl || "{}");
+      return j?.runpodJobId === jobId;
+    } catch { return false; }
+  }) || null;
 }
 
 async function findDescribeJobByRunpodJobId(jobId) {
@@ -144,6 +166,59 @@ router.post("/callback", async (req, res) => {
       }
 
       return res.status(200).json({ ok: true, skipped: true, type: "describe", status: st });
+    }
+
+    // ── Upscaler / Soul-X generation ─────────────────────────────────────────
+    const imageGen = await findGenerationByRunpodJobId(jobId, ["upscale", "soulx"]);
+    if (imageGen) {
+      if (st === "FAILED" || st === "CANCELLED") {
+        const msg = rawOut?.error || body.error || "RunPod job failed";
+        await refundGeneration(imageGen.id).catch(() => {});
+        await prisma.generation.updateMany({
+          where: { id: imageGen.id, status: { in: ["processing", "pending"] } },
+          data: { status: "failed", errorMessage: getErrorMessageForDb(String(msg)), completedAt: new Date() },
+        });
+        console.log(`[RunPod webhook] ${imageGen.type} job ${imageGen.id} failed: ${msg}`);
+        return res.status(200).json({ ok: true, type: imageGen.type, failed: true });
+      }
+
+      if (st === "COMPLETED") {
+        // Extract image — upscaler returns single image, soulx returns array
+        let imageData = null;
+        if (imageGen.type === "upscale") {
+          imageData = extractUpscalerImage(rawOut);
+        } else {
+          const imgs = extractSoulXImages(rawOut);
+          imageData = imgs[0] || null;
+        }
+
+        if (!imageData) {
+          console.warn(`[RunPod webhook] ${imageGen.type} COMPLETED but no image in output for ${jobId}`);
+          return res.status(200).json({ ok: true, skipped: true, reason: "no_image" });
+        }
+
+        let outputUrl;
+        try {
+          if (imageData.startsWith("http")) {
+            outputUrl = imageData;
+          } else {
+            const buf = Buffer.from(imageData, "base64");
+            outputUrl = await uploadBufferToBlobOrR2(buf, imageGen.type, "png", "image/png");
+          }
+        } catch (uploadErr) {
+          console.error(`[RunPod webhook] ${imageGen.type} upload error:`, uploadErr.message);
+          outputUrl = `data:image/png;base64,${imageData}`;
+        }
+
+        await prisma.generation.update({
+          where: { id: imageGen.id },
+          data: { status: "completed", outputUrl, completedAt: new Date() },
+        });
+        console.log(`✅ [RunPod webhook] ${imageGen.type} job ${imageGen.id} completed → ${outputUrl.slice(0, 80)}`);
+        return res.status(200).json({ ok: true, type: imageGen.type });
+      }
+
+      return res.status(200).json({ ok: true, skipped: true, type: imageGen.type, status: st });
     }
 
     // ── NSFW generation ───────────────────────────────────────────────────────

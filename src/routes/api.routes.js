@@ -2682,6 +2682,7 @@ import {
   extractUpscalerImage,
 } from "../services/upscaler.service.js";
 import { uploadBufferToBlobOrR2 } from "../utils/kieUpload.js";
+import { resolveRunpodWebhookUrl } from "../lib/runpodWebhookUrl.js";
 
 const upscalerUpload = multer({
   storage: multer.memoryStorage(),
@@ -2740,8 +2741,9 @@ router.post(
       await deductCredits(userId, UPSCALER_CREDIT_COST);
       creditDeducted = true;
 
-      // Submit to RunPod
-      const runpodJobId = await submitUpscalerJob(imageBase64, filename);
+      // Submit to RunPod (with webhook so results arrive even if client stops polling)
+      const webhookUrl = resolveRunpodWebhookUrl();
+      const runpodJobId = await submitUpscalerJob(imageBase64, filename, webhookUrl);
 
       // Update record with job ID
       await prisma.generation.update({
@@ -2943,13 +2945,14 @@ router.post("/soulx/generate", authMiddleware, generationLimiter, async (req, re
         },
       });
 
+      const soulxWebhookUrl = resolveRunpodWebhookUrl();
       const jobId = await submitSoulXJob({
         prompt: prompt.trim(),
         aspectRatio,
         loraUrl,
         loraStrength: 0.8,
         triggerWord,
-      });
+      }, soulxWebhookUrl);
 
       await prisma.generation.update({
         where: { id: gen.id },
