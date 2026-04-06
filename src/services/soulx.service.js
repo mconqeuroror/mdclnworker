@@ -75,7 +75,15 @@ function loadWorkflow(variant) {
  * @param {number} [opts.loraStrength] - LoRA strength 0-1
  * @param {string} [opts.triggerWord] - Character trigger word to prepend to prompt
  */
-export function buildSoulXPayload({ prompt, aspectRatio = "9:16", loraUrl = null, loraStrength = 0.8, triggerWord = null }) {
+export function buildSoulXPayload({
+  prompt,
+  aspectRatio = "9:16",
+  loraUrl = null,
+  loraStrength = 0.8,
+  triggerWord = null,
+  steps = 20,
+  cfg = null,
+}) {
   const variant = loraUrl ? "lora" : "nolora";
   const wf = loadWorkflow(variant);
   if (!wf) throw new Error("Soul-X workflow not found");
@@ -119,7 +127,12 @@ export function buildSoulXPayload({ prompt, aspectRatio = "9:16", loraUrl = null
 
   // Default quality tuning for Soul-X
   if (wf["276"]?.inputs) {
-    wf["276"].inputs.steps = 20;
+    const safeSteps = Math.max(1, Math.min(100, Math.round(Number(steps) || 20)));
+    wf["276"].inputs.steps = safeSteps;
+    if (cfg != null) {
+      const safeCfg = Math.max(0, Math.min(6, Number(cfg) || 0));
+      wf["276"].inputs.cfg = safeCfg;
+    }
   }
 
   // Patch LoRA if applicable

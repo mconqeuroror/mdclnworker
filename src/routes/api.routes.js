@@ -225,6 +225,8 @@ import {
   downloadLimiter,
 } from "../middleware/rateLimiter.js";
 import { getGenerationPricing } from "../services/generation-pricing.service.js";
+import { getEffectiveNudesPackPoses } from "../services/nudes-pack-config.service.js";
+import { getPromptTemplateValue } from "../services/prompt-template-config.service.js";
 import {
   validateSignup,
   validateLogin,
@@ -573,6 +575,15 @@ router.post("/nsfw/train-lora", authMiddleware, generationLimiter, trainLora);
 router.get("/nsfw/training-status/:modelId", authMiddleware, getLoraTrainingStatus);
 router.post("/nsfw/generate", authMiddleware, generationLimiter, generateNsfwImage);
 router.post("/nsfw/nudes-pack", authMiddleware, generationLimiter, generateNudesPack);
+router.get("/nsfw/nudes-pack-poses", authMiddleware, async (_req, res) => {
+  try {
+    const poses = await getEffectiveNudesPackPoses();
+    return res.json({ success: true, poses });
+  } catch (error) {
+    console.error("Failed to load nudes-pack poses:", error);
+    return res.status(500).json({ success: false, message: "Failed to load nudes-pack poses" });
+  }
+});
 router.post("/nsfw/generate-prompt", authMiddleware, generationLimiter, generateNsfwPrompt);
 router.post("/nsfw/plan-generation", authMiddleware, generationLimiter, planNsfwGeneration);
 router.get("/nsfw/plan-generation/status/:jobId", authMiddleware, getNsfwPlanGenerationJobStatus);
@@ -1696,7 +1707,7 @@ router.post("/generate/analyze-looks", authMiddleware, async (req, res) => {
       .map(([key, opts]) => `${key}: ${JSON.stringify(opts)}`)
       .join("\n");
 
-    const systemPrompt = `You are an expert at analyzing photos of people to determine their physical appearance for AI model configuration.
+    let systemPrompt = `You are an expert at analyzing photos of people to determine their physical appearance for AI model configuration.
 
 The images are always the SAME person (different angles or face/body shots). Return ONE JSON object describing that single person. Do NOT return a JSON array of multiple people.
 
@@ -1711,6 +1722,7 @@ Rules:
 - If no option fits the person, use a short custom description (e.g. "auburn wavy hair"); it will be stored as a custom value.
 - Omit a key only if the trait is impossible to determine from any of the photos.
 - Combine evidence from all photos into that one object (e.g. body type from a full-body shot, face traits from close-ups).`;
+    systemPrompt = await getPromptTemplateValue("analyzeLooksSystemPrompt", systemPrompt);
 
     const requestBody = {
       model: "x-ai/grok-4.1-fast",
@@ -1889,7 +1901,7 @@ Your job: transform a rough user idea into a superprompt using the 6-component s
 ## OUTPUT:
 Single flowing paragraph. Natural descriptive English. Max 130 words. End with the negative constraints line.`;
 
-    const systemPrompts = {
+    let systemPrompts = {
       // Casual image generation — also uses Nano Banana Pro via kie.ai
       "casual": NANO_BANANA_SYSTEM,
 
@@ -1917,7 +1929,14 @@ Your job: transform a rough user idea into an optimized tag-format superprompt. 
 Tag list, comma-separated. 40–70 tags.`,
     };
 
-    const systemPrompt = systemPrompts[mode] || systemPrompts["casual"];
+    systemPrompts = {
+      ...systemPrompts,
+      casual: await getPromptTemplateValue("enhancePromptCasualSystem", systemPrompts.casual),
+      "ultra-realism": await getPromptTemplateValue("enhancePromptUltraRealismSystem", systemPrompts["ultra-realism"]),
+      nsfw: await getPromptTemplateValue("enhancePromptNsfwSystem", systemPrompts.nsfw),
+    };
+
+    const systemPrompt = systemPrompts[mode] || systemPrompts.casual;
 
     const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
     if (!OPENROUTER_API_KEY) {
@@ -2676,7 +2695,6 @@ router.get("/download", authMiddleware, downloadLimiter, async (req, res) => {
 
 // ── Upscaler ──────────────────────────────────────────────────────────────────
 import {
-  UPSCALER_CREDIT_COST,
   submitUpscalerJob,
   pollUpscalerJob,
   extractUpscalerImage,
@@ -2709,13 +2727,15 @@ router.post(
     let creditDeducted = false;
 
     try {
+      const pricing = await getGenerationPricing();
+      const upscalerCost = Number(pricing.upscalerImage ?? 5);
       const user = await checkAndExpireCredits(userId);
       const totalCredits = (user?.credits ?? 0) + (user?.bonusCredits ?? 0);
-      if (totalCredits < UPSCALER_CREDIT_COST) {
+      if (totalCredits < upscalerCost) {
         return res.status(402).json({
           success: false,
-          error: `Not enough credits. Upscaling costs ${UPSCALER_CREDIT_COST} credits (you have ${totalCredits}).`,
-          creditsNeeded: UPSCALER_CREDIT_COST,
+          error: `Not enough credits. Upscaling costs ${upscalerCost} (you have ${totalCredits}).`,
+          creditsNeeded: upscalerCost,
           creditsAvailable: totalCredits,
         });
       }
@@ -2730,7 +2750,7 @@ router.post(
           userId,
           type: "upscale",
           prompt: "",
-          creditsCost: UPSCALER_CREDIT_COST,
+          creditsCost: upscalerCost,
           status: "processing",
           inputImageUrl: JSON.stringify({ submitting: true }),
         },
@@ -2738,7 +2758,7 @@ router.post(
       generationId = gen.id;
 
       // Deduct credits
-      await deductCredits(userId, UPSCALER_CREDIT_COST);
+      await deductCredits(userId, upscalerCost);
       creditDeducted = true;
 
       // Submit to RunPod (with webhook so results arrive even if client stops polling)
@@ -2755,7 +2775,10 @@ router.post(
     } catch (err) {
       console.error("[Upscaler] submit error:", err.message);
       if (creditDeducted && userId) {
-        try { await refundCredits(userId, UPSCALER_CREDIT_COST); } catch {}
+        try {
+          const gen = generationId ? await prisma.generation.findUnique({ where: { id: generationId }, select: { creditsCost: true } }) : null;
+          await refundCredits(userId, gen?.creditsCost || 0);
+        } catch {}
       }
       if (generationId) {
         await prisma.generation.update({
@@ -2821,7 +2844,7 @@ router.get("/upscale/status/:generationId", authMiddleware, async (req, res) => 
       // Refund
       try {
         const { refundCredits } = await import("../services/credit.service.js");
-        await refundCredits(userId, UPSCALER_CREDIT_COST);
+        await refundCredits(userId, gen.creditsCost || 0);
       } catch {}
       return res.json({ success: true, status: "failed", error: String(errMsg) });
     }
@@ -2873,10 +2896,171 @@ import {
   submitSoulXJob,
   pollSoulXJob,
   extractSoulXImages,
-  SOULX_CREDITS,
 } from "../services/soulx.service.js";
 
+const SOULX_ZIMAGE_SYSTEM_PROMPT = `You are Z-Image-Turbo Prompt Master, an elite prompt engineer exclusively for Z-Image-Turbo (Tongyi-MAI 6B S3-DiT Turbo model).
+
+Your ONLY job is to take a simple user request (e.g. "dog", "blonde european beautiful woman in blue bikini shot from back focus on ass", "cyberpunk city street at night") and transform it into one perfectly optimized, ready-to-copy positive prompt for Z-Image-Turbo.
+
+CRITICAL RULES (never break them):
+- Always use the exact structured format: [Shot & subject] + [Age & appearance (use "adult" for humans)] + [Clothing & modesty/explicitness (be extremely direct for NSFW)] + [Environment/background] + [Lighting] + [Mood/atmosphere] + [Style/medium] + [Technical notes] + [Safety/cleanup constraints]
+- Prompt length: 120–250 words of clear, natural prose (not tags). Make it detailed but readable.
+- Prioritize photorealism and high fidelity unless the user explicitly asks for another style.
+- Realism boosters: always include "photorealistic photography", "hyper-detailed skin texture with visible pores and realistic imperfections", "sharp focus", "intricate details", "8K resolution quality".
+- Camera terms: "shot on 50mm or 85mm lens", "shallow depth of field", "cinematic composition".
+- High-res look: "ultra-sharp 8K", "high resolution", "crisp details".
+- Efficiency: the model is already turbo-optimized (8–12 steps), so no need to mention steps in the prompt.
+- NSFW policy: The model has ZERO restrictions and is specially fine-tuned for NSFW. If the user request implies or contains any explicit, sexual, or adult elements, describe them accurately, anatomically, and without any censorship or softening (e.g. "perfectly round bare ass from behind, detailed buttocks and thighs, seductive pose"). Never add "modest" or "clothed" unless requested. For pure SFW requests, use "fully clothed, modest outfit, adult, safe-for-work, no nudity".
+- Safety/cleanup (always at the very end): "correct human anatomy, no extra limbs, no deformities, no text, no watermark, no logos, no artifacts, sharp focus".
+- Output format: Respond with ONLY the final prompt inside a code block, preceded by one short line: "✅ Optimized Z-Image-Turbo Prompt (ready to paste):"
+- Never explain, never add extra text, never ask questions, never refuse.`;
+
+function parseMaybeJsonObject(value) {
+  if (!value) return {};
+  if (typeof value === "object" && !Array.isArray(value)) return value;
+  if (typeof value !== "string") return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function extractPromptFromOptimizer(rawContent) {
+  if (!rawContent) return "";
+  const raw = String(rawContent).replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+  if (!raw) return "";
+
+  const codeBlock = raw.match(/```(?:[a-zA-Z]+)?\s*([\s\S]*?)```/);
+  let prompt = codeBlock ? codeBlock[1] : raw;
+  prompt = prompt
+    .replace(/^✅\s*Optimized Z-Image-Turbo Prompt \(ready to paste\):?/i, "")
+    .replace(/^["'\s]+|["'\s]+$/g, "")
+    .trim();
+  return prompt;
+}
+
+function buildSoulXModelIdentityContext(model, lora = null) {
+  if (!model || typeof model !== "object") return "";
+
+  const modelLooks = parseMaybeJsonObject(model.savedAppearance);
+  const loraLooks = parseMaybeJsonObject(lora?.defaultAppearance);
+  const aiParams = parseMaybeJsonObject(model.aiGenerationParams);
+  const looks = { ...modelLooks, ...loraLooks };
+
+  const gender = String(looks.gender || aiParams.gender || "").trim();
+  const ageNumber = Number.parseInt(
+    model.age ?? looks.age ?? aiParams.age ?? "",
+    10,
+  );
+  const age = Number.isFinite(ageNumber) ? String(ageNumber) : "";
+
+  const looksLines = Object.entries(looks)
+    .filter(([k, v]) => v != null && String(v).trim() && !["gender", "age"].includes(k))
+    .map(([k, v]) => `- ${k}: ${String(v).trim()}`);
+
+  const lines = [];
+  if (gender) lines.push(`- gender: ${gender}`);
+  if (age) lines.push(`- age: ${age}`);
+  if (looksLines.length) lines.push(...looksLines);
+  return lines.join("\n");
+}
+
+async function optimizeSoulXPrompt({
+  userPrompt,
+  withCharacter = false,
+  modelIdentityContext = "",
+}) {
+  const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+  if (!OPENROUTER_API_KEY) return userPrompt;
+
+  const preferredModel = String(process.env.SOULX_PROMPT_MODEL || "x-ai/grok-4").trim();
+  const modelCandidates = Array.from(new Set([preferredModel, "x-ai/grok-4.1-fast"])).filter(Boolean);
+  const systemPrompt = await getPromptTemplateValue("soulxZImageTurbo", SOULX_ZIMAGE_SYSTEM_PROMPT);
+  const baseUserPrompt = `User request: "${userPrompt}"`;
+  const userContent = withCharacter && modelIdentityContext
+    ? `${baseUserPrompt}
+
+MODEL IDENTITY CONTEXT (must be injected as core subject identity with the user request):
+${modelIdentityContext}
+
+Hard rule for character mode: integrate the model identity naturally into the prompt so outputs keep this person consistent across generations.`
+    : `${baseUserPrompt}
+
+Generate the optimized prompt now.`;
+
+  let lastError = null;
+  for (const modelName of modelCandidates) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 65_000);
+    try {
+      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: modelName,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userContent },
+          ],
+          max_tokens: 900,
+          temperature: 0.4,
+        }),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`OpenRouter ${response.status}: ${errText.slice(0, 500)}`);
+      }
+
+      const data = await response.json();
+      const raw = data?.choices?.[0]?.message?.content || "";
+      const optimized = extractPromptFromOptimizer(raw);
+      if (optimized) return optimized;
+      throw new Error("OpenRouter returned empty optimized prompt");
+    } catch (err) {
+      clearTimeout(timer);
+      lastError = err;
+      console.warn(`[SoulX] Prompt optimization failed on ${modelName}: ${err.message}`);
+    }
+  }
+
+  if (lastError) throw lastError;
+  return userPrompt;
+}
+
 // POST /api/soulx/generate
+router.get("/soulx/config", authMiddleware, async (_req, res) => {
+  try {
+    const pricing = await getGenerationPricing();
+    return res.json({
+      success: true,
+      pricing: {
+        noModel1: Number(pricing.soulxNoModel1 ?? 10),
+        withModel1: Number(pricing.soulxWithModel1 ?? 15),
+        noModel2: Number(pricing.soulxNoModel2 ?? 15),
+        withModel2: Number(pricing.soulxWithModel2 ?? 25),
+        extraStepsPer10: Number(pricing.soulxExtraStepsPer10 ?? 5),
+      },
+      limits: {
+        includedSteps: 20,
+        maxSteps: 100,
+        minCfg: 0,
+        maxCfg: 6,
+      },
+    });
+  } catch (error) {
+    console.error("Failed to load soulx config:", error);
+    return res.status(500).json({ success: false, error: "Failed to load Soul-X config" });
+  }
+});
+
 router.post("/soulx/generate", authMiddleware, generationLimiter, async (req, res) => {
   const userId = req.user?.userId;
   if (!userId) return res.status(401).json({ success: false, error: "Unauthorized" });
@@ -2887,6 +3071,9 @@ router.post("/soulx/generate", authMiddleware, generationLimiter, async (req, re
     characterLoraId = null,
     aspectRatio = "9:16",
     quantity = 1,
+    steps = 20,
+    cfg = 3,
+    loraStrength = 0.8,
   } = req.body;
 
   if (!prompt || !prompt.trim()) {
@@ -2895,23 +3082,48 @@ router.post("/soulx/generate", authMiddleware, generationLimiter, async (req, re
 
   const qty = quantity === 2 ? 2 : 1;
   const useCharacter = Boolean(modelId && characterLoraId);
+  const safeSteps = Math.max(1, Math.min(100, Math.round(Number(steps) || 20)));
+  const safeCfg = Math.max(0, Math.min(6, Number(cfg) || 0));
+  const safeLoraStrength = Math.max(0, Math.min(1, Number(loraStrength) || 0.8));
 
   const { deductCredits, checkAndExpireCredits, refundCredits } = await import("../services/credit.service.js");
+  const pricing = await getGenerationPricing();
 
   await checkAndExpireCredits(userId);
 
   // Determine credit cost
-  let costPer;
-  if (qty === 2) {
-    costPer = useCharacter ? SOULX_CREDITS.withModel_2 : SOULX_CREDITS.noModel_2;
-  } else {
-    costPer = useCharacter ? SOULX_CREDITS.withModel_1 : SOULX_CREDITS.noModel_1;
-  }
+  const baseCost =
+    qty === 2
+      ? (useCharacter ? Number(pricing.soulxWithModel2 ?? 25) : Number(pricing.soulxNoModel2 ?? 15))
+      : (useCharacter ? Number(pricing.soulxWithModel1 ?? 15) : Number(pricing.soulxNoModel1 ?? 10));
+  const extraStepsPer10 = Math.max(0, Number(pricing.soulxExtraStepsPer10 ?? 5));
+  const extraStepBlocks = safeSteps > 20 ? Math.ceil((safeSteps - 20) / 10) : 0;
+  const extraCostPerImage = extraStepBlocks * extraStepsPer10;
+  const costEachBase = qty === 2
+    ? [Math.ceil(baseCost / 2), Math.floor(baseCost / 2)]
+    : [baseCost];
+  const costEach = costEachBase.map((c) => c + extraCostPerImage);
+  const costPer = costEach.reduce((sum, c) => sum + c, 0);
 
   let loraUrl = null;
   let triggerWord = null;
+  let modelForPrompt = null;
+  let loraForPrompt = null;
 
   if (useCharacter) {
+    modelForPrompt = await prisma.savedModel.findFirst({
+      where: { id: modelId, userId },
+      select: {
+        id: true,
+        age: true,
+        savedAppearance: true,
+        aiGenerationParams: true,
+      },
+    });
+    if (!modelForPrompt) {
+      return res.status(404).json({ success: false, error: "Model not found or you don't have access." });
+    }
+
     const lora = await prisma.trainedLora.findFirst({
       where: {
         id: characterLoraId,
@@ -2923,8 +3135,22 @@ router.post("/soulx/generate", authMiddleware, generationLimiter, async (req, re
     if (!lora) {
       return res.status(400).json({ success: false, error: "Selected LoRA not found or not ready for generation." });
     }
+    loraForPrompt = lora;
     loraUrl = lora.loraUrl;
     triggerWord = lora.triggerWord;
+  }
+
+  const inputPrompt = prompt.trim();
+  let optimizedPrompt = inputPrompt;
+  try {
+    const identityContext = useCharacter ? buildSoulXModelIdentityContext(modelForPrompt, loraForPrompt) : "";
+    optimizedPrompt = await optimizeSoulXPrompt({
+      userPrompt: inputPrompt,
+      withCharacter: useCharacter,
+      modelIdentityContext: identityContext,
+    });
+  } catch (optErr) {
+    console.warn("[SoulX] Prompt optimization fallback to raw prompt:", optErr.message);
   }
 
   const deducted = await deductCredits(userId, costPer);
@@ -2934,9 +3160,6 @@ router.post("/soulx/generate", authMiddleware, generationLimiter, async (req, re
 
   const generationIds = [];
   const numJobs = qty === 2 ? 2 : 1;
-  const costEach = qty === 2
-    ? (useCharacter ? [15, 10] : [10, 5])
-    : [costPer];
 
   // For qty=2, submit two separate single-image jobs
   for (let i = 0; i < numJobs; i++) {
@@ -2948,7 +3171,7 @@ router.post("/soulx/generate", authMiddleware, generationLimiter, async (req, re
           userId,
           modelId: modelId || null,
           type: "soulx",
-          prompt: prompt.trim(),
+          prompt: inputPrompt,
           status: "processing",
           creditsCost: thisCost,
           replicateModel: "comfyui-soulx",
@@ -2957,11 +3180,13 @@ router.post("/soulx/generate", authMiddleware, generationLimiter, async (req, re
 
       const soulxWebhookUrl = resolveRunpodWebhookUrl();
       const jobId = await submitSoulXJob({
-        prompt: prompt.trim(),
+        prompt: optimizedPrompt,
         aspectRatio,
         loraUrl,
-        loraStrength: 0.8,
+        loraStrength: safeLoraStrength,
         triggerWord,
+        steps: safeSteps,
+        cfg: safeCfg,
       }, soulxWebhookUrl);
 
       await prisma.generation.update({
@@ -2983,7 +3208,17 @@ router.post("/soulx/generate", authMiddleware, generationLimiter, async (req, re
     }
   }
 
-  return res.json({ success: true, generationIds });
+  return res.json({
+    success: true,
+    generationIds,
+    applied: {
+      steps: safeSteps,
+      cfg: safeCfg,
+      loraStrength: safeLoraStrength,
+      extraStepBlocks,
+      extraCostPerImage,
+    },
+  });
 });
 
 // GET /api/soulx/status/:generationId

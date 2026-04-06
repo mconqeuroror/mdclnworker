@@ -74,10 +74,13 @@ import {
   getNudesPackCreditsPerImage,
   getNudesPackTotalCredits,
   getNudesPackCreditsSplit,
-  validateNudesPackPoseIds,
-  getNudesPackPoseById,
-  getNudesPackAdditiveLoraHint,
 } from "../../shared/nudesPackPoses.js";
+import {
+  validateNudesPackPoseIdsEffective,
+  getNudesPackPoseByIdEffective,
+  getNudesPackAdditiveHintForPose,
+} from "../services/nudes-pack-config.service.js";
+import { getPromptTemplateValue } from "../services/prompt-template-config.service.js";
 
 export async function cleanupTrainingDataset(loraId, modelId) {
   try {
@@ -3050,7 +3053,7 @@ export async function generateNudesPack(req, res) {
       attributesString = detailAttributes;
     }
 
-    const v = validateNudesPackPoseIds(poseIds);
+    const v = await validateNudesPackPoseIdsEffective(poseIds);
     if (!v.ok) {
       return res.status(400).json({ success: false, message: v.error });
     }
@@ -3168,7 +3171,7 @@ export async function generateNudesPack(req, res) {
       const thisCreditCost =
         creditsSplitForPack[idx] ?? getNudesPackCreditsPerImage(poseIds.length);
       const poseId = poseIds[idx];
-      const pose = getNudesPackPoseById(poseId);
+      const pose = await getNudesPackPoseByIdEffective(poseId);
       if (!pose) {
         failures.push({ poseId, error: "Unknown pose" });
         await refundCredits(userId, thisCreditCost);
@@ -3285,7 +3288,7 @@ export async function generateNudesPack(req, res) {
               loraStrength: userOverrideStrength,
               postProcessing,
               resolution: resSpec.presetId,
-              packAdditiveLoraHint: getNudesPackAdditiveLoraHint(pose.id),
+              packAdditiveLoraHint: getNudesPackAdditiveHintForPose(pose.id),
               ...adminSamplerOpts,
             },
           });
@@ -3753,8 +3756,20 @@ async function runNsfwPromptGenerationForModel(model, userRequest, clientDetail 
     } catch (e) {
       aiParams = {};
     }
+    const rawGender = String(
+      attributesDetail.gender ||
+      lockedAppearance.gender ||
+      aiParams.gender ||
+      "",
+    ).toLowerCase();
+    const genderClass =
+      rawGender.includes("male") || rawGender.includes("man")
+        ? "man"
+        : rawGender.includes("female") || rawGender.includes("woman")
+          ? "woman"
+          : "person";
 
-    const systemPrompt = `You are an expert prompt engineer for Z-Image Turbo (a fast ~6B turbo/distilled transformer). Your ONLY goal is prompts that read as REAL amateur smartphone nudes — private gallery energy: raw, imperfect, NOT studio/DSLR/cinematic/AI-art polish.
+    let systemPrompt = `You are an expert prompt engineer for Z-Image Turbo (a fast ~6B turbo/distilled transformer). Your ONLY goal is prompts that read as REAL amateur smartphone nudes — private gallery energy: raw, imperfect, NOT studio/DSLR/cinematic/AI-art polish.
 
 === HOW Z-IMAGE TURBO NSFW CHECKPOINTS WORK BEST (2026) ===
 • The model prefers LONG, DETAILED NATURAL LANGUAGE: full sentences that tell one coherent "story" of the photo (who, where, light, pose, mood, a few props).
@@ -3850,6 +3865,7 @@ MODEL ATTRIBUTES:
 
 === FINAL RULES ===
 - Start with the model trigger + minimal class (e.g. "${triggerWord} woman"); do not paste the full attribute list again as a second portrait block — the LoRA already encodes identity; scene and pose carry the image.
+- Subject gender lock: output MUST keep the subject as "${genderClass}" consistently. Do not switch biological sex markers in anatomy words.
 - Do NOT invent traits, clothing, or accessories not requested.
 - Use ONLY provided attributes + user request. Do not add elements the user did not ask for.
 - Backgrounds must have realistic imperfections and clutter — messy, lived-in, mundane.
@@ -3861,6 +3877,7 @@ MODEL ATTRIBUTES:
 
 OUTPUT: Return ONLY a JSON array with one prompt: ["prompt text here"]. No markdown fences, no explanation.
 If the user request combined with locked attributes implies an unresolvable logical contradiction (cannot be one coherent photo even after dropping minor elements), return exactly: ["[Error: Irresolvable logical conflict in request — please clarify]"].`;
+    systemPrompt = await getPromptTemplateValue("nsfwPromptGenerator", systemPrompt);
 
     const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
     if (!OPENROUTER_API_KEY) {

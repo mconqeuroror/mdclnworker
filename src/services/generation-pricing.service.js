@@ -14,6 +14,12 @@ export const DEFAULT_GENERATION_PRICING = Object.freeze({
   describeTargetImage: 10,
   enhancePromptDefault: 10,
   enhancePromptNsfw: 10,
+  upscalerImage: 5,
+  soulxNoModel1: 10,
+  soulxWithModel1: 15,
+  soulxNoModel2: 15,
+  soulxWithModel2: 25,
+  soulxExtraStepsPer10: 5,
 
   // Creator Studio — NanoBanana Pro
   creatorStudio1K2K: 20,

@@ -130,7 +130,7 @@ export default function UpscalerPage() {
   const handleUpscale = async () => {
     if (!inputFile || status === "uploading" || status === "processing") return;
     if (!hasEnough) {
-      toast.error(`You need ${CREDIT_COST} credits to upscale.`);
+      toast.error(`You need ${CREDIT_COST} to upscale.`);
       return;
     }
 
@@ -213,7 +213,7 @@ export default function UpscalerPage() {
             </h1>
           </div>
           <p className="text-sm ml-13" style={{ color: isDark ? "rgba(148,163,184,0.8)" : "#64748b", marginLeft: "52px" }}>
-            Enhance any photo to high resolution using SeedVR2 — {CREDIT_COST} credits per upscale
+            Enhance any photo to high resolution using SeedVR2 — {CREDIT_COST} <Coins className="w-3 h-3 inline align-text-bottom" /> per upscale
           </p>
         </motion.div>
 
@@ -470,11 +470,11 @@ export default function UpscalerPage() {
           >
             <Coins className="w-4 h-4 text-yellow-400" />
             <span style={{ color: isDark ? "rgba(226,232,240,0.7)" : "#475569" }}>
-              Cost: <strong style={{ color: isDark ? "#e2e8f0" : "#1e293b" }}>{CREDIT_COST} credits</strong>
+              Cost: <strong style={{ color: isDark ? "#e2e8f0" : "#1e293b" }}>{CREDIT_COST} <Coins className="w-3 h-3 inline align-text-bottom" /></strong>
             </span>
             <span style={{ color: isDark ? "rgba(148,163,184,0.4)" : "#94a3b8" }}>·</span>
             <span style={{ color: hasEnough ? (isDark ? "#86efac" : "#16a34a") : "#f87171" }}>
-              You have <strong>{credits}</strong>
+              You have <strong>{credits} <Coins className="w-3 h-3 inline align-text-bottom" /></strong>
             </span>
           </div>
 
@@ -534,7 +534,7 @@ export default function UpscalerPage() {
             ) : (
               <>
                 <ZoomIn className="w-4 h-4" />
-                Upscale for {CREDIT_COST} credits
+                Upscale for {CREDIT_COST} <Coins className="w-3 h-3" />
               </>
             )}
           </motion.button>

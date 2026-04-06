@@ -27,12 +27,20 @@ import { useCachedModels } from "../hooks/useCachedModels";
 // Light DB checks until webhook fills outputUrl (server no longer polls RunPod when webhook is set)
 const POLL_INTERVAL_MS = 5000;
 
-const SOULX_CREDITS = {
-  noModel_1: 10,
-  withModel_1: 15,
-  noModel_2: 15,
-  withModel_2: 25,
-};
+const LOCALE_STORAGE_KEY = "app_locale";
+const DEFAULT_SOULX_PRICING = Object.freeze({
+  noModel1: 10,
+  withModel1: 15,
+  noModel2: 15,
+  withModel2: 25,
+  extraStepsPer10: 5,
+});
+const DEFAULT_SOULX_LIMITS = Object.freeze({
+  includedSteps: 20,
+  maxSteps: 100,
+  minCfg: 0,
+  maxCfg: 6,
+});
 
 const ASPECT_OPTIONS = [
   { id: "9:16", label: "9:16", hint: "Portrait" },
@@ -47,14 +55,92 @@ function authHeader() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-function CreditBadge({ cost, isDark }) {
-  return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold
-      ${isDark ? "bg-violet-500/15 text-violet-300 border border-violet-500/25" : "bg-violet-100 text-violet-700 border border-violet-200"}`}>
-      <Coins className="w-3 h-3" /> {cost} cr
-    </span>
-  );
+function resolveLocale() {
+  try {
+    const qsLang = new URLSearchParams(window.location.search).get("lang");
+    const normalizedQs = String(qsLang || "").toLowerCase();
+    if (normalizedQs === "ru" || normalizedQs === "en") return normalizedQs;
+    const saved = String(localStorage.getItem(LOCALE_STORAGE_KEY) || "").toLowerCase();
+    if (saved === "ru" || saved === "en") return saved;
+    const browser = String(navigator.language || "").toLowerCase();
+    return browser.startsWith("ru") ? "ru" : "en";
+  } catch {
+    return "en";
+  }
 }
+
+const COPY = {
+  en: {
+    mode: "Mode",
+    noCharacter: "No Character",
+    useCharacter: "Use Character",
+    model: "Model",
+    characterIdentity: "Character Identity",
+    noReadyLora: "No ready LoRA for this model. Train one in Character tab or use existing NSFW LoRA.",
+    prompt: "Prompt",
+    promptPlaceholder: "Describe the scene — lighting, setting, mood, clothing…",
+    aspectRatio: "Aspect Ratio",
+    images: "Images",
+    advanced: "Advanced",
+    steps: "Steps",
+    cfg: "CFG",
+    loraStrength: "LoRA intensity",
+    generate: "Generate",
+    generating: "Generating…",
+    creditsMissing: "Not enough balance — you need",
+    youHave: "you have",
+    results: "Results",
+    clear: "Clear",
+    failed: "Failed",
+    generatingShort: "Generating…",
+    title: "Soul-X",
+    subtitle: "High-realism image generation with optional character identity",
+    tabGenerate: "Generate",
+    tabCharacter: "Character",
+    pricingTitle: "Soul-X Pricing",
+    p1: "1 image — no character",
+    p2: "1 image — with character",
+    p3: "2 images — no character",
+    p4: "2 images — with character",
+    p5: "Extra steps (every +10 over included)",
+    aiBadge: "AI Prompting ON (Grok)",
+  },
+  ru: {
+    mode: "Режим",
+    noCharacter: "Без персонажа",
+    useCharacter: "С персонажем",
+    model: "Модель",
+    characterIdentity: "Идентичность персонажа",
+    noReadyLora: "Для этой модели нет готовой LoRA. Обучите её во вкладке Character или используйте существующую NSFW LoRA.",
+    prompt: "Промпт",
+    promptPlaceholder: "Опишите сцену — свет, окружение, настроение, одежду…",
+    aspectRatio: "Соотношение сторон",
+    images: "Изображения",
+    advanced: "Расширенные настройки",
+    steps: "Шаги",
+    cfg: "CFG",
+    loraStrength: "Интенсивность LoRA",
+    generate: "Сгенерировать",
+    generating: "Генерация…",
+    creditsMissing: "Недостаточно баланса — нужно",
+    youHave: "у вас",
+    results: "Результаты",
+    clear: "Очистить",
+    failed: "Ошибка",
+    generatingShort: "Генерация…",
+    title: "Soul-X",
+    subtitle: "Фотореалистичная генерация с опциональной идентичностью персонажа",
+    tabGenerate: "Генерация",
+    tabCharacter: "Персонаж",
+    pricingTitle: "Тарифы Soul-X",
+    p1: "1 изображение — без персонажа",
+    p2: "1 изображение — с персонажем",
+    p3: "2 изображения — без персонажа",
+    p4: "2 изображения — с персонажем",
+    p5: "Доп. шаги (каждые +10 сверх включенных)",
+    aiBadge: "AI Prompting ON (Grok)",
+  },
+};
 
 function ResultCard({ imageUrl, isDark, onDownload }) {
   return (
@@ -423,7 +509,7 @@ function CharacterTab({ isDark }) {
 
 // ── Generate Tab ──────────────────────────────────────────────────────────────
 
-function GenerateTab({ isDark }) {
+function GenerateTab({ isDark, copy }) {
   const { user, setUser } = useAuthStore();
   const { models } = useCachedModels();
 
@@ -434,17 +520,37 @@ function GenerateTab({ isDark }) {
   const [aspect, setAspect] = useState("9:16");
   const [qty, setQty] = useState(1);
   const [prompt, setPrompt] = useState("");
+  const [steps, setSteps] = useState(DEFAULT_SOULX_LIMITS.includedSteps);
+  const [cfg, setCfg] = useState(3);
+  const [loraStrength, setLoraStrength] = useState(0.8);
   const [generating, setGenerating] = useState(false);
   const [results, setResults] = useState([]); // [{generationId, imageUrl, status}]
+  const [pricing, setPricing] = useState(DEFAULT_SOULX_PRICING);
+  const [limits, setLimits] = useState(DEFAULT_SOULX_LIMITS);
   const pollRefs = useRef({});
 
   const allModels = Array.isArray(models) ? models : [];
 
   const credits = (user?.credits ?? 0) + (user?.bonusCredits ?? 0);
-  const cost = qty === 2
-    ? (mode === "character" ? SOULX_CREDITS.withModel_2 : SOULX_CREDITS.noModel_2)
-    : (mode === "character" ? SOULX_CREDITS.withModel_1 : SOULX_CREDITS.noModel_1);
+  const baseCost = qty === 2
+    ? (mode === "character" ? pricing.withModel2 : pricing.noModel2)
+    : (mode === "character" ? pricing.withModel1 : pricing.noModel1);
+  const extraBlocks = steps > limits.includedSteps ? Math.ceil((steps - limits.includedSteps) / 10) : 0;
+  const extraCost = extraBlocks * pricing.extraStepsPer10 * qty;
+  const cost = baseCost + extraCost;
   const hasEnough = credits >= cost;
+
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    axios.get("/api/soulx/config", { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      .then((res) => {
+        if (res.data?.success) {
+          if (res.data.pricing) setPricing({ ...DEFAULT_SOULX_PRICING, ...res.data.pricing });
+          if (res.data.limits) setLimits({ ...DEFAULT_SOULX_LIMITS, ...res.data.limits });
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Fetch characters when model changes
   useEffect(() => {
@@ -497,7 +603,7 @@ function GenerateTab({ isDark }) {
     if (!prompt.trim()) { toast.error("Enter a prompt first"); return; }
     if (mode === "character" && !selectedModelId) { toast.error("Select a model"); return; }
     if (mode === "character" && !selectedCharacterId) { toast.error("Select a character identity"); return; }
-    if (!hasEnough) { toast.error("Insufficient credits"); return; }
+    if (!hasEnough) { toast.error("Insufficient balance"); return; }
 
     setGenerating(true);
     try {
@@ -508,6 +614,9 @@ function GenerateTab({ isDark }) {
         characterLoraId: mode === "character" ? selectedCharacterId : null,
         aspectRatio: aspect,
         quantity: qty,
+        steps,
+        cfg,
+        loraStrength: mode === "character" ? loraStrength : undefined,
       }, { headers: { Authorization: `Bearer ${token}` } });
 
       let generationIds = Array.isArray(res.data?.generationIds) ? res.data.generationIds : [];
@@ -614,11 +723,11 @@ function GenerateTab({ isDark }) {
     <div className="space-y-5">
       {/* Mode toggle */}
       <div>
-        <label className={labelBase}>MODE</label>
+        <label className={labelBase}>{copy.mode.toUpperCase()}</label>
         <div className={`flex rounded-xl p-1 border ${isDark ? "bg-white/[0.03] border-white/[0.08]" : "bg-black/[0.02] border-black/[0.07]"}`}>
           {[
-            { id: "without", label: "No Character", icon: ImageIcon },
-            { id: "character", label: "Use Character", icon: User },
+            { id: "without", label: copy.noCharacter, icon: ImageIcon },
+            { id: "character", label: copy.useCharacter, icon: User },
           ].map(({ id, label, icon: Icon }) => (
             <button
               key={id}
@@ -645,7 +754,7 @@ function GenerateTab({ isDark }) {
             className="space-y-3 overflow-hidden"
           >
             <div>
-              <label className={labelBase}>MODEL</label>
+              <label className={labelBase}>{copy.model.toUpperCase()}</label>
               <div className="relative">
                 <select
                   value={selectedModelId}
@@ -680,11 +789,11 @@ function GenerateTab({ isDark }) {
 
             {selectedModelId && (
               <div>
-                <label className={labelBase}>CHARACTER IDENTITY</label>
+                <label className={labelBase}>{copy.characterIdentity.toUpperCase()}</label>
                 {characters.length === 0 ? (
                   <div className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border text-sm ${isDark ? "bg-amber-500/10 border-amber-500/25 text-amber-400" : "bg-amber-50 border-amber-200 text-amber-600"}`}>
                     <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                    No ready LoRA for this model. Train one in Character tab or use existing NSFW LoRA.
+                    {copy.noReadyLora}
                   </div>
                 ) : (
                   <div className="space-y-2">
@@ -723,10 +832,10 @@ function GenerateTab({ isDark }) {
 
       {/* Prompt */}
       <div>
-        <label className={labelBase}>PROMPT</label>
+        <label className={labelBase}>{copy.prompt.toUpperCase()}</label>
         <textarea
           rows={3}
-          placeholder="Describe the scene — lighting, setting, mood, clothing…"
+          placeholder={copy.promptPlaceholder}
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           className={`w-full px-3 py-2.5 rounded-xl text-sm border outline-none resize-none ${inputBase}`}
@@ -735,7 +844,7 @@ function GenerateTab({ isDark }) {
 
       {/* Aspect ratio */}
       <div>
-        <label className={labelBase}>ASPECT RATIO</label>
+        <label className={labelBase}>{copy.aspectRatio.toUpperCase()}</label>
         <div className="flex flex-wrap gap-2">
           {ASPECT_OPTIONS.map((opt) => (
             <button
@@ -755,7 +864,7 @@ function GenerateTab({ isDark }) {
 
       {/* Quantity */}
       <div>
-        <label className={labelBase}>IMAGES</label>
+        <label className={labelBase}>{copy.images.toUpperCase()}</label>
         <div className={`flex rounded-xl p-1 border w-fit ${isDark ? "bg-white/[0.03] border-white/[0.08]" : "bg-black/[0.02] border-black/[0.07]"}`}>
           {[1, 2].map((n) => (
             <button
@@ -772,6 +881,49 @@ function GenerateTab({ isDark }) {
         </div>
       </div>
 
+      <div className={`rounded-xl border p-3 space-y-3 ${isDark ? "bg-white/[0.03] border-white/[0.08]" : "bg-white/80 border-black/10"}`}>
+        <p className={`text-xs font-semibold ${isDark ? "text-slate-300" : "text-slate-700"}`}>{copy.advanced}</p>
+        <div className="grid sm:grid-cols-3 gap-3">
+          <label className="flex flex-col gap-1.5">
+            <span className={`text-[11px] font-medium ${isDark ? "text-slate-400" : "text-slate-600"}`}>{copy.steps}</span>
+            <input
+              type="range"
+              min={1}
+              max={limits.maxSteps}
+              step={1}
+              value={steps}
+              onChange={(e) => setSteps(Math.max(1, Math.min(limits.maxSteps, Number(e.target.value) || limits.includedSteps)))}
+            />
+            <span className={`text-xs ${isDark ? "text-slate-300" : "text-slate-700"}`}>{steps}</span>
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className={`text-[11px] font-medium ${isDark ? "text-slate-400" : "text-slate-600"}`}>{copy.cfg}</span>
+            <input
+              type="range"
+              min={limits.minCfg}
+              max={limits.maxCfg}
+              step={0.1}
+              value={cfg}
+              onChange={(e) => setCfg(Math.max(limits.minCfg, Math.min(limits.maxCfg, Number(e.target.value) || 3)))}
+            />
+            <span className={`text-xs ${isDark ? "text-slate-300" : "text-slate-700"}`}>{cfg.toFixed(1)}</span>
+          </label>
+          <label className={`flex flex-col gap-1.5 ${mode !== "character" ? "opacity-50" : ""}`}>
+            <span className={`text-[11px] font-medium ${isDark ? "text-slate-400" : "text-slate-600"}`}>{copy.loraStrength}</span>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={loraStrength}
+              disabled={mode !== "character"}
+              onChange={(e) => setLoraStrength(Math.max(0, Math.min(1, Number(e.target.value) || 0.8)))}
+            />
+            <span className={`text-xs ${isDark ? "text-slate-300" : "text-slate-700"}`}>{loraStrength.toFixed(2)}</span>
+          </label>
+        </div>
+      </div>
+
       {/* Cost + Generate */}
       <div className="flex items-center gap-3">
         <button
@@ -784,22 +936,24 @@ function GenerateTab({ isDark }) {
             }`}
         >
           {generating ? (
-            <><Loader2 className="w-4 h-4 animate-spin" /> Generating…</>
+            <><Loader2 className="w-4 h-4 animate-spin" /> {copy.generating}</>
           ) : (
-            <><Sparkles className="w-4 h-4" /> Generate</>
+            <><Sparkles className="w-4 h-4" /> {copy.generate}</>
           )}
         </button>
         <div className={`flex items-center gap-1.5 px-3 py-3 rounded-xl border text-sm
           ${isDark ? "bg-white/[0.04] border-white/[0.08]" : "bg-white border-black/10"}`}>
           <Coins className="w-4 h-4 text-violet-400" />
           <span className={`font-bold ${isDark ? "text-white" : "text-slate-900"}`}>{cost}</span>
-          <span className={`text-xs ${isDark ? "text-slate-500" : "text-slate-400"}`}>cr</span>
+          {extraCost > 0 && (
+            <span className={`text-[11px] ${isDark ? "text-slate-400" : "text-slate-500"}`}>+{extraCost} <Coins className="w-3 h-3 inline" /></span>
+          )}
         </div>
       </div>
 
       {!hasEnough && (
         <p className="text-xs text-rose-400 -mt-2">
-          Not enough credits — you need {cost} cr (you have {credits}).
+          {copy.creditsMissing} {cost} <Coins className="w-3 h-3 inline" /> ({copy.youHave} {credits} <Coins className="w-3 h-3 inline" />).
         </p>
       )}
 
@@ -808,7 +962,7 @@ function GenerateTab({ isDark }) {
         {results.length > 0 && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-3">
             <div className="flex items-center justify-between">
-              <label className={labelBase + " mb-0"}>RESULTS</label>
+              <label className={labelBase + " mb-0"}>{copy.results.toUpperCase()}</label>
               <button
                 onClick={() => {
                   Object.keys(pollRefs.current).forEach(stopPoll);
@@ -817,7 +971,7 @@ function GenerateTab({ isDark }) {
                 className={`text-xs px-2.5 py-1 rounded-lg border transition-colors
                   ${isDark ? "border-white/10 text-slate-400 hover:bg-white/[0.06]" : "border-black/10 text-slate-500 hover:bg-black/[0.04]"}`}
               >
-                Clear
+                {copy.clear}
               </button>
             </div>
 
@@ -830,7 +984,7 @@ function GenerateTab({ isDark }) {
                     <div className={`aspect-[9/16] rounded-2xl border flex flex-col items-center justify-center gap-2
                       ${isDark ? "bg-rose-500/10 border-rose-500/20" : "bg-rose-50 border-rose-200"}`}>
                       <AlertCircle className="w-6 h-6 text-rose-400" />
-                      <p className="text-xs text-rose-400">Failed</p>
+                      <p className="text-xs text-rose-400">{copy.failed}</p>
                     </div>
                   ) : (
                     <div className={`aspect-[9/16] rounded-2xl border flex flex-col items-center justify-center gap-3
@@ -841,7 +995,7 @@ function GenerateTab({ isDark }) {
                         </div>
                         <div className="absolute inset-0 rounded-full border-2 border-violet-500/40 border-t-transparent animate-spin" />
                       </div>
-                      <p className={`text-xs ${isDark ? "text-slate-400" : "text-slate-500"}`}>Generating…</p>
+                      <p className={`text-xs ${isDark ? "text-slate-400" : "text-slate-500"}`}>{copy.generatingShort}</p>
                     </div>
                   )}
                 </div>
@@ -859,35 +1013,43 @@ function GenerateTab({ isDark }) {
 export default function SoulXPage() {
   const { theme } = useTheme();
   const isDark = theme !== "light";
+  const locale = resolveLocale();
+  const copy = COPY[locale] || COPY.en;
   const [activeTab, setActiveTab] = useState("generate");
 
   const cardBase = isDark
     ? "bg-[rgba(255,255,255,0.03)] border border-white/[0.07]"
-    : "bg-white/60 border border-black/[0.06]";
+    : "bg-white/90 border border-slate-200 shadow-[0_10px_30px_rgba(15,23,42,0.08)]";
 
   return (
     <div className={`min-h-full p-4 md:p-6 ${isDark ? "text-white" : "text-slate-900"}`}>
       <div className="max-w-xl mx-auto space-y-5">
         {/* Header */}
-        <div className="flex items-start gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500/30 to-purple-600/20 border border-violet-500/25 flex items-center justify-center flex-shrink-0">
+        <div className={`rounded-2xl border p-4 flex items-start gap-3 ${isDark ? "bg-white/[0.02] border-white/[0.08]" : "bg-white border-slate-200 shadow-[0_8px_24px_rgba(15,23,42,0.06)]"}`}>
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500/30 to-fuchsia-600/20 border border-violet-500/25 flex items-center justify-center flex-shrink-0">
             <Sparkles className="w-5 h-5 text-violet-400" />
           </div>
-          <div>
+          <div className="flex-1">
             <h1 className={`text-xl font-bold tracking-tight ${isDark ? "text-white" : "text-slate-900"}`}>
-              Soul-X
+              {copy.title}
             </h1>
             <p className={`text-sm mt-0.5 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
-              High-realism image generation with optional character identity
+              {copy.subtitle}
             </p>
+            <span className={`inline-flex mt-2 items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold ${
+              isDark ? "bg-violet-500/15 text-violet-300 border border-violet-500/25" : "bg-violet-50 text-violet-700 border border-violet-200"
+            }`}>
+              <Zap className="w-3 h-3" />
+              {copy.aiBadge}
+            </span>
           </div>
         </div>
 
         {/* Tab switcher */}
         <div className={`flex rounded-2xl p-1 border ${isDark ? "bg-white/[0.03] border-white/[0.07]" : "bg-black/[0.02] border-black/[0.06]"}`}>
           {[
-            { id: "generate", label: "Generate", icon: Sparkles },
-            { id: "character", label: "Character", icon: User },
+            { id: "generate", label: copy.tabGenerate, icon: Sparkles },
+            { id: "character", label: copy.tabCharacter, icon: User },
           ].map(({ id, label, icon: Icon }) => (
             <button
               key={id}
@@ -914,7 +1076,7 @@ export default function SoulXPage() {
                 exit={{ opacity: 0, y: -6 }}
                 transition={{ duration: 0.15 }}
               >
-                <GenerateTab isDark={isDark} />
+                <GenerateTab isDark={isDark} copy={copy} />
               </motion.div>
             ) : (
               <motion.div
@@ -932,12 +1094,13 @@ export default function SoulXPage() {
 
         {/* Credit info */}
         <div className={`rounded-xl border p-3 text-xs ${isDark ? "border-white/[0.07] bg-white/[0.02]" : "border-black/[0.06] bg-black/[0.02]"}`}>
-          <p className={`font-semibold mb-1.5 ${isDark ? "text-slate-300" : "text-slate-700"}`}>Soul-X Pricing</p>
+          <p className={`font-semibold mb-1.5 ${isDark ? "text-slate-300" : "text-slate-700"}`}>{copy.pricingTitle}</p>
           <div className={`grid grid-cols-2 gap-x-4 gap-y-1 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
-            <span>1 image — no character</span><span className="font-semibold text-violet-400">10 cr</span>
-            <span>1 image — with character</span><span className="font-semibold text-violet-400">15 cr</span>
-            <span>2 images — no character</span><span className="font-semibold text-violet-400">15 cr</span>
-            <span>2 images — with character</span><span className="font-semibold text-violet-400">25 cr</span>
+            <span>{copy.p1}</span><span className="font-semibold text-violet-400 inline-flex items-center gap-1">10 <Coins className="w-3 h-3" /></span>
+            <span>{copy.p2}</span><span className="font-semibold text-violet-400 inline-flex items-center gap-1">15 <Coins className="w-3 h-3" /></span>
+            <span>{copy.p3}</span><span className="font-semibold text-violet-400 inline-flex items-center gap-1">15 <Coins className="w-3 h-3" /></span>
+            <span>{copy.p4}</span><span className="font-semibold text-violet-400 inline-flex items-center gap-1">25 <Coins className="w-3 h-3" /></span>
+            <span>{copy.p5}</span><span className="font-semibold text-violet-400 inline-flex items-center gap-1">5 <Coins className="w-3 h-3" /></span>
           </div>
         </div>
       </div>

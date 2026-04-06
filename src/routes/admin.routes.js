@@ -31,6 +31,15 @@ import {
   updateGenerationPricing,
   resetGenerationPricing,
 } from "../services/generation-pricing.service.js";
+import {
+  getPromptTemplateOverrides,
+  upsertPromptTemplateOverrides,
+} from "../services/prompt-template-config.service.js";
+import {
+  getNudesPackPoseOverrides,
+  upsertNudesPackPoseOverrides,
+  getEffectiveNudesPackPoses,
+} from "../services/nudes-pack-config.service.js";
 import { fetchAllProviderBalances } from "../services/provider-balances.service.js";
 import {
   getVoicePlatformConfig,
@@ -418,6 +427,77 @@ router.post("/pricing/generation/reset", async (_req, res) => {
   } catch (error) {
     console.error("Error resetting generation pricing:", error);
     res.status(500).json({ success: false, error: "Failed to reset generation pricing" });
+  }
+});
+
+router.get("/prompt-templates", async (_req, res) => {
+  try {
+    const templates = await getPromptTemplateOverrides();
+    res.json({
+      success: true,
+      templates,
+      knownKeys: [
+        "soulxZImageTurbo",
+        "nsfwPromptGenerator",
+        "analyzeLooksSystemPrompt",
+        "enhancePromptCasualSystem",
+        "enhancePromptUltraRealismSystem",
+        "enhancePromptNsfwSystem",
+      ],
+    });
+  } catch (error) {
+    console.error("Error fetching prompt templates:", error);
+    res.status(500).json({ success: false, error: "Failed to fetch prompt templates" });
+  }
+});
+
+router.put("/prompt-templates", async (req, res) => {
+  try {
+    const next = req.body?.templates && typeof req.body.templates === "object"
+      ? req.body.templates
+      : req.body;
+    if (!next || typeof next !== "object" || Array.isArray(next)) {
+      return res.status(400).json({ success: false, error: "Templates object is required" });
+    }
+    const templates = await upsertPromptTemplateOverrides(next, {
+      userId: req.user?.userId,
+      email: req.user?.email,
+    });
+    res.json({ success: true, templates });
+  } catch (error) {
+    console.error("Error updating prompt templates:", error);
+    res.status(500).json({ success: false, error: "Failed to update prompt templates" });
+  }
+});
+
+router.get("/nudes-pack-poses", async (_req, res) => {
+  try {
+    const overrides = await getNudesPackPoseOverrides();
+    const poses = await getEffectiveNudesPackPoses();
+    res.json({ success: true, overrides, poses });
+  } catch (error) {
+    console.error("Error fetching nudes-pack poses:", error);
+    res.status(500).json({ success: false, error: "Failed to fetch nudes-pack poses" });
+  }
+});
+
+router.put("/nudes-pack-poses", async (req, res) => {
+  try {
+    const next = req.body?.overrides && typeof req.body.overrides === "object"
+      ? req.body.overrides
+      : req.body;
+    if (!next || typeof next !== "object" || Array.isArray(next)) {
+      return res.status(400).json({ success: false, error: "Overrides object is required" });
+    }
+    const overrides = await upsertNudesPackPoseOverrides(next, {
+      userId: req.user?.userId,
+      email: req.user?.email,
+    });
+    const poses = await getEffectiveNudesPackPoses();
+    res.json({ success: true, overrides, poses });
+  } catch (error) {
+    console.error("Error updating nudes-pack poses:", error);
+    res.status(500).json({ success: false, error: "Failed to update nudes-pack poses" });
   }
 });
 

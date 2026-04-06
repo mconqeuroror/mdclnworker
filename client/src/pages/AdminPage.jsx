@@ -130,6 +130,17 @@ const GENERATION_PRICING_GROUPS = [
     ],
   },
   {
+    title: 'Soul-X & Upscaler',
+    fields: [
+      { key: 'upscalerImage', label: 'Upscaler — per image' },
+      { key: 'soulxNoModel1', label: 'Soul-X — 1 image (no character)' },
+      { key: 'soulxWithModel1', label: 'Soul-X — 1 image (with character)' },
+      { key: 'soulxNoModel2', label: 'Soul-X — 2 images (no character)' },
+      { key: 'soulxWithModel2', label: 'Soul-X — 2 images (with character)' },
+      { key: 'soulxExtraStepsPer10', label: 'Soul-X — extra cost per +10 steps over default' },
+    ],
+  },
+  {
     title: 'Creator Studio (Image Generation)',
     fields: [
       { key: 'creatorStudio1K2K', label: 'Creator Studio — 1K / 2K image' },
@@ -606,6 +617,14 @@ export default function AdminPage() {
   const [voicePlatformUsed, setVoicePlatformUsed] = useState(0);
   const [loadingVoicePlatform, setLoadingVoicePlatform] = useState(false);
   const [savingVoicePlatform, setSavingVoicePlatform] = useState(false);
+  const [showPromptTemplates, setShowPromptTemplates] = useState(false);
+  const [promptTemplatesText, setPromptTemplatesText] = useState("{}");
+  const [loadingPromptTemplates, setLoadingPromptTemplates] = useState(false);
+  const [savingPromptTemplates, setSavingPromptTemplates] = useState(false);
+  const [showNudesPackPoseOverrides, setShowNudesPackPoseOverrides] = useState(false);
+  const [nudesPackPoseOverridesText, setNudesPackPoseOverridesText] = useState("{}");
+  const [loadingNudesPackPoseOverrides, setLoadingNudesPackPoseOverrides] = useState(false);
+  const [savingNudesPackPoseOverrides, setSavingNudesPackPoseOverrides] = useState(false);
   const [reconcileLimit, setReconcileLimit] = useState(250);
   const [reconcileAllUsers, setReconcileAllUsers] = useState(false);
   const [reconcileResult, setReconcileResult] = useState(null);
@@ -1775,6 +1794,79 @@ export default function AdminPage() {
       toast.error(e?.response?.data?.error || 'Failed to save');
     } finally {
       setSavingVoicePlatform(false);
+    }
+  };
+
+  const loadPromptTemplates = async () => {
+    try {
+      setLoadingPromptTemplates(true);
+      const r = await api.get('/admin/prompt-templates');
+      if (r.data?.success) {
+        const base = { ...(r.data.templates || {}) };
+        const keys = Array.isArray(r.data.knownKeys) ? r.data.knownKeys : [];
+        keys.forEach((k) => {
+          if (!(k in base)) base[k] = "";
+        });
+        setPromptTemplatesText(JSON.stringify(base, null, 2));
+      }
+    } catch (e) {
+      toast.error(e?.response?.data?.error || 'Failed to load prompt templates');
+    } finally {
+      setLoadingPromptTemplates(false);
+    }
+  };
+
+  const savePromptTemplates = async () => {
+    try {
+      setSavingPromptTemplates(true);
+      const parsed = JSON.parse(promptTemplatesText || '{}');
+      const r = await api.put('/admin/prompt-templates', { templates: parsed });
+      if (r.data?.success) {
+        setPromptTemplatesText(JSON.stringify(r.data.templates || {}, null, 2));
+        toast.success('Prompt templates saved');
+      }
+    } catch (e) {
+      if (e instanceof SyntaxError) {
+        toast.error('Invalid JSON in prompt templates');
+      } else {
+        toast.error(e?.response?.data?.error || 'Failed to save prompt templates');
+      }
+    } finally {
+      setSavingPromptTemplates(false);
+    }
+  };
+
+  const loadNudesPackPoseOverrides = async () => {
+    try {
+      setLoadingNudesPackPoseOverrides(true);
+      const r = await api.get('/admin/nudes-pack-poses');
+      if (r.data?.success) {
+        setNudesPackPoseOverridesText(JSON.stringify(r.data.overrides || {}, null, 2));
+      }
+    } catch (e) {
+      toast.error(e?.response?.data?.error || 'Failed to load nudes pack pose overrides');
+    } finally {
+      setLoadingNudesPackPoseOverrides(false);
+    }
+  };
+
+  const saveNudesPackPoseOverrides = async () => {
+    try {
+      setSavingNudesPackPoseOverrides(true);
+      const parsed = JSON.parse(nudesPackPoseOverridesText || '{}');
+      const r = await api.put('/admin/nudes-pack-poses', { overrides: parsed });
+      if (r.data?.success) {
+        setNudesPackPoseOverridesText(JSON.stringify(r.data.overrides || {}, null, 2));
+        toast.success('Nudes pack pose overrides saved');
+      }
+    } catch (e) {
+      if (e instanceof SyntaxError) {
+        toast.error('Invalid JSON in nudes pack overrides');
+      } else {
+        toast.error(e?.response?.data?.error || 'Failed to save nudes pack overrides');
+      }
+    } finally {
+      setSavingNudesPackPoseOverrides(false);
     }
   };
 
@@ -3301,6 +3393,82 @@ export default function AdminPage() {
               ) : (
                 <p className="text-xs text-gray-600">Could not load pricing.</p>
               )}
+            </div>
+          )}
+        </Section>
+
+        <Section>
+          <div className="flex items-center justify-between mb-5 gap-3 flex-wrap">
+            <CollapseToggle
+              open={showPromptTemplates}
+              onToggle={() => {
+                const next = !showPromptTemplates;
+                setShowPromptTemplates(next);
+                if (next) loadPromptTemplates();
+              }}
+              label="AI prompt templates"
+            />
+            {showPromptTemplates && (
+              <GhostBtn onClick={loadPromptTemplates} disabled={loadingPromptTemplates}>
+                <RefreshCw className={`w-3 h-3 ${loadingPromptTemplates ? 'animate-spin' : ''}`} />
+                Refresh
+              </GhostBtn>
+            )}
+          </div>
+          {showPromptTemplates && (
+            <div className="space-y-3">
+              <p className="text-[11px] text-gray-500 -mt-2">
+                Global overrides for AI agent system prompts. Leave key missing to keep code default.
+              </p>
+              <textarea
+                value={promptTemplatesText}
+                onChange={(e) => setPromptTemplatesText(e.target.value)}
+                className="w-full min-h-[220px] rounded-lg border border-white/[0.07] bg-white/[0.03] text-xs text-white p-3 font-mono outline-none focus:border-white/20"
+                spellCheck={false}
+              />
+              <div className="flex items-center gap-2">
+                <PrimaryBtn onClick={savePromptTemplates} disabled={savingPromptTemplates}>
+                  {savingPromptTemplates ? 'Saving…' : 'Save prompt templates'}
+                </PrimaryBtn>
+              </div>
+            </div>
+          )}
+        </Section>
+
+        <Section>
+          <div className="flex items-center justify-between mb-5 gap-3 flex-wrap">
+            <CollapseToggle
+              open={showNudesPackPoseOverrides}
+              onToggle={() => {
+                const next = !showNudesPackPoseOverrides;
+                setShowNudesPackPoseOverrides(next);
+                if (next) loadNudesPackPoseOverrides();
+              }}
+              label="Nudes pack pose overrides"
+            />
+            {showNudesPackPoseOverrides && (
+              <GhostBtn onClick={loadNudesPackPoseOverrides} disabled={loadingNudesPackPoseOverrides}>
+                <RefreshCw className={`w-3 h-3 ${loadingNudesPackPoseOverrides ? 'animate-spin' : ''}`} />
+                Refresh
+              </GhostBtn>
+            )}
+          </div>
+          {showNudesPackPoseOverrides && (
+            <div className="space-y-3">
+              <p className="text-[11px] text-gray-500 -mt-2">
+                JSON map by pose ID. Supported fields: `title`, `summary`, `promptFragment`, `category`, `enabled`.
+              </p>
+              <textarea
+                value={nudesPackPoseOverridesText}
+                onChange={(e) => setNudesPackPoseOverridesText(e.target.value)}
+                className="w-full min-h-[220px] rounded-lg border border-white/[0.07] bg-white/[0.03] text-xs text-white p-3 font-mono outline-none focus:border-white/20"
+                spellCheck={false}
+              />
+              <div className="flex items-center gap-2">
+                <PrimaryBtn onClick={saveNudesPackPoseOverrides} disabled={savingNudesPackPoseOverrides}>
+                  {savingNudesPackPoseOverrides ? 'Saving…' : 'Save pose overrides'}
+                </PrimaryBtn>
+              </div>
             </div>
           )}
         </Section>

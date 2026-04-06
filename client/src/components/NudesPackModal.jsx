@@ -8,8 +8,6 @@ import {
   getNudesPackTotalCredits,
 } from "@shared/nudesPackPoses.js";
 
-const ALL_IDS = NUDES_PACK_POSES.map((p) => p.id);
-
 /**
  * Review & approve nudes pack poses before batch generation.
  */
@@ -19,21 +17,24 @@ export default function NudesPackModal({
   onApprove,
   submitting = false,
   sidebarCollapsed = false,
+  poses = NUDES_PACK_POSES,
 }) {
-  const [selected, setSelected] = useState(() => new Set(ALL_IDS));
+  const safePoses = Array.isArray(poses) && poses.length > 0 ? poses : NUDES_PACK_POSES;
+  const allIds = useMemo(() => safePoses.map((p) => p.id), [safePoses]);
+  const [selected, setSelected] = useState(() => new Set(allIds));
 
   useEffect(() => {
-    if (isOpen) setSelected(new Set(ALL_IDS));
-  }, [isOpen]);
+    if (isOpen) setSelected(new Set(allIds));
+  }, [isOpen, allIds]);
 
   const grouped = useMemo(() => {
     const g = { Solo: [], Sex: [] };
-    for (const p of NUDES_PACK_POSES) {
+    for (const p of safePoses) {
       if (g[p.category]) g[p.category].push(p);
       else g.Solo.push(p);
     }
     return g;
-  }, []);
+  }, [safePoses]);
 
   const toggle = (id) => {
     setSelected((prev) => {
@@ -44,7 +45,7 @@ export default function NudesPackModal({
     });
   };
 
-  const selectAll = () => setSelected(new Set(ALL_IDS));
+  const selectAll = () => setSelected(new Set(allIds));
   const selectNone = () => setSelected(new Set());
 
   const count = selected.size;
@@ -79,7 +80,7 @@ export default function NudesPackModal({
             <p className="text-[11px] text-slate-500 mt-1 max-w-xl">
               30 curated shots: amateur-style nudes and explicit couple poses. Each image uses your model trigger and
               current looks.               Toggle off any pose you don&apos;t want — about{" "}
-              {perImage} credits per image on average ({count} selected = {totalCredits}{" "}
+              {perImage} <Coins className="w-3 h-3 inline align-text-bottom text-yellow-400" /> per image on average ({count} selected = {totalCredits}{" "}
               <Coins className="w-3 h-3 inline text-yellow-400 align-text-bottom" />
               ).
             </p>
@@ -156,10 +157,10 @@ export default function NudesPackModal({
             <span className="inline-flex items-center gap-0.5 text-yellow-400 font-semibold">
               {totalCredits} <Coins className="w-3.5 h-3.5" />
             </span>
-            {count === NUDES_PACK_POSES.length && (
+            {count === safePoses.length && (
               <span className="text-slate-500 ml-2">
-                (best rate — {NUDES_PACK_CREDITS_MIN} × {NUDES_PACK_POSES.length} ={" "}
-                {getNudesPackTotalCredits(NUDES_PACK_POSES.length)})
+                (best rate — {NUDES_PACK_CREDITS_MIN} × {safePoses.length} ={" "}
+                {getNudesPackTotalCredits(safePoses.length)})
               </span>
             )}
           </div>
