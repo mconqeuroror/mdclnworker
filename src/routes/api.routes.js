@@ -2797,6 +2797,11 @@ router.get("/upscale/status/:generationId", authMiddleware, async (req, res) => 
       return res.json({ success: true, status: "processing" });
     }
 
+    // Webhook completes the job and writes outputUrl — do not poll RunPod from this route
+    if (resolveRunpodWebhookUrl()) {
+      return res.json({ success: true, status: "processing" });
+    }
+
     let rpStatus;
     try {
       rpStatus = await pollUpscalerJob(runpodJobId);
@@ -3002,6 +3007,11 @@ router.get("/soulx/status/:generationId", authMiddleware, async (req, res) => {
     } catch (_) { /* ignore */ }
 
     if (!runpodJobId) {
+      return res.json({ success: true, status: "processing" });
+    }
+
+    // Webhook completes the job and writes outputUrl — do not poll RunPod from this route
+    if (resolveRunpodWebhookUrl()) {
       return res.json({ success: true, status: "processing" });
     }
 

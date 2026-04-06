@@ -24,6 +24,7 @@ import { useAuthStore } from "../store";
 import { useTheme } from "../hooks/useTheme.jsx";
 import { useCachedModels } from "../hooks/useCachedModels";
 
+// Light DB checks until webhook fills outputUrl (server no longer polls RunPod when webhook is set)
 const POLL_INTERVAL_MS = 5000;
 
 const SOULX_CREDITS = {
@@ -488,7 +489,11 @@ function GenerateTab({ isDark }) {
         quantity: qty,
       }, { headers: { Authorization: `Bearer ${token}` } });
 
-      const { generationIds } = res.data;
+      const generationIds = Array.isArray(res.data?.generationIds) ? res.data.generationIds : [];
+      if (!generationIds.length) {
+        toast.error(res.data?.error || "Server did not return a generation id");
+        return;
+      }
       const newResults = generationIds.map((id) => ({ generationId: id, status: "processing", imageUrl: null }));
       setResults((prev) => [...newResults, ...prev]);
       generationIds.forEach(startPoll);
