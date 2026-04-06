@@ -386,94 +386,121 @@ async function generateImageWithSeedream(images, prompt, options = {}) {
 
     const callbackUrl =
       options.forcePolling === true ? null : getWaveSpeedCallbackUrl();
-    const baseSubmitUrl = `${WAVESPEED_API_URL}/bytedance/seedream-v4.5/edit`;
-    const attempts = callbackUrl
+
+    // Two endpoint variants: standard edit, then sequential edit as fallback.
+    // Sequential keeps character identity across a batch — same parameters, different routing.
+    const endpoints = [
+      `${WAVESPEED_API_URL}/bytedance/seedream-v4.5/edit`,
+      `${WAVESPEED_API_URL}/bytedance/seedream-v4.5/edit-sequential`,
+    ];
+
+    // For each endpoint, try webhook URL first then plain body.
+    const buildAttempts = (baseUrl) => callbackUrl
       ? [
-          {
-            url: `${baseSubmitUrl}?webhook=${encodeURIComponent(callbackUrl)}`,
-            label: "query:webhook",
-          },
-          {
-            url: baseSubmitUrl,
-            label: "plain-body",
-          },
+          { url: `${baseUrl}?webhook=${encodeURIComponent(callbackUrl)}`, label: "webhook" },
+          { url: baseUrl, label: "plain-body" },
         ]
-      : [{ url: baseSubmitUrl, label: "plain-body" }];
+      : [{ url: baseUrl, label: "plain-body" }];
 
-    console.log("[Seedream] Submitting image edit to WaveSpeed bytedance/seedream-v4.5/edit");
-    if (callbackUrl) {
-      console.log(`[Seedream] WaveSpeed webhook: ${callbackUrl}`);
-    }
+    const MAX_RETRIES = 2; // retries per endpoint before moving to fallback
+    let lastError = null;
 
-    let submitResponse = null;
-    let responseText = "";
-    for (const attempt of attempts) {
-      submitResponse = await fetch(attempt.url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${WAVESPEED_API_KEY}`,
-        },
-        body: JSON.stringify(requestBody),
-        signal: AbortSignal.timeout(WAVESPEED_SUBMIT_TIMEOUT_MS),
-      });
-      responseText = await submitResponse.text();
-      if (submitResponse.ok) {
-        break;
+    for (const baseUrl of endpoints) {
+      const endpointLabel = baseUrl.includes("sequential") ? "edit-sequential" : "edit";
+      console.log(`[Seedream] Submitting to WaveSpeed ${endpointLabel}`);
+      if (callbackUrl && baseUrl === endpoints[0]) {
+        console.log(`[Seedream] WaveSpeed webhook: ${callbackUrl}`);
       }
-      if (attempts.length > 1) {
-        console.warn(
-          `[Seedream] Submit failed (${attempt.label}) HTTP ${submitResponse.status}; trying next variant`,
-        );
+
+      let succeeded = false;
+      for (let retry = 0; retry <= MAX_RETRIES; retry++) {
+        if (retry > 0) {
+          const backoffMs = retry * 4_000;
+          console.warn(`[Seedream] Retry ${retry}/${MAX_RETRIES} for ${endpointLabel} after ${backoffMs / 1000}s — last: ${lastError?.message?.slice(0, 120)}`);
+          await new Promise(r => setTimeout(r, backoffMs));
+        }
+
+        const urlAttempts = buildAttempts(baseUrl);
+        let submitResponse = null;
+        let responseText = "";
+
+        for (const attempt of urlAttempts) {
+          submitResponse = await fetch(attempt.url, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${WAVESPEED_API_KEY}`,
+            },
+            body: JSON.stringify(requestBody),
+            signal: AbortSignal.timeout(WAVESPEED_SUBMIT_TIMEOUT_MS),
+          });
+          responseText = await submitResponse.text();
+          if (submitResponse.ok) break;
+          if (urlAttempts.length > 1) {
+            console.warn(`[Seedream] Submit failed (${attempt.label}) HTTP ${submitResponse.status}; trying next URL variant`);
+          }
+        }
+
+        if (submitResponse?.ok) {
+          // Parse response and extract task ID
+          let submitData;
+          try {
+            submitData = JSON.parse(responseText);
+          } catch {
+            lastError = new Error(`Invalid JSON response: ${responseText.substring(0, 200)}`);
+            break;
+          }
+
+          const requestId =
+            submitData.data?.id ||
+            submitData.request_id ||
+            submitData.id ||
+            submitData.requestId ||
+            submitData.task_id ||
+            submitData.taskId ||
+            submitData.prediction_id;
+
+          if (!requestId) {
+            lastError = new Error("No request ID in Seedream response");
+            break;
+          }
+
+          if (typeof options.onTaskCreated === "function") {
+            await options.onTaskCreated(requestId);
+          }
+
+          if (callbackUrl) {
+            return { success: true, deferred: true, taskId: requestId };
+          }
+
+          const result = await waitForResult(requestId, 60);
+          return { success: true, outputUrl: result.outputUrl, thumbnailUrl: result.thumbnailUrl, requestId };
+        }
+
+        // Non-OK response — decide whether to retry or move to fallback endpoint
+        console.error(`❌ Seedream API Error (${endpointLabel}) HTTP ${submitResponse?.status}:`, responseText.slice(0, 300));
+        lastError = new Error(`HTTP ${submitResponse?.status || "unknown"} - ${responseText.slice(0, 200)}`);
+
+        const status = submitResponse?.status || 0;
+        const isTransient =
+          status === 422 || // "generate playground failed, task id is blank" — upstream transient
+          status === 429 ||
+          status === 503 ||
+          status === 504 ||
+          status >= 500;
+
+        if (!isTransient) {
+          // Hard error (400, 401, 403…) — no point retrying this endpoint
+          break;
+        }
+        succeeded = false;
       }
+
+      if (succeeded) break;
     }
 
-    if (!submitResponse?.ok) {
-      console.error(`❌ Seedream API Error ${submitResponse?.status}:`, responseText);
-      throw new Error(
-        `Failed to submit Seedream edit: ${submitResponse?.status || "unknown"} - ${responseText}`,
-      );
-    }
-
-    let submitData;
-    try {
-      submitData = JSON.parse(responseText);
-    } catch {
-      throw new Error(`Invalid JSON response: ${responseText.substring(0, 200)}`);
-    }
-
-    const requestId =
-      submitData.data?.id ||
-      submitData.request_id ||
-      submitData.id ||
-      submitData.requestId ||
-      submitData.task_id ||
-      submitData.taskId ||
-      submitData.prediction_id;
-
-    if (!requestId) {
-      throw new Error("No request ID in Seedream response");
-    }
-
-    if (typeof options.onTaskCreated === "function") {
-      await options.onTaskCreated(requestId);
-    }
-
-    if (callbackUrl) {
-      return {
-        success: true,
-        deferred: true,
-        taskId: requestId,
-      };
-    }
-
-    const result = await waitForResult(requestId, 60);
-    return {
-      success: true,
-      outputUrl: result.outputUrl,
-      thumbnailUrl: result.thumbnailUrl,
-      requestId,
-    };
+    // All endpoints and retries exhausted
+    throw new Error(`Failed to submit Seedream edit: ${lastError?.message || "unknown error"}`);
   } catch (error) {
     console.error("ERROR in Seedream 4.5 Edit:", error.message);
     return {

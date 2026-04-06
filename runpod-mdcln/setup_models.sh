@@ -46,7 +46,7 @@ download_4x_face_up_dat() {
 
     rm -f "$tmp"
     echo "  [DL] Fallback: HuggingFace mirror ..."
-    wget -q --show-progress -O "$tmp" "$UPSCALE_HF_URL"
+    wget -q --show-progress --timeout=60 --tries=2 -O "$tmp" "$UPSCALE_HF_URL" || true
     sz=$(stat -c%s "$tmp" 2>/dev/null || echo 0)
     if [ "$sz" -ge "$MIN_UPSCALE_FILE_BYTES" ]; then
         mv "$tmp" "$dest"
@@ -88,7 +88,9 @@ fi
 
 echo "  [4/6] Downloading upscaler: 4xFaceUpDAT.pth (Google Drive, fallback HF)..."
 mkdir -p "${MODELS_DIR}/upscale_models"
-download_4x_face_up_dat "${MODELS_DIR}/upscale_models/4xFaceUpDAT.pth"
+# Non-fatal: start.sh will re-download at runtime if this fails (network/SSL issues in build env)
+download_4x_face_up_dat "${MODELS_DIR}/upscale_models/4xFaceUpDAT.pth" || \
+  echo "  [WARN] Upscaler download failed during build — will be downloaded at container start via start.sh"
 
 echo "  [5/6] Downloading SeedVR2 VAE: ema_vae_fp16.safetensors (~501MB)..."
 wget -q --show-progress -O "${MODELS_DIR}/seedvr2/ema_vae_fp16.safetensors" \
