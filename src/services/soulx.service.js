@@ -117,6 +117,11 @@ export function buildSoulXPayload({ prompt, aspectRatio = "9:16", loraUrl = null
     wf["50"].inputs.aspect_ratio = arValue;
   }
 
+  // Default quality tuning for Soul-X
+  if (wf["276"]?.inputs) {
+    wf["276"].inputs.steps = 20;
+  }
+
   // Patch LoRA if applicable
   if (variant === "lora" && wf["374"]) {
     const strength = Math.min(1, Math.max(0, Number(loraStrength) || 0.8));
