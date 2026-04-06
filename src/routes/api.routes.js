@@ -2913,10 +2913,15 @@ router.post("/soulx/generate", authMiddleware, generationLimiter, async (req, re
 
   if (useCharacter) {
     const lora = await prisma.trainedLora.findFirst({
-      where: { id: characterLoraId, modelId, status: "ready", category: "soulx" },
+      where: {
+        id: characterLoraId,
+        modelId,
+        status: "ready",
+        category: { in: ["soulx", "nsfw"] },
+      },
     });
     if (!lora) {
-      return res.status(400).json({ success: false, error: "Character identity not found or not ready for generation." });
+      return res.status(400).json({ success: false, error: "Selected LoRA not found or not ready for generation." });
     }
     loraUrl = lora.loraUrl;
     triggerWord = lora.triggerWord;
@@ -3140,7 +3145,10 @@ router.get("/soulx/characters/:modelId", authMiddleware, async (req, res) => {
     }
 
     const characters = await prisma.trainedLora.findMany({
-      where: { modelId, category: "soulx" },
+      where: {
+        modelId,
+        category: { in: ["soulx", "nsfw"] },
+      },
       include: { trainingImages: { select: { id: true, imageUrl: true, status: true } } },
       orderBy: { createdAt: "desc" },
     });

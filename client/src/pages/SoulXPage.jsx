@@ -92,16 +92,19 @@ function CharacterTab({ isDark }) {
   const [training, setTraining] = useState(false);
   const fileInputRef = useRef(null);
 
-  const aiModels = (models || []).filter((m) => m.isAIGenerated);
+  const allModels = Array.isArray(models) ? models : [];
 
   const fetchCharacter = useCallback(async (modelId) => {
     if (!modelId) { setCharacter(null); return; }
     setLoading(true);
     try {
       const res = await axios.get(`/api/soulx/characters/${modelId}`, { headers: authHeader() });
-      setCharacter(res.data.characters?.[0] || null);
-      if (res.data.characters?.[0]) {
-        setUploadedImages(res.data.characters[0].trainingImages || []);
+      const list = Array.isArray(res.data.characters) ? res.data.characters : [];
+      // Character tab manages only dedicated Soul-X character records.
+      const soulxChar = list.find((c) => c.category === "soulx") || null;
+      setCharacter(soulxChar);
+      if (soulxChar) {
+        setUploadedImages(soulxChar.trainingImages || []);
       }
     } catch {
       setCharacter(null);
@@ -213,9 +216,26 @@ function CharacterTab({ isDark }) {
             className={`w-full appearance-none pl-3 pr-9 py-2.5 rounded-xl text-sm border outline-none
               ${isDark ? "bg-white/[0.05] border-white/10 text-white" : "bg-white border-black/10 text-slate-900"}`}
           >
-            <option value="">— Choose a model —</option>
-            {aiModels.map((m) => (
-              <option key={m.id} value={m.id}>{m.name}</option>
+            <option
+              value=""
+              style={{
+                color: isDark ? "#94a3b8" : "#64748b",
+                backgroundColor: isDark ? "#111827" : "#ffffff",
+              }}
+            >
+              — Choose a model —
+            </option>
+            {allModels.map((m) => (
+              <option
+                key={m.id}
+                value={m.id}
+                style={{
+                  color: isDark ? "#e5e7eb" : "#0f172a",
+                  backgroundColor: isDark ? "#111827" : "#ffffff",
+                }}
+              >
+                {m.name}
+              </option>
             ))}
           </select>
           <ChevronDown className={`absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none
@@ -418,7 +438,7 @@ function GenerateTab({ isDark }) {
   const [results, setResults] = useState([]); // [{generationId, imageUrl, status}]
   const pollRefs = useRef({});
 
-  const aiModels = (models || []).filter((m) => m.isAIGenerated);
+  const allModels = Array.isArray(models) ? models : [];
 
   const credits = (user?.credits ?? 0) + (user?.bonusCredits ?? 0);
   const cost = qty === 2
@@ -632,9 +652,26 @@ function GenerateTab({ isDark }) {
                   onChange={(e) => { setSelectedModelId(e.target.value); setSelectedCharacterId(""); }}
                   className={`w-full appearance-none pl-3 pr-9 py-2.5 rounded-xl text-sm border outline-none ${inputBase}`}
                 >
-                  <option value="">— Choose a model —</option>
-                  {aiModels.map((m) => (
-                    <option key={m.id} value={m.id}>{m.name}</option>
+                  <option
+                    value=""
+                    style={{
+                      color: isDark ? "#94a3b8" : "#64748b",
+                      backgroundColor: isDark ? "#111827" : "#ffffff",
+                    }}
+                  >
+                    — Choose a model —
+                  </option>
+                  {allModels.map((m) => (
+                    <option
+                      key={m.id}
+                      value={m.id}
+                      style={{
+                        color: isDark ? "#e5e7eb" : "#0f172a",
+                        backgroundColor: isDark ? "#111827" : "#ffffff",
+                      }}
+                    >
+                      {m.name}
+                    </option>
                   ))}
                 </select>
                 <ChevronDown className={`absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none ${isDark ? "text-slate-400" : "text-slate-400"}`} />
@@ -647,7 +684,7 @@ function GenerateTab({ isDark }) {
                 {characters.length === 0 ? (
                   <div className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border text-sm ${isDark ? "bg-amber-500/10 border-amber-500/25 text-amber-400" : "bg-amber-50 border-amber-200 text-amber-600"}`}>
                     <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                    No ready character for this model. Train one in the Character tab.
+                    No ready LoRA for this model. Train one in Character tab or use existing NSFW LoRA.
                   </div>
                 ) : (
                   <div className="space-y-2">
@@ -664,6 +701,15 @@ function GenerateTab({ isDark }) {
                           <User className="w-3.5 h-3.5 text-violet-400" />
                         </div>
                         <span className={`text-sm font-medium flex-1 ${isDark ? "text-white" : "text-slate-900"}`}>{c.name}</span>
+                        <span
+                          className={`text-[10px] px-1.5 py-0.5 rounded border ${
+                            c.category === "nsfw"
+                              ? (isDark ? "text-fuchsia-300 border-fuchsia-500/30 bg-fuchsia-500/10" : "text-fuchsia-700 border-fuchsia-300 bg-fuchsia-50")
+                              : (isDark ? "text-violet-300 border-violet-500/30 bg-violet-500/10" : "text-violet-700 border-violet-300 bg-violet-50")
+                          }`}
+                        >
+                          {c.category === "nsfw" ? "NSFW LoRA" : "Soul-X LoRA"}
+                        </span>
                         {selectedCharacterId === c.id && <CheckCircle2 className="w-4 h-4 text-violet-400 flex-shrink-0" />}
                       </button>
                     ))}
