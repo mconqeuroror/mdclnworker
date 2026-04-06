@@ -22,6 +22,12 @@ import { uploadBufferToBlobOrR2 } from "../utils/kieUpload.js";
 
 const router = express.Router();
 const SECRET = process.env.RUNPOD_WEBHOOK_SECRET?.trim();
+const RUNPOD_WEBHOOK_BODY_LIMIT = process.env.RUNPOD_WEBHOOK_BODY_LIMIT || "200mb";
+
+// RunPod can send very large callback payloads (base64 image outputs).
+// Keep a dedicated high limit here so webhook requests are not rejected with 413.
+router.use(express.json({ limit: RUNPOD_WEBHOOK_BODY_LIMIT }));
+router.use(express.urlencoded({ extended: true, limit: RUNPOD_WEBHOOK_BODY_LIMIT }));
 
 function verifyWebhook(req) {
   if (!SECRET) {
@@ -104,18 +110,27 @@ async function findDescribeJobByRunpodJobId(jobId) {
   );
 }
 
-router.post("/callback", async (req, res) => {
+async function handleRunpodCallback(req, res) {
   if (!verifyWebhook(req)) {
     return res.status(401).json({ ok: false, error: "unauthorized" });
   }
 
   try {
-    const body = req.body || {};
+    // Some providers/proxies may deliver webhook fields via query params on GET.
+    // Prefer JSON body when present; otherwise fall back to query.
+    const body =
+      req.body && typeof req.body === "object" && Object.keys(req.body).length > 0
+        ? req.body
+        : (req.query || {});
     const jobId = body.id || body.requestId || body.jobId;
     const st = body.status;
     const rawOut = body.output;
 
     if (!jobId) {
+      // Health/probe style callback with only secret in query — acknowledge.
+      if (req.method === "GET") {
+        return res.status(200).json({ ok: true, probe: true });
+      }
       return res.status(200).json({ ok: false, reason: "no_job_id" });
     }
 
@@ -263,6 +278,9 @@ router.post("/callback", async (req, res) => {
     // 200 so RunPod does not hammer retries; fix via polling / logs
     return res.status(200).json({ ok: false, error: e.message });
   }
-});
+}
+
+router.post("/callback", handleRunpodCallback);
+router.get("/callback", handleRunpodCallback);
 
 export default router;

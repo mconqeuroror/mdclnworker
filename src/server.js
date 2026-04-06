@@ -178,6 +178,7 @@ app.use('/api/crypto/webhook', cryptoWebhookRouter);
 app.use('/api/kie/callback', kieCallbackRoutes);
 app.use('/api/wavespeed/callback', wavespeedCallbackRoutes);
 app.use('/api/fal/webhook', falCallbackRoutes);
+app.use('/api/runpod', runpodCallbackRoutes);
 
 // Request size limits (prevent DOS attacks)
 // NOTE: This comes AFTER webhooks to preserve raw body for signature verification
@@ -243,7 +244,6 @@ app.use('/api/viral-reels', viralReelsRoutes);
 app.use('/api/video-repurpose', videoRepurposeRoutes);
 app.use('/api/img2img', img2imgRoutes);
 app.use('/api/support', supportRoutes);
-app.use('/api/runpod', runpodCallbackRoutes);
 app.use('/api', apiRoutes);
 
 // ── Public unsubscribe endpoint (no auth required — email links click here) ──
