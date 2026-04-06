@@ -197,6 +197,11 @@ if [ -d "$VOLUME_DIR" ]; then
         ln -sfn "${VOLUME_MODELS}/${subdir}" "${MODELS_DIR}/${subdir}"
         echo "  [OK] Linked: ${MODELS_DIR}/${subdir} -> ${VOLUME_MODELS}/${subdir}"
     done
+    # SeedVR2 node looks for models in SEEDVR2/ (uppercase) on Linux (case-sensitive fs).
+    # Without this symlink the node downloads the 16.5GB DIT model at runtime every job.
+    rm -rf "${MODELS_DIR}/SEEDVR2"
+    ln -sfn "${VOLUME_MODELS}/seedvr2" "${MODELS_DIR}/SEEDVR2"
+    echo "  [OK] Linked: ${MODELS_DIR}/SEEDVR2 -> ${VOLUME_MODELS}/seedvr2 (case alias)"
     # Volume may have an empty upscale_models dir (failed prior download). Re-attempt into linked path.
     if [ ! -f "${MODELS_DIR}/upscale_models/4xFaceUpDAT.pth" ]; then
         echo ">>> [RETRY] Upscale model missing after volume link — downloading 4xFaceUpDAT.pth..."
