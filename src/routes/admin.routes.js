@@ -40,6 +40,11 @@ import {
   upsertNudesPackPoseOverrides,
   getEffectiveNudesPackPoses,
 } from "../services/nudes-pack-config.service.js";
+import {
+  DEFAULT_GENERATION_SAFETY_CONFIG,
+  getGenerationSafetyConfig,
+  upsertGenerationSafetyConfig,
+} from "../services/generation-safety-config.service.js";
 import { fetchAllProviderBalances } from "../services/provider-balances.service.js";
 import {
   getVoicePlatformConfig,
@@ -467,6 +472,35 @@ router.put("/prompt-templates", async (req, res) => {
   } catch (error) {
     console.error("Error updating prompt templates:", error);
     res.status(500).json({ success: false, error: "Failed to update prompt templates" });
+  }
+});
+
+router.get("/safety-checker-config", async (_req, res) => {
+  try {
+    const config = await getGenerationSafetyConfig();
+    res.json({ success: true, config, defaults: DEFAULT_GENERATION_SAFETY_CONFIG });
+  } catch (error) {
+    console.error("Error fetching safety checker config:", error);
+    res.status(500).json({ success: false, error: "Failed to fetch safety checker config" });
+  }
+});
+
+router.put("/safety-checker-config", async (req, res) => {
+  try {
+    const next = req.body?.config && typeof req.body.config === "object"
+      ? req.body.config
+      : req.body;
+    if (!next || typeof next !== "object" || Array.isArray(next)) {
+      return res.status(400).json({ success: false, error: "Config object is required" });
+    }
+    const config = await upsertGenerationSafetyConfig(next, {
+      userId: req.user?.userId,
+      email: req.user?.email,
+    });
+    res.json({ success: true, config });
+  } catch (error) {
+    console.error("Error updating safety checker config:", error);
+    res.status(500).json({ success: false, error: "Failed to update safety checker config" });
   }
 });
 
@@ -2363,6 +2397,41 @@ router.get("/telemetry/endpoint-health", async (req, res) => {
   } catch (error) {
     console.error("Error fetching endpoint health snapshots:", error);
     res.status(500).json({ success: false, error: "Failed to fetch endpoint health snapshots" });
+  }
+});
+
+/**
+ * GET /api/admin/safety/child-incidents
+ * Immutable records of blocked child-sexual generation attempts.
+ */
+router.get("/safety/child-incidents", async (req, res) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(200, Math.max(10, parseInt(req.query.limit, 10) || 50));
+    const skip = (page - 1) * limit;
+
+    const [items, total] = await Promise.all([
+      prisma.childSafetyIncident.findMany({
+        orderBy: { createdAt: "desc" },
+        skip,
+        take: limit,
+      }),
+      prisma.childSafetyIncident.count(),
+    ]);
+
+    return res.json({
+      success: true,
+      items,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.max(1, Math.ceil(total / limit)),
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching child safety incidents:", error);
+    return res.status(500).json({ success: false, error: "Failed to fetch child safety incidents" });
   }
 });
 

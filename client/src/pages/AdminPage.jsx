@@ -544,6 +544,7 @@ export default function AdminPage() {
   const [showTelemetryDashboard, setShowTelemetryDashboard] = useState(false);
   const [showEdgeEvents, setShowEdgeEvents] = useState(false);
   const [showInfraMetrics, setShowInfraMetrics] = useState(false);
+  const [showChildSafetyReports, setShowChildSafetyReports] = useState(false);
   const [showPlanBreakdown, setShowPlanBreakdown] = useState(false);
   const [showBackupPanel, setShowBackupPanel] = useState(false);
   const [showTopSpenders, setShowTopSpenders] = useState(true);
@@ -621,6 +622,10 @@ export default function AdminPage() {
   const [promptTemplatesText, setPromptTemplatesText] = useState("{}");
   const [loadingPromptTemplates, setLoadingPromptTemplates] = useState(false);
   const [savingPromptTemplates, setSavingPromptTemplates] = useState(false);
+  const [showSafetyCheckerConfig, setShowSafetyCheckerConfig] = useState(false);
+  const [safetyCheckerConfigText, setSafetyCheckerConfigText] = useState("{}");
+  const [loadingSafetyCheckerConfig, setLoadingSafetyCheckerConfig] = useState(false);
+  const [savingSafetyCheckerConfig, setSavingSafetyCheckerConfig] = useState(false);
   const [showNudesPackPoseOverrides, setShowNudesPackPoseOverrides] = useState(false);
   const [nudesPackPoseOverridesText, setNudesPackPoseOverridesText] = useState("{}");
   const [loadingNudesPackPoseOverrides, setLoadingNudesPackPoseOverrides] = useState(false);
@@ -629,6 +634,10 @@ export default function AdminPage() {
   const [reconcileAllUsers, setReconcileAllUsers] = useState(false);
   const [reconcileResult, setReconcileResult] = useState(null);
   const [reconciliationLimit, setReconciliationLimit] = useState(100);
+  const [childSafetyIncidents, setChildSafetyIncidents] = useState([]);
+  const [childSafetyLoading, setChildSafetyLoading] = useState(false);
+  const [childSafetyPage, setChildSafetyPage] = useState(1);
+  const [childSafetyPagination, setChildSafetyPagination] = useState({ page: 1, pages: 1, total: 0, limit: 50 });
 
   // ── Brand / email ───────────────────────────────────────────────────────────
   const [brandSettings, setBrandSettings] = useState({
@@ -807,6 +816,11 @@ export default function AdminPage() {
   }, [search]);
 
   useEffect(() => { loadTelemetry(telemetryHours); }, [telemetryHours]);
+  useEffect(() => {
+    if (showChildSafetyReports) {
+      loadChildSafetyIncidents(childSafetyPage);
+    }
+  }, [showChildSafetyReports, childSafetyPage]);
 
   useEffect(() => {
     if (showDailyTracking) {
@@ -882,6 +896,25 @@ export default function AdminPage() {
       console.warn('Telemetry load failed');
     }
     finally { setLoadingTelemetry(false); }
+  };
+
+  const loadChildSafetyIncidents = async (page = childSafetyPage) => {
+    try {
+      setChildSafetyLoading(true);
+      const p = new URLSearchParams();
+      p.set('page', String(page));
+      p.set('limit', '50');
+      const r = await api.get(`/admin/safety/child-incidents?${p.toString()}`);
+      if (r.data?.success) {
+        setChildSafetyIncidents(Array.isArray(r.data.items) ? r.data.items : []);
+        setChildSafetyPagination(r.data.pagination || { page, pages: 1, total: 0, limit: 50 });
+        setChildSafetyPage(page);
+      }
+    } catch (e) {
+      toast.error(e?.response?.data?.error || 'Failed to load child safety incidents');
+    } finally {
+      setChildSafetyLoading(false);
+    }
   };
 
   const loadBranding = async () => {
@@ -1833,6 +1866,40 @@ export default function AdminPage() {
       }
     } finally {
       setSavingPromptTemplates(false);
+    }
+  };
+
+  const loadSafetyCheckerConfig = async () => {
+    try {
+      setLoadingSafetyCheckerConfig(true);
+      const r = await api.get('/admin/safety-checker-config');
+      if (r.data?.success) {
+        setSafetyCheckerConfigText(JSON.stringify(r.data.config || {}, null, 2));
+      }
+    } catch (e) {
+      toast.error(e?.response?.data?.error || 'Failed to load safety checker config');
+    } finally {
+      setLoadingSafetyCheckerConfig(false);
+    }
+  };
+
+  const saveSafetyCheckerConfig = async () => {
+    try {
+      setSavingSafetyCheckerConfig(true);
+      const parsed = JSON.parse(safetyCheckerConfigText || '{}');
+      const r = await api.put('/admin/safety-checker-config', { config: parsed });
+      if (r.data?.success) {
+        setSafetyCheckerConfigText(JSON.stringify(r.data.config || {}, null, 2));
+        toast.success('Safety checker config saved');
+      }
+    } catch (e) {
+      if (e instanceof SyntaxError) {
+        toast.error('Invalid JSON in safety checker config');
+      } else {
+        toast.error(e?.response?.data?.error || 'Failed to save safety checker config');
+      }
+    } finally {
+      setSavingSafetyCheckerConfig(false);
     }
   };
 
@@ -3280,6 +3347,92 @@ export default function AdminPage() {
           )}
         </Section>
 
+        {/* ── Child safety incidents ─────────────────────────────────────────── */}
+        <Section>
+          <div className="flex items-center justify-between mb-5 gap-3 flex-wrap">
+            <CollapseToggle
+              open={showChildSafetyReports}
+              onToggle={() => {
+                const next = !showChildSafetyReports;
+                setShowChildSafetyReports(next);
+                if (next) loadChildSafetyIncidents(1);
+              }}
+              label="Child safety incident reports"
+            />
+            {showChildSafetyReports && (
+              <GhostBtn onClick={() => loadChildSafetyIncidents(childSafetyPage)} disabled={childSafetyLoading}>
+                <RefreshCw className={`w-3 h-3 ${childSafetyLoading ? 'animate-spin' : ''}`} />
+                Refresh
+              </GhostBtn>
+            )}
+          </div>
+          {showChildSafetyReports && (
+            <div className="space-y-3">
+              <p className="text-[11px] text-gray-500 -mt-2">
+                Immutable records of blocked CP attempts. Stored independently from user account state/deletion for investigation.
+              </p>
+              <div className="overflow-x-auto rounded-xl border border-white/[0.07]">
+                <table className="w-full text-left text-xs min-w-[980px]">
+                  <thead>
+                    <tr className="border-b border-white/[0.07] text-gray-500">
+                      <th className="px-3 py-2 font-medium">Timestamp</th>
+                      <th className="px-3 py-2 font-medium">Username</th>
+                      <th className="px-3 py-2 font-medium">Email</th>
+                      <th className="px-3 py-2 font-medium">IP</th>
+                      <th className="px-3 py-2 font-medium">Region</th>
+                      <th className="px-3 py-2 font-medium">Mode</th>
+                      <th className="px-3 py-2 font-medium">Route</th>
+                      <th className="px-3 py-2 font-medium">Reason</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {!childSafetyLoading && childSafetyIncidents.length === 0 && (
+                      <tr>
+                        <td colSpan={8} className="px-3 py-6 text-center text-gray-600">No incidents found.</td>
+                      </tr>
+                    )}
+                    {childSafetyIncidents.map((row) => (
+                      <tr key={row.id} className="border-b border-white/[0.05]">
+                        <td className="px-3 py-2 text-gray-400 whitespace-nowrap">{row.createdAt ? new Date(row.createdAt).toLocaleString() : '—'}</td>
+                        <td className="px-3 py-2 text-gray-300">{row.usernameSnapshot || '—'}</td>
+                        <td className="px-3 py-2 text-gray-300">{row.emailSnapshot || '—'}</td>
+                        <td className="px-3 py-2 text-gray-400 font-mono">{row.ipAddress || '—'}</td>
+                        <td className="px-3 py-2 text-gray-400">{row.region || '—'}</td>
+                        <td className="px-3 py-2 text-gray-300">{row.generationMode || '—'}</td>
+                        <td className="px-3 py-2 text-gray-500 font-mono max-w-[180px] truncate">{row.routePath || '—'}</td>
+                        <td className="px-3 py-2 text-red-300">{row.classifierCode || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="flex items-center justify-between text-[11px] text-gray-500">
+                <span>
+                  Page {childSafetyPagination.page || 1} / {childSafetyPagination.pages || 1} · {(childSafetyPagination.total || 0).toLocaleString()} total
+                </span>
+                <div className="flex items-center gap-1">
+                  <GhostBtn
+                    disabled={(childSafetyPagination.page || 1) <= 1 || childSafetyLoading}
+                    onClick={() => setChildSafetyPage((p) => Math.max(1, p - 1))}
+                  >
+                    <ChevronLeft className="w-3 h-3" /> Prev
+                  </GhostBtn>
+                  <GhostBtn
+                    disabled={(childSafetyPagination.page || 1) >= (childSafetyPagination.pages || 1) || childSafetyLoading}
+                    onClick={() =>
+                      setChildSafetyPage((p) =>
+                        Math.min(childSafetyPagination.pages || 1, p + 1),
+                      )
+                    }
+                  >
+                    Next <ChevronRight className="w-3 h-3" />
+                  </GhostBtn>
+                </div>
+              </div>
+            </div>
+          )}
+        </Section>
+
         {/* ── Generation pricing (credits) ──────────────────────────────────── */}
         <Section>
           <div className="flex items-center justify-between mb-5 gap-3 flex-wrap">
@@ -3393,6 +3546,44 @@ export default function AdminPage() {
               ) : (
                 <p className="text-xs text-gray-600">Could not load pricing.</p>
               )}
+            </div>
+          )}
+        </Section>
+
+        <Section>
+          <div className="flex items-center justify-between mb-5 gap-3 flex-wrap">
+            <CollapseToggle
+              open={showSafetyCheckerConfig}
+              onToggle={() => {
+                const next = !showSafetyCheckerConfig;
+                setShowSafetyCheckerConfig(next);
+                if (next) loadSafetyCheckerConfig();
+              }}
+              label="AI safety checker config"
+            />
+            {showSafetyCheckerConfig && (
+              <GhostBtn onClick={loadSafetyCheckerConfig} disabled={loadingSafetyCheckerConfig}>
+                <RefreshCw className={`w-3 h-3 ${loadingSafetyCheckerConfig ? 'animate-spin' : ''}`} />
+                Refresh
+              </GhostBtn>
+            )}
+          </div>
+          {showSafetyCheckerConfig && (
+            <div className="space-y-3">
+              <p className="text-[11px] text-gray-500 -mt-2">
+                Override moderation model, AI policy text, and heuristic regex patterns. Invalid regex values fall back to defaults.
+              </p>
+              <textarea
+                value={safetyCheckerConfigText}
+                onChange={(e) => setSafetyCheckerConfigText(e.target.value)}
+                className="w-full min-h-[220px] rounded-lg border border-white/[0.07] bg-white/[0.03] text-xs text-white p-3 font-mono outline-none focus:border-white/20"
+                spellCheck={false}
+              />
+              <div className="flex items-center gap-2">
+                <PrimaryBtn onClick={saveSafetyCheckerConfig} disabled={savingSafetyCheckerConfig}>
+                  {savingSafetyCheckerConfig ? 'Saving…' : 'Save safety checker config'}
+                </PrimaryBtn>
+              </div>
             </div>
           )}
         </Section>

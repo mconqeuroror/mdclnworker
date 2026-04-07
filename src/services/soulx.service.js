@@ -81,7 +81,7 @@ export function buildSoulXPayload({
   loraUrl = null,
   loraStrength = 0.8,
   triggerWord = null,
-  steps = 50,
+  steps = null,
   cfg = 2,
 }) {
   const variant = loraUrl ? "lora" : "nolora";
@@ -127,7 +127,12 @@ export function buildSoulXPayload({
 
   // Default quality tuning for Soul-X
   if (wf["276"]?.inputs) {
-    const safeSteps = Math.max(1, Math.min(100, Math.round(Number(steps) || 50)));
+    const defaultStepsForMode = loraUrl ? 50 : 20;
+    const parsedSteps = Number(steps);
+    const safeSteps = Math.max(
+      1,
+      Math.min(100, Math.round(Number.isFinite(parsedSteps) ? parsedSteps : defaultStepsForMode)),
+    );
     wf["276"].inputs.steps = safeSteps;
     if (cfg != null) {
       const parsedCfg = Number(cfg);

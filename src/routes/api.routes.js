@@ -3050,10 +3050,14 @@ router.get("/soulx/config", authMiddleware, async (_req, res) => {
       },
       limits: {
         includedSteps: 20,
+        includedStepsNoModel: 20,
+        includedStepsWithModel: 50,
         maxSteps: 100,
         minCfg: 0,
         maxCfg: 6,
-        defaultSteps: 50,
+        defaultSteps: 20,
+        defaultStepsNoModel: 20,
+        defaultStepsWithModel: 50,
         defaultCfg: 2,
       },
     });
@@ -3073,7 +3077,7 @@ router.post("/soulx/generate", authMiddleware, generationLimiter, async (req, re
     characterLoraId = null,
     aspectRatio = "9:16",
     quantity = 1,
-    steps = 50,
+    steps = null,
     cfg = 2,
     loraStrength = 0.8,
   } = req.body;
@@ -3084,7 +3088,12 @@ router.post("/soulx/generate", authMiddleware, generationLimiter, async (req, re
 
   const qty = quantity === 2 ? 2 : 1;
   const useCharacter = Boolean(modelId && characterLoraId);
-  const safeSteps = Math.max(1, Math.min(100, Math.round(Number(steps) || 50)));
+  const defaultStepsForMode = useCharacter ? 50 : 20;
+  const parsedSteps = Number(steps);
+  const safeSteps = Math.max(
+    1,
+    Math.min(100, Math.round(Number.isFinite(parsedSteps) ? parsedSteps : defaultStepsForMode)),
+  );
   const safeCfg = Math.max(0, Math.min(6, Number(cfg) || 0));
   const safeLoraStrength = Math.max(0, Math.min(1, Number(loraStrength) || 0.8));
 
@@ -3099,7 +3108,10 @@ router.post("/soulx/generate", authMiddleware, generationLimiter, async (req, re
       ? (useCharacter ? Number(pricing.soulxWithModel2 ?? 25) : Number(pricing.soulxNoModel2 ?? 15))
       : (useCharacter ? Number(pricing.soulxWithModel1 ?? 15) : Number(pricing.soulxNoModel1 ?? 10));
   const extraStepsPer10 = Math.max(0, Number(pricing.soulxExtraStepsPer10 ?? 5));
-  const extraStepBlocks = safeSteps > 20 ? Math.ceil((safeSteps - 20) / 10) : 0;
+  const includedStepsForPricing = useCharacter ? 50 : 20;
+  const extraStepBlocks = safeSteps > includedStepsForPricing
+    ? Math.ceil((safeSteps - includedStepsForPricing) / 10)
+    : 0;
   const extraCostPerImage = extraStepBlocks * extraStepsPer10;
   const costEachBase = qty === 2
     ? [Math.ceil(baseCost / 2), Math.floor(baseCost / 2)]
@@ -3217,6 +3229,7 @@ router.post("/soulx/generate", authMiddleware, generationLimiter, async (req, re
       steps: safeSteps,
       cfg: safeCfg,
       loraStrength: safeLoraStrength,
+      includedStepsForPricing,
       extraStepBlocks,
       extraCostPerImage,
     },

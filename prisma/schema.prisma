@@ -577,6 +577,27 @@ model AdminAuditLog {
   @@index([action, createdAt])
 }
 
+/// Immutable abuse records for blocked child-sexual generation attempts.
+/// Denormalized snapshot fields are stored without FK so records survive user/account deletion.
+model ChildSafetyIncident {
+  id                   String   @id @default(uuid())
+  userIdSnapshot       String?
+  usernameSnapshot     String?
+  emailSnapshot        String?
+  ipAddress            String?
+  region               String?
+  routePath            String?
+  generationMode       String?
+  classifierCode       String?
+  promptPreview        String?
+  createdAt            DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([generationMode, createdAt])
+  @@index([classifierCode, createdAt])
+  @@index([emailSnapshot, createdAt])
+}
+
 model ApiRequestMetric {
   id             String   @id @default(uuid())
   method         String

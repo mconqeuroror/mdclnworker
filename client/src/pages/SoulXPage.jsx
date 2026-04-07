@@ -37,11 +37,16 @@ const DEFAULT_SOULX_PRICING = Object.freeze({
 });
 const DEFAULT_SOULX_LIMITS = Object.freeze({
   includedSteps: 20,
+  includedStepsNoModel: 20,
+  includedStepsWithModel: 50,
   maxSteps: 100,
   minCfg: 0,
   maxCfg: 6,
+  defaultSteps: 20,
+  defaultStepsNoModel: 20,
+  defaultStepsWithModel: 50,
+  defaultCfg: 2,
 });
-const SOULX_DEFAULT_STEPS = 50;
 const SOULX_DEFAULT_CFG = 2;
 
 const ASPECT_OPTIONS = [
@@ -55,6 +60,20 @@ const ASPECT_OPTIONS = [
 function authHeader() {
   const token = localStorage.getItem("token");
   return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+function getDefaultStepsForMode(mode, limits) {
+  if (mode === "character") {
+    return Number(limits?.defaultStepsWithModel ?? limits?.defaultSteps ?? 50);
+  }
+  return Number(limits?.defaultStepsNoModel ?? limits?.defaultSteps ?? 20);
+}
+
+function getIncludedStepsForMode(mode, limits) {
+  if (mode === "character") {
+    return Number(limits?.includedStepsWithModel ?? limits?.includedSteps ?? 50);
+  }
+  return Number(limits?.includedStepsNoModel ?? limits?.includedSteps ?? 20);
 }
 
 function resolveLocale() {
@@ -518,7 +537,7 @@ function GenerateTab({ isDark, copy }) {
   const [aspect, setAspect] = useState("9:16");
   const [qty, setQty] = useState(1);
   const [prompt, setPrompt] = useState("");
-  const [steps, setSteps] = useState(SOULX_DEFAULT_STEPS);
+  const [steps, setSteps] = useState(DEFAULT_SOULX_LIMITS.defaultStepsNoModel);
   const [cfg, setCfg] = useState(SOULX_DEFAULT_CFG);
   const [loraStrength, setLoraStrength] = useState(0.8);
   const [submitInFlight, setSubmitInFlight] = useState(0);
@@ -533,7 +552,8 @@ function GenerateTab({ isDark, copy }) {
   const baseCost = qty === 2
     ? (mode === "character" ? pricing.withModel2 : pricing.noModel2)
     : (mode === "character" ? pricing.withModel1 : pricing.noModel1);
-  const extraBlocks = steps > limits.includedSteps ? Math.ceil((steps - limits.includedSteps) / 10) : 0;
+  const includedStepsForPricing = getIncludedStepsForMode(mode, limits);
+  const extraBlocks = steps > includedStepsForPricing ? Math.ceil((steps - includedStepsForPricing) / 10) : 0;
   const extraCost = extraBlocks * pricing.extraStepsPer10 * qty;
   const cost = baseCost + extraCost;
   const hasEnough = credits >= cost;
@@ -547,12 +567,7 @@ function GenerateTab({ isDark, copy }) {
           if (res.data.limits) {
             const nextLimits = { ...DEFAULT_SOULX_LIMITS, ...res.data.limits };
             setLimits(nextLimits);
-            const suggestedSteps = Number(res.data.limits.defaultSteps ?? SOULX_DEFAULT_STEPS);
             const suggestedCfg = Number(res.data.limits.defaultCfg ?? SOULX_DEFAULT_CFG);
-            setSteps((prev) => {
-              if (prev !== SOULX_DEFAULT_STEPS) return prev;
-              return Math.max(1, Math.min(nextLimits.maxSteps, Math.round(suggestedSteps) || SOULX_DEFAULT_STEPS));
-            });
             setCfg((prev) => {
               if (prev !== SOULX_DEFAULT_CFG) return prev;
               const parsed = Number.isFinite(suggestedCfg) ? suggestedCfg : SOULX_DEFAULT_CFG;
@@ -563,6 +578,12 @@ function GenerateTab({ isDark, copy }) {
       })
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    const suggested = getDefaultStepsForMode(mode, limits);
+    const safe = Math.max(1, Math.min(limits.maxSteps, Math.round(suggested) || 20));
+    setSteps(safe);
+  }, [mode, limits]);
 
   // Fetch characters when model changes
   useEffect(() => {
@@ -897,7 +918,17 @@ function GenerateTab({ isDark, copy }) {
               max={limits.maxSteps}
               step={1}
               value={steps}
-              onChange={(e) => setSteps(Math.max(1, Math.min(limits.maxSteps, Number(e.target.value) || limits.includedSteps)))}
+              onChange={(e) =>
+                setSteps(
+                  Math.max(
+                    1,
+                    Math.min(
+                      limits.maxSteps,
+                      Number(e.target.value) || getDefaultStepsForMode(mode, limits),
+                    ),
+                  ),
+                )
+              }
             />
             <span className={`text-xs ${isDark ? "text-slate-300" : "text-slate-700"}`}>{steps}</span>
           </label>

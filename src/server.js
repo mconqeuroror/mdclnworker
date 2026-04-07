@@ -14,6 +14,7 @@ import generationPoller from './services/generation-poller.service.js';
 import prisma from './lib/prisma.js';
 import { refundCredits } from './services/credit.service.js';
 import { telemetryMiddleware } from './middleware/telemetry.middleware.js';
+import { generationSafetyMiddleware } from './middleware/generation-safety.middleware.js';
 import {
   captureSystemHealthSnapshot,
   hashIp,
@@ -200,6 +201,11 @@ app.use('/api', (req, res, next) => {
   if (req.path.startsWith('/heygen/webhook')) return next();
   return apiLimiter(req, res, next);
 });
+
+// AI safety constraints for generation endpoints:
+// - blocks child sexual content globally
+// - blocks explicit NSFW sex scenes on Soul-X (mild adult nudity allowed)
+app.use('/api', generationSafetyMiddleware);
 
 // Admin impersonation login - sets auth cookies from a token in the URL
 app.get('/admin-login', async (req, res) => {
