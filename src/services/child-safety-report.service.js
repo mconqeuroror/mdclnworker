@@ -1,4 +1,5 @@
 import prisma from "../lib/prisma.js";
+import jwt from "jsonwebtoken";
 import { getRegionFromIp } from "../utils/geo.js";
 
 function resolveClientIp(req) {
@@ -30,8 +31,28 @@ function sanitizePromptPreview(body) {
   return raw.replace(/\s+/g, " ").trim().slice(0, 1000) || null;
 }
 
+function resolveAuthToken(req) {
+  const cookieToken = req?.cookies?.auth_token;
+  if (cookieToken) return String(cookieToken);
+  const authHeader = String(req?.headers?.authorization || "");
+  if (authHeader.startsWith("Bearer ")) return authHeader.slice(7).trim();
+  return null;
+}
+
+function resolveUserIdFromToken(req) {
+  const token = resolveAuthToken(req);
+  if (!token || !process.env.JWT_SECRET) return null;
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    if (decoded?.type === "refresh") return null;
+    return decoded?.userId ?? decoded?.id ?? decoded?.sub ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function recordChildSafetyIncident({ req, routePath, classifierCode }) {
-  const userId = req?.user?.userId || null;
+  const userId = req?.user?.userId || resolveUserIdFromToken(req) || null;
   const fallbackEmail = req?.user?.email ? String(req.user.email).trim() : null;
   const ipAddress = resolveClientIp(req);
 

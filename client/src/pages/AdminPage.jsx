@@ -3382,13 +3382,14 @@ export default function AdminPage() {
                       <th className="px-3 py-2 font-medium">Region</th>
                       <th className="px-3 py-2 font-medium">Mode</th>
                       <th className="px-3 py-2 font-medium">Route</th>
+                      <th className="px-3 py-2 font-medium">Prompt</th>
                       <th className="px-3 py-2 font-medium">Reason</th>
                     </tr>
                   </thead>
                   <tbody>
                     {!childSafetyLoading && childSafetyIncidents.length === 0 && (
                       <tr>
-                        <td colSpan={8} className="px-3 py-6 text-center text-gray-600">No incidents found.</td>
+                        <td colSpan={9} className="px-3 py-6 text-center text-gray-600">No incidents found.</td>
                       </tr>
                     )}
                     {childSafetyIncidents.map((row) => (
@@ -3400,6 +3401,9 @@ export default function AdminPage() {
                         <td className="px-3 py-2 text-gray-400">{row.region || '—'}</td>
                         <td className="px-3 py-2 text-gray-300">{row.generationMode || '—'}</td>
                         <td className="px-3 py-2 text-gray-500 font-mono max-w-[180px] truncate">{row.routePath || '—'}</td>
+                        <td className="px-3 py-2 text-gray-400 max-w-[280px] truncate" title={row.promptPreview || ''}>
+                          {row.promptPreview || '—'}
+                        </td>
                         <td className="px-3 py-2 text-red-300">{row.classifierCode || '—'}</td>
                       </tr>
                     ))}
