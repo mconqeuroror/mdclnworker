@@ -1,6 +1,13 @@
 import jwt from 'jsonwebtoken';
+import prisma from '../lib/prisma.js';
 
 const isProduction = process.env.NODE_ENV === 'production';
+
+const BAN_RESPONSE = {
+  success: false,
+  code: 'ACCOUNT_BAN_LOCKED',
+  message: 'This account has been suspended.',
+};
 
 export const COOKIE_OPTIONS = {
   httpOnly: true,
@@ -24,7 +31,7 @@ export function clearAuthCookie(res) {
   res.clearCookie('refresh_token', clearCookieOptions);
 }
 
-export const authMiddleware = (req, res, next) => {
+export const authMiddleware = async (req, res, next) => {
   try {
     let token = req.cookies?.auth_token;
     
@@ -55,7 +62,19 @@ export const authMiddleware = (req, res, next) => {
     if (!userId) {
       return res.status(401).json({ success: false, message: "Invalid token payload" });
     }
-    req.user = { ...decoded, userId, id: userId };
+
+    const row = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { banLocked: true },
+    });
+    if (!row) {
+      return res.status(401).json({ success: false, message: 'User not found' });
+    }
+    if (row.banLocked) {
+      return res.status(403).json(BAN_RESPONSE);
+    }
+
+    req.user = { ...decoded, userId, id: userId, banLocked: false };
     next();
   } catch (error) {
     return res.status(401).json({ 

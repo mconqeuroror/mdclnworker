@@ -989,6 +989,8 @@ export async function getAllUsers(req, res) {
           isVerified: true,
           subscriptionTier: true,
           subscriptionStatus: true,
+          proAccess: true,
+          banLocked: true,
           createdAt: true,
           _count: {
             select: {

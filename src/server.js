@@ -222,6 +222,14 @@ app.get('/admin-login', async (req, res) => {
       return res.status(403).send('Invalid impersonation token');
     }
 
+    const target = await prisma.user.findUnique({
+      where: { id: decoded.userId },
+      select: { banLocked: true },
+    });
+    if (target?.banLocked) {
+      return res.status(403).send('Account suspended');
+    }
+
     const { setAuthCookie, setRefreshCookie } = await import('./middleware/auth.middleware.js');
 
     const accessToken = jwt.sign(

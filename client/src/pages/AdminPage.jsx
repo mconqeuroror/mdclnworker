@@ -5,6 +5,7 @@ import {
   ChevronDown, ChevronUp, RefreshCw, BarChart3, Palette, Mail, ArrowLeft,
   Copy, Check, AlertTriangle, Zap, Server, Clock, TrendingUp, TrendingDown,
   ChevronLeft, ChevronRight, X, Send, UserX, Download, Loader2, Wallet, ExternalLink,
+  Ban,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
@@ -2383,7 +2384,7 @@ export default function AdminPage() {
                   <THead cols={[
                     { label: 'Email' }, { label: 'Name' }, { label: 'Plan' }, { label: 'Status' },
                     { label: 'Credits' }, { label: 'Used' }, { label: 'Gens' }, { label: 'Billing' },
-                    { label: 'LoRA' }, { label: 'Pro' }, { label: 'Joined' }, { label: 'Actions', align: 'right' },
+                    { label: 'LoRA' }, { label: 'Pro' }, { label: 'Ban' }, { label: 'Joined' }, { label: 'Actions', align: 'right' },
                   ]} />
               <tbody>
                 {users.map((user) => (
@@ -2444,6 +2445,30 @@ export default function AdminPage() {
                             title={user.proAccess ? 'Revoke Pro access' : 'Grant Pro access (/pro)'}
                           >
                             {user.proAccess ? 'Pro' : '—'}
+                          </button>
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                const next = !user.banLocked;
+                                const msg = next
+                                  ? `Ban-lock ${user.email}? They cannot log in or use the API; existing sessions fail on the next request.`
+                                  : `Remove ban-lock for ${user.email}?`;
+                                if (!window.confirm(msg)) return;
+                                await api.post(`/admin/users/${user.id}/ban-lock`, { banLocked: next });
+                                setUsers((prev) => prev.map((u) => (u.id === user.id ? { ...u, banLocked: next } : u)));
+                                toast.success(next ? 'User ban-locked' : 'Ban-lock removed');
+                              } catch (e) {
+                                toast.error(e.response?.data?.error || 'Failed to update');
+                              }
+                            }}
+                            className={`px-2 py-0.5 rounded text-[11px] font-medium transition inline-flex items-center gap-1 ${user.banLocked ? 'bg-red-500/20 text-red-300 border border-red-500/35' : 'bg-white/[0.06] text-gray-500 border border-white/[0.08] hover:bg-white/[0.1]'}`}
+                            title={user.banLocked ? 'Remove ban-lock (allow login & API)' : 'Ban-lock (full suspension)'}
+                          >
+                            <Ban className="w-3 h-3 shrink-0 opacity-80" />
+                            {user.banLocked ? 'Locked' : '—'}
                           </button>
                         </td>
                         <td className="py-2.5 px-3 text-[11px] text-gray-500 whitespace-nowrap">{fmtDate(user.createdAt)}</td>

@@ -652,6 +652,7 @@ router.get("/users", async (req, res) => {
           role: true,
           isVerified: true,
           proAccess: true,
+          banLocked: true,
           stripeCustomerId: true,
           stripeSubscriptionId: true,
           subscriptionTier: true,
@@ -703,6 +704,34 @@ router.post("/users/:userId/pro-access", async (req, res) => {
     }
     console.error("Error updating pro access:", error);
     res.status(500).json({ error: "Failed to update pro access" });
+  }
+});
+
+/**
+ * POST /api/admin/users/:userId/ban-lock
+ * Full lockout: cannot log in, refresh, or use authenticated APIs; password reset suppressed.
+ */
+router.post("/users/:userId/ban-lock", async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { banLocked } = req.body;
+    if (typeof banLocked !== "boolean") {
+      return res.status(400).json({ error: "banLocked must be a boolean" });
+    }
+    if (userId === req.user.userId) {
+      return res.status(400).json({ error: "You cannot change your own ban-lock status" });
+    }
+    await prisma.user.update({
+      where: { id: userId },
+      data: { banLocked },
+    });
+    res.json({ success: true, banLocked });
+  } catch (error) {
+    if (error.code === "P2025") {
+      return res.status(404).json({ error: "User not found" });
+    }
+    console.error("Error updating ban-lock:", error);
+    res.status(500).json({ error: "Failed to update ban-lock" });
   }
 });
 
@@ -2444,11 +2473,18 @@ router.post("/impersonate", async (req, res) => {
 
     const targetUser = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, email: true, name: true, role: true },
+      select: { id: true, email: true, name: true, role: true, banLocked: true },
     });
 
     if (!targetUser) {
       return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    if (targetUser.banLocked) {
+      return res.status(403).json({
+        success: false,
+        message: "Cannot impersonate a ban-locked account. Unban first if you need access.",
+      });
     }
 
     const jti = randomUUID();

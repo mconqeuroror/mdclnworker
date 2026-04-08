@@ -58,6 +58,8 @@ model User {
   marketingLanguage             String?
   subscriptionCancelledAt       DateTime?
   proAccess                     Boolean                 @default(false)
+  /// Admin ban: no login/refresh; all authenticated API calls rejected while true.
+  banLocked                     Boolean                 @default(false)
   affiliateAttribution          AffiliateAttribution?
   affiliateConversions          AffiliateConversion[]
   creditTransactions            CreditTransaction[]

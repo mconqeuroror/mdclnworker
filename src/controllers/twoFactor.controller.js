@@ -1,11 +1,13 @@
 import { authenticator } from "otplib";
 import QRCode from "qrcode";
 import prisma from "../lib/prisma.js";
+import { enforceRestrictedUserActions } from "../utils/generated-content-deletion-guard.js";
 
 // Generate 2FA secret and QR code for setup
 export async function generate2FASecret(req, res) {
   try {
     const userId = req.user?.userId;
+    if (enforceRestrictedUserActions(req, res)) return;
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -57,6 +59,7 @@ export async function generate2FASecret(req, res) {
 export async function verify2FA(req, res) {
   try {
     const userId = req.user?.userId;
+    if (enforceRestrictedUserActions(req, res)) return;
     const { code } = req.body;
 
     if (!code) {
@@ -118,6 +121,7 @@ export async function verify2FA(req, res) {
 export async function disable2FA(req, res) {
   try {
     const userId = req.user?.userId;
+    if (enforceRestrictedUserActions(req, res)) return;
     const { code } = req.body;
 
     if (!code) {

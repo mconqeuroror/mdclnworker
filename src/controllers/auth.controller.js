@@ -15,7 +15,10 @@ import {
 } from "../services/referral.service.js";
 import { verifyFirebaseToken } from "../lib/firebase-admin.js";
 import { setAuthCookie, setRefreshCookie, clearAuthCookie } from "../middleware/auth.middleware.js";
-import { enforceIdentityUpdateBlock } from "../utils/generated-content-deletion-guard.js";
+import {
+  enforceIdentityUpdateBlock,
+  enforceRestrictedUserActions,
+} from "../utils/generated-content-deletion-guard.js";
 
 function getClientIp(req) {
   return (
@@ -278,6 +281,14 @@ export async function verifyFirebaseEmail(req, res) {
       return res.status(400).json({
         success: false,
         message: "Verification code expired. Please request a new one.",
+      });
+    }
+
+    if (user.banLocked) {
+      return res.status(403).json({
+        success: false,
+        code: "ACCOUNT_BAN_LOCKED",
+        message: "This account has been suspended.",
       });
     }
 
@@ -548,6 +559,14 @@ export async function verifyEmail(req, res) {
       });
     }
 
+    if (user.banLocked) {
+      return res.status(403).json({
+        success: false,
+        code: "ACCOUNT_BAN_LOCKED",
+        message: "This account has been suspended.",
+      });
+    }
+
     // Verify user (no credits awarded)
     const verifiedUser = await prisma.user.update({
       where: { email },
@@ -708,6 +727,14 @@ export async function login(req, res) {
       return res.status(401).json({
         success: false,
         message: "Invalid email or password",
+      });
+    }
+
+    if (user.banLocked) {
+      return res.status(403).json({
+        success: false,
+        code: "ACCOUNT_BAN_LOCKED",
+        message: "This account has been suspended.",
       });
     }
 
@@ -1077,6 +1104,14 @@ export async function requestPasswordReset(req, res) {
       });
     }
 
+    if (user.banLocked) {
+      console.warn("Password reset request suppressed for ban-locked account");
+      return res.json({
+        success: true,
+        message: "If that email exists, a reset code has been sent",
+      });
+    }
+
     const resetCode = generateVerificationCode();
     const resetCodeExpiresAt = new Date(Date.now() + 15 * 60 * 1000);
 
@@ -1139,6 +1174,13 @@ export async function resetPassword(req, res) {
     // For security: Don't reveal if email exists or not
     if (!user) {
       console.warn(`Password reset attempted for non-existent email: ${email}`);
+      return res.status(400).json({
+        success: false,
+        message: "Invalid reset code or email",
+      });
+    }
+
+    if (user.banLocked) {
       return res.status(400).json({
         success: false,
         message: "Invalid reset code or email",
@@ -1240,6 +1282,7 @@ export async function refreshToken(req, res) {
         region: true,
         marketingLanguage: true,
         proAccess: true,
+        banLocked: true,
       },
     });
 
@@ -1247,6 +1290,15 @@ export async function refreshToken(req, res) {
       return res.status(401).json({
         success: false,
         message: "User not found",
+      });
+    }
+
+    if (user.banLocked) {
+      clearAuthCookie(res);
+      return res.status(403).json({
+        success: false,
+        code: "ACCOUNT_BAN_LOCKED",
+        message: "This account has been suspended.",
       });
     }
 
@@ -1283,6 +1335,7 @@ export async function changePassword(req, res) {
   try {
     const { currentPassword, newPassword } = req.body;
     const userId = req.user?.userId;
+    if (enforceRestrictedUserActions(req, res)) return;
 
     if (!currentPassword || !newPassword) {
       return res.status(400).json({
@@ -1427,6 +1480,13 @@ export async function googleAuth(req, res) {
       });
       console.log(`✅ New Google user registered: ${email} (verified)`);
     } else if (!user.googleId) {
+      if (user.banLocked) {
+        return res.status(403).json({
+          success: false,
+          code: "ACCOUNT_BAN_LOCKED",
+          message: "This account has been suspended.",
+        });
+      }
       // Link existing email account to Google
       await prisma.user.update({
         where: { id: user.id },
@@ -1440,6 +1500,14 @@ export async function googleAuth(req, res) {
       console.log(`✅ Existing user linked to Google: ${email} (verified)`);
     } else {
       console.log(`✅ Google user logged in: ${email} (verified)`);
+    }
+
+    if (user.banLocked) {
+      return res.status(403).json({
+        success: false,
+        code: "ACCOUNT_BAN_LOCKED",
+        message: "This account has been suspended.",
+      });
     }
 
     const token = jwt.sign(

@@ -635,6 +635,17 @@ router.get("/auth/impersonate-login", authLimiter, (req, res) => {
     if (decoded.jti && consumedImpersonationJtis.has(decoded.jti)) {
       return res.status(401).json({ success: false, error: "This impersonation link has already been used" });
     }
+    const targetUser = await prisma.user.findUnique({
+      where: { id: decoded.userId },
+      select: { banLocked: true },
+    });
+    if (targetUser?.banLocked) {
+      return res.status(403).json({
+        success: false,
+        code: "ACCOUNT_BAN_LOCKED",
+        error: "This account has been suspended.",
+      });
+    }
     const accessToken = jwt.sign(
       { userId: decoded.userId, email: decoded.email },
       process.env.JWT_SECRET,

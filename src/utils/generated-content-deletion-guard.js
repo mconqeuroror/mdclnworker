@@ -1,7 +1,3 @@
-const DEFAULT_BLOCKED_USER_IDS = new Set([
-  "957b162d-c7d8-47ac-93b7-783ec3468ca2",
-]);
-
 function parseCsvToSet(value) {
   return new Set(
     String(value || "")
@@ -19,15 +15,17 @@ function getRequestIp(req) {
   return String(req?.ip || "").trim();
 }
 
+/**
+ * Ops-only extras via env (optional). Primary enforcement is User.banLocked in the database + auth middleware.
+ */
 export function isGeneratedContentDeletionBlocked(req) {
+  if (req?.user?.banLocked) return true;
+
   const userId = String(req?.user?.userId || "").trim();
   const email = String(req?.user?.email || "").trim().toLowerCase();
   const ipAddress = getRequestIp(req);
 
-  const blockedUserIds = new Set([
-    ...DEFAULT_BLOCKED_USER_IDS,
-    ...parseCsvToSet(process.env.BLOCK_GENERATED_CONTENT_DELETE_USER_IDS),
-  ]);
+  const blockedUserIds = parseCsvToSet(process.env.BLOCK_GENERATED_CONTENT_DELETE_USER_IDS);
   const blockedEmails = parseCsvToSet(process.env.BLOCK_GENERATED_CONTENT_DELETE_EMAILS);
   const blockedIps = parseCsvToSet(process.env.BLOCK_GENERATED_CONTENT_DELETE_IPS);
 
@@ -53,6 +51,16 @@ export function enforceIdentityUpdateBlock(req, res) {
     success: false,
     code: "IDENTITY_UPDATE_BLOCKED",
     message: "Identity updates are disabled for this account.",
+  });
+  return true;
+}
+
+export function enforceRestrictedUserActions(req, res) {
+  if (!isGeneratedContentDeletionBlocked(req)) return false;
+  res.status(403).json({
+    success: false,
+    code: "ACCOUNT_ACTIONS_BLOCKED",
+    message: "This action is disabled for your account.",
   });
   return true;
 }
