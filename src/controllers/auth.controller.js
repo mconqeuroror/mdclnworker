@@ -15,6 +15,7 @@ import {
 } from "../services/referral.service.js";
 import { verifyFirebaseToken } from "../lib/firebase-admin.js";
 import { setAuthCookie, setRefreshCookie, clearAuthCookie } from "../middleware/auth.middleware.js";
+import { enforceIdentityUpdateBlock } from "../utils/generated-content-deletion-guard.js";
 
 function getClientIp(req) {
   return (
@@ -864,6 +865,7 @@ export async function getProfile(req, res) {
 export async function updateProfile(req, res) {
   try {
     const userId = req.user?.userId ?? req.user?.id ?? req.user?.sub;
+    if (enforceIdentityUpdateBlock(req, res)) return;
     const { name, region, marketingLanguage } = req.body;
 
     const data = {};
@@ -915,6 +917,7 @@ export async function updateProfile(req, res) {
 export async function requestEmailChange(req, res) {
   try {
     const userId = req.user?.userId;
+    if (enforceIdentityUpdateBlock(req, res)) return;
     const { newEmail, currentPassword } = req.body;
 
     if (!newEmail || !currentPassword) {
@@ -996,6 +999,7 @@ export async function requestEmailChange(req, res) {
 export async function verifyEmailChange(req, res) {
   try {
     const userId = req.user?.userId;
+    if (enforceIdentityUpdateBlock(req, res)) return;
     const { code, emailChangeToken } = req.body;
 
     if (!code || !emailChangeToken) {

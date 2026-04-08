@@ -1554,26 +1554,97 @@ async function generateFluxKontextKieInternal(payload = {}) {
     safetyTolerance = 2,
     callBackUrl = null,
   } = payload;
-  const reqBody = {
-    model,
-    input: {
-      prompt: String(prompt || "").trim(),
-      ...(inputImage ? { inputImage: String(inputImage).trim() } : {}),
-      aspectRatio: String(aspectRatio || "16:9"),
-      outputFormat: String(outputFormat || "jpeg"),
-      promptUpsampling: !!promptUpsampling,
-      enableTranslation: enableTranslation !== false,
-      safetyTolerance: Number.isFinite(Number(safetyTolerance)) ? Number(safetyTolerance) : 2,
-    },
+  const baseInput = {
+    prompt: String(prompt || "").trim(),
+    ...(inputImage ? { inputImage: String(inputImage).trim() } : {}),
+    aspectRatio: String(aspectRatio || "16:9"),
+    outputFormat: String(outputFormat || "jpeg"),
+    promptUpsampling: !!promptUpsampling,
+    enableTranslation: enableTranslation !== false,
+    safetyTolerance: Number.isFinite(Number(safetyTolerance)) ? Number(safetyTolerance) : 2,
   };
-  if (callBackUrl) reqBody.callBackUrl = callBackUrl;
-  const result = await kieRun(reqBody, "flux-kontext", KIE_POLL_TIMEOUT_IMAGE_MS, {
-    onTaskCreated: payload.onTaskCreated,
-  });
-  return result;
+  const fallbackMap = {
+    "flux-kontext-pro": "black-forest-labs/flux-kontext-pro",
+    "flux-kontext-max": "black-forest-labs/flux-kontext-max",
+  };
+  const primaryModel = String(model || "flux-kontext-pro");
+  const candidates = [primaryModel];
+  if (fallbackMap[primaryModel]) candidates.push(fallbackMap[primaryModel]);
+  let sawUnsupportedModelError = false;
+  for (const candidate of candidates) {
+    const reqBody = { model: candidate, input: baseInput };
+    if (callBackUrl) reqBody.callBackUrl = callBackUrl;
+    try {
+      return await kieRun(reqBody, "flux-kontext", KIE_POLL_TIMEOUT_IMAGE_MS, {
+        onTaskCreated: payload.onTaskCreated,
+      });
+    } catch (error) {
+      const msg = String(error?.message || "");
+      const unsupported = msg.includes("code 422") && msg.toLowerCase().includes("model");
+      if (unsupported) sawUnsupportedModelError = true;
+      const hasNext = candidate !== candidates[candidates.length - 1];
+      if (!unsupported || !hasNext) throw error;
+    }
+  }
+  // Some KIE deployments expose Flux Kontext via a dedicated endpoint
+  // (/flux/kontext/generate) instead of generic /jobs/createTask model routing.
+  if (sawUnsupportedModelError) {
+    for (const candidate of candidates) {
+      const requestBody = {
+        model: candidate,
+        prompt: baseInput.prompt,
+        ...(baseInput.inputImage ? { inputImage: baseInput.inputImage } : {}),
+        aspectRatio: baseInput.aspectRatio,
+        outputFormat: baseInput.outputFormat,
+        promptUpsampling: baseInput.promptUpsampling,
+        enableTranslation: baseInput.enableTranslation,
+        safetyTolerance: baseInput.safetyTolerance,
+      };
+      const callbackUrl = callBackUrl || getKieCallbackUrl();
+      if (callbackUrl) requestBody.callBackUrl = callbackUrl;
+      try {
+        const res = await fetch(buildKieUrl("/flux/kontext/generate"), {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${KIE_API_KEY}`,
+          },
+          body: JSON.stringify(requestBody),
+          signal: AbortSignal.timeout(30_000),
+        });
+        const text = await res.text();
+        if (!res.ok) throw new Error(kieHttpErrorMessage(res.status, text));
+        const data = JSON.parse(text);
+        if (data.code !== 200) {
+          throw new Error(`AI service error (code ${data.code}): ${data.message || data.msg || "unknown"}`);
+        }
+        const taskId = data.data?.taskId || data.data?.task_id;
+        if (!taskId) {
+          throw new Error(`AI service invalid response: ${text.slice(0, 200)}`);
+        }
+        if (typeof payload.onTaskCreated === "function") {
+          try { await payload.onTaskCreated(taskId); } catch (e) {
+            console.warn("[KIE] Flux onTaskCreated failed:", e?.message);
+          }
+        }
+        if (callbackUrl) {
+          return { success: true, deferred: true, taskId };
+        }
+        const rawUrl = await kiePollTask(taskId, KIE_POLL_TIMEOUT_IMAGE_MS, "flux-kontext");
+        const outputUrl = await archiveToR2(rawUrl);
+        return { success: true, outputUrl, taskId };
+      } catch (error) {
+        const msg = String(error?.message || "");
+        const unsupported = msg.includes("code 422") && msg.toLowerCase().includes("model");
+        const hasNext = candidate !== candidates[candidates.length - 1];
+        if (!unsupported || !hasNext) throw error;
+      }
+    }
+  }
+  throw new Error("Flux Kontext request failed without a retryable candidate model.");
 }
 
-async function generateWan27ImageProKieInternal(payload = {}) {
+async function generateWan27ImageKieInternal(payload = {}) {
   const {
     prompt,
     inputUrls = [],
@@ -1631,7 +1702,7 @@ async function generateWan27ImageProKieInternal(payload = {}) {
   })();
 
   const reqBody = {
-    model: "wan/2-7-image-pro",
+    model: String(payload.model || "wan/2-7-image-pro"),
     input: {
       prompt: String(prompt || "").trim(),
       ...(Array.isArray(inputUrls) && inputUrls.length ? { input_urls: inputUrls.slice(0, 9) } : {}),
@@ -1647,7 +1718,8 @@ async function generateWan27ImageProKieInternal(payload = {}) {
     },
   };
 
-  return kieRun(reqBody, "wan-2-7-image-pro", KIE_POLL_TIMEOUT_IMAGE_MS, {
+  const modelTag = reqBody.model === "wan/2-7-image" ? "wan-2-7-image" : "wan-2-7-image-pro";
+  return kieRun(reqBody, modelTag, KIE_POLL_TIMEOUT_IMAGE_MS, {
     onTaskCreated: payload.onTaskCreated,
   });
 }
@@ -1849,7 +1921,10 @@ export function generateFluxKontextKie(...args) {
   return enqueueKieJob(() => generateFluxKontextKieInternal(...args));
 }
 export function generateWan27ImageProKie(...args) {
-  return enqueueKieJob(() => generateWan27ImageProKieInternal(...args));
+  return enqueueKieJob(() => generateWan27ImageKieInternal(...args));
+}
+export function generateWan27ImageKie(...args) {
+  return enqueueKieJob(() => generateWan27ImageKieInternal(...args));
 }
 export function generateIdeogramV3Kie(...args) {
   return enqueueKieJob(() => generateIdeogramV3KieInternal(...args));

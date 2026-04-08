@@ -28,6 +28,7 @@ import {
   sendUploadGuardResponse,
 } from "../lib/generationUploadGuards.js";
 import { assertHttpsAllowedAssetUrl } from "../utils/publicAssetHost.js";
+import { enforceGeneratedContentDeletionBlock } from "../utils/generated-content-deletion-guard.js";
 
 const ONBOARDING_TRIAL_REFERENCE_TYPE = "onboarding_trial_reference";
 
@@ -332,6 +333,7 @@ export async function deleteModel(req, res) {
   try {
     const { id } = req.params;
     const userId = req.user.userId;
+    if (enforceGeneratedContentDeletionBlock(req, res)) return;
 
     const model = await prisma.savedModel.findFirst({
       where: { id, userId },

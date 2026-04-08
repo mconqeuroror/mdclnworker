@@ -49,6 +49,7 @@ import { mirrorToBlob, isVercelBlobConfigured } from "../utils/kieUpload.js";
 import { getErrorMessageForDb } from "../lib/userError.js";
 import { enqueueCleanupOldGenerations } from "./generation.controller.js";
 import { resolveNsfwResolution } from "../utils/nsfwResolution.js";
+import { enforceGeneratedContentDeletionBlock } from "../utils/generated-content-deletion-guard.js";
 
 // Models with age < 18 cannot use NSFW or LoRA (policy)
 function isMinorModel(model) {
@@ -786,6 +787,7 @@ export async function deleteLora(req, res) {
   try {
     const { loraId } = req.params;
     const userId = req.user.userId;
+    if (enforceGeneratedContentDeletionBlock(req, res)) return;
 
     const lora = await prisma.trainedLora.findUnique({
       where: { id: loraId },

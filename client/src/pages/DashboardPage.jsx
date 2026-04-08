@@ -1540,7 +1540,7 @@ function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, 
           </div>
           <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
             {recentGenerations.map((gen) => {
-              const isVideo = ["video", "prompt-video", "face-swap", "recreate-video", "talking-head", "nsfw-video", "nsfw-video-extend"].includes(gen.type);
+              const isVideo = ["video", "prompt-video", "face-swap", "recreate-video", "talking-head", "nsfw-video", "nsfw-video-extend", "creator-studio-video"].includes(gen.type);
               const rawUrl = gen.resultUrl || gen.outputUrl || "";
               let mediaUrl = rawUrl;
               try {
@@ -1557,6 +1557,8 @@ function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, 
                   {isVideo ? (
                     <video
                       src={mediaUrl}
+                      poster={gen.providerResponse?.thumbnailUrl || gen.providerResponse?.thumbnail || gen.inputImageUrl || undefined}
+                      preload="metadata"
                       className="w-full h-full object-cover"
                       muted
                       playsInline

@@ -34,7 +34,7 @@ import { downloadFromPublicUrl, fetchPublicAssetBlob } from "../utils/directDown
 const gradientPurple = 'linear-gradient(135deg, #8B5CF6, #3B82F6)';
 const gradientCyan = 'linear-gradient(135deg, #22D3EE, #14B8A6)';
 
-const VIDEO_TYPES = ["video", "faceswap", "face-swap", "prompt-video", "talking-head", "recreate-video"];
+const VIDEO_TYPES = ["video", "faceswap", "face-swap", "prompt-video", "talking-head", "recreate-video", "creator-studio-video"];
 const PAGE_SIZE = 200;
 const REFRESH_PAGE_SIZE = 60;
 const CONTENT_TYPE_OPTIONS = ["all", "image", "prompt-based", "video", "face-swap", "talking-head", "recreate-video", "creator-studio"];
@@ -245,6 +245,7 @@ function generationTypeLabel(genType, copy) {
     "nsfw-video-extend": copy.genTypeNsfwVideoExtend,
     "recreate-video": copy.genTypeRecreateVideo,
     "creator-studio": copy.genTypeCreatorStudio,
+    "creator-studio-video": copy.genTypeCreatorStudio,
   };
   const label = map[genType];
   if (label) return label;
@@ -1050,6 +1051,9 @@ const GenerationCard = memo(function GenerationCard({ generation, models, isSele
   const urls = parseOutputUrls(generation.outputUrl);
   const primaryUrl = urls[0] || "";
   const isVideo = VIDEO_TYPES.includes(generation.type) || isVideoUrl(primaryUrl);
+  const videoPoster = generation.providerResponse?.thumbnailUrl || generation.providerResponse?.thumbnail || generation.inputImageUrl || undefined;
+  const providerModelTag = String(generation.providerModel || "").replace(/^kie-/, "").replace(/^piapi-/, "");
+  const providerModeTag = String(generation.providerMode || generation.providerType || "").trim();
 
   return (
     <div
@@ -1075,7 +1079,7 @@ const GenerationCard = memo(function GenerationCard({ generation, models, isSele
         {generation.status === "completed" && generation.outputUrl ? (
           <>
             {isVideo ? (
-              <LazyVideo src={primaryUrl} videoClassName="object-cover" className="w-full h-full" muted loop playsInline />
+              <LazyVideo src={primaryUrl} poster={videoPoster} videoClassName="object-cover" className="w-full h-full" muted loop playsInline />
             ) : (
               <LazyImage src={getMediumUrl(primaryUrl)} alt={copy.altGenerated} className="w-full h-full object-cover" />
             )}
@@ -1140,6 +1144,20 @@ const GenerationCard = memo(function GenerationCard({ generation, models, isSele
         <div className="text-[10px] text-slate-600">
           {new Date(generation.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
         </div>
+        {(providerModelTag || providerModeTag) && (
+          <div className="mt-1.5 flex flex-wrap gap-1">
+            {providerModelTag && (
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-black/35 text-slate-200 border border-white/10">
+                {providerModelTag}
+              </span>
+            )}
+            {providerModeTag && (
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-black/35 text-slate-300 border border-white/10">
+                {providerModeTag}
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Actions */}
         {generation.status === "completed" && generation.outputUrl && (
@@ -1173,6 +1191,9 @@ const GenerationListItem = memo(function GenerationListItem({ generation, models
   const urls = parseOutputUrls(generation.outputUrl);
   const primaryUrl = urls[0] || "";
   const isVideo = VIDEO_TYPES.includes(generation.type) || isVideoUrl(primaryUrl);
+  const videoPoster = generation.providerResponse?.thumbnailUrl || generation.providerResponse?.thumbnail || generation.inputImageUrl || undefined;
+  const providerModelTag = String(generation.providerModel || "").replace(/^kie-/, "").replace(/^piapi-/, "");
+  const providerModeTag = String(generation.providerMode || generation.providerType || "").trim();
 
   return (
     <div
@@ -1187,7 +1208,7 @@ const GenerationListItem = memo(function GenerationListItem({ generation, models
       <div className="w-12 h-12 rounded-md overflow-hidden bg-black/30 cursor-pointer flex-shrink-0" onClick={onPreview}>
         {generation.status === "completed" && generation.outputUrl ? (
           isVideo ? (
-            <LazyVideo src={primaryUrl} videoClassName="object-cover" className="w-full h-full" muted />
+            <LazyVideo src={primaryUrl} poster={videoPoster} videoClassName="object-cover" className="w-full h-full" muted />
           ) : (
             <LazyImage src={getThumbnailUrl(primaryUrl)} alt={copy.altGenerated} className="w-full h-full object-cover" />
           )
@@ -1214,6 +1235,20 @@ const GenerationListItem = memo(function GenerationListItem({ generation, models
         <div className="text-[10px] text-slate-600 mt-0.5">
           {new Date(generation.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
         </div>
+        {(providerModelTag || providerModeTag) && (
+          <div className="mt-1 flex flex-wrap gap-1">
+            {providerModelTag && (
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-black/35 text-slate-200 border border-white/10">
+                {providerModelTag}
+              </span>
+            )}
+            {providerModeTag && (
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-black/35 text-slate-300 border border-white/10">
+                {providerModeTag}
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {generation.status === "completed" && generation.outputUrl && (

@@ -8,6 +8,7 @@ import {
   generateTextToImageNanoBananaKie,
   generateFluxKontextKie,
   generateWan27ImageProKie,
+  generateWan27ImageKie,
   generateIdeogramV3Kie,
   createVolcanicAssetKie,
   generateVideoWithMotionKie,
@@ -1335,9 +1336,11 @@ export async function getGenerations(req, res) {
         inputImageUrl: true,
         provider: true,
         providerTaskId: true,
+        providerModel: true,
         providerFamily: true,
         providerMode: true,
         providerType: true,
+        providerResponse: true,
         parentTaskId: true,
         extendEligible: true,
         originalGenerationId: true,
@@ -3955,6 +3958,7 @@ const CREATOR_STUDIO_MODELS = [
   "nano-banana-pro",
   "flux-kontext-pro",
   "flux-kontext-max",
+  "wan-2-7-image",
   "wan-2-7-image-pro",
   "ideogram-v3-text",
   "ideogram-v3-edit",
@@ -4164,7 +4168,8 @@ function estimateCreatorStudioVideoCredits(pricing, payload) {
     return Math.ceil(seconds * (Number(pricing[key]) || 0));
   }
   if (family === "seedance2") {
-    const fast = String(payload.seedanceTaskType || "seedance-2-preview") === "seedance-2-fast-preview";
+    const seedanceTaskTypeValue = String(payload.seedanceTaskType || "seedance-2").toLowerCase();
+    const fast = seedanceTaskTypeValue === "seedance-2-fast-preview" || seedanceTaskTypeValue === "seedance-2-fast";
     const perSec = Number(fast ? pricing?.seedance2FastPerSec : pricing?.seedance2StandardPerSec) || 0;
     return Math.ceil(seconds * perSec);
   }
@@ -4257,8 +4262,10 @@ export async function generateCreatorStudio(req, res) {
       creditsNeeded = (pricing.creatorStudioFluxKontextPro || 10) * clampedNumImages;
     } else if (modelName === "flux-kontext-max") {
       creditsNeeded = (pricing.creatorStudioFluxKontextMax || 20) * clampedNumImages;
+    } else if (modelName === "wan-2-7-image") {
+      creditsNeeded = (pricing.creatorStudioWan27Image || 5) * clampedNumImages;
     } else if (modelName === "wan-2-7-image-pro") {
-      creditsNeeded = (pricing.creatorStudioWan27ImagePro || 24) * clampedNumImages;
+      creditsNeeded = (pricing.creatorStudioWan27ImagePro || 10) * clampedNumImages;
     } else if (modelName === "ideogram-v3-text") {
       const speed = String(renderingSpeed || "BALANCED").toUpperCase();
       const rate = speed === "TURBO"
@@ -4300,9 +4307,14 @@ export async function generateCreatorStudio(req, res) {
         userId,
         type: "creator-studio",
         prompt: prompt.trim(),
-        inputImageUrl: refs.join(",") || null,
+        inputImageUrl: normalizedInputImage || refs[0] || null,
         status: "processing",
         creditsCost: creditsNeeded,
+        provider: modelName.startsWith("seedream") ? "wavespeed" : "kie",
+        providerFamily: "creator-studio",
+        providerMode: modelName,
+        providerType: "image",
+        providerModel: modelName,
         replicateModel: modelName.startsWith("seedream") ? `wavespeed-${modelName}` : `kie-${modelName}`,
         pipelinePayload: JSON.stringify({
           aspectRatio,
@@ -4456,13 +4468,13 @@ async function processCreatorStudioInBackground(
           onTaskCreated,
         }),
       );
-    } else if (normalizedModel === "wan-2-7-image-pro") {
+    } else if (normalizedModel === "wan-2-7-image" || normalizedModel === "wan-2-7-image-pro") {
       const sourceInputs = refs.length > 0 ? refs : (normalizedInputImage ? [normalizedInputImage] : []);
       const kieInputUrls = await Promise.all(
         sourceInputs.slice(0, 9).map((u, i) => ensureKieAccessibleUrl(u, `wan27-input-${i + 1}`)),
       ).catch(() => sourceInputs.slice(0, 9));
       result = await requestQueue.enqueue(() =>
-        generateWan27ImageProKie({
+        (normalizedModel === "wan-2-7-image" ? generateWan27ImageKie : generateWan27ImageProKie)({
           prompt: promptText,
           inputUrls: kieInputUrls,
           aspectRatio,
@@ -4748,7 +4760,7 @@ async function processCreatorStudioVideoInBackground({
         generateSeedancePiapi({
           csMode: normalizedMode,
           prompt: String(finalPrompt || ""),
-          taskType: String(seedanceTaskType || "seedance-2-preview"),
+          taskType: String(seedanceTaskType || "seedance-2"),
           duration: Number(durationSeconds) || 5,
           aspectRatio: String(aspectRatio || "16:9"),
           firstFrameUrl: normalizedImageUrl || null,
@@ -4826,7 +4838,7 @@ export async function generateCreatorStudioVideo(req, res) {
       kling30Shots = [],
       klingElements = [],
       aspectRatio = "16:9",
-      seedanceTaskType = "seedance-2-preview",
+      seedanceTaskType = "seedance-2",
       seedanceResolution = "720p",
       seedanceGenerateAudio = false,
       seedanceReturnLastFrame = false,
@@ -4998,7 +5010,7 @@ export async function generateCreatorStudioVideo(req, res) {
       }
     }
     if (lowerFamily === "seedance2") {
-      if (!["seedance-2-preview", "seedance-2-fast-preview"].includes(String(seedanceTaskType))) {
+      if (!["seedance-2", "seedance-2-fast", "seedance-2-preview", "seedance-2-fast-preview"].includes(String(seedanceTaskType))) {
         return res.status(400).json({ success: false, message: "Invalid Seedance task type." });
       }
       if (normalizedMode === "edit" && (!normalizedImageUrl || !normalizedEndFrameUrl)) {

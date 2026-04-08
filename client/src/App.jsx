@@ -1,12 +1,13 @@
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { QueryClientProvider } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Toaster } from 'react-hot-toast';
 import { useAuthStore } from './store';
 import { queryClient } from './lib/queryClient';
 import ErrorBoundary from './components/ErrorBoundary';
 import { ErrorDisplay, showErrorDetails } from './components/ErrorDisplay';
 import { setErrorDisplay, stripeAPI } from './services/api';
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Info, X, Gift } from 'lucide-react';
 import SplashScreen from './components/SplashScreen';
@@ -406,6 +407,91 @@ function useClickSound() {
   }, []);
 }
 
+function generationToastLabel(type) {
+  if (!type) return "Generation";
+  const map = {
+    "image": "Image",
+    "image-identity": "Identity image",
+    "prompt-image": "Prompt image",
+    "face-swap-image": "Face-swap image",
+    "advanced-image": "Advanced image",
+    "video": "Video",
+    "prompt-video": "Prompt video",
+    "face-swap": "Face-swap video",
+    "recreate-video": "Recreate video",
+    "talking-head": "Talking-head video",
+    "creator-studio": "Creator Studio image",
+    "creator-studio-video": "Creator Studio video",
+    "nsfw": "NSFW image",
+    "nsfw-video": "NSFW video",
+    "nsfw-video-extend": "NSFW extend",
+  };
+  return map[type] || "Generation";
+}
+
+function GlobalGenerationNotifier() {
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const initialLoadedRef = useRef(false);
+  const seenRef = useRef(new Set());
+  const prevStatusRef = useRef(new Map());
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      initialLoadedRef.current = false;
+      seenRef.current = new Set();
+      prevStatusRef.current = new Map();
+    }
+  }, [isAuthenticated]);
+
+  const { data: notifiedGenerations = [] } = useQuery({
+    queryKey: ["global-generation-notifier"],
+    queryFn: async () => {
+      if (!isAuthenticated) return [];
+      const response = await api.get("/generations?limit=80");
+      return Array.isArray(response?.data?.generations) ? response.data.generations : [];
+    },
+    enabled: isAuthenticated,
+    refetchInterval: 5000,
+    refetchIntervalInBackground: false,
+    staleTime: 2500,
+  });
+
+  useEffect(() => {
+    if (!isAuthenticated || !Array.isArray(notifiedGenerations) || notifiedGenerations.length === 0) return;
+
+    if (!initialLoadedRef.current) {
+      notifiedGenerations.forEach((gen) => {
+        seenRef.current.add(gen.id);
+        prevStatusRef.current.set(gen.id, gen.status);
+      });
+      initialLoadedRef.current = true;
+      return;
+    }
+
+    notifiedGenerations.forEach((gen) => {
+      const prevStatus = prevStatusRef.current.get(gen.id);
+      const currentStatus = gen.status;
+      const isTerminal = currentStatus === "completed" || currentStatus === "failed";
+      const transitionedFromPending = prevStatus === "processing" || prevStatus === "pending";
+      const unseen = !seenRef.current.has(gen.id);
+
+      if (isTerminal && unseen && transitionedFromPending) {
+        const label = generationToastLabel(gen.type);
+        if (currentStatus === "completed") {
+          toast.success(`${label} finished`, { duration: 3500 });
+        } else {
+          toast.error(`${label} failed${gen.errorMessage ? `: ${gen.errorMessage}` : ""}`, { duration: 4500 });
+        }
+        seenRef.current.add(gen.id);
+      }
+
+      prevStatusRef.current.set(gen.id, currentStatus);
+    });
+  }, [isAuthenticated, notifiedGenerations]);
+
+  return null;
+}
+
 function App() {
   const [showSplash, setShowSplash] = useState(true);
   const branding = useBranding();
@@ -480,6 +566,7 @@ function App() {
           <SeoRobotsMeta />
           <ForceLogoutListener />
           <Stripe3DSReturnHandler />
+          <GlobalGenerationNotifier />
           <Toaster
           position="top-right"
           toastOptions={{

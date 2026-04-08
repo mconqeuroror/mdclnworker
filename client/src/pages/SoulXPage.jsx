@@ -9,7 +9,6 @@ import {
   RefreshCcw,
   Plus,
   Coins,
-  ChevronDown,
   CheckCircle2,
   Clock,
   Zap,
@@ -69,79 +68,52 @@ function getModelPreview(model) {
   ).trim();
 }
 
-function ModelPicker({
+function ModelGalleryPicker({
   models = [],
   value = "",
   onChange,
-  placeholder = "Select model",
+  emptyText = "No models found",
   isDark = true,
 }) {
-  const [open, setOpen] = useState(false);
-  const containerRef = useRef(null);
-  const selected = (Array.isArray(models) ? models : []).find((m) => String(m.id) === String(value));
-
-  useEffect(() => {
-    const onPointerDown = (event) => {
-      if (!containerRef.current) return;
-      if (!containerRef.current.contains(event.target)) setOpen(false);
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, []);
+  if (!Array.isArray(models) || models.length === 0) {
+    return (
+      <div className={`rounded-xl border border-dashed px-3 py-3 text-xs ${isDark ? "border-white/10 text-slate-500" : "border-slate-200 text-slate-500"}`}>
+        {emptyText}
+      </div>
+    );
+  }
 
   return (
-    <div className="relative" ref={containerRef}>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between gap-3 rounded-xl border border-white/[0.10] bg-white/[0.02] px-3 py-2.5 text-left text-sm transition-colors hover:bg-white/[0.05]"
-      >
-        <span className="flex items-center gap-2.5 min-w-0">
-          {getModelPreview(selected) ? (
-            <img src={getModelPreview(selected)} alt="" className="w-7 h-7 rounded-lg object-cover border border-white/20 flex-shrink-0" />
-          ) : (
-            <span className="w-7 h-7 rounded-lg border border-white/15 bg-white/[0.03] flex items-center justify-center flex-shrink-0">
-              <ImageIcon className="w-3.5 h-3.5 text-slate-500" />
-            </span>
-          )}
-          <span className={`truncate ${selected ? (isDark ? "text-white" : "text-slate-900") : "text-slate-500"}`}>
-            {selected?.name || placeholder}
-          </span>
-        </span>
-        <ChevronDown className={`w-4 h-4 flex-shrink-0 transition-transform ${open ? "rotate-180" : ""} ${isDark ? "text-slate-400" : "text-slate-500"}`} />
-      </button>
-
-      {open && (
-        <div className="absolute z-20 mt-2 w-full max-h-64 overflow-y-auto rounded-xl border border-white/[0.12] bg-[#0b0b0f]/95 backdrop-blur-md shadow-2xl">
-          {(Array.isArray(models) ? models : []).map((m) => (
-            <button
-              key={m.id}
-              type="button"
-              onClick={() => {
-                onChange?.(m.id);
-                setOpen(false);
-              }}
-              className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-left text-sm transition-colors ${
-                String(m.id) === String(value)
-                  ? "bg-violet-600/25 text-violet-100"
-                  : "text-slate-200 hover:bg-white/[0.06]"
-              }`}
-            >
-              {getModelPreview(m) ? (
-                <img src={getModelPreview(m)} alt="" className="w-7 h-7 rounded-lg object-cover border border-white/15 flex-shrink-0" />
-              ) : (
-                <span className="w-7 h-7 rounded-lg border border-white/10 bg-white/[0.03] flex items-center justify-center flex-shrink-0">
-                  <ImageIcon className="w-3.5 h-3.5 text-slate-500" />
-                </span>
-              )}
-              <span className="truncate">{m.name}</span>
-            </button>
-          ))}
-          {!models.length && (
-            <div className="px-3 py-2.5 text-xs text-slate-500">No models found</div>
-          )}
-        </div>
-      )}
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-64 overflow-y-auto pr-1">
+      {models.map((m) => {
+        const active = String(m.id) === String(value);
+        const preview = getModelPreview(m);
+        return (
+          <button
+            key={m.id}
+            type="button"
+            onClick={() => onChange?.(m.id)}
+            className={`w-full flex items-center gap-3 px-2.5 py-2.5 rounded-xl border text-left transition-all ${
+              active
+                ? "bg-violet-600/20 border-violet-500/55 shadow-[0_0_10px_rgba(139,92,246,0.25)]"
+                : "border-white/[0.10] bg-white/[0.02] hover:bg-white/[0.05] hover:border-white/20"
+            }`}
+          >
+            {preview ? (
+              <img src={preview} alt="" className="w-10 h-10 rounded-lg object-cover border border-white/20 flex-shrink-0" />
+            ) : (
+              <div className="w-10 h-10 rounded-lg border border-white/15 bg-white/[0.03] flex items-center justify-center flex-shrink-0">
+                <ImageIcon className="w-4 h-4 text-slate-500" />
+              </div>
+            )}
+            <div className="min-w-0 flex-1">
+              <p className={`truncate text-sm font-medium ${isDark ? "text-white" : "text-slate-900"}`}>{m.name}</p>
+              <p className={`text-[11px] truncate ${isDark ? "text-slate-400" : "text-slate-500"}`}>Tap to select</p>
+            </div>
+            {active && <CheckCircle2 className="w-4 h-4 text-violet-300 flex-shrink-0" />}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -419,11 +391,11 @@ function CharacterTab({ isDark }) {
         <label className={`block text-xs font-semibold mb-2 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
           Model
         </label>
-        <ModelPicker
+        <ModelGalleryPicker
           models={allModels}
           value={selectedModelId}
           onChange={setSelectedModelId}
-          placeholder="Choose a model"
+          emptyText="No models found"
           isDark={isDark}
         />
       </div>
@@ -858,14 +830,14 @@ function GenerateTab({ isDark, copy }) {
           >
             <div>
               <label className={labelBase}>{copy.model}</label>
-              <ModelPicker
+              <ModelGalleryPicker
                 models={allModels}
                 value={selectedModelId}
                 onChange={(id) => {
                   setSelectedModelId(id);
                   setSelectedCharacterId("");
                 }}
-                placeholder="Choose a model"
+                emptyText="No models found"
                 isDark={isDark}
               />
             </div>

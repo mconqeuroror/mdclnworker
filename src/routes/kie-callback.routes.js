@@ -149,6 +149,64 @@ function parseResultJsonAndGetUrl(resultJson) {
   return null;
 }
 
+function parseResultJsonObject(resultJson) {
+  if (resultJson == null || resultJson === "") return null;
+  try {
+    return typeof resultJson === "string" ? JSON.parse(resultJson) : resultJson;
+  } catch {
+    return null;
+  }
+}
+
+function findThumbnailUrl(obj, seen = new Set()) {
+  if (obj == null || seen.has(obj)) return null;
+  if (typeof obj === "string") {
+    const raw = obj.trim();
+    if (raw.startsWith("http")) return raw;
+    return null;
+  }
+  seen.add(obj);
+  if (Array.isArray(obj)) {
+    for (const entry of obj) {
+      const found = findThumbnailUrl(entry, seen);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (typeof obj === "object") {
+    const preferredKeys = [
+      "thumbnailUrl",
+      "thumbnail",
+      "coverUrl",
+      "cover",
+      "posterUrl",
+      "poster",
+      "previewImageUrl",
+      "previewImage",
+      "snapshotUrl",
+      "snapshot",
+      "first_frame_url",
+      "last_frame_url",
+      "lastFrameUrl",
+      "frameUrl",
+    ];
+    for (const key of preferredKeys) {
+      const candidate = obj[key];
+      const found = findThumbnailUrl(candidate, seen);
+      if (found) return found;
+    }
+    if (obj.data) {
+      const nested = findThumbnailUrl(obj.data, seen);
+      if (nested) return nested;
+    }
+    if (obj.result) {
+      const nested = findThumbnailUrl(obj.result, seen);
+      if (nested) return nested;
+    }
+  }
+  return null;
+}
+
 // OPTIONS preflight — CORS for KIE
 router.options("/", (req, res) => {
   setCorsHeaders(res);
@@ -527,6 +585,7 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
       providerMode: true,
       providerTaskId: true,
       providerRequest: true,
+      providerResponse: true,
     };
 
     // Retry: KIE may callback before Prisma commits task correlation (kie-task: / kieTask row).
@@ -673,6 +732,8 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
 
         const isVideoType = ["video", "prompt-video", "recreate-video", "talking-head", "nsfw-video", "nsfw-video-extend", "creator-studio-video"].includes(gen.type);
         const finalUrl = await mirrorProviderOutputUrl(outputUrl, isVideoType ? "video/mp4" : "image/png");
+        const parsedResult = parseResultJsonObject(resultJson);
+        const thumbnailUrl = findThumbnailUrl(parsedResult);
         if (finalUrl === outputUrl) {
           void enqueueGenerationBlobRemirror({
             generationId: gen.id,
@@ -682,9 +743,21 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
             reason: "kie-callback-mirror-deferred",
           }).catch(() => {});
         }
+        const mergedProviderResponse = {
+          ...(gen.providerResponse && typeof gen.providerResponse === "object" ? gen.providerResponse : {}),
+          ...(parsedResult && typeof parsedResult === "object" ? parsedResult : {}),
+          outputUrl: finalUrl,
+          ...(thumbnailUrl ? { thumbnailUrl } : {}),
+        };
         await prisma.generation.update({
           where: { id: gen.id },
-          data: { status: "completed", outputUrl: finalUrl, completedAt: new Date(), pipelinePayload: null },
+          data: {
+            status: "completed",
+            outputUrl: finalUrl,
+            completedAt: new Date(),
+            pipelinePayload: null,
+            providerResponse: mergedProviderResponse,
+          },
         });
         await markKieTaskCompleted(taskId, finalUrl);
         console.log("[KIE Callback] Paired gen %s to taskId %s", gen.id.slice(0, 8), taskId.slice(0, 12));

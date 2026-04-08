@@ -206,7 +206,7 @@ function formatCopy(text, vars = {}) {
 // Constants
 // ---------------------------------------------------------------------------
 const ASPECT_RATIOS = [
-  { value: "1:1",  label: "1:1",  hint: "Selfie" },
+  { value: "1:1",  label: "1:1",  hint: "1:1" },
   { value: "4:3",  label: "4:3",  hint: null },
   { value: "2:3",  label: "2:3",  hint: null },
   { value: "3:2",  label: "3:2",  hint: null },
@@ -228,6 +228,7 @@ const IMAGE_MODELS = [
   { id: "ideogram-v3-text", label: "Ideogram V3" },
   { id: "ideogram-v3-edit", label: "Ideogram V3 Edit" },
   { id: "ideogram-v3-remix", label: "Ideogram V3 Remix" },
+  { id: "wan-2-7-image", label: "Wan 2.7 Image" },
   { id: "wan-2-7-image-pro", label: "Wan 2.7 Image Pro" },
   { id: "seedream-v4-5-edit", label: "Seedream v4.5 Edit" },
 ];
@@ -507,7 +508,7 @@ function MediaUploadField({ label, value, onUploaded, accept = "image/*", previe
 function MaskEditorModal({ isOpen, imageUrl, onClose, onSave }) {
   const canvasRef = useRef(null);
   const imgRef = useRef(null);
-  const [brushSize, setBrushSize] = useState(28);
+  const [brushSize, setBrushSize] = useState(20);
   const [drawing, setDrawing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -521,6 +522,7 @@ function MaskEditorModal({ isOpen, imageUrl, onClose, onSave }) {
       imgRef.current = img;
       canvas.width = img.naturalWidth;
       canvas.height = img.naturalHeight;
+      // Ideogram expects white = editable area, black = preserve area.
       ctx.fillStyle = "black";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
     };
@@ -552,9 +554,10 @@ function MaskEditorModal({ isOpen, imageUrl, onClose, onSave }) {
           </button>
         </div>
         <p className="text-xs text-slate-400 mb-2">Paint white where Ideogram should edit. Black stays unchanged.</p>
+        <p className="text-[11px] text-slate-500 mb-2">Tip: zoom image in your browser and use a smaller brush for mobile precision.</p>
         <div className="mb-3 flex items-center gap-3">
           <span className="text-xs text-slate-400">Brush</span>
-          <input type="range" min={4} max={120} step={1} value={brushSize} onChange={(e) => setBrushSize(Number(e.target.value))} className="w-48 accent-violet-500" />
+          <input type="range" min={2} max={120} step={1} value={brushSize} onChange={(e) => setBrushSize(Number(e.target.value))} className="w-48 accent-violet-500" />
           <span className="text-xs text-slate-300">{brushSize}px</span>
           <button
             type="button"
@@ -576,17 +579,20 @@ function MaskEditorModal({ isOpen, imageUrl, onClose, onSave }) {
               <img src={imageUrl} alt="" className="w-full max-h-[60vh] object-contain pointer-events-none select-none" />
               <canvas
                 ref={canvasRef}
-                className="absolute inset-0 w-full h-full cursor-crosshair opacity-80"
-                onMouseDown={(e) => {
+                className="absolute inset-0 w-full h-full cursor-crosshair opacity-85"
+                style={{ touchAction: "none" }}
+                onPointerDown={(e) => {
+                  e.preventDefault();
                   setDrawing(true);
                   drawAt(e.clientX, e.clientY);
                 }}
-                onMouseMove={(e) => {
+                onPointerMove={(e) => {
+                  e.preventDefault();
                   if (!drawing) return;
                   drawAt(e.clientX, e.clientY);
                 }}
-                onMouseUp={() => setDrawing(false)}
-                onMouseLeave={() => setDrawing(false)}
+                onPointerUp={() => setDrawing(false)}
+                onPointerLeave={() => setDrawing(false)}
               />
             </>
           ) : (
@@ -638,6 +644,8 @@ function ResultCard({ gen, onExpand, isNew }) {
   const isFailed     = gen.status === "failed";
   const outputUrls = parseOutputUrls(gen.outputUrl);
   const previewUrl = outputUrls[0] || null;
+  const modelTag = String(gen.providerModel || gen.providerMode || "").replace(/^kie-/, "");
+  const modeTag = String(gen.providerType || "").trim();
   return (
     <motion.div
       initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
@@ -660,6 +668,12 @@ function ResultCard({ gen, onExpand, isNew }) {
       {gen.status === "completed" && previewUrl ? (
         <>
           <img src={previewUrl} alt="" className="w-full h-full object-cover" />
+          {(modelTag || modeTag) && (
+            <div className="absolute top-2 left-2 flex flex-wrap gap-1 pointer-events-none">
+              {modelTag && <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-black/60 text-white border border-white/20">{modelTag}</span>}
+              {modeTag && <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-black/60 text-slate-200 border border-white/20">{modeTag}</span>}
+            </div>
+          )}
           <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-end p-3 gap-2">
             <button onClick={() => onExpand(gen)}
               className="w-8 h-8 rounded-lg bg-black/50 flex items-center justify-center text-white hover:bg-black/70 backdrop-blur-sm">
@@ -1457,7 +1471,9 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
   const [fluxPromptUpsampling, setFluxPromptUpsampling] = useState(false);
   const [fluxSafetyTolerance, setFluxSafetyTolerance] = useState(2);
   const [wanThinkingMode, setWanThinkingMode] = useState(false);
-  const [wanColorPaletteText, setWanColorPaletteText] = useState("");
+  const [wanPaletteColorValue, setWanPaletteColorValue] = useState("#C2D1E6");
+  const [wanPaletteColors, setWanPaletteColors] = useState([]);
+  const [wanAdvancedMaskOpen, setWanAdvancedMaskOpen] = useState(false);
   const [wanBboxListText, setWanBboxListText] = useState("");
   const [maskEditorOpen, setMaskEditorOpen] = useState(false);
   const [refs, setRefs]                 = useState(Array(MAX_REFS).fill(null));
@@ -1497,7 +1513,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
   const [klingElementName, setKlingElementName] = useState("");
   const [klingElementDescription, setKlingElementDescription] = useState("");
   const [klingElementMediaUrls, setKlingElementMediaUrls] = useState(["", "", "", ""]);
-  const [seedanceTaskType, setSeedanceTaskType] = useState("seedance-2-preview");
+  const [seedanceTaskType, setSeedanceTaskType] = useState("seedance-2");
   const [wanResolution, setWanResolution] = useState("580p");
   const [isVideoGenerating, setIsVideoGenerating] = useState(false);
   const [extendSourceId, setExtendSourceId] = useState("");
@@ -1505,7 +1521,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
   const [kling30AdvancedOpen, setKling30AdvancedOpen] = useState(false);
   const isFluxImageModel = imageModel.startsWith("flux-kontext");
   const isIdeogramImageModel = imageModel.startsWith("ideogram-v3");
-  const isWanImageModel = imageModel === "wan-2-7-image-pro";
+  const isWanImageModel = imageModel === "wan-2-7-image" || imageModel === "wan-2-7-image-pro";
   const isSeedreamImageModel = imageModel === "seedream-v4-5-edit";
   const showSingleInputUploader =
     isFluxImageModel
@@ -1594,42 +1610,9 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
       return;
     }
     let parsedColorPalette = [];
-    if (wanColorPaletteText.trim()) {
-      try {
-        if (wanColorPaletteText.trim().startsWith("[")) {
-          const parsed = JSON.parse(wanColorPaletteText);
-          if (Array.isArray(parsed)) {
-            if (parsed.every((x) => typeof x === "string")) {
-              const hexes = parsed
-                .map((x) => String(x).trim())
-                .filter((x) => /^#[0-9a-fA-F]{6}$/.test(x))
-                .slice(0, 10);
-              if (hexes.length) {
-                const share = `${(100 / hexes.length).toFixed(2)}%`;
-                parsedColorPalette = hexes.map((hex) => ({ hex, ratio: share }));
-              }
-            } else {
-              parsedColorPalette = parsed.slice(0, 10).map((entry) => ({
-                hex: String(entry.hex || entry.color || "").trim(),
-                ratio: String(entry.ratio || entry.proportion || "").trim(),
-              }));
-            }
-          }
-        } else {
-          const hexes = wanColorPaletteText
-            .split(",")
-            .map((x) => x.trim())
-            .filter((x) => /^#[0-9a-fA-F]{6}$/.test(x))
-            .slice(0, 10);
-          if (hexes.length) {
-            const share = `${(100 / hexes.length).toFixed(2)}%`;
-            parsedColorPalette = hexes.map((hex) => ({ hex, ratio: share }));
-          }
-        }
-      } catch {
-        toast.error("color_palette must be valid JSON array or comma-separated HEX colors.");
-        return;
-      }
+    if (wanPaletteColors.length) {
+      const share = `${(100 / wanPaletteColors.length).toFixed(2)}%`;
+      parsedColorPalette = wanPaletteColors.map((hex) => ({ hex, ratio: share }));
     }
     let parsedBboxList = [];
     if (wanBboxListText.trim()) {
@@ -1817,7 +1800,8 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
     const qty = Math.min(4, Math.max(1, Number(imageNumOutputs) || 1));
     if (imageModel === "flux-kontext-pro") return Math.ceil((generationPricing?.creatorStudioFluxKontextPro || 10) * qty);
     if (imageModel === "flux-kontext-max") return Math.ceil((generationPricing?.creatorStudioFluxKontextMax || 20) * qty);
-    if (imageModel === "wan-2-7-image-pro") return Math.ceil((generationPricing?.creatorStudioWan27ImagePro || 24) * qty);
+    if (imageModel === "wan-2-7-image") return Math.ceil((generationPricing?.creatorStudioWan27Image || 5) * qty);
+    if (imageModel === "wan-2-7-image-pro") return Math.ceil((generationPricing?.creatorStudioWan27ImagePro || 10) * qty);
     if (imageModel === "seedream-v4-5-edit") return Math.ceil(generationPricing?.creatorStudioSeedream45Edit || 10);
     if (imageModel === "ideogram-v3-text" || imageModel === "ideogram-v3-edit" || imageModel === "ideogram-v3-remix") {
       const speed = String(ideogramRenderingSpeed || "BALANCED").toUpperCase();
@@ -1951,7 +1935,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
       return { cost: Math.ceil(perSec * duration), details: `${perSec}/sec (WAN 2.7 ${videoMode.toUpperCase()} · ${res})` };
     }
     if (videoFamily === "seedance2") {
-      const fast = seedanceTaskType === "seedance-2-fast-preview";
+      const fast = seedanceTaskType === "seedance-2-fast" || seedanceTaskType === "seedance-2-fast-preview";
       const perSec = toPrice(generationPricing, fast ? "seedance2FastPerSec" : "seedance2StandardPerSec");
       return { cost: Math.ceil(perSec * duration), details: `${perSec}/sec (${fast ? "Fast" : "Quality"})` };
     }
@@ -2188,7 +2172,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                   </div>
                 )}
                 {isWanImageModel && (
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                     <button
                       type="button"
                       onClick={() => setWanThinkingMode((v) => !v)}
@@ -2196,18 +2180,76 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                     >
                       Thinking mode: {wanThinkingMode ? "On" : "Off"}
                     </button>
-                    <input
-                      value={wanColorPaletteText}
-                      onChange={(e) => setWanColorPaletteText(e.target.value)}
-                      placeholder='color_palette JSON or HEX list, e.g. [{"hex":"#FF0000","ratio":"50.00%"}] or #FF0000,#00FF00'
-                      className="rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-xs text-white outline-none"
-                    />
-                    <input
-                      value={wanBboxListText}
-                      onChange={(e) => setWanBboxListText(e.target.value)}
-                      placeholder='bbox_list JSON, e.g. [[10,10,120,120]] or [[[10,10,120,120]]]'
-                      className="rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-xs text-white outline-none"
-                    />
+                    <div className="rounded-lg border border-white/15 bg-black/30 px-3 py-2">
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <span className="text-[11px] text-slate-300">Color palette (optional)</span>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="color"
+                            value={wanPaletteColorValue}
+                            onChange={(e) => setWanPaletteColorValue(String(e.target.value || "#C2D1E6").toUpperCase())}
+                            className="w-7 h-7 p-0 rounded border border-white/20 bg-transparent"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = String(wanPaletteColorValue || "").toUpperCase();
+                              if (!/^#[0-9A-F]{6}$/.test(next)) return;
+                              setWanPaletteColors((prev) => {
+                                if (prev.includes(next) || prev.length >= 10) return prev;
+                                return [...prev, next];
+                              });
+                            }}
+                            className="px-2 py-1 rounded-md text-[11px] bg-white/10 text-slate-200 hover:bg-white/15"
+                          >
+                            Add
+                          </button>
+                        </div>
+                      </div>
+                      {wanPaletteColors.length > 0 ? (
+                        <div className="flex flex-wrap gap-1.5">
+                          {wanPaletteColors.map((hex) => (
+                            <button
+                              key={hex}
+                              type="button"
+                              onClick={() => setWanPaletteColors((prev) => prev.filter((c) => c !== hex))}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] border border-white/20 text-white"
+                              style={{ background: `${hex}33` }}
+                              title="Remove color"
+                            >
+                              <span className="inline-block w-2.5 h-2.5 rounded-full border border-white/40" style={{ background: hex }} />
+                              {hex}
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-[10px] text-slate-500">No palette set. WAN auto-selects colors.</p>
+                      )}
+                    </div>
+                    <div className="rounded-lg border border-white/15 bg-black/30 px-3 py-2 md:col-span-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[11px] text-slate-300">BBox list (advanced, optional)</span>
+                        <button
+                          type="button"
+                          onClick={() => setWanAdvancedMaskOpen((v) => !v)}
+                          className="px-2 py-1 rounded-md text-[11px] bg-white/10 text-slate-200 hover:bg-white/15"
+                        >
+                          {wanAdvancedMaskOpen ? "Hide" : "Edit"}
+                        </button>
+                      </div>
+                      {wanAdvancedMaskOpen && (
+                        <>
+                          <textarea
+                            value={wanBboxListText}
+                            onChange={(e) => setWanBboxListText(e.target.value)}
+                            placeholder='JSON only. Example: [[10,10,120,120]]'
+                            rows={3}
+                            className="mt-2 w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-xs text-white outline-none resize-y"
+                          />
+                          <p className="mt-1 text-[10px] text-slate-500">Leave empty for normal generation/editing.</p>
+                        </>
+                      )}
+                    </div>
                   </div>
                 )}
                 {supportsReferenceSlots && (
@@ -2449,9 +2491,25 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
             {videoHistory.length > 0 && (
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                 {videoHistory.map((item) => (
-                  <div key={item.id} className="rounded-2xl border border-white/10 overflow-hidden" style={{ background: "var(--bg-surface)" }}>
+                  <div key={item.id} className="relative rounded-2xl border border-white/10 overflow-hidden" style={{ background: "var(--bg-surface)" }}>
+                    {(() => {
+                      const modelTag = String(item.providerModel || "").replace(/^piapi-/, "").replace(/^kie-/, "");
+                      const modeTag = String(item.providerMode || item.providerType || "").trim();
+                      return (modelTag || modeTag) ? (
+                        <div className="absolute top-2 left-2 z-10 flex flex-wrap gap-1 pointer-events-none">
+                          {modelTag && <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-black/60 text-white border border-white/20">{modelTag}</span>}
+                          {modeTag && <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-black/60 text-slate-200 border border-white/20">{modeTag}</span>}
+                        </div>
+                      ) : null;
+                    })()}
                     {item.outputUrl ? (
-                      <video src={item.outputUrl} controls className="w-full h-48 object-cover bg-black" />
+                      <video
+                        src={item.outputUrl}
+                        poster={item.providerResponse?.thumbnailUrl || item.providerResponse?.thumbnail || item.inputImageUrl || undefined}
+                        preload="metadata"
+                        controls
+                        className="w-full h-48 object-cover bg-black"
+                      />
                     ) : (
                       <div className="w-full h-48 bg-black/50 flex items-center justify-center text-slate-400 text-xs">
                         {item.status}
@@ -2873,8 +2931,8 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                     <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Variant</span>
                     <div className="flex items-center gap-1.5">
-                      <Chip active={seedanceTaskType === "seedance-2-preview"} onClick={() => setSeedanceTaskType("seedance-2-preview")}>Quality</Chip>
-                      <Chip active={seedanceTaskType === "seedance-2-fast-preview"} onClick={() => setSeedanceTaskType("seedance-2-fast-preview")}>Fast</Chip>
+                      <Chip active={seedanceTaskType === "seedance-2"} onClick={() => setSeedanceTaskType("seedance-2")}>Quality</Chip>
+                      <Chip active={seedanceTaskType === "seedance-2-fast"} onClick={() => setSeedanceTaskType("seedance-2-fast")}>Fast</Chip>
                     </div>
                     {(videoMode === "t2v" || videoMode === "i2v" || videoMode === "edit" || videoMode === "multi-ref") && (
                       <>
@@ -3251,8 +3309,8 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                     <div>
                       <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Variant</span>
                       <div className="flex gap-1.5 flex-wrap">
-                        <Chip active={seedanceTaskType === "seedance-2-preview"} onClick={() => setSeedanceTaskType("seedance-2-preview")}><span className="whitespace-nowrap">Quality</span></Chip>
-                        <Chip active={seedanceTaskType === "seedance-2-fast-preview"} onClick={() => setSeedanceTaskType("seedance-2-fast-preview")}><span className="whitespace-nowrap">Fast</span></Chip>
+                      <Chip active={seedanceTaskType === "seedance-2"} onClick={() => setSeedanceTaskType("seedance-2")}><span className="whitespace-nowrap">Quality</span></Chip>
+                      <Chip active={seedanceTaskType === "seedance-2-fast"} onClick={() => setSeedanceTaskType("seedance-2-fast")}><span className="whitespace-nowrap">Fast</span></Chip>
                       </div>
                     </div>
                     {(videoMode === "t2v" || videoMode === "i2v" || videoMode === "edit" || videoMode === "multi-ref") && (

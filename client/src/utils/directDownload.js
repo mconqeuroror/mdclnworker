@@ -4,6 +4,14 @@
 export async function downloadFromPublicUrl(url, filename = "download") {
   if (!url || typeof url !== "string") return;
   const name = filename || "download";
+  // Open a fallback tab synchronously from the user gesture context.
+  // If CORS fetch fails, we can still navigate this tab to the file URL.
+  let fallbackTab = null;
+  try {
+    fallbackTab = window.open("", "_blank", "noopener,noreferrer");
+  } catch {
+    fallbackTab = null;
+  }
   try {
     const res = await fetch(url, { mode: "cors", credentials: "omit", cache: "no-store" });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -17,8 +25,21 @@ export async function downloadFromPublicUrl(url, filename = "download") {
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(objectUrl), 120_000);
+    if (fallbackTab && !fallbackTab.closed) {
+      fallbackTab.close();
+    }
   } catch {
-    window.open(url, "_blank", "noopener,noreferrer");
+    if (fallbackTab && !fallbackTab.closed) {
+      fallbackTab.location.href = url;
+    } else {
+      const a = document.createElement("a");
+      a.href = url;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }
   }
 }
 

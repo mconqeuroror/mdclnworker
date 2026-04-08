@@ -79,8 +79,11 @@ export async function generateSeedancePiapi(options = {}) {
   const piapiMode = mapSeedanceMode(csMode);
 
   // task_type mapping
-  const rawType = String(options.taskType || "seedance-2-preview");
-  const taskType = rawType === "seedance-2-fast-preview" ? "seedance-2-fast" : "seedance-2";
+  const rawType = String(options.taskType || "seedance-2").toLowerCase();
+  const taskType =
+    rawType === "seedance-2-fast-preview" || rawType === "seedance-2-fast"
+      ? "seedance-2-fast"
+      : "seedance-2";
 
   // Duration: integer 4–15, default 5
   const rawDuration = Number(options.duration);
