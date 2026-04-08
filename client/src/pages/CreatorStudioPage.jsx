@@ -290,11 +290,8 @@ function getDurationConfig(family, mode) {
   if (family === "veo31") {
     return { min: 8, max: 8, step: 1, fixed: true };
   }
-  if (family === "seedance2" && mode === "edit") {
-    return { min: 8, max: 8, step: 1, fixed: true };
-  }
   if (family === "seedance2") {
-    return { min: 4, max: 12, step: 4, fixed: false };
+    return { min: 4, max: 15, step: 1, fixed: false };
   }
   if (family === "wan22") {
     return { min: 5, max: 5, step: 1, fixed: true };
@@ -481,148 +478,6 @@ function MediaUploadField({ label, value, onUploaded, accept = "image/*", previe
   );
 }
 
-function SeedanceAssetModal({ isOpen, onClose, onSelect }) {
-  const [assets, setAssets] = useState([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [sourceUrl, setSourceUrl] = useState("");
-  const [assetName, setAssetName] = useState("");
-  const [assetType, setAssetType] = useState("image");
-  const [isCreating, setIsCreating] = useState(false);
-  const assetAccept = assetType === "video" ? "video/*" : assetType === "audio" ? "audio/*" : "image/*";
-  const assetLabel = assetType === "video" ? "Upload source video" : assetType === "audio" ? "Upload source audio" : "Upload source image";
-  const refresh = useCallback(async () => {
-    if (!isOpen) return;
-    setIsLoading(true);
-    try {
-      const data = await creatorStudioAPI.listAssets();
-      setAssets(data?.assets || []);
-    } catch (err) {
-      toast.error(err?.response?.data?.message || err?.message || "Failed to load assets");
-    } finally {
-      setIsLoading(false);
-    }
-  }, [isOpen]);
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
-
-  if (!isOpen) return null;
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-      <div className="w-full max-w-2xl rounded-2xl border border-white/15 p-4" style={{ background: "var(--bg-surface)" }}>
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-base font-semibold text-white">Seedance Assets</h3>
-          <button type="button" onClick={onClose} className="text-slate-400 hover:text-white">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-        <div className="rounded-xl border border-white/10 p-3 bg-black/20 mb-3">
-          <p className="text-xs text-slate-400 mb-2">Create asset (100 credits)</p>
-          <div className="grid grid-cols-1 md:grid-cols-6 gap-2 items-end">
-            <div className="md:col-span-3">
-              <MediaUploadField
-                label={assetLabel}
-                value={sourceUrl}
-                onUploaded={setSourceUrl}
-                accept={assetAccept}
-                preview={assetType === "video" ? "video" : assetType === "audio" ? "audio" : "image"}
-              />
-            </div>
-            <input
-              value={assetName}
-              onChange={(e) => setAssetName(e.target.value.slice(0, 80))}
-              placeholder="Asset name (optional)"
-              className="rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-white outline-none"
-            />
-            <select
-              value={assetType}
-              onChange={(e) => {
-                setAssetType(e.target.value);
-                setSourceUrl("");
-              }}
-              className="rounded-lg border border-white/15 bg-black/40 px-2 py-2 text-sm text-white outline-none"
-            >
-              <option value="image">Image</option>
-              <option value="video">Video</option>
-              <option value="audio">Audio</option>
-            </select>
-            <button
-              type="button"
-              disabled={isCreating || !sourceUrl.trim()}
-              onClick={async () => {
-                setIsCreating(true);
-                try {
-                  await creatorStudioAPI.createAsset({
-                    url: sourceUrl.trim(),
-                    assetType,
-                    name: assetName.trim() || undefined,
-                  });
-                  setSourceUrl("");
-                  setAssetName("");
-                  await refresh();
-                  toast.success("Asset created");
-                } catch (err) {
-                  toast.error(err?.response?.data?.message || err?.message || "Asset create failed");
-                } finally {
-                  setIsCreating(false);
-                }
-              }}
-              className="rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold disabled:opacity-40"
-            >
-              {isCreating ? "Creating..." : "Create"}
-            </button>
-          </div>
-        </div>
-        <div className="max-h-[46vh] overflow-auto space-y-2 pr-1">
-          {isLoading && <p className="text-sm text-slate-400">Loading assets...</p>}
-          {!isLoading && assets.length === 0 && <p className="text-sm text-slate-500">No assets yet.</p>}
-          {!isLoading && assets.map((asset) => (
-            <div key={asset.id} className="rounded-lg border border-white/10 bg-black/25 px-3 py-2 flex items-center gap-3">
-              <div className="w-12 h-12 rounded-lg border border-white/15 bg-black/50 overflow-hidden flex items-center justify-center flex-shrink-0">
-                {asset.assetType === "image" && asset.sourceUrl ? (
-                  <img src={asset.sourceUrl} alt={asset.name || "asset"} className="w-full h-full object-cover" />
-                ) : asset.assetType === "video" && asset.sourceUrl ? (
-                  <video src={asset.sourceUrl} className="w-full h-full object-cover" muted />
-                ) : asset.assetType === "audio" ? (
-                  <Mic className="w-4 h-4 text-slate-300" />
-                ) : (
-                  <Video className="w-4 h-4 text-slate-400" />
-                )}
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-xs text-slate-200 truncate">{asset.name || "Untitled asset"}</p>
-                <p className="text-xs text-slate-300 truncate">{asset.assetUri || "asset://pending"}</p>
-                <p className="text-[11px] text-slate-500 truncate">{asset.assetType || "unknown"} · {asset.status}</p>
-              </div>
-              <button
-                type="button"
-                disabled={asset.status !== "completed" || !asset.assetUri}
-                onClick={() => onSelect(asset)}
-                className="px-2.5 py-1.5 rounded-md text-xs bg-white/10 text-slate-200 hover:bg-white/15 disabled:opacity-40"
-              >
-                Use
-              </button>
-              <button
-                type="button"
-                onClick={async () => {
-                  try {
-                    await creatorStudioAPI.deleteAsset(asset.id);
-                    await refresh();
-                  } catch (err) {
-                    toast.error(err?.response?.data?.message || err?.message || "Delete failed");
-                  }
-                }}
-                className="text-slate-500 hover:text-red-400"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function MaskEditorModal({ isOpen, imageUrl, onClose, onSave }) {
   const canvasRef = useRef(null);
@@ -1618,14 +1473,6 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
   const [klingElementDescription, setKlingElementDescription] = useState("");
   const [klingElementMediaUrls, setKlingElementMediaUrls] = useState(["", "", "", ""]);
   const [seedanceTaskType, setSeedanceTaskType] = useState("seedance-2-preview");
-  const [seedanceResolution, setSeedanceResolution] = useState("720p");
-  const [seedanceGenerateAudio, setSeedanceGenerateAudio] = useState(false);
-  const [seedanceAssetModalOpen, setSeedanceAssetModalOpen] = useState(false);
-  const [selectedSeedanceAssets, setSelectedSeedanceAssets] = useState({
-    image: null,
-    video: null,
-    audio: null,
-  });
   const [wanResolution, setWanResolution] = useState("580p");
   const [isVideoGenerating, setIsVideoGenerating] = useState(false);
   const [extendSourceId, setExtendSourceId] = useState("");
@@ -1893,11 +1740,6 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
         klingElements: normalizedKlingElements,
         aspectRatio: videoAspectRatio,
         seedanceTaskType,
-        seedanceResolution,
-        seedanceGenerateAudio,
-        seedanceReferenceAudioUrls: selectedSeedanceAssets.audio?.assetUri
-          ? [selectedSeedanceAssets.audio.assetUri]
-          : undefined,
         wanResolution,
         veoSeeds: veoSeed ? Number(veoSeed) : undefined,
         veoEnableTranslation,
@@ -2041,21 +1883,11 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
     }
     if (videoFamily === "seedance2") {
       const fast = seedanceTaskType === "seedance-2-fast-preview";
-      const hasVideoInput = Boolean(videoInputVideoUrl.trim());
-      const is480 = String(seedanceResolution || "720p").toLowerCase() === "480p";
-      const key = fast
-        ? (is480
-            ? (hasVideoInput ? "seedance2Fast480WithVideoPerSec" : "seedance2Fast480NoVideoPerSec")
-            : (hasVideoInput ? "seedance2Fast720WithVideoPerSec" : "seedance2Fast720NoVideoPerSec"))
-        : (is480
-            ? (hasVideoInput ? "seedance2Standard480WithVideoPerSec" : "seedance2Standard480NoVideoPerSec")
-            : (hasVideoInput ? "seedance2Standard720WithVideoPerSec" : "seedance2Standard720NoVideoPerSec"));
-      const perSec = toPrice(generationPricing, key);
-      const baseCost = Math.ceil(perSec * duration);
-      return { cost: baseCost, details: `${perSec}/sec (${fast ? "Fast" : "Quality"} · ${seedanceResolution})` };
+      const perSec = toPrice(generationPricing, fast ? "seedance2FastPerSec" : "seedance2StandardPerSec");
+      return { cost: Math.ceil(perSec * duration), details: `${perSec}/sec (${fast ? "Fast" : "Quality"})` };
     }
     return { cost: 0, details: "Pricing unavailable" };
-  }, [durationConfig.min, generationPricing, kling30Quality, seedanceGenerateAudio, seedanceResolution, soraRemoveWatermark, seedanceTaskType, soundEnabled, videoDuration, videoFamily, videoInputVideoUrl, videoMode, videoNFrames, videoSize, videoSpeed, wanResolution]);
+  }, [durationConfig.min, generationPricing, kling30Quality, soraRemoveWatermark, seedanceTaskType, soundEnabled, videoDuration, videoFamily, videoMode, videoNFrames, videoSize, videoSpeed, wanResolution]);
 
   return (
     <div
@@ -2893,11 +2725,6 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                       <Chip active={seedanceTaskType === "seedance-2-preview"} onClick={() => setSeedanceTaskType("seedance-2-preview")}>Quality</Chip>
                       <Chip active={seedanceTaskType === "seedance-2-fast-preview"} onClick={() => setSeedanceTaskType("seedance-2-fast-preview")}>Fast</Chip>
                     </div>
-                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Res</span>
-                    <div className="flex items-center gap-1.5">
-                      <Chip active={seedanceResolution === "480p"} onClick={() => setSeedanceResolution("480p")}>480p</Chip>
-                      <Chip active={seedanceResolution === "720p"} onClick={() => setSeedanceResolution("720p")}>720p</Chip>
-                    </div>
                     {(videoMode === "t2v" || videoMode === "i2v" || videoMode === "edit" || videoMode === "multi-ref") && (
                       <>
                         <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Aspect</span>
@@ -2908,14 +2735,6 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                         </div>
                       </>
                     )}
-                    <button type="button" onClick={() => setSeedanceGenerateAudio((v) => !v)}
-                      className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-all ${seedanceGenerateAudio ? "bg-violet-600 text-white border border-violet-500" : "bg-white/5 text-slate-400 border border-white/10"}`}>
-                      Audio {seedanceGenerateAudio ? "On" : "Off"}
-                    </button>
-                    <button type="button" onClick={() => setSeedanceAssetModalOpen(true)}
-                      className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-all border ${(selectedSeedanceAssets.image || selectedSeedanceAssets.video || selectedSeedanceAssets.audio) ? "bg-white/10 text-slate-200 border-white/15" : "bg-white/5 text-slate-400 border-white/10"} hover:bg-white/10`}>
-                      Assets{(selectedSeedanceAssets.image || selectedSeedanceAssets.video || selectedSeedanceAssets.audio) ? " ✓" : ""}
-                    </button>
                   </div>
                 )}
                 {/* ── Generate row ──────────────────────────────────── */}
@@ -3199,12 +3018,10 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                 {videoFamily === "seedance2" && (
                   <div className="space-y-2">
                     <div>
-                      <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Variant / Res</span>
+                      <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Variant</span>
                       <div className="flex gap-1.5 flex-wrap">
                         <Chip active={seedanceTaskType === "seedance-2-preview"} onClick={() => setSeedanceTaskType("seedance-2-preview")}><span className="whitespace-nowrap">Quality</span></Chip>
                         <Chip active={seedanceTaskType === "seedance-2-fast-preview"} onClick={() => setSeedanceTaskType("seedance-2-fast-preview")}><span className="whitespace-nowrap">Fast</span></Chip>
-                        <Chip active={seedanceResolution === "480p"} onClick={() => setSeedanceResolution("480p")}><span className="whitespace-nowrap">480p</span></Chip>
-                        <Chip active={seedanceResolution === "720p"} onClick={() => setSeedanceResolution("720p")}><span className="whitespace-nowrap">720p</span></Chip>
                       </div>
                     </div>
                     {(videoMode === "t2v" || videoMode === "i2v" || videoMode === "edit" || videoMode === "multi-ref") && (
@@ -3250,32 +3067,6 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
 
       {activeTab === "voices" && <CreatorStudioVoiceTab initialModelId={initialModelId} />}
 
-      <SeedanceAssetModal
-        isOpen={seedanceAssetModalOpen}
-        onClose={() => setSeedanceAssetModalOpen(false)}
-        onSelect={(asset) => {
-          const uri = asset?.assetUri;
-          if (!uri) return;
-          const type = String(asset?.assetType || "").toLowerCase();
-          const normalized = {
-            id: asset?.id,
-            name: asset?.name || null,
-            sourceUrl: asset?.sourceUrl || null,
-            assetUri: uri,
-            assetType: type,
-          };
-          if (type === "video") {
-            setVideoInputVideoUrl(uri);
-            setSelectedSeedanceAssets((prev) => ({ ...prev, video: normalized }));
-          } else if (type === "audio") {
-            setSelectedSeedanceAssets((prev) => ({ ...prev, audio: normalized }));
-          } else {
-            setVideoImageUrl(uri);
-            setSelectedSeedanceAssets((prev) => ({ ...prev, image: normalized }));
-          }
-          setSeedanceAssetModalOpen(false);
-        }}
-      />
       <MaskEditorModal
         isOpen={maskEditorOpen}
         imageUrl={imageInputUrl}

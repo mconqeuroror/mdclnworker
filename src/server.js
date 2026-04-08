@@ -167,6 +167,7 @@ app.get('/health', (req, res) => {
 import stripeWebhookRouter from './routes/stripe.webhook.js';
 import cryptoWebhookRouter from './routes/crypto.webhook.js';
 import kieCallbackRoutes from './routes/kie-callback.routes.js';
+import piapiCallbackRoutes from './routes/piapi-callback.routes.js';
 import wavespeedCallbackRoutes from './routes/wavespeed-callback.routes.js';
 import videoRepurposeRoutes from './routes/video-repurpose.routes.js';
 import img2imgRoutes from './routes/img2img.routes.js';
@@ -177,6 +178,7 @@ import falCallbackRoutes from './routes/fal-callback.routes.js';
 app.use('/api/stripe/webhook', stripeWebhookRouter);
 app.use('/api/crypto/webhook', cryptoWebhookRouter);
 app.use('/api/kie/callback', kieCallbackRoutes);
+app.use('/api/piapi/callback', piapiCallbackRoutes);
 app.use('/api/wavespeed/callback', wavespeedCallbackRoutes);
 app.use('/api/fal/webhook', falCallbackRoutes);
 app.use('/api/runpod', runpodCallbackRoutes);

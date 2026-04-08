@@ -81,17 +81,9 @@ export const DEFAULT_GENERATION_PRICING = Object.freeze({
   kling26Sound5s: 110,
   kling26Sound10s: 220,
 
-  // Seedance 2 (KIE) — user pricing policy (2x provider cost)
-  // Standard model
-  seedance2Standard480WithVideoPerSec: 23,
-  seedance2Standard480NoVideoPerSec: 38,
-  seedance2Standard720WithVideoPerSec: 50,
-  seedance2Standard720NoVideoPerSec: 82,
-  // Fast model
-  seedance2Fast480WithVideoPerSec: 16,
-  seedance2Fast480NoVideoPerSec: 31,
-  seedance2Fast720WithVideoPerSec: 40,
-  seedance2Fast720NoVideoPerSec: 66,
+  // Seedance 2 (piapi.ai) — flat per-second rate (provider: $0.10/s standard, $0.08/s fast → 2× markup)
+  seedance2StandardPerSec: 20,
+  seedance2FastPerSec: 16,
 
   videoPrompt5s: 60,
   videoPrompt10s: 100,

@@ -956,15 +956,17 @@ function zeroDisabledEnhancementStrengths(strengths) {
   return o;
 }
 
-/** Identity LoRA strength only — no OpenRouter call when additives are disabled. */
-function buildGirlOnlyLoraSelection(quickFlow, userLoraStrength) {
+/**
+ * Identity LoRA only — no additive LoRAs, no AI call.
+ * Default strength 0.65; users can override within 0.1–0.9.
+ */
+function buildGirlOnlyLoraSelection(userLoraStrength) {
   const defaultEnhancements = {};
   for (const key of Object.keys(ENHANCEMENT_LORAS)) defaultEnhancements[key] = 0;
-  const defaultGirlStrength = quickFlow ? 0.65 : 0.70;
-  let girlStrength = defaultGirlStrength;
+  let girlStrength = 0.65;
   if (userLoraStrength != null && Number.isFinite(Number(userLoraStrength))) {
     const u = Number(userLoraStrength);
-    girlStrength = quickFlow ? Math.min(0.65, Math.max(0.55, u)) : Math.max(0.65, u);
+    if (u >= 0.1 && u <= 0.9) girlStrength = u;
   }
   return {
     pose: null,
@@ -2444,8 +2446,10 @@ export async function submitNsfwGeneration(params) {
     },
   };
 
-  const validatedOverride = loraStrength && loraStrength >= 0.65 && loraStrength <= 0.80
-    ? loraStrength : null;
+  // Accept any user-specified strength in 0.1–0.9; fall back to default 0.65.
+  const rawStrength = Number(loraStrength);
+  const validatedOverride = Number.isFinite(rawStrength) && rawStrength >= 0.1 && rawStrength <= 0.9
+    ? rawStrength : null;
 
   // Build prompt: anchor identity with triggerWord, then the AI-generated scene prose — nothing else.
   // Z-Image Turbo is degraded by quality tag dumps ("anatomically correct", "solo girl", etc.).
@@ -2457,21 +2461,8 @@ export async function submitNsfwGeneration(params) {
   const hasTriggerAnchor = basePrompt.toLowerCase().includes(String(triggerWord || "").toLowerCase());
   let prompt = hasTriggerAnchor ? basePrompt : `${triggerWord}, ${basePrompt}`;
 
-  // AI decides additive LoRAs when NSFW_ENABLE_ADDITIVE_LORAS=1; otherwise identity strength only (no OpenRouter).
-  const aiSelection = await detectLorasWithAI({
-    finalPrompt: prompt,
-    sceneDescription: sceneDescription || userPrompt,
-    attributes,
-    chipSelections,
-    userLoraStrength: validatedOverride,
-    quickFlow,
-  });
-  if (NSFW_ADDITIVE_LORAS_ENABLED) {
-    applyOralBlowjobLoraPolicy(aiSelection, prompt);
-    applyExplicitPoseHeuristic(aiSelection, prompt);
-    applyNudesPackAdditiveLoraHint(aiSelection, packAdditiveLoraHint);
-    aiSelection.enhancementStrengths = zeroDisabledEnhancementStrengths(aiSelection.enhancementStrengths);
-  }
+  // Identity LoRA only — no additive LoRAs, no AI Grok call for LoRA selection.
+  const aiSelection = buildGirlOnlyLoraSelection(validatedOverride);
 
   // Inject trigger words for active enhancement LoRAs (e.g. facial) that require them in-prompt.
   for (const [key, strength] of Object.entries(aiSelection.enhancementStrengths || {})) {
@@ -2500,10 +2491,10 @@ export async function submitNsfwGeneration(params) {
   console.log(`📦 Girl LoRA URL: ${loraUrl}`);
   console.log(`🔑 Trigger Word: ${triggerWord}`);
   console.log(`📝 Prompt: ${prompt.substring(0, 120)}...`);
-  console.log(`💪 Girl LoRA Strength: ${girlLoraStrength}${loraStrength ? " (user override)" : NSFW_ADDITIVE_LORAS_ENABLED ? " (AI-determined)" : " (default; additives off)"}`);
-  console.log(`🎯 Detected Pose: ${NSFW_ADDITIVE_LORAS_ENABLED ? (detectedPose ? detectedPose.id + " (node " + detectedPose.node + ")" : "none") : "disabled (identity only)"}`);
-  console.log(`💄 Running Makeup: ${NSFW_ADDITIVE_LORAS_ENABLED ? (hasRunningMakeup ? "YES" : "no") : "disabled"}`);
-  console.log(`💦 Cum Effect: ${NSFW_ADDITIVE_LORAS_ENABLED ? (hasCumEffect ? "YES" : "no") : "disabled"}`);
+  console.log(`💪 Girl LoRA Strength: ${girlLoraStrength}${validatedOverride ? " (user override)" : " (default 0.65)"}`);
+  console.log(`🎯 Additive LoRAs: disabled (identity only)`);
+  console.log(`💄 Running Makeup: disabled`);
+  console.log(`💦 Cum Effect: disabled`);
   const activeEnhLog = Object.entries(enhancementStrengths)
     .filter(([, v]) => v > 0)
     .map(([k, v]) => `${k}=${v}`)

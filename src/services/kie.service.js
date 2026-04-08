@@ -523,9 +523,15 @@ async function kiePollTask(taskId, timeoutMs, label = "task") {
 async function kieRun(requestBody, label, timeoutMs, options = {}) {
   const modelName = String(requestBody?.model || "");
   const isSeedance = /seedance/i.test(label || "") || /seedance/i.test(modelName);
-  // Seedance currently returns transient 422 "generate playground failed, task id is blank"
-  // more often than other models, so give it a larger retry window.
-  const MAX_ATTEMPTS = isSeedance ? 8 : 4;
+  // Seedance 2 (bytedance/seedance-2 and bytedance/seedance-2-fast) has been taken temporarily
+  // offline by kie.ai. Every request returns 422 "generate playground failed, task id is blank".
+  // Fail immediately with a clear message rather than burning 8 retry slots (~60 s).
+  if (isSeedance && (modelName.includes("seedance-2") || modelName.includes("seedance-2-fast"))) {
+    throw new Error(
+      "Seedance 2 is temporarily unavailable on our video provider. Please try again later or use a different model.",
+    );
+  }
+  const MAX_ATTEMPTS = 4;
   let lastErr;
   const callbackUrl = getKieCallbackUrl();
   const forcePolling = options.forcePolling === true; // e.g. create-model-with-AI reference image — no generation record to pair callback to
@@ -989,7 +995,11 @@ async function generateVideoWithKling26KieInternal(imageUrl, prompt, options = {
   const model = useKling3 ? "kling-3.0/video" : "kling-2.6/image-to-video";
   const firstImageUrl = String(imageUrl || "").trim();
   const endFrameUrl = String(options.endFrameUrl || "").trim();
-  const imageUrls = [firstImageUrl, endFrameUrl].filter(Boolean).slice(0, 2);
+  // Kling 2.6 image-to-video: maxItems:1 (API spec). Only Kling 3.0 accepts a 2-item array
+  // for first+last frames. Sending 2 URLs to kling-2.6 causes a 422 validation error.
+  const imageUrls = useKling3
+    ? [firstImageUrl, endFrameUrl].filter(Boolean).slice(0, 2)
+    : [firstImageUrl].filter(Boolean);
   const aspectRatio = options.aspectRatio || "16:9";
   console.log(`[KIE/kling-i2v] model=${model}, image="${firstImageUrl.slice(0, 80)}", duration=${duration}s`);
   const validation = await validateKlingImageToVideoInput(firstImageUrl, { useKling3: options.useKling3 === true });
@@ -1040,9 +1050,13 @@ async function generateVideoWithSora2ProKieInternal(options = {}) {
   }
   const nFrames = String(options.nFrames || "10");
   const size = options.size === "high" ? "high" : "standard";
+  // Sora 2 only accepts "portrait" | "landscape". Map common aspect ratio strings.
+  const rawAr = String(options.aspectRatio || "").toLowerCase();
+  const soraAspectRatio =
+    rawAr === "portrait" || rawAr === "9:16" || rawAr === "9/16" ? "portrait" : "landscape";
   const input = {
     prompt: String(options.prompt || ""),
-    aspect_ratio: options.aspectRatio === "portrait" ? "portrait" : "landscape",
+    aspect_ratio: soraAspectRatio,
     n_frames: nFrames === "15" ? "15" : "10",
     size,
     upload_method: "s3",

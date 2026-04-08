@@ -1929,9 +1929,21 @@ export async function recoverPayment(req, res) {
           },
         });
 
+        const prior = await tx.user.findUnique({
+          where: { id: userId },
+          select: { subscriptionCredits: true },
+        });
+        const rollover = rolloverSubPoolToPurchasedUpdate(prior?.subscriptionCredits);
+        if (Object.keys(rollover).length) {
+          console.log(
+            `💾 admin-recovery: rolling ${prior?.subscriptionCredits || 0} existing subscription credits → purchased before overwrite`,
+          );
+        }
+
         await tx.user.update({
           where: { id: userId },
           data: {
+            ...rollover,
             stripeSubscriptionId: trimmed,
             subscriptionTier: tierId || "starter",
             subscriptionStatus: "active",

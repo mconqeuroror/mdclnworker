@@ -3937,7 +3937,7 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
 
   const GENERATION_CONFIG_KEY = "nsfw_generation_config";
   const DEFAULT_CONFIG = {
-    loraStrength: 0,
+    loraStrength: 0.65,
     blurEnabled: true,
     blurStrength: 0.3,
     grainEnabled: true,
@@ -5907,29 +5907,25 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
                             <div className="group relative">
                               <Info className="w-3 h-3 text-slate-500 cursor-help" />
                               <div className="invisible group-hover:visible absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 p-2.5 rounded-lg bg-slate-800 border border-slate-700 text-[11px] text-slate-300 leading-relaxed z-50 shadow-xl">
-                                Controls how strongly your face model is applied. Set to 0 for AI Auto (recommended) - Grok will pick the best strength based on your scene. Override manually if needed.
-                                <div className="text-[10px] text-slate-500 mt-1">Default: AI Auto | Range: 0.65 - 0.90</div>
+                                Controls how strongly your face model is applied. Lower values (0.1–0.5) give softer identity with less risk of distortion. Higher values (0.7–0.9) make the face more prominent.
+                                <div className="text-[10px] text-slate-500 mt-1">Default: 0.65 | Range: 0.10 – 0.90</div>
                               </div>
                             </div>
                           </div>
-                          <span className="text-xs font-mono text-white">{genConfig.loraStrength === 0 ? "AI Auto" : genConfig.loraStrength.toFixed(2)}</span>
+                          <span className="text-xs font-mono text-white">{genConfig.loraStrength.toFixed(2)}</span>
                         </div>
                         <input
                           type="range"
-                          min="0"
+                          min="0.10"
                           max="0.90"
                           step="0.05"
                           value={genConfig.loraStrength}
-                          onChange={(e) => {
-                            const val = parseFloat(e.target.value);
-                            const clamped = val > 0 && val < 0.65 ? 0.65 : val;
-                            setGenConfig(prev => ({ ...prev, loraStrength: clamped }));
-                          }}
+                          onChange={(e) => setGenConfig(prev => ({ ...prev, loraStrength: parseFloat(e.target.value) }))}
                           className="w-full h-1.5 rounded-full appearance-none cursor-pointer bg-slate-700 accent-white"
                           data-testid="slider-lora-strength"
                         />
                         <div className="flex justify-between mt-1">
-                          <span className="text-[10px] text-slate-600">AI Auto</span>
+                          <span className="text-[10px] text-slate-600">0.10</span>
                           <span className="text-[10px] text-slate-600">0.90</span>
                         </div>
                       </div>

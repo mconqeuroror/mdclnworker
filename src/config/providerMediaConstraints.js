@@ -50,9 +50,12 @@ export const kieConstraints = {
     allowedDurationSeconds: envStringList("PROVIDER_LIMIT_KIE_KLING_26_I2V_ALLOWED_DURATIONS", ["5", "10"]),
   },
   kling30Video: {
-    docHint: "docs.kie.ai — kling-3.0/video (confirm durations match 2.6 or extend via env)",
+    docHint: "docs.kie.ai/market/kling/kling-3.0 — duration enum: 3–15 (any integer string)",
     imageMaxBytes: envInt("PROVIDER_LIMIT_KIE_KLING_30_VIDEO_IMAGE_MAX_BYTES", 10 * 1024 * 1024),
-    allowedDurationSeconds: envStringList("PROVIDER_LIMIT_KIE_KLING_30_VIDEO_ALLOWED_DURATIONS", ["5", "10"]),
+    allowedDurationSeconds: envStringList(
+      "PROVIDER_LIMIT_KIE_KLING_30_VIDEO_ALLOWED_DURATIONS",
+      ["3","4","5","6","7","8","9","10","11","12","13","14","15"],
+    ),
   },
   /** docs.kie.ai/market/kling/motion-control */
   kling26MotionControl: {

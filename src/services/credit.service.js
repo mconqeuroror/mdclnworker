@@ -90,7 +90,9 @@ export function rolloverSubPoolToPurchasedUpdate(previousSubscriptionCredits) {
 
 /**
  * Deduct credits from user account (ATOMIC, prevents race conditions)
- * Uses one-time purchased credits first, then legacy/admin credits, then subscription credits last
+ * Consumes expiring subscription credits first, then legacy/admin credits,
+ * then purchased (non-expiring) credits last — so users never silently lose
+ * subscription credits at month-end because purchased credits were drained first.
  */
 export async function deductCredits(userId, amount) {
   if (amount <= 0) {
@@ -127,12 +129,13 @@ export async function deductCredits(userId, amount) {
     let legacyDeduction = 0;
     let remaining = amount;
 
-    if (purchasedCredits >= remaining) {
-      purchasedDeduction = remaining;
+    // Drain subscription (expiring) credits first so they are never wasted at renewal
+    if (subscriptionCredits >= remaining) {
+      subscriptionDeduction = remaining;
       remaining = 0;
     } else {
-      purchasedDeduction = purchasedCredits;
-      remaining -= purchasedCredits;
+      subscriptionDeduction = subscriptionCredits;
+      remaining -= subscriptionCredits;
     }
 
     if (remaining > 0) {
@@ -146,12 +149,12 @@ export async function deductCredits(userId, amount) {
     }
 
     if (remaining > 0) {
-      subscriptionDeduction = remaining;
+      purchasedDeduction = remaining;
       remaining = 0;
     }
 
     console.log(
-      `💳 Deducting ${amount} credits: ${purchasedDeduction} from purchased, ${legacyDeduction} from legacy/admin, ${subscriptionDeduction} from subscription`,
+      `💳 Deducting ${amount} credits: ${subscriptionDeduction} from subscription, ${legacyDeduction} from legacy/admin, ${purchasedDeduction} from purchased`,
     );
 
     const newSubscription = Math.max(0, subscriptionCredits - subscriptionDeduction);
@@ -218,12 +221,13 @@ export async function deductCreditsTx(tx, userId, amount) {
   let legacyDeduction = 0;
   let remaining = amount;
 
-  if (purchasedCredits >= remaining) {
-    purchasedDeduction = remaining;
+  // Drain subscription (expiring) credits first so they are never wasted at renewal
+  if (subscriptionCredits >= remaining) {
+    subscriptionDeduction = remaining;
     remaining = 0;
   } else {
-    purchasedDeduction = purchasedCredits;
-    remaining -= purchasedCredits;
+    subscriptionDeduction = subscriptionCredits;
+    remaining -= subscriptionCredits;
   }
 
   if (remaining > 0) {
@@ -237,12 +241,12 @@ export async function deductCreditsTx(tx, userId, amount) {
   }
 
   if (remaining > 0) {
-    subscriptionDeduction = remaining;
+    purchasedDeduction = remaining;
     remaining = 0;
   }
 
   console.log(
-    `💳 Deducting ${amount} credits: ${purchasedDeduction} from purchased, ${legacyDeduction} from legacy/admin, ${subscriptionDeduction} from subscription`,
+    `💳 Deducting ${amount} credits: ${subscriptionDeduction} from subscription, ${legacyDeduction} from legacy/admin, ${purchasedDeduction} from purchased`,
   );
 
   const newSubscription = Math.max(0, subscriptionCredits - subscriptionDeduction);

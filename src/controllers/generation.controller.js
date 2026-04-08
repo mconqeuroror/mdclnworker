@@ -2,13 +2,13 @@ import prisma from "../lib/prisma.js";
 import {
   faceSwapVideo,
 } from "../services/wavespeed.service.js";
+import { generateSeedancePiapi } from "../services/piapi.service.js";
 import {
   generateImageWithNanoBananaKie,
   generateTextToImageNanoBananaKie,
   generateFluxKontextKie,
   generateWan27ImageProKie,
   generateIdeogramV3Kie,
-  generateSeedance2Kie,
   createVolcanicAssetKie,
   generateVideoWithMotionKie,
   generateVideoWithKling26Kie,
@@ -47,6 +47,7 @@ import {
 } from "../utils/kieUpload.js";
 import { enqueueGenerationBlobRemirror } from "../services/blob-remirror-queue.service.js";
 import { deleteStoredMediaFromOutputField } from "../utils/storageDelete.js";
+import { enforceGeneratedContentDeletionBlock } from "../utils/generated-content-deletion-guard.js";
 import {
   validateImageUrl,
   validateVideoUrl,
@@ -1546,6 +1547,7 @@ export async function batchDeleteGenerations(req, res) {
   try {
     const { generationIds } = req.body;
     const userId = req.user.userId;
+    if (enforceGeneratedContentDeletionBlock(req, res)) return;
 
     if (
       !generationIds ||
@@ -4001,14 +4003,8 @@ function validateCreatorStudioVideoDuration(family, mode, value) {
     return { valid: true, duration };
   }
   if (family === "seedance2") {
-    if (String(mode || "").toLowerCase() === "edit") {
-      if (duration !== 8) {
-        return { valid: false, message: "Seedance edit duration must be 8 seconds." };
-      }
-      return { valid: true, duration };
-    }
-    if (![4, 8, 12].includes(duration)) {
-      return { valid: false, message: "Seedance duration must be 4, 8, or 12 seconds." };
+    if (duration < 4 || duration > 15) {
+      return { valid: false, message: "Seedance duration must be between 4 and 15 seconds." };
     }
     return { valid: true, duration };
   }
@@ -4108,20 +4104,8 @@ function estimateCreatorStudioVideoCredits(pricing, payload) {
   }
   if (family === "seedance2") {
     const fast = String(payload.seedanceTaskType || "seedance-2-preview") === "seedance-2-fast-preview";
-    const seedanceResolution = String(payload.seedanceResolution || "720p").toLowerCase() === "480p" ? "480" : "720";
-    const hasVideoInput = !!payload.hasVideoInput;
-    const key = fast
-      ? (seedanceResolution === "480"
-          ? (hasVideoInput ? "seedance2Fast480WithVideoPerSec" : "seedance2Fast480NoVideoPerSec")
-          : (hasVideoInput ? "seedance2Fast720WithVideoPerSec" : "seedance2Fast720NoVideoPerSec"))
-      : (seedanceResolution === "480"
-          ? (hasVideoInput ? "seedance2Standard480WithVideoPerSec" : "seedance2Standard480NoVideoPerSec")
-          : (hasVideoInput ? "seedance2Standard720WithVideoPerSec" : "seedance2Standard720NoVideoPerSec"));
-    const perSec = Number(pricing?.[key] || 0);
-    // Cost rule from spec: with video input include both input and output duration.
-    const inputVideoSeconds = hasVideoInput ? Math.max(0, Number(payload.inputVideoDurationSeconds || 0)) : 0;
-    const totalSeconds = hasVideoInput ? inputVideoSeconds + seconds : seconds;
-    return Math.ceil(totalSeconds * perSec);
+    const perSec = Number(fast ? pricing?.seedance2FastPerSec : pricing?.seedance2StandardPerSec) || 0;
+    return Math.ceil(seconds * perSec);
   }
   return 0;
 }
@@ -4658,37 +4642,24 @@ async function processCreatorStudioVideoInBackground({
             })),
       );
     } else if (lowerFamily === "seedance2") {
-      const isMultiRefMode = normalizedMode === "multi-ref";
-      const firstFrame = imageUrl ? await ensureKieAccessibleUrl(imageUrl, "seedance-first-frame") : null;
-      const lastFrame = endFrameUrl ? await ensureKieAccessibleUrl(endFrameUrl, "seedance-last-frame") : null;
-      const refImagesRaw = [referenceImageUrl, thirdImageUrl].filter(Boolean).slice(0, 7);
-      const refImages = refImagesRaw.length
-        ? await Promise.all(refImagesRaw.map((u, i) => ensureKieAccessibleUrl(u, `seedance-ref-image-${i + 1}`)))
-        : [];
+      // Route Seedance 2 through piapi.ai
+      const refImagesRaw = [referenceImageUrl, thirdImageUrl].filter(Boolean).slice(0, 10);
       const refVideosRaw = inputVideoUrl ? [inputVideoUrl] : [];
-      const refVideos = refVideosRaw.length
-        ? await Promise.all(refVideosRaw.map((u, i) => ensureKieAccessibleUrl(u, `seedance-ref-video-${i + 1}`)))
-        : [];
       const refAudiosRaw = Array.isArray(seedanceReferenceAudioUrls) ? seedanceReferenceAudioUrls.filter(Boolean).slice(0, 3) : [];
-      const refAudios = refAudiosRaw.length
-        ? await Promise.all(refAudiosRaw.map((u, i) => ensureKieAccessibleUrl(u, `seedance-ref-audio-${i + 1}`)))
-        : [];
       result = await requestQueue.enqueue(() =>
-        generateSeedance2Kie({
-          variant: String(seedanceTaskType || "seedance-2-preview"),
+        generateSeedancePiapi({
+          csMode: normalizedMode,
           prompt: String(finalPrompt || ""),
-          // KIE rejects payloads that mix first/last frames with reference_image_urls.
-          // In multi-ref mode, treat imageUrl as a reference image (not first frame).
-          firstFrameUrl: isMultiRefMode ? null : firstFrame,
-          lastFrameUrl: normalizedMode === "edit" ? (lastFrame || null) : null,
-          referenceImageUrls: isMultiRefMode ? [firstFrame, ...refImages].filter(Boolean).slice(0, 9) : refImages,
-          referenceVideoUrls: isMultiRefMode ? refVideos : [],
-          referenceAudioUrls: isMultiRefMode ? refAudios : [],
-          returnLastFrame: seedanceReturnLastFrame === true,
-          generateAudio: seedanceGenerateAudio === true,
-          resolution: String(seedanceResolution || "720p"),
+          taskType: String(seedanceTaskType || "seedance-2-preview"),
+          duration: Number(durationSeconds) || 5,
           aspectRatio: String(aspectRatio || "16:9"),
-          duration: Number(durationSeconds) || 8,
+          firstFrameUrl: normalizedImageUrl || null,
+          lastFrameUrl: normalizedMode === "edit" ? (normalizedEndFrameUrl || null) : null,
+          referenceImageUrls: normalizedMode === "multi-ref"
+            ? [normalizedImageUrl, ...refImagesRaw].filter(Boolean).slice(0, 12)
+            : [],
+          referenceVideoUrls: normalizedMode === "multi-ref" ? refVideosRaw : [],
+          referenceAudioUrls: normalizedMode === "multi-ref" ? refAudiosRaw : [],
           onTaskCreated: onTaskSubmitted,
         }),
       );
@@ -4939,6 +4910,11 @@ export async function generateCreatorStudioVideo(req, res) {
     await deductCredits(userId, creditsNeeded);
     creditsDeducted = creditsNeeded;
 
+    const generationProvider = lowerFamily === "seedance2" ? "piapi" : "kie";
+    const generationProviderModel = lowerFamily === "seedance2"
+      ? `piapi-seedance2-${normalizedMode}`
+      : `kie-${lowerFamily}-${normalizedMode}`;
+
     const generation = await prisma.generation.create({
       data: {
         userId,
@@ -4949,14 +4925,14 @@ export async function generateCreatorStudioVideo(req, res) {
         inputVideoUrl: normalizedInputVideoUrl || null,
         status: "processing",
         creditsCost: creditsNeeded,
-        provider: "kie",
+        provider: generationProvider,
         providerFamily: lowerFamily,
         providerMode: normalizedMode,
         providerType: normalizedMode,
-        providerModel: `kie-${lowerFamily}-${normalizedMode}`,
+        providerModel: generationProviderModel,
         parentTaskId: originalTaskId,
         originalGenerationId: originalGenerationId || null,
-        replicateModel: `kie-${lowerFamily}-${normalizedMode}`,
+        replicateModel: generationProviderModel,
         extendEligible: (lowerFamily === "veo31" && normalizedMode !== "extend")
           || (lowerFamily === "seedance2" && ["t2v", "i2v"].includes(normalizedMode)),
         providerRequest: {
@@ -5330,6 +5306,7 @@ export async function createCreatorStudioAsset(req, res) {
 export async function deleteCreatorStudioAsset(req, res) {
   try {
     const userId = req.user.userId;
+    if (enforceGeneratedContentDeletionBlock(req, res)) return;
     const id = String(req.params?.assetId || "").trim();
     if (!id) return res.status(400).json({ success: false, message: "assetId is required." });
     const existing = await prisma.generation.findFirst({

@@ -2,6 +2,7 @@ import express from "express";
 import prisma from "../lib/prisma.js";
 import { isAllowedPublicAssetHost } from "../utils/publicAssetHost.js";
 import { getErrorMessageForDb } from "../lib/userError.js";
+import { enforceGeneratedContentDeletionBlock } from "../utils/generated-content-deletion-guard.js";
 import {
   signup,
   login,
@@ -2949,6 +2950,22 @@ function buildSoulXModelIdentityContext(model, lora = null) {
   const aiParams = parseMaybeJsonObject(model.aiGenerationParams);
   const looks = { ...modelLooks, ...loraLooks };
 
+  // Fill gaps from legacy aiGenerationParams for models without savedAppearance.
+  // Use an allowlist to avoid polluting context with non-look metadata keys
+  // (e.g. type, userId, creditsNeeded, photoConfigs) present in newer aiGenerationParams.
+  const LEGACY_LOOK_KEYS = [
+    "hairColor", "hairLength", "hairTexture", "hairType",
+    "eyeColor", "eyeShape",
+    "bodyType", "height",
+    "heritage", "ethnicity", "skinTone",
+    "faceType", "faceShape", "noseShape",
+    "lipSize", "breastSize", "buttSize", "waist", "hips",
+    "style", "tattoos",
+  ];
+  for (const k of LEGACY_LOOK_KEYS) {
+    if (!looks[k] && aiParams[k]) looks[k] = aiParams[k];
+  }
+
   const gender = String(looks.gender || aiParams.gender || "").trim();
   const ageNumber = Number.parseInt(
     model.age ?? looks.age ?? aiParams.age ?? "",
@@ -3415,6 +3432,7 @@ router.delete("/soulx/character/:loraId", authMiddleware, async (req, res) => {
   try {
     const { loraId } = req.params;
     const userId = req.user.userId;
+    if (enforceGeneratedContentDeletionBlock(req, res)) return;
 
     const lora = await prisma.trainedLora.findUnique({
       where: { id: loraId },
