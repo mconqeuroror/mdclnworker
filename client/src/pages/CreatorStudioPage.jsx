@@ -1582,6 +1582,13 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
     if (activeTab !== "video") setMobileVideoBarExpanded(false);
   }, [activeTab]);
 
+  // Flux Kontext image edit: KIE only accepts safetyTolerance 0–2 (6 breaks with 422).
+  useEffect(() => {
+    if (isFluxImageModel && fluxSafetyTolerance > 2) {
+      setFluxSafetyTolerance(2);
+    }
+  }, [isFluxImageModel, fluxSafetyTolerance]);
+
   const handleAddRef = useCallback(async (file, slotIdx) => {
     setUploadingIdx(slotIdx);
     try {
@@ -2176,10 +2183,15 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                     >
                       Prompt upsampling: {fluxPromptUpsampling ? "On" : "Off"}
                     </button>
-                    <span className="text-[10px] text-slate-500 uppercase tracking-widest ml-2">Safety</span>
+                    <span
+                      className="text-[10px] text-slate-500 uppercase tracking-widest ml-2"
+                      title="Flux Kontext editing: KIE allows moderation level 0 (strict) to 2 (most permissive) only."
+                    >
+                      Safety
+                    </span>
                     <div className="flex items-center gap-1.5">
-                      <Chip active={fluxSafetyTolerance === 2} onClick={() => setFluxSafetyTolerance(2)}>SFW</Chip>
-                      <Chip active={fluxSafetyTolerance === 6} onClick={() => setFluxSafetyTolerance(6)}>NSFW</Chip>
+                      <Chip active={fluxSafetyTolerance === 0} onClick={() => setFluxSafetyTolerance(0)}>Strict</Chip>
+                      <Chip active={fluxSafetyTolerance === 2} onClick={() => setFluxSafetyTolerance(2)}>Relaxed</Chip>
                     </div>
                   </div>
                 )}

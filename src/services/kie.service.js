@@ -1554,14 +1554,20 @@ async function generateFluxKontextKieInternal(payload = {}) {
     safetyTolerance = 2,
     callBackUrl = null,
   } = payload;
+  const hasInputImage = Boolean(String(inputImage ?? "").trim());
+  // KIE OpenAPI: image *editing* (inputImage) only allows safetyTolerance 0–2; generation allows 0–6.
+  const rawTol = Number.isFinite(Number(safetyTolerance)) ? Number(safetyTolerance) : 2;
+  const safetyToleranceClamped = hasInputImage
+    ? Math.min(2, Math.max(0, Math.round(rawTol)))
+    : Math.min(6, Math.max(0, Math.round(rawTol)));
   const baseInput = {
     prompt: String(prompt || "").trim(),
-    ...(inputImage ? { inputImage: String(inputImage).trim() } : {}),
+    ...(hasInputImage ? { inputImage: String(inputImage).trim() } : {}),
     aspectRatio: String(aspectRatio || "16:9"),
     outputFormat: String(outputFormat || "jpeg"),
     promptUpsampling: !!promptUpsampling,
     enableTranslation: enableTranslation !== false,
-    safetyTolerance: Number.isFinite(Number(safetyTolerance)) ? Number(safetyTolerance) : 2,
+    safetyTolerance: safetyToleranceClamped,
   };
   const fallbackMap = {
     "flux-kontext-pro": "black-forest-labs/flux-kontext-pro",
@@ -1586,12 +1592,18 @@ async function generateFluxKontextKieInternal(payload = {}) {
       if (!unsupported || !hasNext) throw error;
     }
   }
-  // Some KIE deployments expose Flux Kontext via a dedicated endpoint
-  // (/flux/kontext/generate) instead of generic /jobs/createTask model routing.
+  // Dedicated OpenAPI path only accepts model: "flux-kontext-pro" | "flux-kontext-max" (not Replicate-style slugs).
   if (sawUnsupportedModelError) {
-    for (const candidate of candidates) {
+    const wantMax =
+      primaryModel === "flux-kontext-max"
+      || primaryModel.includes("flux-kontext-max")
+      || primaryModel.includes("black-forest-labs/flux-kontext-max");
+    const dedicatedModels = wantMax
+      ? ["flux-kontext-max", "flux-kontext-pro"]
+      : ["flux-kontext-pro", "flux-kontext-max"];
+    for (const modelId of dedicatedModels) {
       const requestBody = {
-        model: candidate,
+        model: modelId,
         prompt: baseInput.prompt,
         ...(baseInput.inputImage ? { inputImage: baseInput.inputImage } : {}),
         aspectRatio: baseInput.aspectRatio,
@@ -1636,7 +1648,7 @@ async function generateFluxKontextKieInternal(payload = {}) {
       } catch (error) {
         const msg = String(error?.message || "");
         const unsupported = msg.includes("code 422") && msg.toLowerCase().includes("model");
-        const hasNext = candidate !== candidates[candidates.length - 1];
+        const hasNext = modelId !== dedicatedModels[dedicatedModels.length - 1];
         if (!unsupported || !hasNext) throw error;
       }
     }
