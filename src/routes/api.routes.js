@@ -621,7 +621,7 @@ router.post("/auth/google", authLimiter, googleAuth);
 router.post("/auth/refresh", refreshLimiter, refreshToken);
 
 // Admin impersonation: validate token from link and set auth cookies (no auth required)
-router.get("/auth/impersonate-login", authLimiter, (req, res) => {
+router.get("/auth/impersonate-login", authLimiter, async (req, res) => {
   try {
     const token = (req.query.token || "").trim();
     if (!token) {
