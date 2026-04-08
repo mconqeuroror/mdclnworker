@@ -29,6 +29,19 @@ import {
 const KIE_API_KEY = process.env.KIE_API_KEY;
 const KIE_API_URL = "https://api.kie.ai/api/v1";
 
+function buildKieUrl(path = "") {
+  const base = KIE_API_URL.replace(/\/$/, "");
+  const raw = String(path || "").trim();
+  if (!raw) return base;
+  if (/^https?:\/\//i.test(raw)) return raw;
+  let normalized = raw.startsWith("/") ? raw : `/${raw}`;
+  // Prevent accidental double prefix, e.g. base ".../api/v1" + "/api/v1/veo/generate"
+  if (normalized.startsWith("/api/v1/")) {
+    normalized = normalized.slice("/api/v1".length);
+  }
+  return `${base}${normalized}`;
+}
+
 // ─── Queue config: 100 concurrent jobs app-wide, 20 new submissions per 10s ──
 const KIE_MAX_CONCURRENT = Math.max(1, parseInt(process.env.KIE_MAX_CONCURRENT || "100", 10));
 const KIE_MAX_SUBMISSIONS_PER_10S = Math.max(1, Math.min(100, parseInt(process.env.KIE_MAX_SUBMISSIONS_PER_10S || "20", 10)));
@@ -320,7 +333,7 @@ async function kieCreateTask(requestBody, label = "task") {
     JSON.stringify(body).slice(0, 320),
   );
 
-  const res = await fetch(`${KIE_API_URL}/jobs/createTask`, {
+  const res = await fetch(buildKieUrl("/jobs/createTask"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -353,7 +366,7 @@ async function kieCreateTask(requestBody, label = "task") {
 
 async function kiePostJson(endpointPath, requestBody, label = "task") {
   await waitForRateSlot(label);
-  const res = await fetch(`${KIE_API_URL}${endpointPath}`, {
+  const res = await fetch(buildKieUrl(endpointPath), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -386,7 +399,7 @@ async function kiePostJson(endpointPath, requestBody, label = "task") {
  */
 export async function getKieTaskStatus(taskId) {
   if (!KIE_API_KEY) throw new Error("KIE_API_KEY not set");
-  const res = await fetch(`${KIE_API_URL}/jobs/recordInfo?taskId=${taskId}`, {
+  const res = await fetch(buildKieUrl(`/jobs/recordInfo?taskId=${taskId}`), {
     headers: { Authorization: `Bearer ${KIE_API_KEY}` },
     signal: AbortSignal.timeout(15_000),
   });
@@ -430,7 +443,7 @@ async function kiePollTask(taskId, timeoutMs, label = "task") {
 
     let data;
     try {
-      const res = await fetch(`${KIE_API_URL}/jobs/recordInfo?taskId=${taskId}`, {
+      const res = await fetch(buildKieUrl(`/jobs/recordInfo?taskId=${taskId}`), {
         headers: { Authorization: `Bearer ${KIE_API_KEY}` },
         signal: AbortSignal.timeout(28_000),
       });
@@ -976,6 +989,210 @@ async function generateVideoWithWanAnimateReplaceKieInternal(imageUrl, videoUrl,
 }
 
 /**
+ * WAN text/image-to-video (2.6).
+ * Uses createTask + callback completion flow.
+ *
+ * Official KIE docs:
+ * - wan/2-6-text-to-video
+ * - wan/2-6-image-to-video
+ */
+async function generateVideoWithWanTextOrImageKieInternal(options = {}) {
+  const version = String(options.version || "2.6").trim();
+  const mode = String(options.mode || "t2v").toLowerCase() === "i2v" ? "i2v" : "t2v";
+  if (version !== "2.6") {
+    throw new Error(`WAN ${version} text/image-to-video is not available in this app. Use WAN 2.6.`);
+  }
+  const callbackUrl = getKieCallbackUrl();
+  if (!callbackUrl) {
+    throw new Error("[KIE/wan] Callback URL is required (set KIE_CALLBACK_URL / CALLBACK_BASE_URL)");
+  }
+
+  const prompt = String(options.prompt || "").trim();
+  if (!prompt) {
+    throw new Error("WAN video generation requires a prompt.");
+  }
+
+  const durationRaw = String(options.duration ?? "").trim();
+  const duration = ["5", "10", "15"].includes(durationRaw) ? durationRaw : "5";
+  const imageUrl = String(options.imageUrl || "").trim();
+  const resolutionRaw = String(options.resolution || "");
+  const nsfwChecker = options.nsfwChecker === true;
+
+  let model = KIE_VIDEO_MODEL_CATALOG.wanVideo.wan26TextToVideoModel;
+  const input = {
+    prompt,
+    nsfw_checker: nsfwChecker,
+  };
+
+  if (mode === "i2v") {
+    model = KIE_VIDEO_MODEL_CATALOG.wanVideo.wan26ImageToVideoModel;
+    if (!imageUrl) {
+      throw new Error("WAN 2.6 image-to-video requires imageUrl.");
+    }
+    await verifyUrlReachable(imageUrl, "WAN 2.6 i2v input image");
+    input.image_urls = [imageUrl];
+  } else {
+    model = KIE_VIDEO_MODEL_CATALOG.wanVideo.wan26TextToVideoModel;
+  }
+  input.duration = duration;
+  input.resolution = ["720p", "1080p"].includes(resolutionRaw) ? resolutionRaw : "1080p";
+
+  const taskId = await kieCreateTask(
+    {
+      model,
+      callBackUrl: callbackUrl,
+      input,
+    },
+    `wan-${version}-${mode}`,
+  );
+
+  if (typeof options.onTaskSubmitted === "function") {
+    try { await options.onTaskSubmitted(taskId); } catch {}
+  }
+  return { success: true, deferred: true, taskId };
+}
+
+/**
+ * WAN 2.7 video suite:
+ * - t2v: wan/2-7-text-to-video
+ * - i2v: wan/2-7-image-to-video
+ * - replace: wan/2-7-r2v
+ * - edit: wan/2-7-videoedit
+ */
+async function generateVideoWithWan27KieInternal(options = {}) {
+  const mode = String(options.mode || "t2v").toLowerCase();
+  const callbackUrl = getKieCallbackUrl();
+  if (!callbackUrl) {
+    throw new Error("[KIE/wan-2.7] Callback URL is required (set KIE_CALLBACK_URL / CALLBACK_BASE_URL)");
+  }
+
+  const clampInt = (value, min, max, fallback) => {
+    const n = Number(value);
+    if (!Number.isInteger(n)) return fallback;
+    return Math.min(max, Math.max(min, n));
+  };
+  const boolOrDefault = (value, fallback) => (value == null ? fallback : value === true);
+
+  const prompt = String(options.prompt || "").trim();
+  const negativePrompt = String(options.negativePrompt || "").trim();
+  const resolution = String(options.resolution || "") === "720p" ? "720p" : "1080p";
+  const ratio = ["16:9", "9:16", "1:1", "4:3", "3:4"].includes(String(options.aspectRatio || ""))
+    ? String(options.aspectRatio)
+    : "16:9";
+  const nsfwChecker = options.nsfwChecker === true;
+  const seed = Number(options.seed);
+  const includeSeed = Number.isInteger(seed) && seed >= 0;
+
+  let model = null;
+  const input = {};
+  let label = "wan-2-7";
+
+  if (mode === "t2v") {
+    if (!prompt) throw new Error("WAN 2.7 text-to-video requires prompt.");
+    model = KIE_VIDEO_MODEL_CATALOG.wanVideo.wan27TextToVideoModel;
+    input.prompt = prompt;
+    if (negativePrompt) input.negative_prompt = negativePrompt;
+    if (typeof options.audioUrl === "string" && options.audioUrl.trim().startsWith("http")) {
+      input.audio_url = options.audioUrl.trim();
+    }
+    input.resolution = resolution;
+    input.ratio = ratio;
+    input.duration = clampInt(options.duration, 2, 15, 5);
+    input.prompt_extend = boolOrDefault(options.promptExtend, true);
+    input.watermark = boolOrDefault(options.watermark, false);
+    if (includeSeed) input.seed = seed;
+    input.nsfw_checker = nsfwChecker;
+    label = "wan-2-7-t2v";
+  } else if (mode === "i2v") {
+    if (!prompt) throw new Error("WAN 2.7 image-to-video requires prompt.");
+    model = KIE_VIDEO_MODEL_CATALOG.wanVideo.wan27ImageToVideoModel;
+    const firstFrameUrl = String(options.imageUrl || "").trim();
+    const lastFrameUrl = String(options.endFrameUrl || "").trim();
+    const firstClipUrl = String(options.inputVideoUrl || "").trim();
+    if (!firstFrameUrl && !firstClipUrl) {
+      throw new Error("WAN 2.7 image-to-video requires first frame image or first clip video.");
+    }
+    input.prompt = prompt;
+    if (negativePrompt) input.negative_prompt = negativePrompt;
+    if (firstFrameUrl) {
+      await verifyUrlReachable(firstFrameUrl, "WAN 2.7 i2v first_frame_url");
+      input.first_frame_url = firstFrameUrl;
+    }
+    if (lastFrameUrl) {
+      await verifyUrlReachable(lastFrameUrl, "WAN 2.7 i2v last_frame_url");
+      input.last_frame_url = lastFrameUrl;
+    }
+    if (firstClipUrl) {
+      await verifyUrlReachable(firstClipUrl, "WAN 2.7 i2v first_clip_url");
+      input.first_clip_url = firstClipUrl;
+    }
+    input.resolution = resolution;
+    input.duration = clampInt(options.duration, 2, 15, 5);
+    input.prompt_extend = boolOrDefault(options.promptExtend, true);
+    input.watermark = boolOrDefault(options.watermark, false);
+    if (includeSeed) input.seed = seed;
+    input.nsfw_checker = nsfwChecker;
+    label = "wan-2-7-i2v";
+  } else if (mode === "replace") {
+    if (!prompt) throw new Error("WAN 2.7 reference-to-video requires prompt.");
+    model = KIE_VIDEO_MODEL_CATALOG.wanVideo.wan27ReferenceToVideoModel;
+    const imageRefs = [
+      String(options.imageUrl || "").trim(),
+      String(options.referenceImageUrl || "").trim(),
+      String(options.thirdImageUrl || "").trim(),
+    ].filter(Boolean).slice(0, 5);
+    const videoRefs = [String(options.inputVideoUrl || "").trim()].filter(Boolean).slice(0, 5);
+    if (!imageRefs.length && !videoRefs.length) {
+      throw new Error("WAN 2.7 replace requires at least one reference image or reference video.");
+    }
+    for (const url of imageRefs) await verifyUrlReachable(url, "WAN 2.7 r2v reference_image");
+    for (const url of videoRefs) await verifyUrlReachable(url, "WAN 2.7 r2v reference_video");
+    input.prompt = prompt;
+    if (negativePrompt) input.negative_prompt = negativePrompt;
+    if (imageRefs.length) input.reference_image = imageRefs;
+    if (videoRefs.length) input.reference_video = videoRefs;
+    input.resolution = resolution;
+    input.aspect_ratio = ratio;
+    input.duration = clampInt(options.duration, 2, 10, 5);
+    input.prompt_extend = boolOrDefault(options.promptExtend, true);
+    input.watermark = boolOrDefault(options.watermark, false);
+    if (includeSeed) input.seed = seed;
+    input.nsfw_checker = nsfwChecker;
+    label = "wan-2-7-r2v";
+  } else if (mode === "edit") {
+    model = KIE_VIDEO_MODEL_CATALOG.wanVideo.wan27VideoEditModel;
+    const videoUrl = String(options.inputVideoUrl || "").trim();
+    if (!videoUrl) throw new Error("WAN 2.7 video edit requires input video.");
+    await verifyUrlReachable(videoUrl, "WAN 2.7 videoedit video_url");
+    const refImage = String(options.imageUrl || "").trim();
+    input.video_url = videoUrl;
+    if (prompt) input.prompt = prompt;
+    if (negativePrompt) input.negative_prompt = negativePrompt;
+    if (refImage) {
+      await verifyUrlReachable(refImage, "WAN 2.7 videoedit reference_image");
+      input.reference_image = refImage;
+    }
+    input.resolution = resolution;
+    input.aspect_ratio = ratio;
+    input.duration = options.duration == null ? 0 : clampInt(options.duration, 0, 10, 0);
+    input.audio_setting = options.audioSetting === "origin" ? "origin" : "auto";
+    input.prompt_extend = boolOrDefault(options.promptExtend, true);
+    input.watermark = boolOrDefault(options.watermark, false);
+    if (includeSeed) input.seed = seed;
+    input.nsfw_checker = nsfwChecker;
+    label = "wan-2-7-videoedit";
+  } else {
+    throw new Error(`Unsupported WAN 2.7 mode: ${mode}`);
+  }
+
+  const taskId = await kieCreateTask({ model, callBackUrl: callbackUrl, input }, label);
+  if (typeof options.onTaskSubmitted === "function") {
+    try { await options.onTaskSubmitted(taskId); } catch {}
+  }
+  return { success: true, deferred: true, taskId };
+}
+
+/**
  * Kling image-to-video (2.6 or 3.0).
  * @param {string} imageUrl - starting image
  * @param {string} prompt
@@ -1254,7 +1471,7 @@ async function createVolcanicAssetKieInternal({ url, assetType }) {
     typeRaw === "image" ? "Image" : typeRaw === "video" ? "Video" : typeRaw === "audio" ? "Audio" : null;
   if (!normalizedAssetType) throw new Error("assetType must be one of: Image, Video, Audio");
 
-  const createRes = await fetch(`${KIE_API_URL}/playground/createAsset`, {
+  const createRes = await fetch(buildKieUrl("/playground/createAsset"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -1583,6 +1800,12 @@ export function generateVideoWithWanAnimateMoveKie(...args) {
 }
 export function generateVideoWithWanAnimateReplaceKie(...args) {
   return enqueueKieJob(() => generateVideoWithWanAnimateReplaceKieInternal(...args));
+}
+export function generateVideoWithWanTextOrImageKie(...args) {
+  return enqueueKieJob(() => generateVideoWithWanTextOrImageKieInternal(...args));
+}
+export function generateVideoWithWan27Kie(...args) {
+  return enqueueKieJob(() => generateVideoWithWan27KieInternal(...args));
 }
 export function generateVideoWithSora2ProKie(...args) {
   return enqueueKieJob(() => generateVideoWithSora2ProKieInternal(...args));

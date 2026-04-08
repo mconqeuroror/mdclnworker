@@ -237,6 +237,8 @@ const VIDEO_FAMILIES = [
   { id: "kling26", label: "Kling 2.6" },
   { id: "veo31", label: "Veo 3.1" },
   { id: "wan22", label: "WAN 2.2" },
+  { id: "wan26", label: "WAN 2.6" },
+  { id: "wan27", label: "WAN 2.7" },
   { id: "seedance2", label: "Seedance 2.0" },
 ];
 
@@ -265,6 +267,18 @@ const VIDEO_DEFAULT_PRICING = Object.freeze({
   wan22AnimateReplace720pPerSec: 12.5,
   wan22AnimateReplace580pPerSec: 9.5,
   wan22AnimateReplace480pPerSec: 6,
+  wan26T2v720pPerSec: 12.8,
+  wan26T2v1080pPerSec: 19.2,
+  wan26I2v720pPerSec: 12.8,
+  wan26I2v1080pPerSec: 19.2,
+  wan27T2v720pPerSec: 14.4,
+  wan27T2v1080pPerSec: 21.6,
+  wan27I2v720pPerSec: 14.4,
+  wan27I2v1080pPerSec: 21.6,
+  wan27R2v720pPerSec: 14.4,
+  wan27R2v1080pPerSec: 21.6,
+  wan27Edit720pPerSec: 14.4,
+  wan27Edit1080pPerSec: 21.6,
   seedance2Standard480WithVideoPerSec: 23,
   seedance2Standard480NoVideoPerSec: 38,
   seedance2Standard720WithVideoPerSec: 50,
@@ -296,12 +310,21 @@ function getDurationConfig(family, mode) {
   if (family === "wan22") {
     return { min: 5, max: 5, step: 1, fixed: true };
   }
+  if (family === "wan26") {
+    return { min: 5, max: 15, step: 5, fixed: false };
+  }
+  if (family === "wan27") {
+    if (mode === "replace" || mode === "edit") return { min: 2, max: 10, step: 1, fixed: false };
+    return { min: 2, max: 15, step: 1, fixed: false };
+  }
   return { min: 10, max: 15, step: 5, fixed: false };
 }
 
 function getVideoModesByFamily(family) {
   if (family === "veo31") return ["ref2v", "t2v", "i2v", "extend"];
   if (family === "wan22") return ["move", "replace"];
+  if (family === "wan26") return ["t2v", "i2v"];
+  if (family === "wan27") return ["t2v", "i2v", "replace", "edit"];
   if (family === "seedance2") return ["t2v", "i2v", "edit", "multi-ref"];
   return ["t2v", "i2v"];
 }
@@ -309,6 +332,8 @@ function getVideoModesByFamily(family) {
 function defaultModeByFamily(family) {
   if (family === "veo31") return "ref2v";
   if (family === "wan22") return "move";
+  if (family === "wan26") return "t2v";
+  if (family === "wan27") return "t2v";
   return "t2v";
 }
 
@@ -1675,7 +1700,15 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
       toast.error(copy.enterPrompt);
       return;
     }
-    if ((videoFamily === "sora2" || videoFamily === "kling26" || videoFamily === "kling30" || videoFamily === "seedance2") && videoMode === "i2v" && !videoImageUrl.trim()) {
+    if (
+      (videoFamily === "sora2"
+        || videoFamily === "kling26"
+        || videoFamily === "kling30"
+        || videoFamily === "seedance2"
+        || videoFamily === "wan26")
+      && videoMode === "i2v"
+      && !videoImageUrl.trim()
+    ) {
       toast.error("An image upload is required for image-to-video.");
       return;
     }
@@ -1691,8 +1724,20 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
       toast.error("Select a Veo video from your gallery to extend.");
       return;
     }
-    if (videoFamily === "wan22" && (!videoInputVideoUrl.trim() || !videoImageUrl.trim())) {
+    if (videoFamily === "wan22" && (videoMode === "move" || videoMode === "replace") && (!videoInputVideoUrl.trim() || !videoImageUrl.trim())) {
       toast.error("WAN requires both input video and input image uploads.");
+      return;
+    }
+    if (videoFamily === "wan27" && videoMode === "i2v" && !videoImageUrl.trim() && !videoInputVideoUrl.trim()) {
+      toast.error("WAN 2.7 i2v needs a start frame image or first clip video.");
+      return;
+    }
+    if (videoFamily === "wan27" && videoMode === "replace" && !videoImageUrl.trim() && !videoRefImageUrl.trim() && !videoThirdImageUrl.trim() && !videoInputVideoUrl.trim()) {
+      toast.error("WAN 2.7 replace needs at least one reference image or video.");
+      return;
+    }
+    if (videoFamily === "wan27" && videoMode === "edit" && !videoInputVideoUrl.trim()) {
+      toast.error("WAN 2.7 edit needs an input video.");
       return;
     }
     if (videoFamily === "seedance2" && videoMode === "edit" && (!videoImageUrl.trim() || !videoEndFrameUrl.trim())) {
@@ -1823,7 +1868,13 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
       setVideoAspectRatio((prev) => (prev === "portrait" || prev === "landscape" ? prev : "landscape"));
     } else if (videoFamily === "veo31") {
       setVideoAspectRatio((prev) => (["Auto", "16:9", "9:16"].includes(prev) ? prev : "Auto"));
-    } else if (videoFamily === "kling26" || videoFamily === "kling30" || videoFamily === "seedance2") {
+    } else if (
+      videoFamily === "kling26"
+      || videoFamily === "kling30"
+      || videoFamily === "seedance2"
+      || videoFamily === "wan26"
+      || videoFamily === "wan27"
+    ) {
       setVideoAspectRatio((prev) => (["1:1", "16:9", "9:16", "4:3", "3:4"].includes(prev) ? prev : "16:9"));
     }
   }, [videoFamily]);
@@ -1880,6 +1931,24 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
         ? toPrice(generationPricing, `wan22AnimateReplace${wanResolution}PerSec`)
         : toPrice(generationPricing, `wan22AnimateMove${wanResolution}PerSec`);
       return { cost: Math.ceil(perSec * duration), details: `${perSec}/sec (${wanResolution})` };
+    }
+    if (videoFamily === "wan26") {
+      const res = wanResolution === "1080p" ? "1080p" : "720p";
+      const key = videoMode === "i2v" ? `wan26I2v${res}PerSec` : `wan26T2v${res}PerSec`;
+      const perSec = toPrice(generationPricing, key);
+      return { cost: Math.ceil(perSec * duration), details: `${perSec}/sec (WAN 2.6 ${videoMode.toUpperCase()} · ${res})` };
+    }
+    if (videoFamily === "wan27") {
+      const res = wanResolution === "720p" ? "720p" : "1080p";
+      const key = videoMode === "i2v"
+        ? `wan27I2v${res}PerSec`
+        : videoMode === "replace"
+          ? `wan27R2v${res}PerSec`
+          : videoMode === "edit"
+            ? `wan27Edit${res}PerSec`
+            : `wan27T2v${res}PerSec`;
+      const perSec = toPrice(generationPricing, key);
+      return { cost: Math.ceil(perSec * duration), details: `${perSec}/sec (WAN 2.7 ${videoMode.toUpperCase()} · ${res})` };
     }
     if (videoFamily === "seedance2") {
       const fast = seedanceTaskType === "seedance-2-fast-preview";
@@ -2458,7 +2527,17 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                   <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Model</span>
                   <div className="flex flex-wrap items-center gap-1.5 min-w-0">
                     {VIDEO_FAMILIES.map((family) => (
-                      <Chip key={family.id} active={videoFamily === family.id} onClick={() => { setVideoFamily(family.id); setVideoMode(defaultModeByFamily(family.id)); }}>
+                      <Chip
+                        key={family.id}
+                        active={videoFamily === family.id}
+                        onClick={() => {
+                          setVideoFamily(family.id);
+                          setVideoMode(defaultModeByFamily(family.id));
+                          if (family.id === "wan26") setWanResolution("720p");
+                          if (family.id === "wan22") setWanResolution("580p");
+                          if (family.id === "wan27") setWanResolution("1080p");
+                        }}
+                      >
                         {family.label}
                       </Chip>
                     ))}
@@ -2470,7 +2549,21 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                   <div className="flex flex-wrap items-center gap-1.5 min-w-0">
                     {videoModes.map((m) => (
                       <Chip key={m} active={videoMode === m} onClick={() => setVideoMode(m)}>
-                        {m === "t2v" ? "Text → Video" : m === "i2v" ? "Image → Video" : m === "multi-ref" ? "Multi-Ref" : m === "ref2v" ? "Ref → Video" : m === "move" ? "Animate" : m === "replace" ? "Replace" : m === "edit" ? "First + Last" : "Extend"}
+                        {m === "t2v"
+                          ? "Text → Video"
+                          : m === "i2v"
+                            ? "Image → Video"
+                            : m === "multi-ref"
+                              ? "Multi-Ref"
+                              : m === "ref2v"
+                                ? "Ref → Video"
+                                : m === "move"
+                                  ? "Animate"
+                                  : m === "replace"
+                                    ? "Replace"
+                                    : m === "edit"
+                                      ? (videoFamily === "wan27" ? "Video Edit" : "First + Last")
+                                      : "Extend"}
                       </Chip>
                     ))}
                   </div>
@@ -2497,10 +2590,36 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                     <MediaUploadField label="Ref 3 (opt)" value={videoThirdImageUrl} onUploaded={setVideoThirdImageUrl} />
                   </div>
                 )}
-                {videoFamily === "wan22" && (
+                {videoFamily === "wan22" && (videoMode === "move" || videoMode === "replace") && (
                   <div className="flex flex-wrap items-start gap-2">
                     <MediaUploadField label="Input Video" value={videoInputVideoUrl} onUploaded={setVideoInputVideoUrl} accept="video/*" preview="video" />
                     <MediaUploadField label="Input Image" value={videoImageUrl} onUploaded={setVideoImageUrl} />
+                  </div>
+                )}
+                {videoFamily === "wan26" && videoMode === "i2v" && (
+                  <div className="flex flex-wrap items-start gap-2">
+                    <MediaUploadField label="Input Image" value={videoImageUrl} onUploaded={setVideoImageUrl} />
+                  </div>
+                )}
+                {videoFamily === "wan27" && videoMode === "i2v" && (
+                  <div className="flex flex-wrap items-start gap-2">
+                    <MediaUploadField label="Start Frame (opt)" value={videoImageUrl} onUploaded={setVideoImageUrl} />
+                    <MediaUploadField label="End Frame (opt)" value={videoEndFrameUrl} onUploaded={setVideoEndFrameUrl} />
+                    <MediaUploadField label="First Clip (opt)" value={videoInputVideoUrl} onUploaded={setVideoInputVideoUrl} accept="video/*" preview="video" />
+                  </div>
+                )}
+                {videoFamily === "wan27" && videoMode === "replace" && (
+                  <div className="flex flex-wrap items-start gap-2">
+                    <MediaUploadField label="Ref Image 1 (opt)" value={videoImageUrl} onUploaded={setVideoImageUrl} />
+                    <MediaUploadField label="Ref Image 2 (opt)" value={videoRefImageUrl} onUploaded={setVideoRefImageUrl} />
+                    <MediaUploadField label="Ref Image 3 (opt)" value={videoThirdImageUrl} onUploaded={setVideoThirdImageUrl} />
+                    <MediaUploadField label="Ref Video (opt)" value={videoInputVideoUrl} onUploaded={setVideoInputVideoUrl} accept="video/*" preview="video" />
+                  </div>
+                )}
+                {videoFamily === "wan27" && videoMode === "edit" && (
+                  <div className="flex flex-wrap items-start gap-2">
+                    <MediaUploadField label="Input Video" value={videoInputVideoUrl} onUploaded={setVideoInputVideoUrl} accept="video/*" preview="video" />
+                    <MediaUploadField label="Reference Image (opt)" value={videoImageUrl} onUploaded={setVideoImageUrl} />
                   </div>
                 )}
                 {videoFamily === "seedance2" && videoMode === "edit" && (
@@ -2713,9 +2832,41 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                     <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Resolution</span>
                     <div className="flex items-center gap-1.5">
                       <Chip active={wanResolution === "480p"} onClick={() => setWanResolution("480p")}>480p</Chip>
-                      <Chip active={wanResolution === "580p"} onClick={() => setWanResolution("580p")}>580p</Chip>
+                      {(videoMode === "move" || videoMode === "replace") && (
+                        <Chip active={wanResolution === "580p"} onClick={() => setWanResolution("580p")}>580p</Chip>
+                      )}
                       <Chip active={wanResolution === "720p"} onClick={() => setWanResolution("720p")}>720p</Chip>
                     </div>
+                  </div>
+                )}
+                {videoFamily === "wan26" && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Resolution</span>
+                    <div className="flex items-center gap-1.5">
+                      <Chip active={wanResolution === "720p"} onClick={() => setWanResolution("720p")}>720p</Chip>
+                      <Chip active={wanResolution === "1080p"} onClick={() => setWanResolution("1080p")}>1080p</Chip>
+                    </div>
+                  </div>
+                )}
+                {videoFamily === "wan27" && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Resolution</span>
+                    <div className="flex items-center gap-1.5">
+                      <Chip active={wanResolution === "720p"} onClick={() => setWanResolution("720p")}>720p</Chip>
+                      <Chip active={wanResolution === "1080p"} onClick={() => setWanResolution("1080p")}>1080p</Chip>
+                    </div>
+                    {(videoMode === "t2v" || videoMode === "replace" || videoMode === "edit") && (
+                      <>
+                        <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Aspect</span>
+                        <div className="flex items-center gap-1.5">
+                          <Chip active={videoAspectRatio === "16:9"} onClick={() => setVideoAspectRatio("16:9")}>16:9</Chip>
+                          <Chip active={videoAspectRatio === "9:16"} onClick={() => setVideoAspectRatio("9:16")}>9:16</Chip>
+                          <Chip active={videoAspectRatio === "1:1"} onClick={() => setVideoAspectRatio("1:1")}>1:1</Chip>
+                          <Chip active={videoAspectRatio === "4:3"} onClick={() => setVideoAspectRatio("4:3")}>4:3</Chip>
+                          <Chip active={videoAspectRatio === "3:4"} onClick={() => setVideoAspectRatio("3:4")}>3:4</Chip>
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
                 {videoFamily === "seedance2" && (
@@ -2853,7 +3004,17 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                   <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Model</span>
                   <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-0.5 px-0.5 snap-x [scrollbar-width:thin]">
                     {VIDEO_FAMILIES.map((family) => (
-                      <Chip key={family.id} active={videoFamily === family.id} onClick={() => { setVideoFamily(family.id); setVideoMode(defaultModeByFamily(family.id)); }}>
+                      <Chip
+                        key={family.id}
+                        active={videoFamily === family.id}
+                        onClick={() => {
+                          setVideoFamily(family.id);
+                          setVideoMode(defaultModeByFamily(family.id));
+                          if (family.id === "wan26") setWanResolution("720p");
+                          if (family.id === "wan22") setWanResolution("580p");
+                          if (family.id === "wan27") setWanResolution("1080p");
+                        }}
+                      >
                         <span className="whitespace-nowrap">{family.label}</span>
                       </Chip>
                     ))}
@@ -2864,7 +3025,21 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                   <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-0.5 px-0.5 snap-x [scrollbar-width:thin]">
                     {videoModes.map((m) => (
                       <Chip key={m} active={videoMode === m} onClick={() => setVideoMode(m)}>
-                        <span className="whitespace-nowrap">{m === "t2v" ? "Text → Video" : m === "i2v" ? "Image → Video" : m === "multi-ref" ? "Multi-Ref" : m === "ref2v" ? "Ref → Video" : m === "move" ? "Animate" : m === "replace" ? "Replace" : m === "edit" ? "First + Last" : "Extend"}</span>
+                        <span className="whitespace-nowrap">{m === "t2v"
+                          ? "Text → Video"
+                          : m === "i2v"
+                            ? "Image → Video"
+                            : m === "multi-ref"
+                              ? "Multi-Ref"
+                              : m === "ref2v"
+                                ? "Ref → Video"
+                                : m === "move"
+                                  ? "Animate"
+                                  : m === "replace"
+                                    ? "Replace"
+                                    : m === "edit"
+                                      ? (videoFamily === "wan27" ? "Video Edit" : "First + Last")
+                                      : "Extend"}</span>
                       </Chip>
                     ))}
                   </div>
@@ -2886,10 +3061,34 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                     <MediaUploadField label="Ref 3 (opt)" value={videoThirdImageUrl} onUploaded={setVideoThirdImageUrl} />
                   </div>
                 )}
-                {videoFamily === "wan22" && (
+                {videoFamily === "wan22" && (videoMode === "move" || videoMode === "replace") && (
                   <div className="flex flex-wrap gap-2">
                     <MediaUploadField label="Input Video" value={videoInputVideoUrl} onUploaded={setVideoInputVideoUrl} accept="video/*" preview="video" />
                     <MediaUploadField label="Input Image" value={videoImageUrl} onUploaded={setVideoImageUrl} />
+                  </div>
+                )}
+                {videoFamily === "wan26" && videoMode === "i2v" && (
+                  <MediaUploadField label="Input Image" value={videoImageUrl} onUploaded={setVideoImageUrl} />
+                )}
+                {videoFamily === "wan27" && videoMode === "i2v" && (
+                  <div className="flex flex-wrap gap-2">
+                    <MediaUploadField label="Start Frame (opt)" value={videoImageUrl} onUploaded={setVideoImageUrl} />
+                    <MediaUploadField label="End Frame (opt)" value={videoEndFrameUrl} onUploaded={setVideoEndFrameUrl} />
+                    <MediaUploadField label="First Clip (opt)" value={videoInputVideoUrl} onUploaded={setVideoInputVideoUrl} accept="video/*" preview="video" />
+                  </div>
+                )}
+                {videoFamily === "wan27" && videoMode === "replace" && (
+                  <div className="flex flex-wrap gap-2">
+                    <MediaUploadField label="Ref Image 1 (opt)" value={videoImageUrl} onUploaded={setVideoImageUrl} />
+                    <MediaUploadField label="Ref Image 2 (opt)" value={videoRefImageUrl} onUploaded={setVideoRefImageUrl} />
+                    <MediaUploadField label="Ref Image 3 (opt)" value={videoThirdImageUrl} onUploaded={setVideoThirdImageUrl} />
+                    <MediaUploadField label="Ref Video (opt)" value={videoInputVideoUrl} onUploaded={setVideoInputVideoUrl} accept="video/*" preview="video" />
+                  </div>
+                )}
+                {videoFamily === "wan27" && videoMode === "edit" && (
+                  <div className="flex flex-wrap gap-2">
+                    <MediaUploadField label="Input Video" value={videoInputVideoUrl} onUploaded={setVideoInputVideoUrl} accept="video/*" preview="video" />
+                    <MediaUploadField label="Reference Image (opt)" value={videoImageUrl} onUploaded={setVideoImageUrl} />
                   </div>
                 )}
                 {videoFamily === "seedance2" && videoMode === "edit" && (
@@ -3010,9 +3209,41 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                     <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Resolution</span>
                     <div className="flex gap-1.5">
                       <Chip active={wanResolution === "480p"} onClick={() => setWanResolution("480p")}><span className="whitespace-nowrap">480p</span></Chip>
-                      <Chip active={wanResolution === "580p"} onClick={() => setWanResolution("580p")}><span className="whitespace-nowrap">580p</span></Chip>
+                      {(videoMode === "move" || videoMode === "replace") && (
+                        <Chip active={wanResolution === "580p"} onClick={() => setWanResolution("580p")}><span className="whitespace-nowrap">580p</span></Chip>
+                      )}
                       <Chip active={wanResolution === "720p"} onClick={() => setWanResolution("720p")}><span className="whitespace-nowrap">720p</span></Chip>
                     </div>
+                  </div>
+                )}
+                {videoFamily === "wan26" && (
+                  <div>
+                    <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Resolution</span>
+                    <div className="flex gap-1.5">
+                      <Chip active={wanResolution === "720p"} onClick={() => setWanResolution("720p")}><span className="whitespace-nowrap">720p</span></Chip>
+                      <Chip active={wanResolution === "1080p"} onClick={() => setWanResolution("1080p")}><span className="whitespace-nowrap">1080p</span></Chip>
+                    </div>
+                  </div>
+                )}
+                {videoFamily === "wan27" && (
+                  <div className="space-y-2">
+                    <div>
+                      <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Resolution</span>
+                      <div className="flex gap-1.5">
+                        <Chip active={wanResolution === "720p"} onClick={() => setWanResolution("720p")}><span className="whitespace-nowrap">720p</span></Chip>
+                        <Chip active={wanResolution === "1080p"} onClick={() => setWanResolution("1080p")}><span className="whitespace-nowrap">1080p</span></Chip>
+                      </div>
+                    </div>
+                    {(videoMode === "t2v" || videoMode === "replace" || videoMode === "edit") && (
+                      <div>
+                        <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Aspect</span>
+                        <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-0.5 px-0.5 snap-x [scrollbar-width:thin]">
+                          {["16:9", "9:16", "1:1", "4:3", "3:4"].map((ar) => (
+                            <Chip key={ar} active={videoAspectRatio === ar} onClick={() => setVideoAspectRatio(ar)}><span className="whitespace-nowrap">{ar}</span></Chip>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
                 {videoFamily === "seedance2" && (

@@ -14,6 +14,8 @@ import {
   generateVideoWithKling26Kie,
   generateVideoWithWanAnimateMoveKie,
   generateVideoWithWanAnimateReplaceKie,
+  generateVideoWithWanTextOrImageKie,
+  generateVideoWithWan27Kie,
   generateVideoWithSora2ProKie,
   generateVideoWithKlingTextKie,
   generateVideoWithVeo31Kie,
@@ -3959,15 +3961,27 @@ const CREATOR_STUDIO_MODELS = [
   "ideogram-v3-remix",
   "seedream-v4-5-edit",
 ];
-const CREATOR_STUDIO_VIDEO_FAMILIES = ["sora2", "kling26", "kling30", "veo31", "wan22", "seedance2"];
+const CREATOR_STUDIO_VIDEO_FAMILIES = ["sora2", "kling26", "kling30", "veo31", "wan22", "wan26", "wan27", "seedance2"];
+const CREATOR_STUDIO_VIDEO_FAMILY_ALIASES = Object.freeze({
+  veo3: "veo31",
+  wan: "wan22",
+  seedance: "seedance2",
+});
 const CREATOR_STUDIO_VIDEO_ALLOWED_MODES = Object.freeze({
   sora2: ["t2v", "i2v"],
   kling26: ["t2v", "i2v"],
   kling30: ["t2v", "i2v"],
   veo31: ["ref2v", "t2v", "i2v", "extend"],
   wan22: ["move", "replace"],
+  wan26: ["t2v", "i2v"],
+  wan27: ["t2v", "i2v", "replace", "edit"],
   seedance2: ["t2v", "i2v", "edit", "multi-ref"],
 });
+
+function normalizeCreatorStudioVideoFamily(value) {
+  const raw = String(value || "").toLowerCase().trim();
+  return CREATOR_STUDIO_VIDEO_FAMILY_ALIASES[raw] || raw;
+}
 
 function validateCreatorStudioVideoDuration(family, mode, value) {
   const duration = Number(value);
@@ -3998,7 +4012,25 @@ function validateCreatorStudioVideoDuration(family, mode, value) {
   }
   if (family === "wan22") {
     if (duration !== 5) {
-      return { valid: false, message: "WAN 2.2 currently supports only 5-second generations." };
+      return { valid: false, message: "WAN 2.2 animate mode currently supports only 5-second generations." };
+    }
+    return { valid: true, duration };
+  }
+  if (family === "wan26") {
+    if (![5, 10, 15].includes(duration)) {
+      return { valid: false, message: "WAN 2.6 duration must be 5, 10, or 15 seconds." };
+    }
+    return { valid: true, duration };
+  }
+  if (family === "wan27") {
+    if (mode === "replace" || mode === "edit") {
+      if (duration < 2 || duration > 10) {
+        return { valid: false, message: "WAN 2.7 replace/edit duration must be between 2 and 10 seconds." };
+      }
+      return { valid: true, duration };
+    }
+    if (duration < 2 || duration > 15) {
+      return { valid: false, message: "WAN 2.7 t2v/i2v duration must be between 2 and 15 seconds." };
     }
     return { valid: true, duration };
   }
@@ -4023,6 +4055,16 @@ function normalizeCreatorStudioVideoMode(family, mode) {
   if (fam === "wan22") {
     if (normalized === "replace") return "replace";
     return "move";
+  }
+  if (fam === "wan26") {
+    if (normalized === "i2v") return "i2v";
+    return "t2v";
+  }
+  if (fam === "wan27") {
+    if (normalized === "i2v") return "i2v";
+    if (normalized === "replace") return "replace";
+    if (normalized === "edit") return "edit";
+    return "t2v";
   }
   if (fam === "seedance2") {
     if (normalized === "i2v") return "i2v";
@@ -4101,6 +4143,25 @@ function estimateCreatorStudioVideoCredits(pricing, payload) {
       ? pricing[`wan22AnimateReplace${resolution}PerSec`]
       : pricing[`wan22AnimateMove${resolution}PerSec`];
     return Math.ceil(seconds * (Number(perSec) || 0));
+  }
+  if (family === "wan26") {
+    const resolution = String(payload.wanResolution || "720p") === "1080p" ? "1080p" : "720p";
+    const perSec = mode === "i2v"
+      ? Number(pricing[`wan26I2v${resolution}PerSec`]) || 0
+      : Number(pricing[`wan26T2v${resolution}PerSec`]) || 0;
+    return Math.ceil(seconds * perSec);
+  }
+  if (family === "wan27") {
+    const resolution = String(payload.wanResolution || "1080p") === "720p" ? "720p" : "1080p";
+    const key =
+      mode === "i2v"
+        ? `wan27I2v${resolution}PerSec`
+        : mode === "replace"
+          ? `wan27R2v${resolution}PerSec`
+          : mode === "edit"
+            ? `wan27Edit${resolution}PerSec`
+            : `wan27T2v${resolution}PerSec`;
+    return Math.ceil(seconds * (Number(pricing[key]) || 0));
   }
   if (family === "seedance2") {
     const fast = String(payload.seedanceTaskType || "seedance-2-preview") === "seedance-2-fast-preview";
@@ -4504,17 +4565,23 @@ async function processCreatorStudioVideoInBackground({
   veoEnableTranslation = true,
   veoWatermark = "",
 }) {
-  const lowerFamily = String(family || "").toLowerCase();
+  const lowerFamily = normalizeCreatorStudioVideoFamily(family);
   const normalizedMode = normalizeCreatorStudioVideoMode(lowerFamily, mode);
+  const normalizedImageUrl = String(imageUrl || "").trim();
+  const normalizedReferenceImageUrl = String(referenceImageUrl || "").trim();
+  const normalizedEndFrameUrl = String(endFrameUrl || "").trim();
+  const normalizedThirdImageUrl = String(thirdImageUrl || "").trim();
+  const normalizedInputVideoUrl = String(inputVideoUrl || "").trim();
   try {
     const onTaskSubmitted = async (taskId) => {
+      const providerName = lowerFamily === "seedance2" ? "piapi" : "kie";
       await persistKieGenerationCorrelation({
         taskId,
         generationId,
         userId,
         kind: "creator-studio-video",
         extraGenerationData: {
-          provider: "kie",
+          provider: providerName,
           providerTaskId: taskId,
           providerFamily: lowerFamily,
           providerMode: normalizedMode,
@@ -4535,7 +4602,7 @@ async function processCreatorStudioVideoInBackground({
         generateVideoWithSora2ProKie({
           mode: normalizedMode,
           prompt: finalPrompt,
-          imageUrl,
+          imageUrl: normalizedImageUrl,
           nFrames: String(nFrames || "10"),
           size: String(size || "standard"),
           quality: String(soraQuality || "standard"),
@@ -4546,7 +4613,7 @@ async function processCreatorStudioVideoInBackground({
     } else if (lowerFamily === "kling26") {
       if (normalizedMode === "i2v") {
         result = await requestQueue.enqueue(() =>
-          generateVideoWithKling26Kie(imageUrl, finalPrompt, {
+          generateVideoWithKling26Kie(normalizedImageUrl, finalPrompt, {
             duration: String(durationSeconds || 5),
             useKling3: false,
             sound: !!soundEnabled,
@@ -4568,14 +4635,14 @@ async function processCreatorStudioVideoInBackground({
     } else if (lowerFamily === "kling30") {
       if (normalizedMode === "i2v") {
         result = await requestQueue.enqueue(() =>
-          generateVideoWithKling26Kie(imageUrl, finalPrompt, {
+          generateVideoWithKling26Kie(normalizedImageUrl, finalPrompt, {
             duration: String(durationSeconds || 5),
             useKling3: true,
             sound: !!soundEnabled,
             aspectRatio: String(aspectRatio || "16:9"),
             mode: kling30Quality || "std",
             multiShots: !!kling30MultiShot,
-            endFrameUrl: String(endFrameUrl || ""),
+            endFrameUrl: normalizedEndFrameUrl,
             klingElements: Array.isArray(klingElements) ? klingElements : [],
             onTaskCreated: onTaskSubmitted,
           }),
@@ -4616,10 +4683,10 @@ async function processCreatorStudioVideoInBackground({
           generateVideoWithVeo31Kie({
             mode: veoMode,
             prompt: String(finalPrompt || ""),
-            imageUrl,
-            referenceImageUrl,
-            endFrameUrl,
-            thirdImageUrl,
+            imageUrl: normalizedImageUrl,
+            referenceImageUrl: normalizedReferenceImageUrl,
+            endFrameUrl: normalizedEndFrameUrl,
+            thirdImageUrl: normalizedThirdImageUrl,
             speed: speed || "fast",
             aspectRatio: String(aspectRatio || "16:9"),
             seeds: veoSeeds,
@@ -4632,19 +4699,50 @@ async function processCreatorStudioVideoInBackground({
     } else if (lowerFamily === "wan22") {
       result = await requestQueue.enqueue(() =>
         (normalizedMode === "replace"
-          ? generateVideoWithWanAnimateReplaceKie(imageUrl, inputVideoUrl, {
+          ? generateVideoWithWanAnimateReplaceKie(normalizedImageUrl, normalizedInputVideoUrl, {
               resolution: String(wanResolution || "580p"),
               onTaskSubmitted,
             })
-          : generateVideoWithWanAnimateMoveKie(imageUrl, inputVideoUrl, {
+          : generateVideoWithWanAnimateMoveKie(normalizedImageUrl, normalizedInputVideoUrl, {
               resolution: String(wanResolution || "580p"),
               onTaskSubmitted,
             })),
       );
+    } else if (lowerFamily === "wan26") {
+      const wan26Resolution = String(wanResolution || "") === "1080p" ? "1080p" : "720p";
+      result = await requestQueue.enqueue(() =>
+        generateVideoWithWanTextOrImageKie({
+          version: "2.6",
+          mode: normalizedMode,
+          prompt: String(finalPrompt || ""),
+          imageUrl: normalizedImageUrl,
+          duration: String(durationSeconds || 5),
+          resolution: wan26Resolution,
+          aspectRatio: String(aspectRatio || "16:9"),
+          onTaskSubmitted,
+        }),
+      );
+    } else if (lowerFamily === "wan27") {
+      const wan27Resolution = String(wanResolution || "") === "720p" ? "720p" : "1080p";
+      result = await requestQueue.enqueue(() =>
+        generateVideoWithWan27Kie({
+          mode: normalizedMode,
+          prompt: String(finalPrompt || ""),
+          imageUrl: normalizedImageUrl,
+          referenceImageUrl: normalizedReferenceImageUrl,
+          thirdImageUrl: normalizedThirdImageUrl,
+          endFrameUrl: normalizedEndFrameUrl,
+          inputVideoUrl: normalizedInputVideoUrl,
+          duration: Number(durationSeconds) || 5,
+          resolution: wan27Resolution,
+          aspectRatio: String(aspectRatio || "16:9"),
+          onTaskSubmitted,
+        }),
+      );
     } else if (lowerFamily === "seedance2") {
       // Route Seedance 2 through piapi.ai
-      const refImagesRaw = [referenceImageUrl, thirdImageUrl].filter(Boolean).slice(0, 10);
-      const refVideosRaw = inputVideoUrl ? [inputVideoUrl] : [];
+      const refImagesRaw = [normalizedReferenceImageUrl, normalizedThirdImageUrl].filter(Boolean).slice(0, 10);
+      const refVideosRaw = normalizedInputVideoUrl ? [normalizedInputVideoUrl] : [];
       const refAudiosRaw = Array.isArray(seedanceReferenceAudioUrls) ? seedanceReferenceAudioUrls.filter(Boolean).slice(0, 3) : [];
       result = await requestQueue.enqueue(() =>
         generateSeedancePiapi({
@@ -4741,7 +4839,7 @@ export async function generateCreatorStudioVideo(req, res) {
       veoWatermark = "",
     } = req.body || {};
 
-    const lowerFamily = String(family || "").toLowerCase();
+    const lowerFamily = normalizeCreatorStudioVideoFamily(family);
     if (!CREATOR_STUDIO_VIDEO_FAMILIES.includes(lowerFamily)) {
       return res.status(400).json({ success: false, message: "Unsupported video family." });
     }
@@ -4754,6 +4852,12 @@ export async function generateCreatorStudioVideo(req, res) {
       });
     }
     const normalizedMode = normalizeCreatorStudioVideoMode(lowerFamily, requestedMode);
+    const requestedWanResolution = String(wanResolution || "").trim();
+    const normalizedWanResolution = lowerFamily === "wan26"
+      ? (requestedWanResolution === "1080p" ? "1080p" : "720p")
+      : lowerFamily === "wan27"
+        ? (requestedWanResolution === "720p" ? "720p" : "1080p")
+        : (requestedWanResolution || "580p");
     const durationValidation = validateCreatorStudioVideoDuration(lowerFamily, normalizedMode, durationSeconds);
     if (!durationValidation.valid) {
       return res.status(400).json({ success: false, message: durationValidation.message });
@@ -4790,7 +4894,15 @@ export async function generateCreatorStudioVideo(req, res) {
       if (!videoCheck.valid) return res.status(400).json({ success: false, message: `inputVideoUrl: ${videoCheck.message}` });
     }
 
-    if ((lowerFamily === "sora2" || lowerFamily === "kling26" || lowerFamily === "kling30" || lowerFamily === "seedance2") && normalizedMode === "i2v" && !normalizedImageUrl) {
+    if (
+      (lowerFamily === "sora2"
+        || lowerFamily === "kling26"
+        || lowerFamily === "kling30"
+        || lowerFamily === "seedance2"
+        || lowerFamily === "wan26")
+      && normalizedMode === "i2v"
+      && !normalizedImageUrl
+    ) {
       return res.status(400).json({ success: false, message: "Image URL is required for image-to-video mode." });
     }
     if (lowerFamily === "sora2") {
@@ -4853,11 +4965,36 @@ export async function generateCreatorStudioVideo(req, res) {
       }
     }
     if (lowerFamily === "wan22") {
-      if (!["480p", "580p", "720p"].includes(String(wanResolution || ""))) {
-        return res.status(400).json({ success: false, message: "WAN resolution must be 480p, 580p, or 720p." });
+      if (!["480p", "580p", "720p"].includes(normalizedWanResolution)) {
+        return res.status(400).json({ success: false, message: "WAN 2.2 animate resolution must be 480p, 580p, or 720p." });
       }
       if (!normalizedInputVideoUrl || !normalizedImageUrl) {
-        return res.status(400).json({ success: false, message: "WAN mode requires both input video and image." });
+        return res.status(400).json({ success: false, message: "WAN animate mode requires both input video and image." });
+      }
+    }
+    if (lowerFamily === "wan26") {
+      if (!["720p", "1080p"].includes(normalizedWanResolution)) {
+        return res.status(400).json({ success: false, message: "WAN 2.6 resolution must be 720p or 1080p." });
+      }
+      if (normalizedMode === "i2v" && !normalizedImageUrl) {
+        return res.status(400).json({ success: false, message: "WAN 2.6 image-to-video requires an image." });
+      }
+    }
+    if (lowerFamily === "wan27") {
+      if (!["720p", "1080p"].includes(normalizedWanResolution)) {
+        return res.status(400).json({ success: false, message: "WAN 2.7 resolution must be 720p or 1080p." });
+      }
+      if (normalizedMode === "i2v" && !normalizedImageUrl && !normalizedInputVideoUrl) {
+        return res.status(400).json({ success: false, message: "WAN 2.7 image-to-video requires first frame image or first clip video." });
+      }
+      if (normalizedMode === "replace" && !normalizedImageUrl && !normalizedReferenceImageUrl && !normalizedThirdImageUrl && !normalizedInputVideoUrl) {
+        return res.status(400).json({ success: false, message: "WAN 2.7 replace requires at least one reference image or reference video." });
+      }
+      if (normalizedMode === "edit" && !normalizedInputVideoUrl) {
+        return res.status(400).json({ success: false, message: "WAN 2.7 edit requires an input video." });
+      }
+      if ((normalizedMode === "t2v" || normalizedMode === "replace" || normalizedMode === "edit") && !["16:9", "9:16", "1:1", "4:3", "3:4"].includes(String(aspectRatio || ""))) {
+        return res.status(400).json({ success: false, message: "WAN 2.7 aspect ratio must be one of 16:9, 9:16, 1:1, 4:3, 3:4." });
       }
     }
     if (lowerFamily === "seedance2") {
@@ -4894,7 +5031,7 @@ export async function generateCreatorStudioVideo(req, res) {
       generateAudio: seedanceGenerateAudio === true,
       hasVideoInput: !!normalizedInputVideoUrl,
       inputVideoDurationSeconds: Number(req.body?.inputVideoDurationSeconds || 0),
-      wanResolution,
+      wanResolution: normalizedWanResolution,
     });
     if (!Number.isFinite(creditsNeeded) || creditsNeeded <= 0) {
       return res.status(400).json({ success: false, message: "Could not calculate credits for this configuration." });
@@ -4961,7 +5098,7 @@ export async function generateCreatorStudioVideo(req, res) {
           seedanceGenerateAudio,
           seedanceReturnLastFrame,
           seedanceReferenceAudioUrls,
-          wanResolution,
+          wanResolution: normalizedWanResolution,
           originalTaskId,
           veoSeeds,
           veoEnableTranslation,
@@ -4999,7 +5136,7 @@ export async function generateCreatorStudioVideo(req, res) {
       seedanceGenerateAudio,
       seedanceReturnLastFrame,
       seedanceReferenceAudioUrls,
-      wanResolution,
+      wanResolution: normalizedWanResolution,
       originalTaskId,
       originalGenerationId,
       veoSeeds,

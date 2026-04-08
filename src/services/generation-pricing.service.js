@@ -52,6 +52,22 @@ export const DEFAULT_GENERATION_PRICING = Object.freeze({
   wan22AnimateReplace720pPerSec: 12.5,
   wan22AnimateReplace580pPerSec: 9.5,
   wan22AnimateReplace480pPerSec: 6,
+  // WAN 2.6 (official t2v / i2v), resolution-based pricing
+  // 720p: 64/128/192 for 5/10/15s => 12.8 credits/sec
+  // 1080p: 96/192/288 for 5/10/15s => 19.2 credits/sec
+  wan26T2v720pPerSec: 12.8,
+  wan26T2v1080pPerSec: 19.2,
+  wan26I2v720pPerSec: 12.8,
+  wan26I2v1080pPerSec: 19.2,
+  // WAN 2.7 video suite (set to current provisional defaults; adjust in admin pricing)
+  wan27T2v720pPerSec: 14.4,
+  wan27T2v1080pPerSec: 21.6,
+  wan27I2v720pPerSec: 14.4,
+  wan27I2v1080pPerSec: 21.6,
+  wan27R2v720pPerSec: 14.4,
+  wan27R2v1080pPerSec: 21.6,
+  wan27Edit720pPerSec: 14.4,
+  wan27Edit1080pPerSec: 21.6,
 
   // Veo 3.1
   veo31GenerateFast1080p8s: 60,

@@ -36,9 +36,17 @@ export const KIE_VIDEO_MODEL_CATALOG = Object.freeze({
       },
     },
   },
+  wanVideo: {
+    wan26TextToVideoModel: "wan/2-6-text-to-video",
+    wan26ImageToVideoModel: "wan/2-6-image-to-video",
+    wan27TextToVideoModel: "wan/2-7-text-to-video",
+    wan27ImageToVideoModel: "wan/2-7-image-to-video",
+    wan27ReferenceToVideoModel: "wan/2-7-r2v",
+    wan27VideoEditModel: "wan/2-7-videoedit",
+  },
   veo31: {
-    generate: { endpoint: "/api/v1/veo/generate", models: ["veo3_fast", "veo3"] },
-    extend: { endpoint: "/api/v1/veo/extend", models: ["fast", "quality"] },
+    generate: { endpoint: "/veo/generate", models: ["veo3_fast", "veo3"] },
+    extend: { endpoint: "/veo/extend", models: ["fast", "quality"] },
   },
   sora2Pro: {
     family: "sora2",
