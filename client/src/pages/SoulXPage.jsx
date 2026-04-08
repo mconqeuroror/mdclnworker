@@ -57,6 +57,111 @@ const ASPECT_OPTIONS = [
   { id: "4:3", label: "4:3", hint: "Wide" },
 ];
 
+function getModelPreview(model) {
+  if (!model || typeof model !== "object") return "";
+  return String(
+    model.thumbnail
+    || model.photo1Url
+    || model.photoUrl
+    || model.avatarUrl
+    || model.coverUrl
+    || "",
+  ).trim();
+}
+
+function ModelPicker({
+  models = [],
+  value = "",
+  onChange,
+  placeholder = "Select model",
+  isDark = true,
+}) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef(null);
+  const selected = (Array.isArray(models) ? models : []).find((m) => String(m.id) === String(value));
+
+  useEffect(() => {
+    const onPointerDown = (event) => {
+      if (!containerRef.current) return;
+      if (!containerRef.current.contains(event.target)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, []);
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between gap-3 rounded-xl border border-white/[0.10] bg-white/[0.02] px-3 py-2.5 text-left text-sm transition-colors hover:bg-white/[0.05]"
+      >
+        <span className="flex items-center gap-2.5 min-w-0">
+          {getModelPreview(selected) ? (
+            <img src={getModelPreview(selected)} alt="" className="w-7 h-7 rounded-lg object-cover border border-white/20 flex-shrink-0" />
+          ) : (
+            <span className="w-7 h-7 rounded-lg border border-white/15 bg-white/[0.03] flex items-center justify-center flex-shrink-0">
+              <ImageIcon className="w-3.5 h-3.5 text-slate-500" />
+            </span>
+          )}
+          <span className={`truncate ${selected ? (isDark ? "text-white" : "text-slate-900") : "text-slate-500"}`}>
+            {selected?.name || placeholder}
+          </span>
+        </span>
+        <ChevronDown className={`w-4 h-4 flex-shrink-0 transition-transform ${open ? "rotate-180" : ""} ${isDark ? "text-slate-400" : "text-slate-500"}`} />
+      </button>
+
+      {open && (
+        <div className="absolute z-20 mt-2 w-full max-h-64 overflow-y-auto rounded-xl border border-white/[0.12] bg-[#0b0b0f]/95 backdrop-blur-md shadow-2xl">
+          {(Array.isArray(models) ? models : []).map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              onClick={() => {
+                onChange?.(m.id);
+                setOpen(false);
+              }}
+              className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-left text-sm transition-colors ${
+                String(m.id) === String(value)
+                  ? "bg-violet-600/25 text-violet-100"
+                  : "text-slate-200 hover:bg-white/[0.06]"
+              }`}
+            >
+              {getModelPreview(m) ? (
+                <img src={getModelPreview(m)} alt="" className="w-7 h-7 rounded-lg object-cover border border-white/15 flex-shrink-0" />
+              ) : (
+                <span className="w-7 h-7 rounded-lg border border-white/10 bg-white/[0.03] flex items-center justify-center flex-shrink-0">
+                  <ImageIcon className="w-3.5 h-3.5 text-slate-500" />
+                </span>
+              )}
+              <span className="truncate">{m.name}</span>
+            </button>
+          ))}
+          {!models.length && (
+            <div className="px-3 py-2.5 text-xs text-slate-500">No models found</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ControlChip({ active, onClick, children, className = "" }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`px-3 py-2 rounded-xl text-xs md:text-sm font-semibold border transition-all ${
+        active
+          ? "bg-violet-600/85 text-white border-violet-500 shadow-[0_0_10px_rgba(139,92,246,0.35)]"
+          : "text-slate-300 border-white/[0.10] bg-white/[0.02] hover:bg-white/[0.05] hover:text-white"
+      } ${className}`}
+    >
+      {children}
+    </button>
+  );
+}
+
 function authHeader() {
   const token = localStorage.getItem("token");
   return token ? { Authorization: `Bearer ${token}` } : {};
@@ -115,7 +220,7 @@ const COPY = {
     failed: "Failed",
     generatingShort: "Generating…",
     title: "Soul-X",
-    subtitle: "High-realism image generation with optional character identity",
+    subtitle: "Photoreal image generation with optional character identity locking",
     tabGenerate: "Generate",
     tabCharacter: "Character",
     pricingTitle: "Soul-X Pricing",
@@ -124,7 +229,6 @@ const COPY = {
     p3: "2 images — no character",
     p4: "2 images — with character",
     p5: "Extra steps (every +10 over included)",
-    aiBadge: "AI Prompting ON (Grok)",
   },
   ru: {
     mode: "Режим",
@@ -150,7 +254,7 @@ const COPY = {
     failed: "Ошибка",
     generatingShort: "Генерация…",
     title: "Soul-X",
-    subtitle: "Фотореалистичная генерация с опциональной идентичностью персонажа",
+    subtitle: "Фотореалистичная генерация с опциональной фиксацией идентичности персонажа",
     tabGenerate: "Генерация",
     tabCharacter: "Персонаж",
     pricingTitle: "Тарифы Soul-X",
@@ -159,7 +263,6 @@ const COPY = {
     p3: "2 изображения — без персонажа",
     p4: "2 изображения — с персонажем",
     p5: "Доп. шаги (каждые +10 сверх включенных)",
-    aiBadge: "AI Prompting ON (Grok)",
   },
 };
 
@@ -314,39 +417,15 @@ function CharacterTab({ isDark }) {
       {/* Model picker */}
       <div>
         <label className={`block text-xs font-semibold mb-2 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
-          SELECT MODEL
+          Model
         </label>
-        <div className="relative">
-          <select
-            value={selectedModelId}
-            onChange={(e) => setSelectedModelId(e.target.value)}
-            className={inputBase}
-          >
-            <option
-              value=""
-              style={{
-                color: isDark ? "#94a3b8" : "#64748b",
-                backgroundColor: isDark ? "#111827" : "#ffffff",
-              }}
-            >
-              — Choose a model —
-            </option>
-            {allModels.map((m) => (
-              <option
-                key={m.id}
-                value={m.id}
-                style={{
-                  color: isDark ? "#e5e7eb" : "#0f172a",
-                  backgroundColor: isDark ? "#111827" : "#ffffff",
-                }}
-              >
-                {m.name}
-              </option>
-            ))}
-          </select>
-          <ChevronDown className={`absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none
-            ${isDark ? "text-slate-400" : "text-slate-400"}`} />
-        </div>
+        <ModelPicker
+          models={allModels}
+          value={selectedModelId}
+          onChange={setSelectedModelId}
+          placeholder="Choose a model"
+          isDark={isDark}
+        />
       </div>
 
       {selectedModelId && (
@@ -444,7 +523,7 @@ function CharacterTab({ isDark }) {
               <div className="mb-4">
                 <div className="flex items-center justify-between mb-2">
                   <span className={`text-xs font-semibold ${isDark ? "text-slate-400" : "text-slate-500"}`}>
-                    TRAINING PHOTOS ({uploadedImages.length})
+                    Training Photos ({uploadedImages.length})
                   </span>
                   <button
                     onClick={() => fileInputRef.current?.click()}
@@ -748,24 +827,22 @@ function GenerateTab({ isDark, copy }) {
   return (
     <div className="space-y-5">
       {/* Mode toggle */}
-      <div>
-        <label className={labelBase}>{copy.mode.toUpperCase()}</label>
-        <div className="flex rounded-xl p-1 border glass-card border-white/[0.10]">
+      <div className="rounded-2xl border p-3.5 md:p-4 glass-card border-white/[0.10]">
+        <label className={labelBase}>{copy.mode}</label>
+        <div className="flex flex-wrap gap-2">
           {[
             { id: "without", label: copy.noCharacter, icon: ImageIcon },
             { id: "character", label: copy.useCharacter, icon: User },
           ].map(({ id, label, icon: Icon }) => (
-            <button
+            <ControlChip
               key={id}
               onClick={() => setMode(id)}
-              className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium transition-all
-                ${mode === id
-                  ? "bg-violet-600 text-white shadow-sm"
-                  : "text-slate-400 hover:text-white"}`}
+              active={mode === id}
+              className="flex-1 inline-flex items-center justify-center gap-1.5"
             >
               <Icon className="w-3.5 h-3.5" />
               {label}
-            </button>
+            </ControlChip>
           ))}
         </div>
       </div>
@@ -780,42 +857,22 @@ function GenerateTab({ isDark, copy }) {
             className="space-y-3 overflow-hidden"
           >
             <div>
-              <label className={labelBase}>{copy.model.toUpperCase()}</label>
-              <div className="relative">
-                <select
-                  value={selectedModelId}
-                  onChange={(e) => { setSelectedModelId(e.target.value); setSelectedCharacterId(""); }}
-                  className={`w-full appearance-none pl-3 pr-9 py-2.5 rounded-xl text-sm border outline-none ${inputBase}`}
-                >
-                  <option
-                    value=""
-                    style={{
-                      color: isDark ? "#94a3b8" : "#64748b",
-                      backgroundColor: isDark ? "#111827" : "#ffffff",
-                    }}
-                  >
-                    — Choose a model —
-                  </option>
-                  {allModels.map((m) => (
-                    <option
-                      key={m.id}
-                      value={m.id}
-                      style={{
-                        color: isDark ? "#e5e7eb" : "#0f172a",
-                        backgroundColor: isDark ? "#111827" : "#ffffff",
-                      }}
-                    >
-                      {m.name}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className={`absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none ${isDark ? "text-slate-400" : "text-slate-400"}`} />
-              </div>
+              <label className={labelBase}>{copy.model}</label>
+              <ModelPicker
+                models={allModels}
+                value={selectedModelId}
+                onChange={(id) => {
+                  setSelectedModelId(id);
+                  setSelectedCharacterId("");
+                }}
+                placeholder="Choose a model"
+                isDark={isDark}
+              />
             </div>
 
             {selectedModelId && (
               <div>
-                <label className={labelBase}>{copy.characterIdentity.toUpperCase()}</label>
+                <label className={labelBase}>{copy.characterIdentity}</label>
                 {characters.length === 0 ? (
                   <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl border text-sm bg-amber-500/10 border-amber-500/25 text-amber-300">
                     <AlertCircle className="w-4 h-4 flex-shrink-0" />
@@ -857,8 +914,8 @@ function GenerateTab({ isDark, copy }) {
       </AnimatePresence>
 
       {/* Prompt */}
-      <div>
-        <label className={labelBase}>{copy.prompt.toUpperCase()}</label>
+      <div className="rounded-2xl border p-3.5 md:p-4 glass-card border-white/[0.10]">
+        <label className={labelBase}>{copy.prompt}</label>
         <textarea
           rows={3}
           placeholder={copy.promptPlaceholder}
@@ -869,40 +926,35 @@ function GenerateTab({ isDark, copy }) {
       </div>
 
       {/* Aspect ratio */}
-      <div>
-        <label className={labelBase}>{copy.aspectRatio.toUpperCase()}</label>
+      <div className="rounded-2xl border p-3.5 md:p-4 glass-card border-white/[0.10]">
+        <label className={labelBase}>{copy.aspectRatio}</label>
         <div className="flex flex-wrap gap-2">
           {ASPECT_OPTIONS.map((opt) => (
-            <button
+            <ControlChip
               key={opt.id}
               onClick={() => setAspect(opt.id)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all
-                ${aspect === opt.id
-                  ? "bg-violet-600 border-violet-500 text-white"
-                  : "glass-card border border-white/[0.10] text-slate-400 hover:border-white/20 hover:text-white"}`}
+              active={aspect === opt.id}
             >
               {opt.label}
               <span className={`ml-1 opacity-60`}>{opt.hint}</span>
-            </button>
+            </ControlChip>
           ))}
         </div>
       </div>
 
       {/* Quantity */}
-      <div>
-        <label className={labelBase}>{copy.images.toUpperCase()}</label>
-        <div className="flex rounded-xl p-1 border w-fit glass-card border-white/[0.10]">
+      <div className="rounded-2xl border p-3.5 md:p-4 glass-card border-white/[0.10]">
+        <label className={labelBase}>{copy.images}</label>
+        <div className="flex gap-2">
           {[1, 2].map((n) => (
-            <button
+            <ControlChip
               key={n}
               onClick={() => setQty(n)}
-              className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all
-                ${qty === n
-                  ? "bg-violet-600 text-white shadow-sm"
-                  : "text-slate-400 hover:text-white"}`}
+              active={qty === n}
+              className="min-w-12"
             >
               {n}
-            </button>
+            </ControlChip>
           ))}
         </div>
       </div>
@@ -1066,12 +1118,6 @@ export default function SoulXPage() {
             <p className={`text-sm md:text-base mt-1 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
               {copy.subtitle}
             </p>
-            <span className={`inline-flex mt-2 items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold ${
-              isDark ? "bg-violet-500/15 text-violet-300 border border-violet-500/25" : "bg-violet-50 text-violet-700 border border-violet-200"
-            }`}>
-              <Zap className="w-3 h-3" />
-              {copy.aiBadge}
-            </span>
           </div>
         </div>
 
@@ -1086,8 +1132,8 @@ export default function SoulXPage() {
               onClick={() => setActiveTab(id)}
               className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-all
                 ${activeTab === id
-                  ? "bg-white/[0.10] text-white"
-                  : "text-slate-400 hover:text-white"}`}
+                  ? "bg-violet-600/80 text-white shadow-[0_0_10px_rgba(139,92,246,0.35)]"
+                  : "text-slate-400 hover:text-white hover:bg-white/[0.04]"}`}
             >
               <Icon className="w-4 h-4" />
               {label}
