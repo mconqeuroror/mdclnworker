@@ -1459,7 +1459,11 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
   const user        = useAuthStore((s) => s.user);
   const refreshUser = useAuthStore((s) => s.refreshUser);
   const { byKey } = useTutorialCatalog();
-  const visibleTabs = TABS;
+  const isAdmin = user?.role === "admin";
+  const visibleTabs = useMemo(
+    () => (isAdmin ? TABS : TABS.filter((t) => t.id !== "avatars")),
+    [isAdmin],
+  );
 
   // NanoBanana state
   const [prompt, setPrompt]             = useState(initialPrompt);
@@ -1566,6 +1570,12 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
   useEffect(() => {
     setActiveTab(initialTab);
   }, [initialTab]);
+
+  useEffect(() => {
+    if (!isAdmin && activeTab === "avatars") {
+      setActiveTab("generate");
+    }
+  }, [isAdmin, activeTab]);
 
   useEffect(() => {
     if (activeTab !== "generate") setMobileGenBarExpanded(false);
@@ -2019,10 +2029,12 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                     tutorialUrl={byKey?.["creator.voice-studio"]?.url || null}
                     label={copy.tutorialVoice}
                   />
-                  <TutorialInfoLink
-                    tutorialUrl={byKey?.["creator.real-avatars"]?.url || null}
-                    label={copy.tutorialAvatars}
-                  />
+                  {isAdmin && (
+                    <TutorialInfoLink
+                      tutorialUrl={byKey?.["creator.real-avatars"]?.url || null}
+                      label={copy.tutorialAvatars}
+                    />
+                  )}
                 </div>
               </div>
             </div>

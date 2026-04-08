@@ -14,6 +14,7 @@ import express from "express";
 import multer from "multer";
 import prisma from "../lib/prisma.js";
 import { authMiddleware } from "../middleware/auth.middleware.js";
+import { adminMiddleware } from "../middleware/admin.middleware.js";
 import { getGenerationPricing } from "../services/generation-pricing.service.js";
 import { uploadBufferToBlobOrR2 } from "../utils/kieUpload.js";
 import { assertHttpsAllowedAssetUrl } from "../utils/publicAssetHost.js";
@@ -38,7 +39,8 @@ import {
 } from "../services/heygen.service.js";
 
 const router = express.Router();
-router.use(authMiddleware);
+/** Real Avatars (HeyGen) — admin-only until public launch */
+router.use(authMiddleware, adminMiddleware);
 
 const upload = multer({
   storage: multer.memoryStorage(),
