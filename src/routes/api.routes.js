@@ -3075,6 +3075,8 @@ router.get("/soulx/config", authMiddleware, async (_req, res) => {
         noModel2: Number(pricing.soulxNoModel2 ?? 15),
         withModel2: Number(pricing.soulxWithModel2 ?? 25),
         extraStepsPer10: Number(pricing.soulxExtraStepsPer10 ?? 5),
+        trainingStandard: Number(pricing.loraTrainingStandard ?? 750),
+        trainingPro: Number(pricing.loraTrainingPro ?? 1500),
       },
       limits: {
         includedSteps: 20,

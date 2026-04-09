@@ -33,6 +33,12 @@ const DEFAULT_SOULX_PRICING = Object.freeze({
   noModel2: 15,
   withModel2: 25,
   extraStepsPer10: 5,
+  trainingStandard: 750,
+  trainingPro: 1500,
+});
+const DEFAULT_SOULX_TRAINING_PRICING = Object.freeze({
+  trainingStandard: DEFAULT_SOULX_PRICING.trainingStandard,
+  trainingPro: DEFAULT_SOULX_PRICING.trainingPro,
 });
 const DEFAULT_SOULX_LIMITS = Object.freeze({
   includedSteps: 20,
@@ -201,6 +207,8 @@ const COPY = {
     p3: "2 images — no character",
     p4: "2 images — with character",
     p5: "Extra steps (every +10 over included)",
+    p6: "Character training — Standard",
+    p7: "Character training — Pro",
   },
   ru: {
     mode: "Режим",
@@ -235,8 +243,32 @@ const COPY = {
     p3: "2 изображения — без персонажа",
     p4: "2 изображения — с персонажем",
     p5: "Доп. шаги (каждые +10 сверх включенных)",
+    p6: "Обучение персонажа — Standard",
+    p7: "Обучение персонажа — Pro",
   },
 };
+
+function useSoulXTrainingPricing() {
+  const [trainingPricing, setTrainingPricing] = useState(DEFAULT_SOULX_TRAINING_PRICING);
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    axios
+      .get("/api/soulx/config", { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      .then((res) => {
+        if (!res.data?.success || !res.data.pricing) return;
+        const p = res.data.pricing;
+        const ts = Number(p.trainingStandard);
+        const tp = Number(p.trainingPro);
+        setTrainingPricing({
+          trainingStandard:
+            Number.isFinite(ts) && ts >= 0 ? ts : DEFAULT_SOULX_TRAINING_PRICING.trainingStandard,
+          trainingPro: Number.isFinite(tp) && tp >= 0 ? tp : DEFAULT_SOULX_TRAINING_PRICING.trainingPro,
+        });
+      })
+      .catch(() => {});
+  }, []);
+  return trainingPricing;
+}
 
 function ResultCard({ imageUrl, isDark, onDownload }) {
   return (
@@ -260,7 +292,7 @@ function ResultCard({ imageUrl, isDark, onDownload }) {
 
 // ── Character Tab ─────────────────────────────────────────────────────────────
 
-function CharacterTab({ isDark }) {
+function CharacterTab({ isDark, trainingPricing }) {
   const { models } = useCachedModels();
   const [selectedModelId, setSelectedModelId] = useState("");
   const [character, setCharacter] = useState(null);
@@ -384,6 +416,10 @@ function CharacterTab({ isDark }) {
     "w-full appearance-none pl-3 pr-9 py-2.5 rounded-xl text-sm border outline-none glass-card border-white/[0.10] text-white focus:border-white/20";
   const neutralBtn = "border border-white/[0.10] text-slate-400 hover:text-white hover:border-white/20 hover:bg-white/[0.04]";
 
+  const stdCredits = trainingPricing?.trainingStandard ?? DEFAULT_SOULX_TRAINING_PRICING.trainingStandard;
+  const proCredits = trainingPricing?.trainingPro ?? DEFAULT_SOULX_TRAINING_PRICING.trainingPro;
+  const createCost = trainingMode === "pro" ? proCredits : stdCredits;
+
   return (
     <div className="space-y-5">
       {/* Model picker */}
@@ -442,13 +478,17 @@ function CharacterTab({ isDark }) {
                     <button
                       key={m}
                       onClick={() => setTrainingMode(m)}
-                      className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-all
+                      className={`flex-1 py-2 px-2 rounded-xl text-sm font-medium border transition-all flex flex-col items-center gap-0.5
                         ${trainingMode === m
                           ? "bg-violet-500/20 border-violet-500/50 text-violet-200 shadow-[0_0_0_1px_rgba(139,92,246,0.2)]"
                           : neutralBtn
                         }`}
                     >
-                      {m.charAt(0).toUpperCase() + m.slice(1)}
+                      <span>{m.charAt(0).toUpperCase() + m.slice(1)}</span>
+                      <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-violet-300/95">
+                        {m === "pro" ? proCredits : stdCredits}
+                        <Coins className="w-3 h-3 opacity-90" />
+                      </span>
                     </button>
                   ))}
                 </div>
@@ -456,10 +496,16 @@ function CharacterTab({ isDark }) {
                 <button
                   onClick={handleCreate}
                   disabled={creating}
-                  className="w-full py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:brightness-110 disabled:opacity-50 text-white text-sm font-semibold transition-all flex items-center justify-center gap-2 shadow-lg shadow-violet-500/20"
+                  className="w-full py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:brightness-110 disabled:opacity-50 text-white text-sm font-semibold transition-all flex flex-col items-center justify-center gap-0.5 shadow-lg shadow-violet-500/20"
                 >
-                  {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-                  Create Character Identity
+                  <span className="inline-flex items-center gap-2">
+                    {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                    Create Character Identity
+                  </span>
+                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-white/90">
+                    {createCost}
+                    <Coins className="w-3.5 h-3.5 opacity-90" />
+                  </span>
                 </button>
               </div>
             </motion.div>
@@ -547,10 +593,23 @@ function CharacterTab({ isDark }) {
                 <button
                   onClick={handleTrain}
                   disabled={training || uploadedImages.length < 5}
-                  className="w-full py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:brightness-110 disabled:opacity-50 text-white text-sm font-semibold transition-all flex items-center justify-center gap-2 shadow-lg shadow-violet-500/20"
+                  className="w-full py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:brightness-110 disabled:opacity-50 text-white text-sm font-semibold transition-all flex flex-col items-center justify-center gap-0.5 shadow-lg shadow-violet-500/20"
                 >
-                  {training ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
-                  {uploadedImages.length < 5 ? `Need ${5 - uploadedImages.length} more photos` : "Start Training"}
+                  <span className="inline-flex items-center gap-2">
+                    {training ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+                    {uploadedImages.length < 5
+                      ? `Need ${5 - uploadedImages.length} more photos`
+                      : (
+                        <>
+                          Start Training
+                          <span className="inline-flex items-center gap-1 text-xs font-bold text-white/95">
+                            ·
+                            {character.trainingMode === "pro" ? proCredits : stdCredits}
+                            <Coins className="w-3.5 h-3.5" />
+                          </span>
+                        </>
+                      )}
+                  </span>
                 </button>
               )}
 
@@ -1072,6 +1131,7 @@ export default function SoulXPage() {
   const locale = resolveLocale();
   const copy = COPY[locale] || COPY.en;
   const [activeTab, setActiveTab] = useState("generate");
+  const trainingPricing = useSoulXTrainingPricing();
 
   const cardBase = "glass-card border border-white/[0.10]";
 
@@ -1134,7 +1194,7 @@ export default function SoulXPage() {
                 exit={{ opacity: 0, y: -6 }}
                 transition={{ duration: 0.15 }}
               >
-                <CharacterTab isDark={isDark} />
+                <CharacterTab isDark={isDark} trainingPricing={trainingPricing} />
               </motion.div>
             )}
           </AnimatePresence>
@@ -1149,6 +1209,8 @@ export default function SoulXPage() {
             <span>{copy.p3}</span><span className="font-semibold text-violet-400 inline-flex items-center gap-1">15 <Coins className="w-3 h-3" /></span>
             <span>{copy.p4}</span><span className="font-semibold text-violet-400 inline-flex items-center gap-1">25 <Coins className="w-3 h-3" /></span>
             <span>{copy.p5}</span><span className="font-semibold text-violet-400 inline-flex items-center gap-1">5 <Coins className="w-3 h-3" /></span>
+            <span>{copy.p6}</span><span className="font-semibold text-violet-400 inline-flex items-center gap-1">{trainingPricing.trainingStandard} <Coins className="w-3 h-3" /></span>
+            <span>{copy.p7}</span><span className="font-semibold text-violet-400 inline-flex items-center gap-1">{trainingPricing.trainingPro} <Coins className="w-3 h-3" /></span>
           </div>
         </div>
       </div>

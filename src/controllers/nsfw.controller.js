@@ -82,6 +82,7 @@ import {
   getNudesPackAdditiveHintForPose,
 } from "../services/nudes-pack-config.service.js";
 import { getPromptTemplateValue } from "../services/prompt-template-config.service.js";
+import { getGenerationPricing } from "../services/generation-pricing.service.js";
 
 export async function cleanupTrainingDataset(loraId, modelId) {
   try {
@@ -171,6 +172,15 @@ export async function awardFirstLoraTrainingBonus({ userId, modelId, targetLoraI
 // Credit costs
 const CREDITS_FOR_LORA_TRAINING = 750;
 const CREDITS_FOR_PRO_LORA_TRAINING = 1500;
+
+async function resolveLoraTrainingCredits(isPro) {
+  const pricing = await getGenerationPricing();
+  const raw = isPro
+    ? Number(pricing.loraTrainingPro ?? CREDITS_FOR_PRO_LORA_TRAINING)
+    : Number(pricing.loraTrainingStandard ?? CREDITS_FOR_LORA_TRAINING);
+  const n = Math.ceil(Number.isFinite(raw) ? raw : (isPro ? CREDITS_FOR_PRO_LORA_TRAINING : CREDITS_FOR_LORA_TRAINING));
+  return Math.max(0, n);
+}
 const LORA_STALE_RECOVERY_MS = Number(process.env.LORA_STALE_RECOVERY_MS) || 4 * 60 * 60 * 1000;
 const CREDITS_FOR_TRAINING_SESSION = 750;
 const CREDITS_PER_NSFW_IMAGE = 30;
@@ -460,10 +470,7 @@ async function failLoraAndRefundIfStillTraining({
     console.error(`⚠️ Failed to sync legacy LoRA fields for ${loraId}:`, syncErr?.message);
   }
 
-  const refundAmount =
-    trainingMode === "pro"
-      ? CREDITS_FOR_PRO_LORA_TRAINING
-      : CREDITS_FOR_LORA_TRAINING;
+  const refundAmount = await resolveLoraTrainingCredits(trainingMode === "pro");
   try {
     await refundCredits(userId, refundAmount);
     console.log(`💰 Refunded ${refundAmount} credits to user ${userId} for stale/failed LoRA ${loraId}`);
@@ -2197,7 +2204,7 @@ export async function trainLora(req, res) {
     }
 
     const isProTraining = targetLora?.trainingMode === "pro";
-    const creditsNeeded = isProTraining ? CREDITS_FOR_PRO_LORA_TRAINING : CREDITS_FOR_LORA_TRAINING;
+    const creditsNeeded = await resolveLoraTrainingCredits(isProTraining);
 
     if (!isFalConfigured()) {
       return res.status(503).json({
@@ -2562,9 +2569,7 @@ export async function getLoraTrainingStatus(req, res) {
 
           try {
             const loraRecord = await prisma.trainedLora.findUnique({ where: { id: targetLoraId }, select: { trainingMode: true } });
-            const refundAmount = loraRecord?.trainingMode === "pro"
-              ? CREDITS_FOR_PRO_LORA_TRAINING
-              : CREDITS_FOR_LORA_TRAINING;
+            const refundAmount = await resolveLoraTrainingCredits(loraRecord?.trainingMode === "pro");
             await refundCredits(userId, refundAmount);
             console.log(`💰 Refunded ${refundAmount} credits to user ${userId} for failed LoRA training ${targetLoraId}`);
           } catch (refundErr) {

@@ -20,6 +20,9 @@ export const DEFAULT_GENERATION_PRICING = Object.freeze({
   soulxNoModel2: 15,
   soulxWithModel2: 25,
   soulxExtraStepsPer10: 5,
+  /** NSFW + Soul-X LoRA training (fal.ai) — standard vs pro dataset / steps */
+  loraTrainingStandard: 750,
+  loraTrainingPro: 1500,
 
   // Creator Studio — NanoBanana Pro
   creatorStudio1K2K: 20,
