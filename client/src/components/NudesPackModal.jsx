@@ -3,7 +3,6 @@ import { X, Loader2, CheckSquare, Square, Layers, Coins } from "lucide-react";
 import {
   NUDES_PACK_POSES,
   NUDES_PACK_CREDITS_MIN,
-  NUDES_PACK_CREDITS_MAX,
   getNudesPackCreditsPerImage,
   getNudesPackTotalCredits,
 } from "@shared/nudesPackPoses.js";
@@ -18,6 +17,8 @@ export default function NudesPackModal({
   submitting = false,
   sidebarCollapsed = false,
   poses = NUDES_PACK_POSES,
+  /** @type {{ nudesPackCreditsMin?: number, nudesPackCreditsMax?: number } | null} */
+  nudesPackPricing = null,
 }) {
   const safePoses = Array.isArray(poses) && poses.length > 0 ? poses : NUDES_PACK_POSES;
   const allIds = useMemo(() => safePoses.map((p) => p.id), [safePoses]);
@@ -49,8 +50,9 @@ export default function NudesPackModal({
   const selectNone = () => setSelected(new Set());
 
   const count = selected.size;
-  const perImage = getNudesPackCreditsPerImage(count);
-  const totalCredits = getNudesPackTotalCredits(count);
+  const perImage = getNudesPackCreditsPerImage(count, nudesPackPricing);
+  const totalCredits = getNudesPackTotalCredits(count, nudesPackPricing);
+  const minRate = nudesPackPricing?.nudesPackCreditsMin ?? NUDES_PACK_CREDITS_MIN;
   const canSubmit = count > 0 && !submitting;
 
   const handleApprove = () => {
@@ -159,8 +161,8 @@ export default function NudesPackModal({
             </span>
             {count === safePoses.length && (
               <span className="text-slate-500 ml-2">
-                (best rate — {NUDES_PACK_CREDITS_MIN} × {safePoses.length} ={" "}
-                {getNudesPackTotalCredits(safePoses.length)})
+                (best rate — {minRate} × {safePoses.length} ={" "}
+                {getNudesPackTotalCredits(safePoses.length, nudesPackPricing)})
               </span>
             )}
           </div>

@@ -3143,14 +3143,19 @@ export async function generateNudesPack(req, res) {
       }
     }
 
-    creditsSplitForPack = getNudesPackCreditsSplit(poseIds.length);
-    const creditsNeeded = getNudesPackTotalCredits(poseIds.length);
+    const genPricingForPack = await getGenerationPricing();
+    const nudesPackPricing = {
+      nudesPackCreditsMin: genPricingForPack.nudesPackCreditsMin,
+      nudesPackCreditsMax: genPricingForPack.nudesPackCreditsMax,
+    };
+    creditsSplitForPack = getNudesPackCreditsSplit(poseIds.length, nudesPackPricing);
+    const creditsNeeded = getNudesPackTotalCredits(poseIds.length, nudesPackPricing);
     const user = await checkAndExpireCredits(userId);
     const totalCredits = getTotalCredits(user);
     if (totalCredits < creditsNeeded) {
       return res.status(403).json({
         success: false,
-        message: `Need ${creditsNeeded} credits for this nudes pack (~${getNudesPackCreditsPerImage(poseIds.length)} cr/image avg for ${poseIds.length} poses). You have ${totalCredits} credits.`,
+        message: `Need ${creditsNeeded} credits for this nudes pack (~${getNudesPackCreditsPerImage(poseIds.length, nudesPackPricing)} cr/image avg for ${poseIds.length} poses). You have ${totalCredits} credits.`,
       });
     }
 
@@ -3176,7 +3181,7 @@ export async function generateNudesPack(req, res) {
     const packRows = [];
     for (let idx = 0; idx < poseIds.length; idx++) {
       const thisCreditCost =
-        creditsSplitForPack[idx] ?? getNudesPackCreditsPerImage(poseIds.length);
+        creditsSplitForPack[idx] ?? getNudesPackCreditsPerImage(poseIds.length, nudesPackPricing);
       const poseId = poseIds[idx];
       const pose = await getNudesPackPoseByIdEffective(poseId);
       if (!pose) {
@@ -3402,7 +3407,7 @@ export async function generateNudesPack(req, res) {
       message: `Nudes pack queued: ${poseIds.length} image(s). You can leave this page — they will appear in your gallery when ready.`,
       generations: generationIds.map((id) => ({ id, status: "queued" })),
       failures,
-      creditsPerImage: getNudesPackCreditsPerImage(poseIds.length),
+      creditsPerImage: getNudesPackCreditsPerImage(poseIds.length, nudesPackPricing),
       creditsUsed: creditsNeeded,
       creditsRemaining: getTotalCredits(updatedUser),
       poseCount: poseIds.length,

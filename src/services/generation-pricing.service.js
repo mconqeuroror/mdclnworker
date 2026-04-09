@@ -24,6 +24,10 @@ export const DEFAULT_GENERATION_PRICING = Object.freeze({
   loraTrainingStandard: 750,
   loraTrainingPro: 1500,
 
+  /** NSFW nudes pack — per-image range (full selection vs single pose); see shared/nudesPackPoses */
+  nudesPackCreditsMin: 15,
+  nudesPackCreditsMax: 30,
+
   // Creator Studio — NanoBanana Pro
   creatorStudio1K2K: 20,
   creatorStudio4K: 25,

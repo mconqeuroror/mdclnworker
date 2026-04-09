@@ -818,7 +818,7 @@ function AvatarCard({ avatar, onDelete, onMakeVideo, deleting }) {
   );
 }
 
-function CreateAvatarModal({ isOpen, onClose, model, avatarCount, onCreated }) {
+function CreateAvatarModal({ isOpen, onClose, model, avatarCount, onCreated, avatarCreationCredits = 1000 }) {
   const copy = PAGE_COPY[resolveLocale()] || PAGE_COPY.en;
   const user = useAuthStore(s => s.user);
   const [name, setName] = useState("");
@@ -826,7 +826,7 @@ function CreateAvatarModal({ isOpen, onClose, model, avatarCount, onCreated }) {
   const [photoPreview, setPhotoPreview] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const fileRef = useRef(null);
-  const COST = 1000;
+  const COST = avatarCreationCredits;
 
   const reset = () => { setName(""); setPhoto(null); setPhotoPreview(null); };
 
@@ -864,7 +864,7 @@ function CreateAvatarModal({ isOpen, onClose, model, avatarCount, onCreated }) {
 
   if (!isOpen) return null;
   const hasVoice = Boolean(model?.elevenLabsVoiceId);
-  const credits = user?.credits ?? 0;
+  const credits = (user?.credits ?? 0) + (user?.bonusCredits ?? 0);
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -980,17 +980,17 @@ function CreateAvatarModal({ isOpen, onClose, model, avatarCount, onCreated }) {
   );
 }
 
-function GenerateVideoModal({ isOpen, avatar, model, onClose, onGenerated }) {
+function GenerateVideoModal({ isOpen, avatar, model, onClose, onGenerated, avatarVideoCreditsPerSec = 5 }) {
   const copy = PAGE_COPY[resolveLocale()] || PAGE_COPY.en;
   const user = useAuthStore(s => s.user);
   const [script, setScript] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const PER_SEC = 5;
+  const PER_SEC = avatarVideoCreditsPerSec;
 
   const secs = estimateSecs(script);
   const cost = secs * PER_SEC;
   const tooLong = secs > MAX_VIDEO_SECONDS;
-  const credits = user?.credits ?? 0;
+  const credits = (user?.credits ?? 0) + (user?.bonusCredits ?? 0);
 
   const handleSubmit = async () => {
     if (!script.trim()) return toast.error(copy.writeScript);
@@ -1157,9 +1157,17 @@ function VideoCard({ video }) {
 // ---------------------------------------------------------------------------
 // Real Avatars tab content
 // ---------------------------------------------------------------------------
-function RealAvatarsTab({ sidebarCollapsed }) {
+function RealAvatarsTab({ sidebarCollapsed, generationPricing = {} }) {
   const copy = PAGE_COPY[resolveLocale()] || PAGE_COPY.en;
   const queryClient = useQueryClient();
+  const avatarCreateCost = (() => {
+    const n = Number(generationPricing?.avatarCreation);
+    return Number.isFinite(n) && n >= 0 ? n : 1000;
+  })();
+  const avatarVidPerSec = (() => {
+    const n = Number(generationPricing?.avatarVideoPerSec);
+    return Number.isFinite(n) && n >= 0 ? n : 5;
+  })();
   const [selectedModelId, setSelectedModelId] = useState(null);
   const [showCreate, setShowCreate] = useState(false);
   const [makeVideoFor, setMakeVideoFor] = useState(null);
@@ -1379,7 +1387,7 @@ function RealAvatarsTab({ sidebarCollapsed }) {
                     {copy.newAvatarShort}
                   </span>
                   <span className="text-[10px] text-slate-700 mt-0.5 flex items-center gap-1">
-                    1000 <Coins className="w-2.5 h-2.5 text-yellow-500/60" />
+                    {avatarCreateCost} <Coins className="w-2.5 h-2.5 text-yellow-500/60" />
                   </span>
                 </motion.button>
               )}
@@ -1427,6 +1435,7 @@ function RealAvatarsTab({ sidebarCollapsed }) {
             model={modelForDisplay || selectedModel}
             avatarCount={avatars.length}
             onCreated={handleCreated}
+            avatarCreationCredits={avatarCreateCost}
           />
         )}
         {makeVideoFor && (
@@ -1436,6 +1445,7 @@ function RealAvatarsTab({ sidebarCollapsed }) {
             model={modelForDisplay || selectedModel}
             onClose={() => setMakeVideoFor(null)}
             onGenerated={handleVideoGenerated}
+            avatarVideoCreditsPerSec={avatarVidPerSec}
           />
         )}
       </AnimatePresence>
@@ -3375,7 +3385,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
 
       {/* ── Real Avatars tab ──────────────────────────────────────────────── */}
       {activeTab === "avatars" && (
-        <RealAvatarsTab sidebarCollapsed={sidebarCollapsed} />
+        <RealAvatarsTab sidebarCollapsed={sidebarCollapsed} generationPricing={generationPricing} />
       )}
 
       {activeTab === "voices" && <CreatorStudioVoiceTab initialModelId={initialModelId} />}

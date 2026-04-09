@@ -293,7 +293,10 @@ export function GenerationHistory({
                             src={url}
                             alt={`Generated image ${idx + 1}`}
                             className="w-full h-auto rounded-lg object-cover aspect-square cursor-pointer hover:opacity-90 transition-opacity"
-                            onClick={() => window.open(url, "_blank")}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void handleDownload(url, idx);
+                            }}
                           />
                           <button
                             onClick={(e) => {

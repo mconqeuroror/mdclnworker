@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import axios from "axios";
 import toast from "react-hot-toast";
+import { downloadFromPublicUrl } from "../utils/directDownload";
 import { useAuthStore } from "../store";
 import { useTheme } from "../hooks/useTheme.jsx";
 import { useCachedModels } from "../hooks/useCachedModels";
@@ -835,20 +836,21 @@ function GenerateTab({ isDark, copy }) {
   };
 
   const handleDownload = async (url) => {
-    try {
-      const a = document.createElement("a");
-      if (url.startsWith("data:")) {
+    if (url.startsWith("data:")) {
+      try {
+        const a = document.createElement("a");
         a.href = url;
-      } else {
-        const resp = await fetch(url);
-        const blob = await resp.blob();
-        a.href = URL.createObjectURL(blob);
+        a.download = `soulx_${Date.now()}.png`;
+        a.rel = "noopener";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      } catch {
+        toast.error("Download failed");
       }
-      a.download = `soulx_${Date.now()}.png`;
-      a.click();
-    } catch {
-      window.open(url, "_blank");
+      return;
     }
+    await downloadFromPublicUrl(url, `soulx_${Date.now()}.png`);
   };
 
   const inputBase = "glass-card border border-white/[0.10] text-white placeholder-slate-400 focus:border-white/20";

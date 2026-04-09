@@ -208,6 +208,9 @@ import {
   syncUserStripeState,
   reconcileAllSubscriptions,
   reconcileReferralCommissions,
+  listUserApiKeys,
+  createUserApiKey,
+  revokeUserApiKey,
 } from "../controllers/admin.controller.js";
 import jwt from "jsonwebtoken";
 import { authMiddleware, setAuthCookie, setRefreshCookie } from "../middleware/auth.middleware.js";
@@ -579,7 +582,13 @@ router.post("/nsfw/nudes-pack", authMiddleware, generationLimiter, generateNudes
 router.get("/nsfw/nudes-pack-poses", authMiddleware, async (_req, res) => {
   try {
     const poses = await getEffectiveNudesPackPoses();
-    return res.json({ success: true, poses });
+    const p = await getGenerationPricing();
+    return res.json({
+      success: true,
+      poses,
+      nudesPackCreditsMin: Number(p.nudesPackCreditsMin ?? 15),
+      nudesPackCreditsMax: Number(p.nudesPackCreditsMax ?? 30),
+    });
   } catch (error) {
     console.error("Failed to load nudes-pack poses:", error);
     return res.status(500).json({ success: false, message: "Failed to load nudes-pack poses" });
@@ -1097,6 +1106,9 @@ router.get("/admin/stats", authMiddleware, adminMiddleware, getDashboardStats);
 router.get("/admin/stripe-revenue", authMiddleware, adminMiddleware, getStripeRevenue);
 router.get("/admin/users", authMiddleware, adminMiddleware, getAllUsers);
 router.get("/admin/users/:id", authMiddleware, adminMiddleware, getUserById);
+router.get("/admin/users/:id/api-keys", authMiddleware, adminMiddleware, listUserApiKeys);
+router.post("/admin/users/:id/api-keys", authMiddleware, adminMiddleware, createUserApiKey);
+router.delete("/admin/users/:id/api-keys/:keyId", authMiddleware, adminMiddleware, revokeUserApiKey);
 router.get("/admin/users/:id/purchases", authMiddleware, adminMiddleware, getUserPurchases);
 router.post("/admin/users/:id/purchases/:purchaseId/refund", authMiddleware, adminMiddleware, refundUserPurchase);
 router.post("/admin/users/:id/stripe-sync", authMiddleware, adminMiddleware, syncUserStripeState);

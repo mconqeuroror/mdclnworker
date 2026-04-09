@@ -3793,6 +3793,7 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
   const [nudesPackModalOpen, setNudesPackModalOpen] = useState(false);
   const [isSubmittingNudesPack, setIsSubmittingNudesPack] = useState(false);
   const [nudesPackPoses, setNudesPackPoses] = useState(NUDES_PACK_POSES);
+  const [nudesPackPricing, setNudesPackPricing] = useState(null);
   const [generatedNsfwImages, setGeneratedNsfwImages] = useState([]);
   const [selectedPreset, setSelectedPreset] = useState(null);
   const [imageQuantity, setImageQuantity] = useState(1);
@@ -3805,6 +3806,14 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
       .then((r) => {
         const poses = Array.isArray(r.data?.poses) ? r.data.poses : [];
         if (poses.length > 0) setNudesPackPoses(poses);
+        const min = r.data?.nudesPackCreditsMin;
+        const max = r.data?.nudesPackCreditsMax;
+        if (min != null || max != null) {
+          setNudesPackPricing({
+            nudesPackCreditsMin: Number(min),
+            nudesPackCreditsMax: Number(max),
+          });
+        }
       })
       .catch(() => {});
   }, []);
@@ -4983,6 +4992,7 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
           submitting={isSubmittingNudesPack}
           poses={nudesPackPoses}
           sidebarCollapsed={layoutSidebarNarrow}
+          nudesPackPricing={nudesPackPricing}
         />
 
         {/* Header */}
@@ -5432,8 +5442,8 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
                       30 curated poses (amateur-style nudes + explicit couple shots). Open the list, toggle poses off if you
                       want, then approve — each image gets a unique prompt with your LoRA trigger and current looks.{" "}
                       <span className="text-slate-400">
-                        Price scales: {NUDES_PACK_CREDITS_MIN}–{NUDES_PACK_CREDITS_MAX} <Coins className="w-3 h-3 inline align-text-bottom" /> per image (fewer poses =
-                        higher per image). Full {nudesPackPoseCount} = {getNudesPackTotalCredits(nudesPackPoseCount)}{" "}
+                        Price scales: {(nudesPackPricing?.nudesPackCreditsMin ?? NUDES_PACK_CREDITS_MIN)}–{(nudesPackPricing?.nudesPackCreditsMax ?? NUDES_PACK_CREDITS_MAX)} <Coins className="w-3 h-3 inline align-text-bottom" /> per image (fewer poses =
+                        higher per image). Full {nudesPackPoseCount} = {getNudesPackTotalCredits(nudesPackPoseCount, nudesPackPricing)}{" "}
                         total.
                       </span>
                     </p>
@@ -5448,7 +5458,7 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
                     <Grid3X3 className="w-4 h-4" />
                     Plan &amp; approve
                     <span className="inline-flex items-center gap-0.5 text-amber-800 font-bold">
-                      {getNudesPackTotalCredits(nudesPackPoseCount)}{" "}
+                      {getNudesPackTotalCredits(nudesPackPoseCount, nudesPackPricing)}{" "}
                       <Coins className="w-3.5 h-3.5 text-amber-600" />
                     </span>
                   </button>

@@ -12,36 +12,54 @@ export const NUDES_PACK_CREDITS_PER_IMAGE = NUDES_PACK_CREDITS_MIN;
 export const NUDES_PACK_MAX_POSES = 30;
 
 /**
- * Total credits: linear from (n=1 → 30) to (n=30 → 450).
+ * @param {{ nudesPackCreditsMin?: number, nudesPackCreditsMax?: number } | null | undefined} pricing — from getGenerationPricing()
+ */
+function packCreditsFromPricing(pricing) {
+  const min = Number(pricing?.nudesPackCreditsMin);
+  const max = Number(pricing?.nudesPackCreditsMax);
+  return {
+    minC: Number.isFinite(min) && min >= 0 ? min : NUDES_PACK_CREDITS_MIN,
+    maxC: Number.isFinite(max) && max >= 0 ? max : NUDES_PACK_CREDITS_MAX,
+  };
+}
+
+/**
+ * Total credits: linear from (n=1 → maxC) to (n=maxPoses → minC*maxPoses).
  * @param {number} selectedCount
+ * @param {{ nudesPackCreditsMin?: number, nudesPackCreditsMax?: number } | null | undefined} [pricing]
  * @returns {number}
  */
-export function getNudesPackTotalCredits(selectedCount) {
-  const n = Math.min(NUDES_PACK_MAX_POSES, Math.max(1, Math.round(Number(selectedCount)) || 1));
-  if (n >= NUDES_PACK_MAX_POSES) return NUDES_PACK_CREDITS_MIN * NUDES_PACK_MAX_POSES;
-  if (n <= 1) return NUDES_PACK_CREDITS_MAX;
-  return Math.round(30 + (420 * (n - 1)) / (NUDES_PACK_MAX_POSES - 1));
+export function getNudesPackTotalCredits(selectedCount, pricing) {
+  const { minC, maxC } = packCreditsFromPricing(pricing);
+  const maxPoses = NUDES_PACK_MAX_POSES;
+  const n = Math.min(maxPoses, Math.max(1, Math.round(Number(selectedCount)) || 1));
+  const fullTotal = minC * maxPoses;
+  if (n >= maxPoses) return fullTotal;
+  if (n <= 1) return maxC;
+  return Math.round(maxC + ((fullTotal - maxC) * (n - 1)) / (maxPoses - 1));
 }
 
 /**
  * Average credits per image (rounded) for UI — actual per-image split may vary by 1 so rows sum to total.
  * @param {number} selectedCount
+ * @param {{ nudesPackCreditsMin?: number, nudesPackCreditsMax?: number } | null | undefined} [pricing]
  * @returns {number}
  */
-export function getNudesPackCreditsPerImage(selectedCount) {
+export function getNudesPackCreditsPerImage(selectedCount, pricing) {
   const n = Math.min(NUDES_PACK_MAX_POSES, Math.max(1, Math.round(Number(selectedCount)) || 1));
-  const total = getNudesPackTotalCredits(n);
+  const total = getNudesPackTotalCredits(n, pricing);
   return Math.max(1, Math.round(total / n));
 }
 
 /**
  * Integer credits per generation (length n), summing exactly to getNudesPackTotalCredits(n).
  * @param {number} selectedCount
+ * @param {{ nudesPackCreditsMin?: number, nudesPackCreditsMax?: number } | null | undefined} [pricing]
  * @returns {number[]}
  */
-export function getNudesPackCreditsSplit(selectedCount) {
+export function getNudesPackCreditsSplit(selectedCount, pricing) {
   const n = Math.min(NUDES_PACK_MAX_POSES, Math.max(1, Math.round(Number(selectedCount)) || 1));
-  const total = getNudesPackTotalCredits(n);
+  const total = getNudesPackTotalCredits(n, pricing);
   const base = Math.floor(total / n);
   const rem = total - base * n;
   return Array.from({ length: n }, (_, i) => base + (i < rem ? 1 : 0));

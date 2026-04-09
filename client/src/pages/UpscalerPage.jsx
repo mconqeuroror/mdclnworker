@@ -1,12 +1,15 @@
 import { useState, useRef, useCallback } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { Upload, Download, Sparkles, Image as ImageIcon, X, ZoomIn, AlertCircle, Coins } from "lucide-react";
 import axios from "axios";
 import toast from "react-hot-toast";
 import { useAuthStore } from "../store";
 import { useTheme } from "../hooks/useTheme.jsx";
+import { pricingAPI } from "../services/api";
+import { downloadFromPublicUrl } from "../utils/directDownload";
 
-const CREDIT_COST = 5;
+const DEFAULT_UPSCALER_CREDITS = 5;
 const POLL_INTERVAL_MS = 4000;
 
 function formatBytes(bytes) {
@@ -32,8 +35,18 @@ export default function UpscalerPage() {
   const pollRef = useRef(null);
   const fileInputRef = useRef(null);
 
+  const { data: pricingPayload } = useQuery({
+    queryKey: ["generation-pricing-upscaler"],
+    queryFn: () => pricingAPI.getGeneration(),
+    staleTime: 60_000,
+  });
+  const creditCost = (() => {
+    const n = Number(pricingPayload?.pricing?.upscalerImage);
+    return Number.isFinite(n) && n >= 0 ? n : DEFAULT_UPSCALER_CREDITS;
+  })();
+
   const credits = (user?.credits ?? 0) + (user?.bonusCredits ?? 0);
-  const hasEnough = credits >= CREDIT_COST;
+  const hasEnough = credits >= creditCost;
 
   const stopPoll = () => {
     if (pollRef.current) {
@@ -130,7 +143,7 @@ export default function UpscalerPage() {
   const handleUpscale = async () => {
     if (!inputFile || status === "uploading" || status === "processing") return;
     if (!hasEnough) {
-      toast.error(`You need ${CREDIT_COST} to upscale.`);
+      toast.error(`You need ${creditCost} to upscale.`);
       return;
     }
 
@@ -170,10 +183,7 @@ export default function UpscalerPage() {
 
   const downloadResult = () => {
     if (!outputUrl) return;
-    const a = document.createElement("a");
-    a.href = outputUrl;
-    a.download = `upscaled_${Date.now()}.png`;
-    a.click();
+    void downloadFromPublicUrl(outputUrl, `upscaled_${Date.now()}.png`);
   };
 
   const isRunning = status === "uploading" || status === "processing";
@@ -213,7 +223,7 @@ export default function UpscalerPage() {
             </h1>
           </div>
           <p className="text-sm ml-13" style={{ color: isDark ? "rgba(148,163,184,0.8)" : "#64748b", marginLeft: "52px" }}>
-            Enhance any photo to high resolution using SeedVR2 — {CREDIT_COST} <Coins className="w-3 h-3 inline align-text-bottom" /> per upscale
+            Enhance any photo to high resolution using SeedVR2 — {creditCost} <Coins className="w-3 h-3 inline align-text-bottom" /> per upscale
           </p>
         </motion.div>
 
@@ -470,7 +480,7 @@ export default function UpscalerPage() {
           >
             <Coins className="w-4 h-4 text-yellow-400" />
             <span style={{ color: isDark ? "rgba(226,232,240,0.7)" : "#475569" }}>
-              Cost: <strong style={{ color: isDark ? "#e2e8f0" : "#1e293b" }}>{CREDIT_COST} <Coins className="w-3 h-3 inline align-text-bottom" /></strong>
+              Cost: <strong style={{ color: isDark ? "#e2e8f0" : "#1e293b" }}>{creditCost} <Coins className="w-3 h-3 inline align-text-bottom" /></strong>
             </span>
             <span style={{ color: isDark ? "rgba(148,163,184,0.4)" : "#94a3b8" }}>·</span>
             <span style={{ color: hasEnough ? (isDark ? "#86efac" : "#16a34a") : "#f87171" }}>
@@ -534,7 +544,7 @@ export default function UpscalerPage() {
             ) : (
               <>
                 <ZoomIn className="w-4 h-4" />
-                Upscale for {CREDIT_COST} <Coins className="w-3 h-3" />
+                Upscale for {creditCost} <Coins className="w-3 h-3" />
               </>
             )}
           </motion.button>

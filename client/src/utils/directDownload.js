@@ -1,51 +1,41 @@
 /**
- * Save a file from a public URL without sending bytes through the app API (avoids Vercel proxy limits / 413).
+ * Trigger a file save from a public URL. Avoids opening an empty `about:blank` tab (bad on mobile).
+ * Tries CORS fetch → blob → object URL + download first; falls back to a one-shot anchor click.
  */
 export async function downloadFromPublicUrl(url, filename = "download") {
   if (!url || typeof url !== "string") return;
-  const name = filename || "download";
-  const ua = String(window?.navigator?.userAgent || "").toLowerCase();
-  const isMobile = /iphone|ipad|ipod|android|mobile/.test(ua);
-  const isIOS = /iphone|ipad|ipod/.test(ua);
-  // Open a fallback tab synchronously from the user gesture context.
-  // If CORS fetch fails, we can still navigate this tab to the file URL.
-  let fallbackTab = null;
-  try {
-    fallbackTab = window.open("", "_blank", "noopener,noreferrer");
-  } catch {
-    fallbackTab = null;
-  }
-  // iOS and many mobile browsers often block blob/download flows for cross-origin media.
-  // Prefer direct navigation so the browser can handle open/share/save reliably.
-  if (isMobile || isIOS) {
-    if (fallbackTab && !fallbackTab.closed) {
-      fallbackTab.location.href = url;
-      return;
-    }
-    window.open(url, "_blank", "noopener,noreferrer");
-    return;
-  }
+  const name = String(filename || "download").replace(/[/\\?%*:|"<>]/g, "_");
 
-  try {
-    const res = await fetch(url, { mode: "cors", credentials: "omit", cache: "no-store" });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const blob = await res.blob();
+  const triggerBlobDownload = (blob) => {
     const objectUrl = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = objectUrl;
     a.download = name;
+    a.style.display = "none";
     a.rel = "noopener";
     document.body.appendChild(a);
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(objectUrl), 120_000);
-    if (fallbackTab && !fallbackTab.closed) {
-      fallbackTab.close();
-    }
+  };
+
+  try {
+    const res = await fetch(url, { mode: "cors", credentials: "omit", cache: "no-store" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    triggerBlobDownload(blob);
+    return;
   } catch {
-    if (fallbackTab && !fallbackTab.closed) {
-      fallbackTab.location.href = url;
-    } else {
+    try {
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      a.rel = "noopener noreferrer";
+      a.style.display = "none";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch {
       try {
         window.open(url, "_blank", "noopener,noreferrer");
       } catch {

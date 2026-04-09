@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { 
-  Users, Search, Plus, Trash2, DollarSign, Activity, Settings, Shield,
+  Users, Search, Plus, Trash2, DollarSign, Activity, Settings, Shield, Key,
   ChevronDown, ChevronUp, RefreshCw, BarChart3, Palette, Mail, ArrowLeft,
   Copy, Check, AlertTriangle, Zap, Server, Clock, TrendingUp, TrendingDown,
   ChevronLeft, ChevronRight, X, Send, UserX, Download, Loader2, Wallet, ExternalLink,
@@ -131,7 +131,7 @@ const GENERATION_PRICING_GROUPS = [
     ],
   },
   {
-    title: 'Soul-X & Upscaler',
+    title: 'Soul-X, Upscaler & LoRA training',
     fields: [
       { key: 'upscalerImage', label: 'Upscaler — per image' },
       { key: 'soulxNoModel1', label: 'Soul-X — 1 image (no character)' },
@@ -139,6 +139,15 @@ const GENERATION_PRICING_GROUPS = [
       { key: 'soulxNoModel2', label: 'Soul-X — 2 images (no character)' },
       { key: 'soulxWithModel2', label: 'Soul-X — 2 images (with character)' },
       { key: 'soulxExtraStepsPer10', label: 'Soul-X — extra cost per +10 steps over default' },
+      { key: 'loraTrainingStandard', label: 'LoRA training — Standard (NSFW + Soul-X)' },
+      { key: 'loraTrainingPro', label: 'LoRA training — Pro (NSFW + Soul-X)' },
+    ],
+  },
+  {
+    title: 'NSFW — Nudes pack',
+    fields: [
+      { key: 'nudesPackCreditsMin', label: 'Nudes pack — credits per image when all poses selected (min rate)' },
+      { key: 'nudesPackCreditsMax', label: 'Nudes pack — credits for a single-pose selection (max per image)' },
     ],
   },
   {
@@ -151,6 +160,7 @@ const GENERATION_PRICING_GROUPS = [
       { key: 'nanoBananaPro4K', label: 'Creator Studio — Nano Banana Pro 4K (per image)' },
       { key: 'creatorStudioFluxKontextPro', label: 'Creator Studio — Flux Kontext Pro (per image)' },
       { key: 'creatorStudioFluxKontextMax', label: 'Creator Studio — Flux Kontext Max (per image)' },
+      { key: 'creatorStudioWan27Image', label: 'Creator Studio — Wan 2.7 Image (per image)' },
       { key: 'creatorStudioWan27ImagePro', label: 'Creator Studio — Wan 2.7 Image Pro (per image)' },
       { key: 'creatorStudioIdeogramTurbo', label: 'Creator Studio — Ideogram V3 Turbo (per image)' },
       { key: 'creatorStudioIdeogramBalanced', label: 'Creator Studio — Ideogram V3 Balanced (per image)' },
@@ -219,14 +229,8 @@ const GENERATION_PRICING_GROUPS = [
       { key: 'veo31ExtendQuality', label: 'Veo 3.1 extend quality' },
       { key: 'veo31Render1080p', label: 'Veo 3.1 render 1080p' },
       { key: 'veo31Upscale4k', label: 'Veo 3.1 upscale 4K' },
-      { key: 'seedance2Standard480WithVideoPerSec', label: 'Seedance 2 standard 480p (with video ref) credits / sec' },
-      { key: 'seedance2Standard480NoVideoPerSec', label: 'Seedance 2 standard 480p (no video ref) credits / sec' },
-      { key: 'seedance2Standard720WithVideoPerSec', label: 'Seedance 2 standard 720p (with video ref) credits / sec' },
-      { key: 'seedance2Standard720NoVideoPerSec', label: 'Seedance 2 standard 720p (no video ref) credits / sec' },
-      { key: 'seedance2Fast480WithVideoPerSec', label: 'Seedance 2 fast 480p (with video ref) credits / sec' },
-      { key: 'seedance2Fast480NoVideoPerSec', label: 'Seedance 2 fast 480p (no video ref) credits / sec' },
-      { key: 'seedance2Fast720WithVideoPerSec', label: 'Seedance 2 fast 720p (with video ref) credits / sec' },
-      { key: 'seedance2Fast720NoVideoPerSec', label: 'Seedance 2 fast 720p (no video ref) credits / sec' },
+      { key: 'seedance2StandardPerSec', label: 'Seedance 2 — standard mode credits / sec' },
+      { key: 'seedance2FastPerSec', label: 'Seedance 2 — fast mode credits / sec' },
       { key: 'videoPrompt5s', label: 'Video from prompt — 5s' },
       { key: 'videoPrompt10s', label: 'Video from prompt — 10s' },
       { key: 'videoFaceSwapPerSec', label: 'Video face swap — credits / sec' },
@@ -547,6 +551,13 @@ export default function AdminPage() {
   const [impersonateLoading, setImpersonateLoading] = useState(false);
   const [impersonatePayload, setImpersonatePayload] = useState(null);
   const [syncingStripeUserId, setSyncingStripeUserId] = useState(null);
+  const [showApiKeysModal, setShowApiKeysModal] = useState(false);
+  const [apiKeysLoading, setApiKeysLoading] = useState(false);
+  const [apiKeysList, setApiKeysList] = useState([]);
+  const [apiKeyNameDraft, setApiKeyNameDraft] = useState('');
+  const [apiKeyCorsDraft, setApiKeyCorsDraft] = useState('');
+  const [newApiKeyPlain, setNewApiKeyPlain] = useState(null);
+  const [apiKeyWorkingId, setApiKeyWorkingId] = useState(null);
 
   // ── UI toggle state ─────────────────────────────────────────────────────────
   const [showUsers, setShowUsers] = useState(false);
@@ -1446,6 +1457,81 @@ export default function AdminPage() {
       toast.error(e?.response?.data?.message || 'Billing sync failed');
     } finally {
       setSyncingStripeUserId(null);
+    }
+  };
+
+  const loadUserApiKeys = async (userId) => {
+    if (!userId) return;
+    setApiKeysLoading(true);
+    setNewApiKeyPlain(null);
+    try {
+      const r = await api.get(`/admin/users/${userId}/api-keys`);
+      if (r.data?.success) setApiKeysList(r.data.keys || []);
+      else setApiKeysList([]);
+    } catch (e) {
+      toast.error(e?.response?.data?.message || 'Failed to load API keys');
+      setApiKeysList([]);
+    } finally {
+      setApiKeysLoading(false);
+    }
+  };
+
+  const openApiKeysModal = (user) => {
+    setSelectedUser(user);
+    setShowApiKeysModal(true);
+    setApiKeyNameDraft('');
+    setApiKeyCorsDraft('');
+    setNewApiKeyPlain(null);
+    void loadUserApiKeys(user.id);
+  };
+
+  const handleCreateUserApiKey = async () => {
+    if (!selectedUser?.id) return;
+    let corsPayload = null;
+    const raw = apiKeyCorsDraft.trim();
+    if (raw) {
+      try {
+        corsPayload = JSON.parse(raw);
+        if (!Array.isArray(corsPayload)) throw new Error('Must be a JSON array');
+      } catch {
+        toast.error('CORS origins must be JSON array, e.g. ["https://app.partner.com"]');
+        return;
+      }
+    }
+    setApiKeyWorkingId('create');
+    try {
+      const r = await api.post(`/admin/users/${selectedUser.id}/api-keys`, {
+        name: apiKeyNameDraft.trim() || null,
+        corsOrigins: corsPayload,
+      });
+      if (r.data?.success && r.data.key) {
+        setNewApiKeyPlain(r.data.key);
+        toast.success('API key created — copy it now; it will not be shown again.');
+        await loadUserApiKeys(selectedUser.id);
+        setApiKeyNameDraft('');
+        setApiKeyCorsDraft('');
+      } else {
+        toast.error(r.data?.message || 'Failed to create key');
+      }
+    } catch (e) {
+      toast.error(e?.response?.data?.message || 'Failed to create key');
+    } finally {
+      setApiKeyWorkingId(null);
+    }
+  };
+
+  const handleRevokeUserApiKey = async (keyId) => {
+    if (!selectedUser?.id || !keyId) return;
+    if (!window.confirm('Revoke this API key? Clients using it will stop working immediately.')) return;
+    setApiKeyWorkingId(keyId);
+    try {
+      await api.delete(`/admin/users/${selectedUser.id}/api-keys/${keyId}`);
+      toast.success('API key revoked');
+      await loadUserApiKeys(selectedUser.id);
+    } catch (e) {
+      toast.error(e?.response?.data?.message || 'Failed to revoke');
+    } finally {
+      setApiKeyWorkingId(null);
     }
   };
 
@@ -2489,6 +2575,15 @@ export default function AdminPage() {
                               <Settings className="w-3.5 h-3.5 text-gray-300" />
                               <span className="text-[10px] text-gray-300">Settings</span>
                         </button>
+                            <button
+                              type="button"
+                              onClick={() => openApiKeysModal(user)}
+                              className="px-2 py-1.5 rounded-md bg-emerald-500/[0.08] hover:bg-emerald-500/[0.16] border border-emerald-500/[0.18] transition inline-flex items-center gap-1"
+                              title="Public API keys (ModelClone API)"
+                            >
+                              <Key className="w-3.5 h-3.5 text-emerald-300" />
+                              <span className="text-[10px] text-emerald-300">API</span>
+                            </button>
                             <button onClick={() => handleOpenManagePurchases(user)}
                               className="px-2 py-1.5 rounded-md bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] transition inline-flex items-center gap-1" title="Manage User Purchases">
                               <DollarSign className="w-3.5 h-3.5 text-gray-300" />
@@ -4788,6 +4883,126 @@ ${emailBuilder.ctaText && emailBuilder.ctaUrl ? `<div class="cta-wrap"><a class=
         onConfirm={resetGenerationPricingAdmin}
         onCancel={() => setConfirmResetGenPricing(false)}
       />
+
+      {showApiKeysModal && selectedUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm px-4">
+          <div className="w-full max-w-lg rounded-2xl border border-white/[0.08] bg-[#111] p-5 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-sm font-semibold">Public API keys</h3>
+                <p className="text-xs text-gray-500 mt-1">
+                  Keys authenticate as <span className="text-gray-300">{selectedUser.email}</span> on the ModelClone API (same credits and limits as the web app).
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowApiKeysModal(false);
+                  setSelectedUser(null);
+                  setApiKeysList([]);
+                  setNewApiKeyPlain(null);
+                }}
+                className="p-1.5 rounded-lg hover:bg-white/10 transition"
+              >
+                <X className="w-4 h-4 text-gray-400" />
+              </button>
+            </div>
+
+            {newApiKeyPlain && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/[0.08] p-3 mb-4">
+                <p className="text-[11px] text-amber-200 mb-2 font-medium">Copy this secret now — it will not be shown again.</p>
+                <div className="flex items-center gap-2">
+                  <code className="text-[11px] text-amber-100 break-all flex-1">{newApiKeyPlain}</code>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void navigator.clipboard.writeText(newApiKeyPlain);
+                      toast.success('Copied');
+                    }}
+                    className="shrink-0 px-2 py-1 rounded-md bg-white/10 text-[10px] text-white"
+                  >
+                    Copy
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-3 mb-4">
+              <div>
+                <label className="text-[10px] text-gray-500 uppercase tracking-wide">Label (optional)</label>
+                <input
+                  value={apiKeyNameDraft}
+                  onChange={(e) => setApiKeyNameDraft(e.target.value)}
+                  placeholder="e.g. Partner integration"
+                  className="mt-1 w-full px-3 py-2 rounded-lg border border-white/[0.08] bg-black/40 text-xs text-white placeholder:text-gray-600"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] text-gray-500 uppercase tracking-wide">CORS origins (optional JSON array)</label>
+                <textarea
+                  value={apiKeyCorsDraft}
+                  onChange={(e) => setApiKeyCorsDraft(e.target.value)}
+                  placeholder='["https://partner-app.com"]'
+                  rows={2}
+                  className="mt-1 w-full px-3 py-2 rounded-lg border border-white/[0.08] bg-black/40 text-xs text-white placeholder:text-gray-600 font-mono"
+                />
+                <p className="text-[10px] text-gray-600 mt-1">Leave empty for server-to-server only.</p>
+              </div>
+              <button
+                type="button"
+                disabled={apiKeyWorkingId === 'create'}
+                onClick={handleCreateUserApiKey}
+                className="w-full py-2 rounded-lg bg-emerald-600/90 hover:bg-emerald-500 text-xs font-medium text-white disabled:opacity-50"
+              >
+                {apiKeyWorkingId === 'create' ? 'Creating…' : 'Create new key'}
+              </button>
+            </div>
+
+            <div className="border-t border-white/[0.06] pt-4">
+              <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-2">Active keys</p>
+              {apiKeysLoading ? (
+                <p className="text-xs text-gray-500">Loading…</p>
+              ) : apiKeysList.length === 0 ? (
+                <p className="text-xs text-gray-500">No keys yet.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {apiKeysList.map((k) => (
+                    <li
+                      key={k.id}
+                      className="flex items-start justify-between gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2"
+                    >
+                      <div className="min-w-0">
+                        <div className="text-xs text-gray-300">{k.name || 'Unnamed'}</div>
+                        <div className="text-[10px] text-gray-500 font-mono mt-0.5">
+                          {k.keyPrefix}…
+                          {k.revokedAt && (
+                            <span className="ml-2 text-red-400">revoked</span>
+                          )}
+                        </div>
+                        {k.lastUsedAt && (
+                          <div className="text-[10px] text-gray-600 mt-0.5">
+                            Last used {fmtDate(k.lastUsedAt)}
+                          </div>
+                        )}
+                      </div>
+                      {!k.revokedAt && (
+                        <button
+                          type="button"
+                          disabled={apiKeyWorkingId === k.id}
+                          onClick={() => handleRevokeUserApiKey(k.id)}
+                          className="shrink-0 text-[10px] text-red-400 hover:text-red-300"
+                        >
+                          {apiKeyWorkingId === k.id ? '…' : 'Revoke'}
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <AddCreditsAdminModal
         isOpen={showAddCredits}
