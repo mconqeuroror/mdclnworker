@@ -211,6 +211,9 @@ import {
   listUserApiKeys,
   createUserApiKey,
   revokeUserApiKey,
+  listMyApiKeys,
+  createMyApiKey,
+  revokeMyApiKey,
   getVoiceHostingDue,
   postVoiceHostingRunBilling,
 } from "../controllers/admin.controller.js";
@@ -737,6 +740,11 @@ router.get("/auth/2fa/status", authMiddleware, get2FAStatus);
 router.post("/auth/2fa/generate", authMiddleware, generate2FASecret);
 router.post("/auth/2fa/verify", authMiddleware, verify2FA);
 router.post("/auth/2fa/disable", authMiddleware, disable2FA);
+
+// Current user — HTTP API keys (Business plan; same storage as admin-issued keys)
+router.get("/user/api-keys", authMiddleware, listMyApiKeys);
+router.post("/user/api-keys", authMiddleware, authLimiter, createMyApiKey);
+router.delete("/user/api-keys/:keyId", authMiddleware, authLimiter, revokeMyApiKey);
 
 // ============================================
 // FILE UPLOAD ROUTES

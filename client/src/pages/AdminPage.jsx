@@ -13,6 +13,7 @@ import api, { adminAPI, adminTelemetryAPI, affiliateLanderAdminAPI, brandingAPI,
 import AddCreditsAdminModal from '../components/AddCreditsAdminModal';
 import EditUserSettingsModal from '../components/EditUserSettingsModal';
 import NsfwOverrideModal from '../components/NsfwOverrideModal';
+import { copyTextToClipboard } from '../utils/clipboard.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -5057,17 +5058,24 @@ ${emailBuilder.ctaText && emailBuilder.ctaUrl ? `<div class="cta-wrap"><a class=
             {newApiKeyPlain && (
               <div className="rounded-lg border border-amber-500/30 bg-amber-500/[0.08] p-3 mb-4">
                 <p className="text-[11px] text-amber-200 mb-2 font-medium">Copy this secret now — it will not be shown again.</p>
-                <div className="flex items-center gap-2">
-                  <code className="text-[11px] text-amber-100 break-all flex-1">{newApiKeyPlain}</code>
+                <input
+                  readOnly
+                  value={newApiKeyPlain}
+                  onFocus={(e) => e.target.select()}
+                  className="w-full mb-2 px-2 py-1.5 rounded-md bg-black/50 border border-amber-500/20 text-[11px] text-amber-100 font-mono break-all"
+                  aria-label="New API key"
+                />
+                <div className="flex items-center gap-2 flex-wrap">
                   <button
                     type="button"
-                    onClick={() => {
-                      void navigator.clipboard.writeText(newApiKeyPlain);
-                      toast.success('Copied');
+                    onClick={async () => {
+                      const ok = await copyTextToClipboard(newApiKeyPlain);
+                      if (ok) toast.success('Copied');
+                      else toast.error('Could not copy automatically — select the field above and press Ctrl+C');
                     }}
-                    className="shrink-0 px-2 py-1 rounded-md bg-white/10 text-[10px] text-white"
+                    className="shrink-0 px-2 py-1 rounded-md bg-white/10 text-[10px] text-white hover:bg-white/15"
                   >
-                    Copy
+                    Copy to clipboard
                   </button>
                 </div>
               </div>

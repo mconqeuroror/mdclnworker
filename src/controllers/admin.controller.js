@@ -2908,6 +2908,133 @@ export async function revokeUserApiKey(req, res) {
   }
 }
 
+/**
+ * List current user's API keys (account settings). Same shape as admin list; no secrets.
+ */
+export async function listMyApiKeys(req, res) {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+    const keys = await prisma.apiKey.findMany({
+      where: { userId },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        name: true,
+        keyPrefix: true,
+        corsOrigins: true,
+        lastUsedAt: true,
+        createdAt: true,
+        revokedAt: true,
+      },
+    });
+    return res.json({ success: true, keys });
+  } catch (error) {
+    console.error("listMyApiKeys error:", error);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+}
+
+/**
+ * Create API key for the logged-in user. Requires Business + active/trialing (no admin override).
+ */
+export async function createMyApiKey(req, res) {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+    const { name, corsOrigins } = req.body || {};
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        subscriptionTier: true,
+        subscriptionStatus: true,
+      },
+    });
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+    const tier = String(user.subscriptionTier || "").toLowerCase();
+    const subStatus = String(user.subscriptionStatus || "").toLowerCase();
+    const subscriptionActive = ["active", "trialing"].includes(subStatus);
+    if (tier !== "business" || !subscriptionActive) {
+      return res.status(403).json({
+        success: false,
+        code: "API_KEY_REQUIRES_BUSINESS_PLAN",
+        message:
+          "API access requires an active Business plan. Upgrade in Billing or use Enroll for API to request access.",
+      });
+    }
+    const plain = `mcl_${randomBytes(32).toString("base64url")}`;
+    const keyPrefix = plain.slice(0, 16);
+    const keyHash = await bcrypt.hash(plain, 12);
+    let corsJson = null;
+    if (corsOrigins != null) {
+      if (typeof corsOrigins === "string") {
+        corsJson = corsOrigins.trim() || null;
+      } else if (Array.isArray(corsOrigins)) {
+        corsJson = JSON.stringify(corsOrigins.map((o) => String(o).trim()).filter(Boolean));
+      }
+    }
+    const row = await prisma.apiKey.create({
+      data: {
+        userId,
+        name: name != null ? String(name).slice(0, 200) : null,
+        keyPrefix,
+        keyHash,
+        corsOrigins: corsJson,
+      },
+    });
+    return res.json({
+      success: true,
+      key: plain,
+      apiKey: {
+        id: row.id,
+        name: row.name,
+        keyPrefix: row.keyPrefix,
+        corsOrigins: row.corsOrigins,
+        createdAt: row.createdAt,
+      },
+    });
+  } catch (error) {
+    console.error("createMyApiKey error:", error);
+    const msg =
+      error?.code === "P2021"
+        ? "Database is missing the ApiKey table — deploy migrations (prisma migrate deploy)."
+        : "Server error";
+    return res.status(500).json({ success: false, message: msg });
+  }
+}
+
+export async function revokeMyApiKey(req, res) {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+    const { keyId } = req.params;
+    const existing = await prisma.apiKey.findFirst({
+      where: { id: keyId, userId },
+    });
+    if (!existing) {
+      return res.status(404).json({ success: false, message: "API key not found" });
+    }
+    await prisma.apiKey.update({
+      where: { id: keyId },
+      data: { revokedAt: new Date() },
+    });
+    return res.json({ success: true });
+  } catch (error) {
+    console.error("revokeMyApiKey error:", error);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+}
+
 export default {
   getAllUsers,
   getUserById,
@@ -2928,6 +3055,9 @@ export default {
   listUserApiKeys,
   createUserApiKey,
   revokeUserApiKey,
+  listMyApiKeys,
+  createMyApiKey,
+  revokeMyApiKey,
   getVoiceHostingDue,
   postVoiceHostingRunBilling,
 };

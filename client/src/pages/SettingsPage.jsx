@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { User, Shield, FileText, Cookie, CreditCard, AlertTriangle, X, TrendingUp, Lock, Eye, EyeOff, ShieldCheck, Smartphone, CheckCircle, ExternalLink } from 'lucide-react';
+import { User, Shield, FileText, Cookie, CreditCard, AlertTriangle, X, TrendingUp, Lock, Eye, EyeOff, ShieldCheck, Smartphone, CheckCircle, ExternalLink, Key } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuthStore } from '../store';
 import { useQuery, useMutation } from '@tanstack/react-query';
@@ -10,6 +10,15 @@ import { queryClient } from '../lib/queryClient';
 import { hasBillingAccess, hasPremiumAccess } from '../utils/premiumAccess';
 import { resolveLocale } from '../components/generateAIModelFormCopy';
 import { SETTINGS_PAGE_COPY, formatSettingsCopy } from '../data/settingsPageCopy';
+import { copyTextToClipboard } from '../utils/clipboard.js';
+import { hasBusinessApiAccess } from '../utils/apiAccess.js';
+
+const TELEGRAM_ENROLL_URL = 'https://t.me/selenabythesea';
+
+const fmtApiDate = (d) =>
+  d
+    ? new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+    : '—';
 
 export default function SettingsPage() {
   const { user, refreshUserCredits, updateUser } = useAuthStore();
@@ -49,6 +58,33 @@ export default function SettingsPage() {
   const [region, setRegion] = useState(user?.region || '');
   const [marketingLanguage, setMarketingLanguage] = useState(user?.marketingLanguage || '');
   const [savingPrefs, setSavingPrefs] = useState(false);
+
+  const [myApiKeysList, setMyApiKeysList] = useState([]);
+  const [myApiKeysLoading, setMyApiKeysLoading] = useState(false);
+  const [newUserApiKeyPlain, setNewUserApiKeyPlain] = useState(null);
+  const [userApiKeyNameDraft, setUserApiKeyNameDraft] = useState('');
+  const [userApiKeyWorkingId, setUserApiKeyWorkingId] = useState(null);
+  const [showApiEnrollModal, setShowApiEnrollModal] = useState(false);
+
+  const apiAccess = hasBusinessApiAccess(user);
+
+  const loadMyApiKeys = useCallback(async () => {
+    if (!user?.id) return;
+    setMyApiKeysLoading(true);
+    try {
+      const r = await api.get('/user/api-keys');
+      if (r.data?.success) setMyApiKeysList(r.data.keys || []);
+      else setMyApiKeysList([]);
+    } catch {
+      setMyApiKeysList([]);
+    } finally {
+      setMyApiKeysLoading(false);
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    void loadMyApiKeys();
+  }, [loadMyApiKeys]);
 
   useEffect(() => {
     setDisplayName(user?.name || '');
@@ -299,6 +335,44 @@ export default function SettingsPage() {
     }
   };
 
+  const handleCreateMyApiKey = async () => {
+    if (!apiAccess) return;
+    setUserApiKeyWorkingId('create');
+    try {
+      const r = await api.post('/user/api-keys', {
+        name: userApiKeyNameDraft.trim() || null,
+      });
+      if (r.data?.success && r.data.key) {
+        setNewUserApiKeyPlain(r.data.key);
+        toast.success(t.toastApiKeyCreated);
+        setUserApiKeyNameDraft('');
+        await loadMyApiKeys();
+      } else {
+        toast.error(r.data?.message || 'Failed to create key');
+      }
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to create key');
+    } finally {
+      setUserApiKeyWorkingId(null);
+    }
+  };
+
+  const handleRevokeMyApiKey = async (keyId) => {
+    if (!keyId) return;
+    if (!window.confirm('Revoke this API key? Integrations using it will stop working immediately.')) return;
+    setUserApiKeyWorkingId(keyId);
+    try {
+      await api.delete(`/user/api-keys/${keyId}`);
+      toast.success(t.toastApiKeyRevoked);
+      setNewUserApiKeyPlain(null);
+      await loadMyApiKeys();
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to revoke');
+    } finally {
+      setUserApiKeyWorkingId(null);
+    }
+  };
+
   return (
     <div className="max-w-4xl mx-auto px-3 sm:px-6">
       <h1 className="text-2xl sm:text-4xl font-bold mb-4 sm:mb-8">{t.pageTitle}</h1>
@@ -489,6 +563,138 @@ export default function SettingsPage() {
           >
             {savingPrefs ? t.savingPrefs : t.savePreferences}
           </button>
+        </motion.div>
+
+        {/* HTTP API keys */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass-panel rounded-xl sm:rounded-2xl p-4 sm:p-6"
+        >
+          <h2 className="text-lg sm:text-xl font-bold mb-2 flex items-center gap-2">
+            <Key className="w-4 h-4 sm:w-5 sm:h-5 text-slate-300" />
+            {t.apiSectionTitle}
+          </h2>
+          <p className="text-xs sm:text-sm text-gray-400 mb-4">{t.apiSectionIntro}</p>
+
+          {!apiAccess && (
+            <div className="mb-4 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-100/90">
+              {t.apiRequiresBusiness}
+            </div>
+          )}
+
+          {newUserApiKeyPlain && (
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.08] p-4 mb-4">
+              <p className="text-xs text-amber-200 mb-2 font-medium">{t.apiCopySecretHint}</p>
+              <input
+                readOnly
+                value={newUserApiKeyPlain}
+                onFocus={(e) => e.target.select()}
+                className="w-full mb-2 px-3 py-2 rounded-lg bg-black/40 border border-amber-500/25 text-xs text-amber-100 font-mono"
+                aria-label="New API key"
+              />
+              <button
+                type="button"
+                onClick={async () => {
+                  const ok = await copyTextToClipboard(newUserApiKeyPlain);
+                  if (ok) toast.success('Copied');
+                  else toast.error(t.toastApiCopyFailed);
+                }}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold text-black bg-white hover:bg-slate-100"
+              >
+                {t.apiCopyToClipboard}
+              </button>
+            </div>
+          )}
+
+          {apiAccess && (
+            <div className="space-y-3 mb-6">
+              <div>
+                <label className="text-xs sm:text-sm text-gray-400">{t.apiKeyLabelOptional}</label>
+                <input
+                  value={userApiKeyNameDraft}
+                  onChange={(e) => setUserApiKeyNameDraft(e.target.value)}
+                  placeholder={t.apiKeyPlaceholder}
+                  className="mt-1 w-full px-3.5 py-2 rounded-lg glass-card focus:border-white/20 focus:outline-none text-white text-sm"
+                />
+              </div>
+              <button
+                type="button"
+                disabled={userApiKeyWorkingId === 'create'}
+                onClick={handleCreateMyApiKey}
+                className="inline-flex items-center gap-2 px-5 py-2 rounded-lg font-semibold text-black bg-white hover:bg-slate-100 transition-all disabled:opacity-50"
+              >
+                {userApiKeyWorkingId === 'create' ? t.apiCreatingKey : t.apiCreateKey}
+              </button>
+            </div>
+          )}
+
+          {!apiAccess && (
+            <div className="mb-6">
+              <button
+                type="button"
+                onClick={() => setShowApiEnrollModal(true)}
+                className="inline-flex items-center gap-2 px-5 py-2 rounded-lg font-semibold text-white bg-violet-600 hover:bg-violet-500 transition-all"
+              >
+                <ExternalLink className="w-4 h-4" />
+                {t.apiEnrollButton}
+              </button>
+            </div>
+          )}
+
+          <div>
+            <h3 className="text-sm font-semibold text-gray-300 mb-2">{t.apiActiveKeys}</h3>
+            <p className="text-xs text-gray-500 mb-3">{t.apiKeyPrefixOnlyHint}</p>
+            {myApiKeysLoading ? (
+              <p className="text-sm text-gray-500">{t.loadingGeneric}</p>
+            ) : myApiKeysList.filter((k) => !k.revokedAt).length === 0 ? (
+              <p className="text-sm text-gray-500">{t.apiNoKeys}</p>
+            ) : (
+              <ul className="space-y-2">
+                {myApiKeysList
+                  .filter((k) => !k.revokedAt)
+                  .map((k) => (
+                    <li
+                      key={k.id}
+                      className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2.5"
+                    >
+                      <div className="min-w-0">
+                        <div className="text-sm text-gray-200">{k.name || '—'}</div>
+                        <div className="text-xs font-mono text-gray-500 mt-0.5 break-all">
+                          {k.keyPrefix}…
+                        </div>
+                        {k.lastUsedAt && (
+                          <div className="text-[11px] text-gray-600 mt-1">
+                            {t.apiLastUsed} {fmtApiDate(k.lastUsedAt)}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const ok = await copyTextToClipboard(k.keyPrefix);
+                            if (ok) toast.success(t.apiCopiedPrefix);
+                            else toast.error(t.toastApiCopyFailed);
+                          }}
+                          className="text-xs px-3 py-1.5 rounded-lg glass-card hover:bg-white/10"
+                        >
+                          {t.apiCopyPrefix}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={userApiKeyWorkingId === k.id}
+                          onClick={() => handleRevokeMyApiKey(k.id)}
+                          className="text-xs text-red-400 hover:text-red-300 px-2 py-1.5"
+                        >
+                          {userApiKeyWorkingId === k.id ? '…' : t.apiRevoke}
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+              </ul>
+            )}
+          </div>
         </motion.div>
 
         {/* Two-Factor Authentication */}
@@ -998,6 +1204,63 @@ export default function SettingsPage() {
                 >
                   {t.keepMySubscription}
                 </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Enroll for API — Telegram */}
+      <AnimatePresence>
+        {showApiEnrollModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            onClick={() => setShowApiEnrollModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="glass-panel-strong rounded-2xl p-6 max-w-md w-full"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex justify-between items-start mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-violet-500/20">
+                    <Key className="w-6 h-6 text-violet-300" />
+                  </div>
+                  <h3 className="text-xl font-bold">{t.apiEnrollModalTitle}</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowApiEnrollModal(false)}
+                  className="p-2 hover:bg-white/10 rounded-lg transition"
+                  aria-label={t.apiEnrollClose}
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <p className="text-gray-300 text-sm mb-6">{t.apiEnrollModalBody}</p>
+              <div className="flex flex-col sm:flex-row gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowApiEnrollModal(false)}
+                  className="flex-1 px-5 py-3 glass-card rounded-xl font-semibold transition"
+                >
+                  {t.apiEnrollClose}
+                </button>
+                <a
+                  href={TELEGRAM_ENROLL_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-1 px-5 py-3 bg-violet-600 hover:bg-violet-500 text-white text-center rounded-xl font-semibold transition inline-flex items-center justify-center gap-2"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  {t.apiEnrollTelegramCta}
+                </a>
               </div>
             </motion.div>
           </motion.div>
