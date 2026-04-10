@@ -91,6 +91,7 @@ model ApiKey {
   name        String?
   keyPrefix   String
   keyHash     String
+  encryptedKey String?
   corsOrigins String?
   lastUsedAt  DateTime?
   createdAt   DateTime  @default(now())

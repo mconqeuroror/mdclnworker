@@ -65,6 +65,9 @@ BEGIN
   END IF;
 END $$;
 
+-- 9. ApiKey.encryptedKey (allows showing full key in user settings "Copy API key")
+ALTER TABLE "ApiKey" ADD COLUMN IF NOT EXISTS "encryptedKey" TEXT;
+
 CREATE INDEX IF NOT EXISTS "Generation_providerTaskId_idx" ON "Generation"("providerTaskId");
 CREATE INDEX IF NOT EXISTS "Generation_provider_providerModel_idx" ON "Generation"("provider", "providerModel");
 CREATE INDEX IF NOT EXISTS "Generation_providerFamily_providerType_idx" ON "Generation"("providerFamily", "providerType");

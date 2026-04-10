@@ -141,11 +141,11 @@ export const SETTINGS_PAGE_COPY = {
     apiCopySecretHint: "Copy this secret now — it will not be shown again.",
     apiCopyToClipboard: "Copy full key",
     apiSelectAll: "Select all",
-    apiCopyPrefix: "Copy prefix",
-    apiCopiedPrefix: "Prefix copied",
+    apiCopyKey: "Copy API key",
+    apiCopiedKey: "API key copied",
     apiRevoke: "Revoke",
-    apiKeyPrefixOnlyHint:
-      "Only the key prefix is stored for existing keys. Revoke and create a new key if you lost the secret.",
+    apiActiveKeysHint:
+      "Copy API key is available for newly issued keys. Older keys created before this update may require re-issuing.",
     apiLastUsed: "Last used",
     apiRequiresBusiness:
       "Self-serve API keys require an active Business plan. Upgrade under Billing, or request access below.",
@@ -158,6 +158,7 @@ export const SETTINGS_PAGE_COPY = {
     toastApiKeyCreated: "API key created — copy it now; it will not be shown again.",
     toastApiKeyRevoked: "API key revoked",
     toastApiCopyFailed: "Could not copy — select the text and copy manually (Ctrl+C)",
+    toastApiKeyUnavailable: "This key cannot be copied (legacy key). Revoke it and create a new API key.",
   },
   ru: {
     pageTitle: "Настройки",
@@ -301,11 +302,11 @@ export const SETTINGS_PAGE_COPY = {
     apiCopySecretHint: "Скопируйте секрет сейчас — больше он не будет показан.",
     apiCopyToClipboard: "Копировать полный ключ",
     apiSelectAll: "Выделить всё",
-    apiCopyPrefix: "Копировать префикс",
-    apiCopiedPrefix: "Префикс скопирован",
+    apiCopyKey: "Копировать API-ключ",
+    apiCopiedKey: "API-ключ скопирован",
     apiRevoke: "Отозвать",
-    apiKeyPrefixOnlyHint:
-      "Для старых ключей хранится только префикс. Отзовите ключ и создайте новый, если потеряли секрет.",
+    apiActiveKeysHint:
+      "Копирование полного API-ключа доступно для новых ключей. Старые ключи, созданные до обновления, нужно перевыпустить.",
     apiLastUsed: "Последнее использование",
     apiRequiresBusiness:
       "Самостоятельное создание ключей доступно на тарифе Business. Оформите подписку в разделе оплаты или запросите доступ ниже.",
@@ -318,6 +319,7 @@ export const SETTINGS_PAGE_COPY = {
     toastApiKeyCreated: "Ключ создан — скопируйте сейчас; больше он не будет показан.",
     toastApiKeyRevoked: "Ключ отозван",
     toastApiCopyFailed: "Не удалось скопировать — выделите текст и скопируйте вручную (Ctrl+C)",
+    toastApiKeyUnavailable: "Этот ключ нельзя скопировать (старый формат). Отзовите и создайте новый API-ключ.",
   },
 };
 

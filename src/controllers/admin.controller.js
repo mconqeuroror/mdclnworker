@@ -16,6 +16,7 @@ import {
   runMonthlyVoiceBillingForUser,
   runMonthlyVoiceBillingForAllUsers,
 } from "../services/voice-monthly-billing.service.js";
+import { decryptApiKey, encryptApiKey } from "../utils/apiKeyVault.js";
 
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY || process.env.TESTING_STRIPE_SECRET_KEY;
 
@@ -2765,13 +2766,18 @@ export async function listUserApiKeys(req, res) {
         id: true,
         name: true,
         keyPrefix: true,
+        encryptedKey: true,
         corsOrigins: true,
         lastUsedAt: true,
         createdAt: true,
         revokedAt: true,
       },
     });
-    return res.json({ success: true, keys });
+    const keysWithSecrets = keys.map(({ encryptedKey, ...k }) => ({
+      ...k,
+      fullKey: encryptedKey ? decryptApiKey(encryptedKey) : null,
+    }));
+    return res.json({ success: true, keys: keysWithSecrets });
   } catch (error) {
     console.error("listUserApiKeys error:", error);
     return res.status(500).json({ success: false, message: "Server error" });
@@ -2827,6 +2833,7 @@ export async function createUserApiKey(req, res) {
         name: name != null ? String(name).slice(0, 200) : null,
         keyPrefix,
         keyHash,
+        encryptedKey: encryptApiKey(plain),
         corsOrigins: corsJson,
       },
     });
@@ -2987,6 +2994,7 @@ export async function createMyApiKey(req, res) {
         name: name != null ? String(name).slice(0, 200) : null,
         keyPrefix,
         keyHash,
+        encryptedKey: encryptApiKey(plain),
         corsOrigins: corsJson,
       },
     });

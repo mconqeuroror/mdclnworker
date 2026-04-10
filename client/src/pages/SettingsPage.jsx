@@ -669,7 +669,7 @@ export default function SettingsPage() {
 
           <div>
             <h3 className="text-sm font-semibold text-gray-300 mb-2">{t.apiActiveKeys}</h3>
-            <p className="text-xs text-gray-500 mb-3">{t.apiKeyPrefixOnlyHint}</p>
+            <p className="text-xs text-gray-500 mb-3">{t.apiActiveKeysHint}</p>
             {myApiKeysLoading ? (
               <p className="text-sm text-gray-500">{t.loadingGeneric}</p>
             ) : myApiKeysList.filter((k) => !k.revokedAt).length === 0 ? (
@@ -698,13 +698,17 @@ export default function SettingsPage() {
                         <button
                           type="button"
                           onClick={async () => {
-                            const ok = await copyTextToClipboard(k.keyPrefix);
-                            if (ok) toast.success(t.apiCopiedPrefix);
+                            if (!k.fullKey) {
+                              toast.error(t.toastApiKeyUnavailable);
+                              return;
+                            }
+                            const ok = await copyTextToClipboard(k.fullKey);
+                            if (ok) toast.success(t.apiCopiedKey);
                             else toast.error(t.toastApiCopyFailed);
                           }}
                           className="text-xs px-3 py-1.5 rounded-lg glass-card hover:bg-white/10"
                         >
-                          {t.apiCopyPrefix}
+                          {t.apiCopyKey}
                         </button>
                         <button
                           type="button"
