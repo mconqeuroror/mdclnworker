@@ -13,7 +13,7 @@ import api, { adminAPI, adminTelemetryAPI, affiliateLanderAdminAPI, brandingAPI,
 import AddCreditsAdminModal from '../components/AddCreditsAdminModal';
 import EditUserSettingsModal from '../components/EditUserSettingsModal';
 import NsfwOverrideModal from '../components/NsfwOverrideModal';
-import { copyTextToClipboard } from '../utils/clipboard.js';
+import { copyTextToClipboard, selectElementContents } from '../utils/clipboard.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -560,6 +560,7 @@ export default function AdminPage() {
   const [apiKeyPlanOverride, setApiKeyPlanOverride] = useState(false);
   const [newApiKeyPlain, setNewApiKeyPlain] = useState(null);
   const [apiKeyWorkingId, setApiKeyWorkingId] = useState(null);
+  const newApiKeyTextareaRef = useRef(null);
 
   // ── UI toggle state ─────────────────────────────────────────────────────────
   const [showUsers, setShowUsers] = useState(false);
@@ -1604,6 +1605,14 @@ export default function AdminPage() {
       setApiKeyWorkingId(null);
     }
   };
+
+  useEffect(() => {
+    if (!newApiKeyPlain) return;
+    const id = requestAnimationFrame(() => {
+      selectElementContents(newApiKeyTextareaRef.current);
+    });
+    return () => cancelAnimationFrame(id);
+  }, [newApiKeyPlain]);
 
   const handleSaveBranding = async () => {
     if (!brandSettings.appName?.trim()) { toast.error('App name required'); return; }
@@ -5057,25 +5066,38 @@ ${emailBuilder.ctaText && emailBuilder.ctaUrl ? `<div class="cta-wrap"><a class=
 
             {newApiKeyPlain && (
               <div className="rounded-lg border border-amber-500/30 bg-amber-500/[0.08] p-3 mb-4">
-                <p className="text-[11px] text-amber-200 mb-2 font-medium">Copy this secret now — it will not be shown again.</p>
-                <input
+                <p className="text-[11px] text-amber-200 mb-2 font-medium">
+                  Copy the full key below — it will not be shown again. The entire string is {newApiKeyPlain.length} characters.
+                </p>
+                <textarea
+                  ref={newApiKeyTextareaRef}
                   readOnly
+                  rows={5}
+                  spellCheck={false}
                   value={newApiKeyPlain}
-                  onFocus={(e) => e.target.select()}
-                  className="w-full mb-2 px-2 py-1.5 rounded-md bg-black/50 border border-amber-500/20 text-[11px] text-amber-100 font-mono break-all"
-                  aria-label="New API key"
+                  onFocus={(e) => selectElementContents(e.target)}
+                  onClick={(e) => selectElementContents(e.target)}
+                  className="w-full mb-2 px-2 py-2 rounded-md bg-black/50 border border-amber-500/20 text-[11px] text-amber-100 font-mono break-all whitespace-pre-wrap resize-y min-h-[6rem] max-h-48 overflow-y-auto"
+                  aria-label="New API key — full secret"
                 />
                 <div className="flex items-center gap-2 flex-wrap">
                   <button
                     type="button"
                     onClick={async () => {
                       const ok = await copyTextToClipboard(newApiKeyPlain);
-                      if (ok) toast.success('Copied');
-                      else toast.error('Could not copy automatically — select the field above and press Ctrl+C');
+                      if (ok) toast.success('Full key copied');
+                      else toast.error('Auto-copy failed — tap “Select all”, then Copy from the keyboard menu');
                     }}
                     className="shrink-0 px-2 py-1 rounded-md bg-white/10 text-[10px] text-white hover:bg-white/15"
                   >
-                    Copy to clipboard
+                    Copy full key
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => selectElementContents(newApiKeyTextareaRef.current)}
+                    className="shrink-0 px-2 py-1 rounded-md bg-white/5 text-[10px] text-amber-200 hover:bg-white/10"
+                  >
+                    Select all
                   </button>
                 </div>
               </div>

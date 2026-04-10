@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { User, Shield, FileText, Cookie, CreditCard, AlertTriangle, X, TrendingUp, Lock, Eye, EyeOff, ShieldCheck, Smartphone, CheckCircle, ExternalLink, Key } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -10,7 +10,7 @@ import { queryClient } from '../lib/queryClient';
 import { hasBillingAccess, hasPremiumAccess } from '../utils/premiumAccess';
 import { resolveLocale } from '../components/generateAIModelFormCopy';
 import { SETTINGS_PAGE_COPY, formatSettingsCopy } from '../data/settingsPageCopy';
-import { copyTextToClipboard } from '../utils/clipboard.js';
+import { copyTextToClipboard, selectElementContents } from '../utils/clipboard.js';
 import { hasBusinessApiAccess } from '../utils/apiAccess.js';
 
 const TELEGRAM_ENROLL_URL = 'https://t.me/selenabythesea';
@@ -65,6 +65,7 @@ export default function SettingsPage() {
   const [userApiKeyNameDraft, setUserApiKeyNameDraft] = useState('');
   const [userApiKeyWorkingId, setUserApiKeyWorkingId] = useState(null);
   const [showApiEnrollModal, setShowApiEnrollModal] = useState(false);
+  const newUserApiKeyTextareaRef = useRef(null);
 
   const apiAccess = hasBusinessApiAccess(user);
 
@@ -85,6 +86,14 @@ export default function SettingsPage() {
   useEffect(() => {
     void loadMyApiKeys();
   }, [loadMyApiKeys]);
+
+  useEffect(() => {
+    if (!newUserApiKeyPlain) return;
+    const id = requestAnimationFrame(() => {
+      selectElementContents(newUserApiKeyTextareaRef.current);
+    });
+    return () => cancelAnimationFrame(id);
+  }, [newUserApiKeyPlain]);
 
   useEffect(() => {
     setDisplayName(user?.name || '');
@@ -585,25 +594,41 @@ export default function SettingsPage() {
 
           {newUserApiKeyPlain && (
             <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.08] p-4 mb-4">
-              <p className="text-xs text-amber-200 mb-2 font-medium">{t.apiCopySecretHint}</p>
-              <input
+              <p className="text-xs text-amber-200 mb-2 font-medium">
+                {t.apiCopySecretHint}{' '}
+                <span className="text-amber-100/80">({newUserApiKeyPlain.length} characters)</span>
+              </p>
+              <textarea
+                ref={newUserApiKeyTextareaRef}
                 readOnly
+                rows={5}
+                spellCheck={false}
                 value={newUserApiKeyPlain}
-                onFocus={(e) => e.target.select()}
-                className="w-full mb-2 px-3 py-2 rounded-lg bg-black/40 border border-amber-500/25 text-xs text-amber-100 font-mono"
-                aria-label="New API key"
+                onFocus={(e) => selectElementContents(e.target)}
+                onClick={(e) => selectElementContents(e.target)}
+                className="w-full mb-3 px-3 py-2 rounded-lg bg-black/40 border border-amber-500/25 text-xs text-amber-100 font-mono break-all whitespace-pre-wrap resize-y min-h-[6rem] max-h-48 overflow-y-auto"
+                aria-label="New API key — full secret"
               />
-              <button
-                type="button"
-                onClick={async () => {
-                  const ok = await copyTextToClipboard(newUserApiKeyPlain);
-                  if (ok) toast.success('Copied');
-                  else toast.error(t.toastApiCopyFailed);
-                }}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold text-black bg-white hover:bg-slate-100"
-              >
-                {t.apiCopyToClipboard}
-              </button>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const ok = await copyTextToClipboard(newUserApiKeyPlain);
+                    if (ok) toast.success('Full key copied');
+                    else toast.error(t.toastApiCopyFailed);
+                  }}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold text-black bg-white hover:bg-slate-100"
+                >
+                  {t.apiCopyToClipboard}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => selectElementContents(newUserApiKeyTextareaRef.current)}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold glass-card hover:bg-white/10"
+                >
+                  {t.apiSelectAll}
+                </button>
+              </div>
             </div>
           )}
 
