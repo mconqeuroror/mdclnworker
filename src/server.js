@@ -41,16 +41,22 @@ if (!process.env.JWT_SECRET) {
   }
 }
 
-// Production-only secret validation
-if (isProduction) {
+// Production-only: Stripe + crypto secrets (main web app / checkout). API-only deployments
+// (same codebase, no payment routes needed) set REQUIRE_PAYMENT_SECRETS=false in env.
+if (isProduction && process.env.REQUIRE_PAYMENT_SECRETS !== 'false') {
   const productionSecrets = ['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'NOWPAYMENTS_IPN_SECRET'];
-  const missingProdSecrets = productionSecrets.filter(key => !process.env[key]);
-  
+  const missingProdSecrets = productionSecrets.filter((key) => !process.env[key]);
   if (missingProdSecrets.length > 0) {
     console.error('❌ FATAL: Missing production secrets:', missingProdSecrets.join(', '));
-    console.error('These secrets are required for production deployment.');
+    console.error(
+      'Set Stripe/crypto env vars on the app that runs checkout, or set REQUIRE_PAYMENT_SECRETS=false for an API-only deployment.',
+    );
     process.exit(1);
   }
+} else if (isProduction && process.env.REQUIRE_PAYMENT_SECRETS === 'false') {
+  console.log(
+    'ℹ️ REQUIRE_PAYMENT_SECRETS=false — skipping Stripe/crypto secret check (API-only / worker deployment).',
+  );
 }
 
 const app = express();
@@ -206,7 +212,7 @@ app.use('/api', (req, res, next) => {
 
 // AI safety constraints for generation endpoints:
 // - blocks child sexual content globally
-// - blocks explicit NSFW sex scenes on Soul-X (mild adult nudity allowed)
+// - blocks explicit NSFW sex scenes on ModelClone-X (mild adult nudity allowed)
 app.use('/api', generationSafetyMiddleware);
 
 // Admin impersonation login - sets auth cookies from a token in the URL

@@ -2784,7 +2784,9 @@ export async function listUserApiKeys(req, res) {
 export async function createUserApiKey(req, res) {
   try {
     const { id: userId } = req.params;
-    const { name, corsOrigins } = req.body || {};
+    const { name, corsOrigins, planOverride } = req.body || {};
+    const planOverrideActive =
+      planOverride === true || planOverride === "true" || planOverride === 1 || planOverride === "1";
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -2800,12 +2802,12 @@ export async function createUserApiKey(req, res) {
     const tier = String(user.subscriptionTier || "").toLowerCase();
     const subStatus = String(user.subscriptionStatus || "").toLowerCase();
     const subscriptionActive = ["active", "trialing"].includes(subStatus);
-    if (tier !== "business" || !subscriptionActive) {
+    if (!planOverrideActive && (tier !== "business" || !subscriptionActive)) {
       return res.status(403).json({
         success: false,
         code: "API_KEY_REQUIRES_BUSINESS_PLAN",
         message:
-          "API keys require an active Business plan (subscription status active or trialing). Upgrade the account or adjust subscription in admin before issuing keys.",
+          "API keys require an active Business plan (subscription status active or trialing). Enable “Plan override” below to issue a key anyway, or upgrade the account first.",
       });
     }
     const plain = `mcl_${randomBytes(32).toString("base64url")}`;
@@ -2841,7 +2843,11 @@ export async function createUserApiKey(req, res) {
     });
   } catch (error) {
     console.error("createUserApiKey error:", error);
-    return res.status(500).json({ success: false, message: "Server error" });
+    const msg =
+      error?.code === "P2021"
+        ? "Database is missing the ApiKey table — deploy migrations (prisma migrate deploy)."
+        : "Server error";
+    return res.status(500).json({ success: false, message: msg });
   }
 }
 

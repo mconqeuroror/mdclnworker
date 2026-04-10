@@ -72,3 +72,30 @@ CREATE INDEX IF NOT EXISTS "Generation_extendEligible_createdAt_idx" ON "Generat
 CREATE INDEX IF NOT EXISTS "Generation_originalGenerationId_idx" ON "Generation"("originalGenerationId");
 
 -- After running: `npx prisma migrate deploy` is preferred so _prisma_migrations stays in sync.
+
+-- 8. ApiKey (admin-issued HTTP API keys `mcl_…`)
+CREATE TABLE IF NOT EXISTS "ApiKey" (
+    "id" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "name" TEXT,
+    "keyPrefix" TEXT NOT NULL,
+    "keyHash" TEXT NOT NULL,
+    "corsOrigins" TEXT,
+    "lastUsedAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "revokedAt" TIMESTAMP(3),
+    CONSTRAINT "ApiKey_pkey" PRIMARY KEY ("id")
+);
+CREATE INDEX IF NOT EXISTS "ApiKey_userId_idx" ON "ApiKey"("userId");
+CREATE INDEX IF NOT EXISTS "ApiKey_keyPrefix_idx" ON "ApiKey"("keyPrefix");
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'ApiKey_userId_fkey'
+  ) THEN
+    ALTER TABLE "ApiKey"
+      ADD CONSTRAINT "ApiKey_userId_fkey"
+      FOREIGN KEY ("userId") REFERENCES "User"("id")
+      ON DELETE CASCADE ON UPDATE CASCADE;
+  END IF;
+END $$;

@@ -78,8 +78,26 @@ model User {
   referrals                     User[]                  @relation("UserReferrals")
   nsfwAutoSelectJobs            NsfwAutoSelectJob[]
   nsfwPlanGenerationJobs        NsfwPlanGenerationJob[]
+  apiKeys                       ApiKey[]
 
   @@index([referredByUserId])
+}
+
+/// HTTP API keys for public API (`mcl_…`); hashed at rest; optional CORS allowlist JSON array in corsOrigins.
+model ApiKey {
+  id          String    @id @default(uuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String?
+  keyPrefix   String
+  keyHash     String
+  corsOrigins String?
+  lastUsedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  revokedAt   DateTime?
+
+  @@index([userId])
+  @@index([keyPrefix])
 }
 
 /// Async NSFW chip auto-select (Grok). POST returns 202 + jobId; client polls GET .../status/:jobId.

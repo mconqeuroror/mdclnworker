@@ -131,16 +131,16 @@ const GENERATION_PRICING_GROUPS = [
     ],
   },
   {
-    title: 'Soul-X, Upscaler & LoRA training',
+    title: 'ModelClone-X, Upscaler & LoRA training',
     fields: [
       { key: 'upscalerImage', label: 'Upscaler — per image' },
-      { key: 'soulxNoModel1', label: 'Soul-X — 1 image (no character)' },
-      { key: 'soulxWithModel1', label: 'Soul-X — 1 image (with character)' },
-      { key: 'soulxNoModel2', label: 'Soul-X — 2 images (no character)' },
-      { key: 'soulxWithModel2', label: 'Soul-X — 2 images (with character)' },
-      { key: 'soulxExtraStepsPer10', label: 'Soul-X — extra cost per +10 steps over default' },
-      { key: 'loraTrainingStandard', label: 'LoRA training — Standard (NSFW + Soul-X)' },
-      { key: 'loraTrainingPro', label: 'LoRA training — Pro (NSFW + Soul-X)' },
+      { key: 'modelcloneXNoModel1', label: 'ModelClone-X — 1 image (no character)' },
+      { key: 'modelcloneXWithModel1', label: 'ModelClone-X — 1 image (with character)' },
+      { key: 'modelcloneXNoModel2', label: 'ModelClone-X — 2 images (no character)' },
+      { key: 'modelcloneXWithModel2', label: 'ModelClone-X — 2 images (with character)' },
+      { key: 'modelcloneXExtraStepsPer10', label: 'ModelClone-X — extra cost per +10 steps over default' },
+      { key: 'loraTrainingStandard', label: 'LoRA training — Standard (NSFW + ModelClone-X)' },
+      { key: 'loraTrainingPro', label: 'LoRA training — Pro (NSFW + ModelClone-X)' },
     ],
   },
   {
@@ -556,6 +556,7 @@ export default function AdminPage() {
   const [apiKeysList, setApiKeysList] = useState([]);
   const [apiKeyNameDraft, setApiKeyNameDraft] = useState('');
   const [apiKeyCorsDraft, setApiKeyCorsDraft] = useState('');
+  const [apiKeyPlanOverride, setApiKeyPlanOverride] = useState(false);
   const [newApiKeyPlain, setNewApiKeyPlain] = useState(null);
   const [apiKeyWorkingId, setApiKeyWorkingId] = useState(null);
 
@@ -1547,6 +1548,7 @@ export default function AdminPage() {
     setShowApiKeysModal(true);
     setApiKeyNameDraft('');
     setApiKeyCorsDraft('');
+    setApiKeyPlanOverride(false);
     setNewApiKeyPlain(null);
     void loadUserApiKeys(user.id);
   };
@@ -1569,6 +1571,7 @@ export default function AdminPage() {
       const r = await api.post(`/admin/users/${selectedUser.id}/api-keys`, {
         name: apiKeyNameDraft.trim() || null,
         corsOrigins: corsPayload,
+        planOverride: apiKeyPlanOverride,
       });
       if (r.data?.success && r.data.key) {
         setNewApiKeyPlain(r.data.key);
@@ -5091,6 +5094,19 @@ ${emailBuilder.ctaText && emailBuilder.ctaUrl ? `<div class="cta-wrap"><a class=
                 />
                 <p className="text-[10px] text-gray-600 mt-1">Leave empty for server-to-server only.</p>
               </div>
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={apiKeyPlanOverride}
+                  onChange={(e) => setApiKeyPlanOverride(e.target.checked)}
+                  className="mt-0.5 rounded border-white/20"
+                />
+                <span className="text-[11px] text-gray-400 leading-snug">
+                  <span className="text-gray-300 font-medium">Plan override</span>
+                  {' — '}
+                  Allow creating a key without an active Business plan (e.g. beta partners on other tiers).
+                </span>
+              </label>
               <button
                 type="button"
                 disabled={apiKeyWorkingId === 'create'}

@@ -234,6 +234,16 @@ import { getGenerationPricing } from "../services/generation-pricing.service.js"
 import { getEffectiveNudesPackPoses } from "../services/nudes-pack-config.service.js";
 import { getPromptTemplateValue } from "../services/prompt-template-config.service.js";
 import {
+  submitModelCloneXJob,
+  pollModelCloneXJob,
+  extractModelCloneXImages,
+} from "../services/modelcloneX.service.js";
+import {
+  MODELCLONE_X_CATEGORY,
+  LEGACY_SOULX_CATEGORY,
+  TRAINED_LORA_CATEGORIES_MODELCLONE_X,
+} from "../constants/modelcloneX.js";
+import {
   validateSignup,
   validateLogin,
   validateEmailVerification,
@@ -2925,15 +2935,18 @@ router.get("/upscale/status/:generationId", authMiddleware, async (req, res) => 
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SOUL-X GENERATION ROUTES
+// MODELCLONE-X GENERATION ROUTES (legacy /api/soulx/* → 308 → /api/modelclone-x/*)
 // ─────────────────────────────────────────────────────────────────────────────
-import {
-  submitSoulXJob,
-  pollSoulXJob,
-  extractSoulXImages,
-} from "../services/soulx.service.js";
 
-const SOULX_ZIMAGE_SYSTEM_PROMPT = `You are Z-Image-Turbo Prompt Master, an elite prompt engineer exclusively for Z-Image-Turbo (Tongyi-MAI 6B S3-DiT Turbo model).
+router.use((req, res, next) => {
+  if (req.path.startsWith("/soulx")) {
+    const q = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
+    return res.redirect(308, `${req.baseUrl}${req.path.replace(/^\/soulx/, "/modelclone-x")}${q}`);
+  }
+  next();
+});
+
+const MODELCLONE_X_ZIMAGE_SYSTEM_PROMPT = `You are Z-Image-Turbo Prompt Master, an elite prompt engineer exclusively for Z-Image-Turbo (Tongyi-MAI 6B S3-DiT Turbo model).
 
 Your ONLY job is to take a simple user request (e.g. "dog", "blonde european beautiful woman in blue bikini shot from back focus on ass", "cyberpunk city street at night") and transform it into one perfectly optimized, ready-to-copy positive prompt for Z-Image-Turbo.
 
@@ -2976,7 +2989,7 @@ function extractPromptFromOptimizer(rawContent) {
   return prompt;
 }
 
-function buildSoulXModelIdentityContext(model, lora = null) {
+function buildModelCloneXModelIdentityContext(model, lora = null) {
   if (!model || typeof model !== "object") return "";
 
   const modelLooks = parseMaybeJsonObject(model.savedAppearance);
@@ -3018,7 +3031,7 @@ function buildSoulXModelIdentityContext(model, lora = null) {
   return lines.join("\n");
 }
 
-async function optimizeSoulXPrompt({
+async function optimizeModelCloneXPrompt({
   userPrompt,
   withCharacter = false,
   modelIdentityContext = "",
@@ -3026,9 +3039,15 @@ async function optimizeSoulXPrompt({
   const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
   if (!OPENROUTER_API_KEY) return userPrompt;
 
-  const preferredModel = String(process.env.SOULX_PROMPT_MODEL || "x-ai/grok-4").trim();
+  const preferredModel = String(
+    process.env.MODELCLONE_X_PROMPT_MODEL || process.env.SOULX_PROMPT_MODEL || "x-ai/grok-4",
+  ).trim();
   const modelCandidates = Array.from(new Set([preferredModel, "x-ai/grok-4.1-fast"])).filter(Boolean);
-  const systemPrompt = await getPromptTemplateValue("soulxZImageTurbo", SOULX_ZIMAGE_SYSTEM_PROMPT);
+  let systemPrompt = (await getPromptTemplateValue("modelcloneXZImageTurbo", "")).trim();
+  if (!systemPrompt) {
+    systemPrompt = (await getPromptTemplateValue("soulxZImageTurbo", "")).trim();
+  }
+  if (!systemPrompt) systemPrompt = MODELCLONE_X_ZIMAGE_SYSTEM_PROMPT;
   const baseUserPrompt = `User request: "${userPrompt}"`;
   const userContent = withCharacter && modelIdentityContext
     ? `${baseUserPrompt}
@@ -3078,7 +3097,7 @@ Generate the optimized prompt now.`;
     } catch (err) {
       clearTimeout(timer);
       lastError = err;
-      console.warn(`[SoulX] Prompt optimization failed on ${modelName}: ${err.message}`);
+      console.warn(`[ModelCloneX] Prompt optimization failed on ${modelName}: ${err.message}`);
     }
   }
 
@@ -3086,18 +3105,18 @@ Generate the optimized prompt now.`;
   return userPrompt;
 }
 
-// POST /api/soulx/generate
-router.get("/soulx/config", authMiddleware, async (_req, res) => {
+// POST /api/modelclone-x/generate
+router.get("/modelclone-x/config", authMiddleware, async (_req, res) => {
   try {
     const pricing = await getGenerationPricing();
     return res.json({
       success: true,
       pricing: {
-        noModel1: Number(pricing.soulxNoModel1 ?? 10),
-        withModel1: Number(pricing.soulxWithModel1 ?? 15),
-        noModel2: Number(pricing.soulxNoModel2 ?? 15),
-        withModel2: Number(pricing.soulxWithModel2 ?? 25),
-        extraStepsPer10: Number(pricing.soulxExtraStepsPer10 ?? 5),
+        noModel1: Number(pricing.modelcloneXNoModel1 ?? 10),
+        withModel1: Number(pricing.modelcloneXWithModel1 ?? 15),
+        noModel2: Number(pricing.modelcloneXNoModel2 ?? 15),
+        withModel2: Number(pricing.modelcloneXWithModel2 ?? 25),
+        extraStepsPer10: Number(pricing.modelcloneXExtraStepsPer10 ?? 5),
         trainingStandard: Number(pricing.loraTrainingStandard ?? 750),
         trainingPro: Number(pricing.loraTrainingPro ?? 1500),
       },
@@ -3115,12 +3134,12 @@ router.get("/soulx/config", authMiddleware, async (_req, res) => {
       },
     });
   } catch (error) {
-    console.error("Failed to load soulx config:", error);
-    return res.status(500).json({ success: false, error: "Failed to load Soul-X config" });
+    console.error("Failed to load modelclone-x config:", error);
+    return res.status(500).json({ success: false, error: "Failed to load ModelClone-X config" });
   }
 });
 
-router.post("/soulx/generate", authMiddleware, generationLimiter, async (req, res) => {
+router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (req, res) => {
   const userId = req.user?.userId;
   if (!userId) return res.status(401).json({ success: false, error: "Unauthorized" });
 
@@ -3158,9 +3177,9 @@ router.post("/soulx/generate", authMiddleware, generationLimiter, async (req, re
   // Determine credit cost
   const baseCost =
     qty === 2
-      ? (useCharacter ? Number(pricing.soulxWithModel2 ?? 25) : Number(pricing.soulxNoModel2 ?? 15))
-      : (useCharacter ? Number(pricing.soulxWithModel1 ?? 15) : Number(pricing.soulxNoModel1 ?? 10));
-  const extraStepsPer10 = Math.max(0, Number(pricing.soulxExtraStepsPer10 ?? 5));
+      ? (useCharacter ? Number(pricing.modelcloneXWithModel2 ?? 25) : Number(pricing.modelcloneXNoModel2 ?? 15))
+      : (useCharacter ? Number(pricing.modelcloneXWithModel1 ?? 15) : Number(pricing.modelcloneXNoModel1 ?? 10));
+  const extraStepsPer10 = Math.max(0, Number(pricing.modelcloneXExtraStepsPer10 ?? 5));
   const includedStepsForPricing = useCharacter ? 50 : 20;
   const extraStepBlocks = safeSteps > includedStepsForPricing
     ? Math.ceil((safeSteps - includedStepsForPricing) / 10)
@@ -3196,7 +3215,7 @@ router.post("/soulx/generate", authMiddleware, generationLimiter, async (req, re
         id: characterLoraId,
         modelId,
         status: "ready",
-        category: { in: ["soulx", "nsfw"] },
+        category: { in: [...TRAINED_LORA_CATEGORIES_MODELCLONE_X, "nsfw"] },
       },
     });
     if (!lora) {
@@ -3210,14 +3229,14 @@ router.post("/soulx/generate", authMiddleware, generationLimiter, async (req, re
   const inputPrompt = prompt.trim();
   let optimizedPrompt = inputPrompt;
   try {
-    const identityContext = useCharacter ? buildSoulXModelIdentityContext(modelForPrompt, loraForPrompt) : "";
-    optimizedPrompt = await optimizeSoulXPrompt({
+    const identityContext = useCharacter ? buildModelCloneXModelIdentityContext(modelForPrompt, loraForPrompt) : "";
+    optimizedPrompt = await optimizeModelCloneXPrompt({
       userPrompt: inputPrompt,
       withCharacter: useCharacter,
       modelIdentityContext: identityContext,
     });
   } catch (optErr) {
-    console.warn("[SoulX] Prompt optimization fallback to raw prompt:", optErr.message);
+    console.warn("[ModelCloneX] Prompt optimization fallback to raw prompt:", optErr.message);
   }
 
   const deducted = await deductCredits(userId, costPer);
@@ -3237,16 +3256,16 @@ router.post("/soulx/generate", authMiddleware, generationLimiter, async (req, re
         data: {
           userId,
           modelId: modelId || null,
-          type: "soulx",
+          type: "modelclone-x",
           prompt: inputPrompt,
           status: "processing",
           creditsCost: thisCost,
-          replicateModel: "comfyui-soulx",
+          replicateModel: "comfyui-modelclone-x",
         },
       });
 
-      const soulxWebhookUrl = resolveRunpodWebhookUrl();
-      const jobId = await submitSoulXJob({
+      const modelcloneXWebhookUrl = resolveRunpodWebhookUrl();
+      const jobId = await submitModelCloneXJob({
         prompt: optimizedPrompt,
         aspectRatio,
         loraUrl,
@@ -3254,16 +3273,16 @@ router.post("/soulx/generate", authMiddleware, generationLimiter, async (req, re
         triggerWord,
         steps: safeSteps,
         cfg: safeCfg,
-      }, soulxWebhookUrl);
+      }, modelcloneXWebhookUrl);
 
       await prisma.generation.update({
         where: { id: gen.id },
-        data: { inputImageUrl: JSON.stringify({ runpodJobId: jobId, provider: "runpod-soulx" }) },
+        data: { inputImageUrl: JSON.stringify({ runpodJobId: jobId, provider: "runpod-modelclone-x" }) },
       });
 
       generationIds.push(gen.id);
     } catch (err) {
-      console.error("[SoulX] Generation submit error:", err.message);
+      console.error("[ModelCloneX] Generation submit error:", err.message);
       if (gen) {
         await prisma.generation.update({
           where: { id: gen.id },
@@ -3289,8 +3308,8 @@ router.post("/soulx/generate", authMiddleware, generationLimiter, async (req, re
   });
 });
 
-// GET /api/soulx/status/:generationId
-router.get("/soulx/status/:generationId", authMiddleware, async (req, res) => {
+// GET /api/modelclone-x/status/:generationId
+router.get("/modelclone-x/status/:generationId", authMiddleware, async (req, res) => {
   const userId = req.user?.userId;
   const { generationId } = req.params;
 
@@ -3325,13 +3344,13 @@ router.get("/soulx/status/:generationId", authMiddleware, async (req, res) => {
 
     let jobData;
     try {
-      jobData = await pollSoulXJob(runpodJobId);
+      jobData = await pollModelCloneXJob(runpodJobId);
     } catch (pollErr) {
-      console.warn("[SoulX] poll network error, returning processing:", pollErr.message);
+      console.warn("[ModelCloneX] poll network error, returning processing:", pollErr.message);
       return res.json({ success: true, status: "processing" });
     }
     const rpStatus = (jobData.status || "").toLowerCase();
-    console.log(`[SoulX] RunPod status for ${runpodJobId}: ${rpStatus} | raw:`, JSON.stringify(jobData).slice(0, 400));
+    console.log(`[ModelCloneX] RunPod status for ${runpodJobId}: ${rpStatus} | raw:`, JSON.stringify(jobData).slice(0, 400));
 
     if (rpStatus === "failed" || rpStatus === "error" || rpStatus === "timed_out" || rpStatus === "cancelled") {
       const errMsg =
@@ -3349,7 +3368,7 @@ router.get("/soulx/status/:generationId", authMiddleware, async (req, res) => {
     }
 
     if (rpStatus === "completed") {
-      const images = extractSoulXImages(jobData);
+      const images = extractModelCloneXImages(jobData);
       if (!images.length) {
         const errMsg = "No image returned from worker";
         await prisma.generation.update({
@@ -3366,10 +3385,10 @@ router.get("/soulx/status/:generationId", authMiddleware, async (req, res) => {
           outputUrl = imageData;
         } else {
           const buf = Buffer.from(imageData, "base64");
-          outputUrl = await uploadBufferToBlobOrR2(buf, "soulx", "png", "image/png");
+          outputUrl = await uploadBufferToBlobOrR2(buf, "modelclone-x", "png", "image/png");
         }
       } catch (uploadErr) {
-        console.error("[SoulX] upload error:", uploadErr.message);
+        console.error("[ModelCloneX] upload error:", uploadErr.message);
         outputUrl = `data:image/png;base64,${imageData}`;
       }
 
@@ -3383,17 +3402,21 @@ router.get("/soulx/status/:generationId", authMiddleware, async (req, res) => {
 
     return res.json({ success: true, status: "processing" });
   } catch (err) {
-    console.error("[SoulX] status error:", err.message);
+    console.error("[ModelCloneX] status error:", err.message);
     return res.status(500).json({ success: false, error: err.message });
   }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SOUL-X CHARACTER IDENTITY ROUTES (reuse TrainedLora with category="soulx")
+// MODELCLONE-X CHARACTER IDENTITY (TrainedLora category modelclone-x; legacy soulx)
 // ─────────────────────────────────────────────────────────────────────────────
 
-// POST /api/soulx/character/create
-router.post("/soulx/character/create", authMiddleware, generationLimiter, async (req, res) => {
+function isModelCloneXLoraCategory(category) {
+  return category === MODELCLONE_X_CATEGORY || category === LEGACY_SOULX_CATEGORY;
+}
+
+// POST /api/modelclone-x/character/create
+router.post("/modelclone-x/character/create", authMiddleware, generationLimiter, async (req, res) => {
   try {
     const { modelId, name, trainingMode } = req.body;
     const userId = req.user.userId;
@@ -3405,19 +3428,18 @@ router.post("/soulx/character/create", authMiddleware, generationLimiter, async 
     if (!model) return res.status(404).json({ success: false, message: "Model not found" });
     if (model.userId !== userId) return res.status(403).json({ success: false, message: "Not authorized" });
 
-    // Only one SoulX character per model
     const existing = await prisma.trainedLora.findFirst({
-      where: { modelId, category: "soulx" },
+      where: { modelId, category: { in: TRAINED_LORA_CATEGORIES_MODELCLONE_X } },
     });
     if (existing) {
       return res.status(409).json({
         success: false,
-        message: "A Soul-X character identity already exists for this model.",
+        message: "A ModelClone-X character identity already exists for this model.",
         lora: existing,
       });
     }
 
-    const loraName = name?.trim() || `${model.name || "Character"} Soul-X`;
+    const loraName = name?.trim() || `${model.name || "Character"} ModelClone-X`;
 
     const lora = await prisma.trainedLora.create({
       data: {
@@ -3425,19 +3447,19 @@ router.post("/soulx/character/create", authMiddleware, generationLimiter, async 
         name: loraName,
         status: "awaiting_images",
         trainingMode: mode,
-        category: "soulx",
+        category: MODELCLONE_X_CATEGORY,
       },
     });
 
     return res.json({ success: true, lora });
   } catch (err) {
-    console.error("[SoulX] create character error:", err);
+    console.error("[ModelCloneX] create character error:", err);
     return res.status(500).json({ success: false, message: err.message });
   }
 });
 
-// GET /api/soulx/characters/:modelId
-router.get("/soulx/characters/:modelId", authMiddleware, async (req, res) => {
+// GET /api/modelclone-x/characters/:modelId
+router.get("/modelclone-x/characters/:modelId", authMiddleware, async (req, res) => {
   try {
     const { modelId } = req.params;
     const userId = req.user.userId;
@@ -3450,7 +3472,7 @@ router.get("/soulx/characters/:modelId", authMiddleware, async (req, res) => {
     const characters = await prisma.trainedLora.findMany({
       where: {
         modelId,
-        category: { in: ["soulx", "nsfw"] },
+        category: { in: [...TRAINED_LORA_CATEGORIES_MODELCLONE_X, "nsfw"] },
       },
       include: { trainingImages: { select: { id: true, imageUrl: true, status: true } } },
       orderBy: { createdAt: "desc" },
@@ -3458,13 +3480,13 @@ router.get("/soulx/characters/:modelId", authMiddleware, async (req, res) => {
 
     return res.json({ success: true, characters });
   } catch (err) {
-    console.error("[SoulX] get characters error:", err);
+    console.error("[ModelCloneX] get characters error:", err);
     return res.status(500).json({ success: false, message: err.message });
   }
 });
 
-// DELETE /api/soulx/character/:loraId
-router.delete("/soulx/character/:loraId", authMiddleware, async (req, res) => {
+// DELETE /api/modelclone-x/character/:loraId
+router.delete("/modelclone-x/character/:loraId", authMiddleware, async (req, res) => {
   try {
     const { loraId } = req.params;
     const userId = req.user.userId;
@@ -3477,27 +3499,24 @@ router.delete("/soulx/character/:loraId", authMiddleware, async (req, res) => {
     if (!lora || lora.model.userId !== userId) {
       return res.status(403).json({ success: false, message: "Not authorized" });
     }
-    if (lora.category !== "soulx") {
-      return res.status(400).json({ success: false, message: "Not a Soul-X character" });
+    if (!isModelCloneXLoraCategory(lora.category)) {
+      return res.status(400).json({ success: false, message: "Not a ModelClone-X character" });
     }
 
     await prisma.trainedLora.delete({ where: { id: loraId } });
     return res.json({ success: true });
   } catch (err) {
-    console.error("[SoulX] delete character error:", err);
+    console.error("[ModelCloneX] delete character error:", err);
     return res.status(500).json({ success: false, message: err.message });
   }
 });
 
-// Re-use NSFW image upload routes for SoulX character training
-// POST /api/soulx/character/upload-images  → proxies to NSFW upload logic
+// POST /api/modelclone-x/character/upload-images  → same flow as NSFW training uploads
 router.post(
-  "/soulx/character/upload-images",
+  "/modelclone-x/character/upload-images",
   authMiddleware,
   upload.array("photos", 30),
   async (req, res) => {
-    // Inject loraId from body; the NSFW upload handler requires loraId
-    // Verify the lora is actually a soulx category lora owned by this user
     const { loraId, modelId } = req.body;
     const userId = req.user.userId;
 
@@ -3508,11 +3527,10 @@ router.post(
         where: { id: loraId },
         include: { model: { select: { userId: true } } },
       });
-      if (!lora || lora.model.userId !== userId || lora.category !== "soulx") {
+      if (!lora || lora.model.userId !== userId || !isModelCloneXLoraCategory(lora.category)) {
         return res.status(403).json({ success: false, message: "Not authorized" });
       }
 
-      // Forward to same handler used by NSFW (duplicate logic inline for isolation)
       const files = req.files;
       if (!files || files.length === 0) {
         return res.status(400).json({ success: false, message: "No files uploaded" });
@@ -3536,14 +3554,14 @@ router.post(
 
       return res.json({ success: true, uploadedUrls });
     } catch (err) {
-      console.error("[SoulX] upload images error:", err);
+      console.error("[ModelCloneX] upload images error:", err);
       return res.status(500).json({ success: false, message: err.message });
     }
   }
 );
 
-// GET /api/soulx/character/training-status/:loraId
-router.get("/soulx/character/training-status/:loraId", authMiddleware, async (req, res) => {
+// GET /api/modelclone-x/character/training-status/:loraId
+router.get("/modelclone-x/character/training-status/:loraId", authMiddleware, async (req, res) => {
   try {
     const { loraId } = req.params;
     const userId = req.user.userId;
@@ -3556,23 +3574,20 @@ router.get("/soulx/character/training-status/:loraId", authMiddleware, async (re
       },
     });
 
-    if (!lora || lora.model.userId !== userId || lora.category !== "soulx") {
+    if (!lora || lora.model.userId !== userId || !isModelCloneXLoraCategory(lora.category)) {
       return res.status(403).json({ success: false, message: "Not authorized" });
     }
 
     return res.json({ success: true, lora });
   } catch (err) {
-    console.error("[SoulX] training status error:", err);
+    console.error("[ModelCloneX] training status error:", err);
     return res.status(500).json({ success: false, message: err.message });
   }
 });
 
-// POST /api/soulx/character/train  → trigger fal.ai training (same as NSFW)
-router.post("/soulx/character/train", authMiddleware, generationLimiter, async (req, res) => {
-  // Delegate to the same trainLora controller but for soulx
+// POST /api/modelclone-x/character/train  → fal.ai training (same worker as NSFW LoRA)
+router.post("/modelclone-x/character/train", authMiddleware, generationLimiter, async (req, res) => {
   const { trainLora } = await import("../controllers/nsfw.controller.js");
-  // Inject category into body so trainLora can find the correct lora
-  req.body._soulxCategory = "soulx";
   return trainLora(req, res);
 });
 
