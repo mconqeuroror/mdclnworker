@@ -2516,7 +2516,7 @@ router.post(
 const isAllowedDownloadHost = isAllowedPublicAssetHost;
 
 const DOWNLOAD_PROXY_MAX_BYTES = 120 * 1024 * 1024; // 120 MB
-const DOWNLOAD_PROXY_TIMEOUT_MS = 20_000;
+const DOWNLOAD_PROXY_TIMEOUT_MS = 60_000;
 const DOWNLOAD_DEBUG_LOGS = process.env.NODE_ENV !== "production";
 const debugDownload = (...args) => {
   if (DOWNLOAD_DEBUG_LOGS) console.log("[DOWNLOAD]", ...args);

@@ -9,6 +9,10 @@ export function isAllowedPublicAssetHost(hostname) {
     "wavespeed.ai",
     "replicate.delivery",
     "vercel-storage.com",
+    /** Vercel Blob alternate host */
+    "blob.vercel.app",
+    /** User / gallery assets */
+    "cloudinary.com",
   ];
   const lower = String(hostname || "").toLowerCase();
   return allowedDomains.some(
