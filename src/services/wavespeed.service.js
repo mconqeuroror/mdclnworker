@@ -1937,7 +1937,6 @@ export {
   generateReferenceImage,
   generateModelPosesFromReference,
   generateTwoPosesFromReference,
-  optimizeModelPosesPromptBundle,
   generateTalkingHead,
   isExplicitContentError,
   getExplicitContentUserMessage,
