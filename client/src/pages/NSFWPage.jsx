@@ -3273,7 +3273,21 @@ function TrainingImagePool({ modelId, loraId, selectedImages, onToggle, onPrevie
 // ============================================
 // LoRA Manager - Create, switch, delete LoRAs
 // ============================================
-function LoRAManager({ modelId, loras, activeLora, onCreateLora, onSetActive, onDeleteLora, onSelectLora, currentLoraId, isLoading, onRefreshLoras, modelSavedAppearance }) {
+function LoRAManager({
+  modelId,
+  loras,
+  activeLora,
+  onCreateLora,
+  onSetActive,
+  onDeleteLora,
+  onSelectLora,
+  currentLoraId,
+  isLoading,
+  onRefreshLoras,
+  modelSavedAppearance,
+  loraStandardCost = 750,
+  loraProCost = 1500,
+}) {
   const copy = NSFW_COPY[resolveLocale()] || NSFW_COPY.en;
   const [showCreateInput, setShowCreateInput] = useState(false);
   const [newLoraName, setNewLoraName] = useState("");
@@ -5120,6 +5134,8 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
                       modelId={selectedModel}
                       loras={modelLoras}
                       activeLora={activeLora}
+                      loraStandardCost={loraStandardCost}
+                      loraProCost={loraProCost}
                       currentLoraId={currentLoraId}
                       onCreateLora={handleCreateLora}
                       onSetActive={handleSetActiveLora}
