@@ -55,7 +55,7 @@ import ReferralProgramPage from "./ReferralProgramPage";
 import ViralReelFinderPage from "./ViralReelFinderPage";
 import ContentReformatterPage from "./ContentReformatterPage";
 import UpscalerPage from "./UpscalerPage";
-import SoulXPage from "./SoulXPage";
+import ModelCloneXPage from "./ModelCloneXPage";
 import CreatorStudioPage from "./CreatorStudioPage";
 import AddCreditsModal from "../components/AddCreditsModal";
 import PurchaseSuccessModal from "../components/PurchaseSuccessModal";
@@ -337,8 +337,9 @@ export default function DashboardPage() {
 
       // Check for query params (tab navigation from other pages, openCredits from onboarding)
       const urlParams = new URLSearchParams(window.location.search);
-      const tabParam = urlParams.get("tab");
-      if (tabParam && ["home", "models", "generate", "creator-studio", "voice-studio", "reformatter", "upscaler", "soulx", "history", "settings", "nsfw", "course", "repurposer", "reelfinder", "referral"].includes(tabParam)) {
+      let tabParam = urlParams.get("tab");
+      if (tabParam === "soulx") tabParam = "modelclone-x";
+      if (tabParam && ["home", "models", "generate", "creator-studio", "voice-studio", "reformatter", "upscaler", "modelclone-x", "history", "settings", "nsfw", "course", "repurposer", "reelfinder", "referral"].includes(tabParam)) {
         if (premiumTabs.includes(tabParam)) {
           const hasAccess = hasPremiumAccess(freshUser);
           if (!hasAccess) {
@@ -781,7 +782,7 @@ export default function DashboardPage() {
         {activeTab === "voice-studio" && <CreatorStudioPage sidebarCollapsed={sidebarNarrow} initialTab="voices" initialModelId={voiceStudioInitialModelId} />}
         {activeTab === "reformatter" && <ContentReformatterPage />}
           {activeTab === "upscaler" && <UpscalerPage />}
-          {activeTab === "soulx" && <SoulXPage />}
+          {activeTab === "modelclone-x" && <ModelCloneXPage />}
           {activeTab === "history" && <HistoryPage />}
           {activeTab === "settings" && <SettingsPage />}
           {!hideRestrictedTabs && activeTab === "nsfw" && <NSFWPage embedded sidebarCollapsed={sidebarNarrow} setDashboardTab={(tab, videoId) => { setActiveTab(tab); if (videoId) setCourseVideoId(videoId); }} />}
