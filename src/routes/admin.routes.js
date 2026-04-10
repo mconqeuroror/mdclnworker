@@ -472,6 +472,8 @@ router.get("/prompt-templates", async (_req, res) => {
         "nsfwLoraStrengthSystemPrompt",
         "nsfwAutoDetectAppearanceSystemPrompt",
         "nsfwAutoSelectOptionsSystemPrompt",
+        "nanoBananaModelPromptEnhancerSystem",
+        "nanoBananaModelPromptEnhancerUserWrapper",
       ],
     });
   } catch (error) {

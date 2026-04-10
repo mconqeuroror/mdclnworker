@@ -5,6 +5,7 @@ import {
   generateReferenceImage,
   generateModelPosesFromReference,
   buildModelPosesPrompts,
+  optimizeModelPosesPromptBundle,
   isExplicitContentError,
 } from "../services/wavespeed.service.js";
 import { generateImageWithNanoBananaKie, getKieCallbackUrl } from "../services/kie.service.js";
@@ -1060,7 +1061,31 @@ export async function generateAIModelPoses(req, res) {
       bodyType: bodyType || "",
       heritage: heritage || "",
     };
-    const { selfiePrompt, portraitPrompt, fullBodyPrompt } = buildModelPosesPrompts(referenceUrl, posesOptions);
+    const debugPromptsRequested =
+      req.user?.role === "admin" &&
+      (req.query?.debugPrompts === "1" ||
+        req.query?.debugPrompts === "true" ||
+        req.body?.debugPrompts === true);
+    const prebuiltPrompts = buildModelPosesPrompts(referenceUrl, posesOptions);
+    const {
+      selfiePrompt,
+      portraitPrompt,
+      fullBodyPrompt,
+    } = await optimizeModelPosesPromptBundle(prebuiltPrompts);
+    const promptDebug = debugPromptsRequested
+      ? {
+          raw: {
+            selfiePrompt: prebuiltPrompts.selfiePrompt,
+            portraitPrompt: prebuiltPrompts.portraitPrompt,
+            fullBodyPrompt: prebuiltPrompts.fullBodyPrompt,
+          },
+          optimized: {
+            selfiePrompt,
+            portraitPrompt,
+            fullBodyPrompt,
+          },
+        }
+      : null;
 
     // Create in processing state; callback marks done only after mirror+save.
     const model = await prisma.savedModel.create({
@@ -1079,6 +1104,7 @@ export async function generateAIModelPoses(req, res) {
           selfiePrompt,
           portraitPrompt,
           fullBodyPrompt,
+          ...(promptDebug ? { promptDebug } : {}),
           posesOptions,
           generatedAt: new Date().toISOString(),
           userId,
@@ -1121,6 +1147,7 @@ export async function generateAIModelPoses(req, res) {
                 selfiePrompt,
                 portraitPrompt,
                 fullBodyPrompt,
+                ...(promptDebug ? { promptDebug } : {}),
                 posesOptions,
                 photo1TaskId: taskId,
                 generatedAt: new Date().toISOString(),
@@ -1150,6 +1177,7 @@ export async function generateAIModelPoses(req, res) {
       success: true,
       modelStatus: "processing",
       message: `AI Model "${name}" is processing.`,
+      ...(promptDebug ? { promptDebug } : {}),
       model: {
         id: model.id,
         name: model.name,
