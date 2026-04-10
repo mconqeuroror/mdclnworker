@@ -2881,6 +2881,22 @@ function buildGenerationPrompt(
   return finalPrompt;
 }
 
+function applyNanoBananaPromptGuardrails(promptText, userPrompt = "") {
+  const base = String(promptText || "").trim();
+  const request = String(userPrompt || "").toLowerCase();
+  const selfieRequested = /\bselfie\b|\bselfi\b|\bpov\b/.test(request);
+  const guardrails = [
+    "Preserve user request intent exactly and keep model identity locked to the reference images with no drift.",
+    "Make the photo visually exceptional and unique, but still believable and photorealistic.",
+  ];
+  if (selfieRequested) {
+    guardrails.push(
+      "Selfie framing must be true self-capture: palm/arm-length first-person POV, front-facing camera vibe, no second photographer, no phone/device visible in hand, and no mirror unless explicitly requested by the user.",
+    );
+  }
+  return `${base} ${guardrails.join(" ")}`.trim();
+}
+
 // Prompt-based image: Seedream 4.5 Edit (WaveSpeed) for spicy/uncensored; Nano Banana (KIE) for casual.
 
 export async function generatePromptBasedImage(req, res) {
@@ -2981,7 +2997,10 @@ export async function generatePromptBasedImage(req, res) {
     const basePrompt = useCustomPrompt
       ? `Using reference images ${requiredReferenceCount === 2 ? "1 and 2" : "1, 2, and 3"} as identity reference for the person's face and features. Create a photo of this exact same person: ${prompt.trim()}. Keep the exact same face, facial features, hair color, eye color from the reference images. High quality, photorealistic.`
       : buildGenerationPrompt(prompt, style, contentRating, requiredReferenceCount);
-    const finalPrompt = (appearancePrefix || "") + basePrompt;
+    let finalPrompt = (appearancePrefix || "") + basePrompt;
+    if (!useSeedream) {
+      finalPrompt = applyNanoBananaPromptGuardrails(finalPrompt, prompt);
+    }
 
     const aiModel = useSeedream ? "wavespeed-seedream-v4.5-edit" : "kie-nano-banana-pro";
     console.log(`\n${useSeedream ? "🌙" : "🍌"} PROMPT-BASED GENERATION (${useSeedream ? "WaveSpeed Seedream 4.5 Edit" : "KIE Nano Banana Pro"})`);

@@ -31,6 +31,19 @@ function portraitSubjectAgeGender(age, genderText) {
   return { article: "a", subject: `${years} ${genderText}` };
 }
 
+function renderPromptTemplate(template, vars = {}) {
+  let out = String(template || "");
+  for (const [k, v] of Object.entries(vars)) {
+    out = out.split(`{{${k}}}`).join(String(v ?? ""));
+  }
+  return out
+    .replace(/\s+,/g, ",")
+    .replace(/,\s*,+/g, ", ")
+    .replace(/\s{2,}/g, " ")
+    .replace(/(^,\s*|\s*,\s*$)/g, "")
+    .trim();
+}
+
 const WAVESPEED_API_KEY = process.env.WAVESPEED_API_KEY;
 const WAVESPEED_API_URL = "https://api.wavespeed.ai/api/v3";
 
@@ -78,11 +91,21 @@ Best-practice rules (strict):
 5) Keep instructions internally consistent (no conflicting camera/light directives).
 6) Preserve all identity/reference constraints exactly (especially "Using image X as identity reference..." style requirements).
 7) Keep output concise, production-ready, and free of meta text.
+8) When operation is ai-model-reference, prioritize a thumb-stopping, stunning, unique but believable real-world portrait that feels premium and cinematic, not generic AI.
+9) For ai-model-reference, prefer specific grounded scenarios and candid realism cues (for example: authentic selfie at a gas station at blue hour, street reflections, practical lighting, natural skin detail) while staying tasteful and realistic.
+10) For ai-model-reference, explicitly push for masterpiece-level visual quality: exceptional composition, premium color grading, high fidelity skin texture, and camera realism.
 
 Output format:
 - Return only the final prompt text.
 - No markdown, no bullets, no commentary.`;
   systemPrompt = await getPromptTemplateValue("nanoBananaModelPromptEnhancerSystem", systemPrompt);
+  systemPrompt = `${systemPrompt}
+
+Non-negotiable reference-photo quality policy:
+- If operation is ai-model-reference, optimize for a stunning, unique, masterpiece-grade yet believable photo.
+- Avoid generic "AI look"; enforce grounded realism, natural skin texture, plausible lighting, and authentic camera feel.
+- Prefer specific real-world scenario direction for distinctiveness (for example: candid gas station selfie at blue hour), while keeping output tasteful and photorealistic.
+- If operation is ai-model-selfie, enforce true self-capture framing: palm/arm-length first-person selfie POV, no second photographer, no visible phone/device in hand, and no mirror unless explicitly requested.`;
 
   const defaultWrapper = `Rewrite this Nano Banana prompt using best practices while preserving all mandatory identity and reference constraints.
 
@@ -936,22 +959,38 @@ async function generateReferenceImage(params, opts = {}) {
     // Realistic skin texture - visible pores but no acne
     const skinTexture = "natural skin texture with visible pores, clear skin without acne, healthy glowing skin";
     
-    const basePrompt = [
-      `beautiful portrait photo of ${article} ${subject}`,
-      heritageText,
-      faceTypeText,
-      hairText,
-      eyeColor ? `and ${eyeColor} eyes` : "",
-      lipText,
-      bodyTypeText,
-      styleText,
-      savedAppearanceText,
-      referencePrompt ? referencePrompt : "",
+    const defaultBaseTemplate = [
+      "beautiful portrait photo of {{ARTICLE}} {{SUBJECT}}",
+      "{{HERITAGE_TEXT}}",
+      "{{FACE_TYPE_TEXT}}",
+      "{{HAIR_TEXT}}",
+      "{{EYE_TEXT}}",
+      "{{LIP_TEXT}}",
+      "{{BODY_TYPE_TEXT}}",
+      "{{STYLE_TEXT}}",
+      "{{SAVED_APPEARANCE_TEXT}}",
+      "{{REFERENCE_PROMPT}}",
       "high quality, detailed face, clear features, photorealistic, attractive",
-      skinTexture,
-    ]
-      .filter(Boolean)
-      .join(", ");
+      "{{SKIN_TEXTURE}}",
+    ].join(", ");
+    const baseTemplate = await getPromptTemplateValue(
+      "nanoBananaModelReferenceBasePrompt",
+      defaultBaseTemplate,
+    );
+    const basePrompt = renderPromptTemplate(baseTemplate, {
+      ARTICLE: article,
+      SUBJECT: subject,
+      HERITAGE_TEXT: heritageText,
+      FACE_TYPE_TEXT: faceTypeText,
+      HAIR_TEXT: hairText,
+      EYE_TEXT: eyeColor ? `and ${eyeColor} eyes` : "",
+      LIP_TEXT: lipText,
+      BODY_TYPE_TEXT: bodyTypeText,
+      STYLE_TEXT: styleText,
+      SAVED_APPEARANCE_TEXT: savedAppearanceText,
+      REFERENCE_PROMPT: referencePrompt || "",
+      SKIN_TEXTURE: skinTexture,
+    });
 
     console.log(`\nðŸ“ Generated base prompt: ${basePrompt}`);
 
@@ -1049,89 +1088,11 @@ async function generateModelPosesFromReference(
     console.log(`ðŸ“¸ Reference Image: ${referenceImageUrl}`);
     console.log(`ðŸ“‹ Options:`, options);
 
-    const {
-      posesPrompt,
-      outfitType,
-      poseStyle,
-      gender,
-      age,
-      bodyType,
-      heritage,
-      hairColor,
-      hairLength,
-      hairTexture,
-      eyeColor,
-      lipSize,
-      faceType,
-      style,
-    } = options;
-
-    // Outfit type mappings
-    const outfitPrompts = {
-      lingerie: "wearing elegant lingerie",
-      swimwear: "wearing stylish swimwear",
-      bodysuit: "wearing fitted bodysuit",
-      dress: "wearing elegant form-fitting dress",
-      casual: "wearing casual attractive outfit",
-      fitness: "wearing athletic fitness wear",
-      glamour: "wearing glamorous outfit",
-      nude_artistic: "artistic nude, tasteful positioning",
-    };
-
-    // Pose style mappings
-    const poseStylePrompts = {
-      seductive: "seductive pose, alluring expression, confident",
-      playful: "playful flirty pose, fun expression",
-      elegant: "elegant sophisticated pose, graceful",
-      confident: "confident powerful pose, strong presence",
-      natural: "natural relaxed pose, genuine expression",
-      sensual: "sensual pose, intimate mood, soft lighting",
-    };
-
-    const outfitText = outfitPrompts[outfitType] || "wearing stylish outfit";
-    const poseStyleText =
-      poseStylePrompts[poseStyle] || poseStylePrompts["seductive"];
-    const customPrompt = posesPrompt || "";
-
-    // Build base enhancement for all poses
-    const baseEnhancement = [outfitText, poseStyleText, customPrompt]
-      .filter(Boolean)
-      .join(", ");
-
-    const profileDescriptors = [
-      gender ? `${gender} adult` : "",
-      safeAgeYearsFragmentForImagePrompt(age),
-      heritage ? `${heritage} heritage` : "",
-      faceType ? `${faceType} face shape and facial features` : "",
-      hairLength || hairTexture || hairColor
-        ? `${[hairLength, hairTexture, hairColor].filter(Boolean).join(" ")} hair`
-        : "",
-      eyeColor ? `${eyeColor} eyes` : "",
-      lipSize ? `${lipSize} lips` : "",
-      style ? `${style} makeup/style` : "",
-    ]
-      .filter(Boolean)
-      .join(", ");
-
-    const bodyDescriptorMap = {
-      slim: "slim proportions, lean physique",
-      athletic: "athletic proportions, toned physique",
-      curvy: "curvy proportions, fuller bust and hips",
-      petite: "petite frame, compact proportions",
-      hourglass: "hourglass proportions, defined waist with fuller bust and hips",
-      muscular: "muscular proportions, strong physique",
-    };
-    const bodyDescriptor =
-      bodyDescriptorMap[bodyType] || "balanced realistic body proportions";
-
-    const characterDescriptor = [profileDescriptors, poseStyleText]
-      .filter(Boolean)
-      .join(", ");
-
     // STEP 1: Generate close-up selfie using kie.ai Nano Banana Pro
     // Pass reference image for identity guidance
     console.log("\nðŸ“ STEP 1/3: Generating close-up selfie (kie.ai Nano Banana Pro)...");
-    const selfiePromptRaw = `Using image 1 as identity reference, create a close-up selfie of this exact same person. ${profileDescriptors ? `Person description: ${profileDescriptors}.` : ""} Keep the exact same face, facial features, hair color, eye color. Front facing camera, attractive selfie pose, alluring expression, no phone or hands visible. ${baseEnhancement}. High quality, photorealistic, natural skin texture with visible pores, clear skin without acne.`;
+    const prebuiltPrompts = await buildModelPosesPrompts(referenceImageUrl, options);
+    const selfiePromptRaw = prebuiltPrompts.selfiePrompt;
     const selfiePrompt = await optimizeNanoBananaPrompt(selfiePromptRaw, {
       operation: "ai-model-selfie",
       aspectRatio: "1:1",
@@ -1159,20 +1120,8 @@ async function generateModelPosesFromReference(
     // Generating concurrently halves elapsed time vs sequential.
     console.log("[poses] Steps 2+3: portrait and full body in parallel (nano-banana-pro)...");
 
-    const portraitPromptRaw = `Using images 1 and 2 as identity reference, create a 3/4 angle portrait of this exact same person. ${profileDescriptors ? `Person description: ${profileDescriptors}.` : ""} Keep the exact same face, facial features, hair color, eye color from the reference images. Captivating look, studio lighting. ${baseEnhancement}. High quality, photorealistic, natural skin texture with visible pores, clear skin without acne.`;
-
-    const fullBodyPromptRaw = [
-      "Using images 1 and 2 as identity references, create a full body photo of the same person.",
-      "Preserve exact identity: face structure, skin tone, hairline, eye shape and key facial details from references.",
-      `Outfit/clothing: ${outfitText}.`,
-      `Body proportions: ${bodyDescriptor}.`,
-      `Character/profile traits: ${characterDescriptor}.`,
-      "Pose/composition: full figure visible from head to toe, natural realistic anatomy, professional lighting.",
-      customPrompt ? `Extra direction: ${customPrompt}.` : "",
-      "Photorealistic, high quality details, natural skin texture.",
-    ]
-      .filter(Boolean)
-      .join(" ");
+    const portraitPromptRaw = prebuiltPrompts.portraitPrompt;
+    const fullBodyPromptRaw = prebuiltPrompts.fullBodyPrompt;
     const [portraitPrompt, fullBodyPrompt] = await Promise.all([
       optimizeNanoBananaPrompt(portraitPromptRaw, {
         operation: "ai-model-portrait",
@@ -1804,7 +1753,7 @@ async function submitNsfwVideoExtend(videoUrl, prompt, options = {}) {
  * Returns pre-computed prompts so they can be stored and reused across callback hops.
  * Does NOT call any AI APIs — just pure prompt construction.
  */
-export function buildModelPosesPrompts(referenceImageUrl, options = {}) {
+export async function buildModelPosesPrompts(referenceImageUrl, options = {}) {
   const {
     posesPrompt,
     outfitType,
@@ -1870,20 +1819,58 @@ export function buildModelPosesPrompts(referenceImageUrl, options = {}) {
 
   const characterDescriptor = [profileDescriptors, poseStyleText].filter(Boolean).join(", ");
 
-  const selfiePrompt = `Using image 1 as identity reference, create a close-up selfie of this exact same person. ${profileDescriptors ? `Person description: ${profileDescriptors}.` : ""} Keep the exact same face, facial features, hair color, eye color. Front facing camera, attractive selfie pose, alluring expression, no phone or hands visible. ${baseEnhancement}. High quality, photorealistic, natural skin texture with visible pores, clear skin without acne.`;
+  const profileSentence = profileDescriptors
+    ? `Person description: ${profileDescriptors}.`
+    : "";
+  const extraDirection = customPrompt ? `Extra direction: ${customPrompt}.` : "";
 
-  const portraitPrompt = `Using images 1 and 2 as identity reference, create a 3/4 angle portrait of this exact same person. ${profileDescriptors ? `Person description: ${profileDescriptors}.` : ""} Keep the exact same face, facial features, hair color, eye color from the reference images. Captivating look, studio lighting. ${baseEnhancement}. High quality, photorealistic, natural skin texture with visible pores, clear skin without acne.`;
-
-  const fullBodyPrompt = [
+  const defaultSelfieTemplate = [
+    "Using image 1 as identity reference, create a close-up selfie of this exact same person.",
+    "{{PROFILE_SENTENCE}}",
+    "Keep the exact same face, facial features, hair color, eye color.",
+    "True self-captured palm/arm-length first-person selfie POV, front-facing camera vibe, attractive selfie pose, alluring expression, no second photographer, no visible phone/device in hand, no mirror reflection.",
+    "{{BASE_ENHANCEMENT}}.",
+    "High quality, photorealistic, natural skin texture with visible pores, clear skin without acne.",
+  ].join(" ");
+  const defaultPortraitTemplate = [
+    "Using images 1 and 2 as identity reference, create a 3/4 angle portrait of this exact same person.",
+    "{{PROFILE_SENTENCE}}",
+    "Keep the exact same face, facial features, hair color, eye color from the reference images.",
+    "Captivating look, studio lighting.",
+    "{{BASE_ENHANCEMENT}}.",
+    "High quality, photorealistic, natural skin texture with visible pores, clear skin without acne.",
+  ].join(" ");
+  const defaultFullBodyTemplate = [
     "Using images 1 and 2 as identity references, create a full body photo of the same person.",
     "Preserve exact identity: face structure, skin tone, hairline, eye shape and key facial details from references.",
-    `Outfit/clothing: ${outfitText}.`,
-    `Body proportions: ${bodyDescriptor}.`,
-    `Character/profile traits: ${characterDescriptor}.`,
+    "Outfit/clothing: {{OUTFIT_TEXT}}.",
+    "Body proportions: {{BODY_DESCRIPTOR}}.",
+    "Character/profile traits: {{CHARACTER_DESCRIPTOR}}.",
     "Pose/composition: full figure visible from head to toe, natural realistic anatomy, professional lighting.",
-    customPrompt ? `Extra direction: ${customPrompt}.` : "",
+    "{{EXTRA_DIRECTION}}",
     "Photorealistic, high quality details, natural skin texture.",
-  ].filter(Boolean).join(" ");
+  ].join(" ");
+
+  const [selfieTemplate, portraitTemplate, fullBodyTemplate] = await Promise.all([
+    getPromptTemplateValue("nanoBananaModelSelfieBasePrompt", defaultSelfieTemplate),
+    getPromptTemplateValue(
+      "nanoBananaModelPortraitBasePrompt",
+      defaultPortraitTemplate,
+    ),
+    getPromptTemplateValue("nanoBananaModelFullBodyBasePrompt", defaultFullBodyTemplate),
+  ]);
+
+  const templateVars = {
+    PROFILE_SENTENCE: profileSentence,
+    BASE_ENHANCEMENT: baseEnhancement,
+    OUTFIT_TEXT: outfitText,
+    BODY_DESCRIPTOR: bodyDescriptor,
+    CHARACTER_DESCRIPTOR: characterDescriptor,
+    EXTRA_DIRECTION: extraDirection,
+  };
+  const selfiePrompt = renderPromptTemplate(selfieTemplate, templateVars);
+  const portraitPrompt = renderPromptTemplate(portraitTemplate, templateVars);
+  const fullBodyPrompt = renderPromptTemplate(fullBodyTemplate, templateVars);
 
   return {
     referenceImageUrl,

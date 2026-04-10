@@ -460,8 +460,7 @@ router.get("/prompt-templates", async (_req, res) => {
         "soulxZImageTurbo",
         "nsfwPromptGenerator",
         "analyzeLooksSystemPrompt",
-        "enhancePromptCasualSystem",
-        "enhancePromptUltraRealismSystem",
+        "enhancePromptNanoBananaSystem",
         "enhancePromptNsfwSystem",
         "nudesPackPromptGeneratorSystem",
         "nudesPackPromptGeneratorUserWrapper",
@@ -474,6 +473,10 @@ router.get("/prompt-templates", async (_req, res) => {
         "nsfwAutoSelectOptionsSystemPrompt",
         "nanoBananaModelPromptEnhancerSystem",
         "nanoBananaModelPromptEnhancerUserWrapper",
+        "nanoBananaModelReferenceBasePrompt",
+        "nanoBananaModelSelfieBasePrompt",
+        "nanoBananaModelPortraitBasePrompt",
+        "nanoBananaModelFullBodyBasePrompt",
       ],
     });
   } catch (error) {

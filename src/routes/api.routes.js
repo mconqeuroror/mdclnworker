@@ -1930,7 +1930,10 @@ Core rules:
 5) Add materiality/texture only where relevant (fabric, skin, metal, surfaces).
 6) Keep prompts internally consistent and easy for a single image model to execute.
 7) If modelLooks are provided, treat them as identity-critical and include them naturally.
-8) Return only final prompt text, no headings or explanation.
+8) Preserve user intent exactly; never drift away from requested scene/action/mood.
+9) Make the result visually exceptional and distinctive while still believable and photorealistic.
+10) If the user asks for a selfie, enforce true self-capture framing: palm/arm-length POV, first-person front-camera vibe, no second photographer, no visible phone in hand, no mirror unless explicitly requested.
+11) Return only final prompt text, no headings or explanation.
 
 Suggested structure:
 [Subject + identity details] + [Action/pose] + [Location/context] + [Composition/camera] + [Lighting] + [Style/finish]
@@ -1969,14 +1972,28 @@ Your job: transform a rough user idea into an optimized tag-format superprompt. 
 Tag list, comma-separated. 40–70 tags.`,
     };
 
+    const nanoBananaSharedPrompt = (
+      await getPromptTemplateValue("enhancePromptNanoBananaSystem", NANO_BANANA_SYSTEM)
+    ).trim() || NANO_BANANA_SYSTEM;
+
     systemPrompts = {
       ...systemPrompts,
-      casual: await getPromptTemplateValue("enhancePromptCasualSystem", systemPrompts.casual),
-      "ultra-realism": await getPromptTemplateValue("enhancePromptUltraRealismSystem", systemPrompts["ultra-realism"]),
+      // One shared Nano Banana system prompt for both casual + ultra-realism.
+      casual: nanoBananaSharedPrompt,
+      "ultra-realism": nanoBananaSharedPrompt,
       nsfw: await getPromptTemplateValue("enhancePromptNsfwSystem", systemPrompts.nsfw),
     };
 
-    const systemPrompt = systemPrompts[mode] || systemPrompts.casual;
+    const systemPromptBase = systemPrompts[mode] || systemPrompts.casual;
+    const nanoBananaNonNegotiables = `
+NON-NEGOTIABLE QUALITY + CONSISTENCY POLICY:
+- Keep all user-requested details and modelLooks constraints intact; do not add conflicting changes.
+- Improve quality with realistic, specific composition/light details, but never change the core idea.
+- For selfie requests: enforce palm/arm-length first-person selfie POV, no second-person photographer, no phone held in hand, and no mirror unless user explicitly asks for mirror selfie.`;
+    const systemPrompt =
+      mode === "casual" || mode === "ultra-realism"
+        ? `${systemPromptBase}\n${nanoBananaNonNegotiables}`
+        : systemPromptBase;
 
     const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
     if (!OPENROUTER_API_KEY) {
@@ -3111,16 +3128,27 @@ Generate the optimized prompt now.`;
 router.get("/modelclone-x/config", authMiddleware, async (_req, res) => {
   try {
     const pricing = await getGenerationPricing();
+    const toCredits = (value, fallback) => {
+      const n = Number(value);
+      return Number.isFinite(n) ? n : fallback;
+    };
+    const trainingStandard = toCredits(pricing.loraTrainingStandard, 750);
+    const trainingPro = toCredits(pricing.loraTrainingPro, 1500);
     return res.json({
       success: true,
       pricing: {
-        noModel1: Number(pricing.modelcloneXNoModel1 ?? 10),
-        withModel1: Number(pricing.modelcloneXWithModel1 ?? 15),
-        noModel2: Number(pricing.modelcloneXNoModel2 ?? 15),
-        withModel2: Number(pricing.modelcloneXWithModel2 ?? 25),
-        extraStepsPer10: Number(pricing.modelcloneXExtraStepsPer10 ?? 5),
-        trainingStandard: Number(pricing.loraTrainingStandard ?? 750),
-        trainingPro: Number(pricing.loraTrainingPro ?? 1500),
+        noModel1: toCredits(pricing.modelcloneXNoModel1, 10),
+        withModel1: toCredits(pricing.modelcloneXWithModel1, 15),
+        noModel2: toCredits(pricing.modelcloneXNoModel2, 15),
+        withModel2: toCredits(pricing.modelcloneXWithModel2, 25),
+        extraStepsPer10: toCredits(pricing.modelcloneXExtraStepsPer10, 5),
+        trainingStandard,
+        trainingPro,
+        // Legacy aliases for older clients expecting LoRA-specific naming.
+        loraTrainingStandard: trainingStandard,
+        loraTrainingPro: trainingPro,
+        standardLoraPrice: trainingStandard,
+        proLoraPrice: trainingPro,
       },
       limits: {
         includedSteps: 20,

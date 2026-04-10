@@ -1066,7 +1066,7 @@ export async function generateAIModelPoses(req, res) {
       (req.query?.debugPrompts === "1" ||
         req.query?.debugPrompts === "true" ||
         req.body?.debugPrompts === true);
-    const prebuiltPrompts = buildModelPosesPrompts(referenceUrl, posesOptions);
+    const prebuiltPrompts = await buildModelPosesPrompts(referenceUrl, posesOptions);
     const {
       selfiePrompt,
       portraitPrompt,
@@ -1689,14 +1689,14 @@ export async function generateAdvancedModel(req, res) {
 
     const PHOTO_ASPECTS    = ["1:1", "3:4", "9:16"];
     const PHOTO_PREFIXES   = [
-      "Close-up selfie portrait of this person.",
-      "Portrait photo of this person from a slightly different angle.",
-      "Full body shot of this person.",
+      "Close-up selfie portrait of this person, true self-captured palm/arm-length first-person POV, no second photographer, no phone/device visible in hand, no mirror reflection.",
+      "Portrait photo of this person from a slightly different angle, striking and unique but still grounded in reality.",
+      "Full body shot of this person, visually distinctive and premium while staying photorealistic.",
     ];
     const PHOTO_SUFFIXES   = [
-      "High quality, clear face, well-lit, natural skin texture.",
-      "Natural expression, professional photography, soft lighting.",
-      "Shows full figure, professional photography, good lighting, natural pose.",
+      "Masterpiece-grade quality, clear face, realistic natural skin texture, believable camera realism and cinematic lighting.",
+      "Natural expression, professional photography, premium color grading, realistic skin detail, no identity drift from references.",
+      "Shows full figure, professional photography, believable anatomy, premium lighting, natural pose, no identity drift from references.",
     ];
     const BLENDED_IDENTITY = "Synthesize a NEW fictional person by blending traits from the reference images. Do NOT exactly recreate any real person from the references. Keep one consistent synthesized identity across all generated shots.";
 
