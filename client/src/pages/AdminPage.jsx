@@ -622,6 +622,10 @@ export default function AdminPage() {
   const [lostGenResult, setLostGenResult] = useState(null);
   const [lostGenAllLoading, setLostGenAllLoading] = useState(false);
   const [lostGenAllResult, setLostGenAllResult] = useState(null);
+  const [voiceHostingDue, setVoiceHostingDue] = useState(null);
+  const [voiceHostingDueLoading, setVoiceHostingDueLoading] = useState(false);
+  const [voiceHostingRunUserId, setVoiceHostingRunUserId] = useState('');
+  const [voiceHostingRunLoading, setVoiceHostingRunLoading] = useState(false);
   const [newReelUsername, setNewReelUsername] = useState('');
   const [bulkReelUsernames, setBulkReelUsernames] = useState('');
   const [clearReelsLoading, setClearReelsLoading] = useState(false);
@@ -1353,6 +1357,68 @@ export default function AdminPage() {
       toast.error(msg);
     } finally {
       setLostGenLoading(false);
+    }
+  };
+
+  const handleVoiceHostingDue = async () => {
+    setVoiceHostingDueLoading(true);
+    try {
+      const r = await adminAPI.getVoiceHostingDue();
+      setVoiceHostingDue(r);
+      if (r?.success) {
+        toast.success(`Voice hosting due: ${r.totalDueItems ?? 0} row(s), ${r.distinctUsers ?? 0} user(s)`);
+      } else {
+        toast.error(r?.message || 'Failed to load report');
+      }
+    } catch (e) {
+      toast.error(e?.response?.data?.message || 'Failed to load voice hosting report');
+    } finally {
+      setVoiceHostingDueLoading(false);
+    }
+  };
+
+  const handleVoiceHostingRunAll = async () => {
+    setVoiceHostingRunLoading(true);
+    try {
+      const r = await adminAPI.runVoiceHostingBilling({});
+      if (r?.success) {
+        const s = r.summary || {};
+        toast.success(
+          `Voice billing (all): ${s.users ?? 0} users, ${s.totalChargedCredits ?? 0} cr charged, ${s.totalSuspendedVoices ?? 0} suspended`,
+        );
+        await handleVoiceHostingDue();
+      } else {
+        toast.error(r?.message || 'Run failed');
+      }
+    } catch (e) {
+      toast.error(e?.response?.data?.message || 'Run failed');
+    } finally {
+      setVoiceHostingRunLoading(false);
+    }
+  };
+
+  const handleVoiceHostingRunUser = async () => {
+    const uid = voiceHostingRunUserId.trim();
+    if (!uid) {
+      toast.error('Enter User ID for single-user billing, or use “Run billing (all users)”.');
+      return;
+    }
+    setVoiceHostingRunLoading(true);
+    try {
+      const r = await adminAPI.runVoiceHostingBilling({ userId: uid });
+      if (r?.success) {
+        const res = r.result || {};
+        toast.success(
+          `Voice billing (user): ${res.charged ?? 0} cr charged, ${res.suspended ?? 0} voice(s) suspended`,
+        );
+        await handleVoiceHostingDue();
+      } else {
+        toast.error(r?.message || 'Run failed');
+      }
+    } catch (e) {
+      toast.error(e?.response?.data?.message || 'Run failed');
+    } finally {
+      setVoiceHostingRunLoading(false);
     }
   };
 
@@ -2956,6 +3022,83 @@ export default function AdminPage() {
                 </div>
               )}
             </div>
+          )}
+        </Section>
+
+        {/* ── Voice hosting (custom ElevenLabs voices) ─────────────────────── */}
+        <Section>
+          <SectionHeader title="Voice hosting (monthly)" />
+          <p className="text-xs text-gray-500 mb-3">
+            Rows past the ~30-day window (same logic as automatic billing). Refresh lists who is due; Run charges credits or suspends voices when balance is insufficient.
+          </p>
+          <div className="flex flex-wrap items-center gap-2 mb-3">
+            <GhostBtn onClick={handleVoiceHostingDue} disabled={voiceHostingDueLoading}>
+              {voiceHostingDueLoading ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Search className="w-3 h-3" />}
+              Refresh due list
+            </GhostBtn>
+            <input
+              type="text"
+              value={voiceHostingRunUserId}
+              onChange={(e) => setVoiceHostingRunUserId(e.target.value)}
+              placeholder="User ID (for single-user run only)"
+              className="px-3 py-2 rounded-lg border border-white/[0.07] bg-white/[0.03] text-xs font-mono min-w-[220px] flex-1 max-w-md focus:border-white/20 outline-none transition"
+            />
+            <PrimaryBtn onClick={handleVoiceHostingRunUser} disabled={voiceHostingRunLoading}>
+              {voiceHostingRunLoading ? (
+                <div className="w-3 h-3 border border-black/30 border-t-black rounded-full animate-spin" />
+              ) : (
+                <Zap className="w-3 h-3" />
+              )}
+              Run billing (user)
+            </PrimaryBtn>
+            <PrimaryBtn onClick={handleVoiceHostingRunAll} disabled={voiceHostingRunLoading}>
+              {voiceHostingRunLoading ? (
+                <div className="w-3 h-3 border border-black/30 border-t-black rounded-full animate-spin" />
+              ) : (
+                <RefreshCw className="w-3 h-3" />
+              )}
+              Run billing (all users)
+            </PrimaryBtn>
+          </div>
+          {voiceHostingDue?.success && (
+            <p className="text-[11px] text-gray-500 mb-2">
+              Cutoff {voiceHostingDue.cutoffAt} · {voiceHostingDue.voiceMonthlyCredits} cr/voice ·{' '}
+              <span className="text-gray-300">{voiceHostingDue.totalDueItems}</span> due rows ·{' '}
+              <span className="text-gray-300">{voiceHostingDue.distinctUsers}</span> users
+            </p>
+          )}
+          {voiceHostingDue?.success && Array.isArray(voiceHostingDue.items) && voiceHostingDue.items.length > 0 && (
+            <div className="max-h-60 overflow-auto rounded-lg border border-white/[0.07] text-[11px]">
+              <table className="w-full text-left">
+                <thead className="sticky top-0 bg-zinc-950/95 text-gray-400 backdrop-blur">
+                  <tr>
+                    <th className="p-2">User</th>
+                    <th className="p-2">Email</th>
+                    <th className="p-2">Kind</th>
+                    <th className="p-2">Ids</th>
+                    <th className="p-2">Last billed</th>
+                    <th className="p-2">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {voiceHostingDue.items.map((row, i) => (
+                    <tr key={`${row.kind}-${row.voiceId || ''}-${row.modelId || ''}-${i}`} className="border-t border-white/[0.05] text-gray-300">
+                      <td className="p-2 font-mono break-all">{row.userId}</td>
+                      <td className="p-2 text-gray-500 break-all max-w-[140px]">{row.email || '—'}</td>
+                      <td className="p-2">{row.kind}</td>
+                      <td className="p-2 font-mono break-all text-[10px] text-gray-500 max-w-[200px]" title={row.kind === 'modelVoice' ? row.voiceId : row.modelId}>
+                        {row.kind === 'modelVoice' ? row.voiceId : row.modelId}
+                      </td>
+                      <td className="p-2 text-gray-500 whitespace-nowrap">{row.lastBilledAt ? fmtDate(row.lastBilledAt) : '—'}</td>
+                      <td className="p-2">{row.billingStatus}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {voiceHostingDue?.success && voiceHostingDue.totalDueItems === 0 && (
+            <p className="text-xs text-gray-500">No rows due (or press Refresh).</p>
           )}
         </Section>
 

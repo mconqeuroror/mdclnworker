@@ -11,6 +11,11 @@ import {
   resolveSubscriptionBillingCycle,
 } from "../utils/creditUnits.js";
 import { rolloverSubPoolToPurchasedUpdate } from "../services/credit.service.js";
+import {
+  listVoiceHostingDueReport,
+  runMonthlyVoiceBillingForUser,
+  runMonthlyVoiceBillingForAllUsers,
+} from "../services/voice-monthly-billing.service.js";
 
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY || process.env.TESTING_STRIPE_SECRET_KEY;
 
@@ -2780,9 +2785,28 @@ export async function createUserApiKey(req, res) {
   try {
     const { id: userId } = req.params;
     const { name, corsOrigins } = req.body || {};
-    const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, email: true } });
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        subscriptionTier: true,
+        subscriptionStatus: true,
+      },
+    });
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found" });
+    }
+    const tier = String(user.subscriptionTier || "").toLowerCase();
+    const subStatus = String(user.subscriptionStatus || "").toLowerCase();
+    const subscriptionActive = ["active", "trialing"].includes(subStatus);
+    if (tier !== "business" || !subscriptionActive) {
+      return res.status(403).json({
+        success: false,
+        code: "API_KEY_REQUIRES_BUSINESS_PLAN",
+        message:
+          "API keys require an active Business plan (subscription status active or trialing). Upgrade the account or adjust subscription in admin before issuing keys.",
+      });
     }
     const plain = `mcl_${randomBytes(32).toString("base64url")}`;
     const keyPrefix = plain.slice(0, 16);
@@ -2818,6 +2842,43 @@ export async function createUserApiKey(req, res) {
   } catch (error) {
     console.error("createUserApiKey error:", error);
     return res.status(500).json({ success: false, message: "Server error" });
+  }
+}
+
+export async function getVoiceHostingDue(req, res) {
+  try {
+    const report = await listVoiceHostingDueReport();
+    return res.json({ success: true, ...report });
+  } catch (error) {
+    console.error("getVoiceHostingDue error:", error);
+    return res.status(500).json({ success: false, message: error.message || "Failed to load voice hosting report" });
+  }
+}
+
+/**
+ * POST body: { userId?: string } — if userId set, bill that user only; otherwise all users with voices.
+ */
+export async function postVoiceHostingRunBilling(req, res) {
+  try {
+    const userId = req.body?.userId != null ? String(req.body.userId).trim() : "";
+    if (userId) {
+      const result = await runMonthlyVoiceBillingForUser(userId);
+      return res.json({
+        success: true,
+        scope: "user",
+        userId,
+        result,
+      });
+    }
+    const summary = await runMonthlyVoiceBillingForAllUsers();
+    return res.json({
+      success: true,
+      scope: "all",
+      summary,
+    });
+  } catch (error) {
+    console.error("postVoiceHostingRunBilling error:", error);
+    return res.status(500).json({ success: false, message: error.message || "Voice billing run failed" });
   }
 }
 
@@ -2861,4 +2922,6 @@ export default {
   listUserApiKeys,
   createUserApiKey,
   revokeUserApiKey,
+  getVoiceHostingDue,
+  postVoiceHostingRunBilling,
 };

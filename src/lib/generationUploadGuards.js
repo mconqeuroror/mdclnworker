@@ -61,8 +61,23 @@ function extFromName(originalname) {
   return e.split("?")[0] || "";
 }
 
+/** Stable byte length for multer files (some clients report `size` as 0). */
+export function uploadFileByteLength(file) {
+  if (!file) return 0;
+  const fromField = Number(file.size);
+  const buf = file.buffer;
+  const fromBuf =
+    Buffer.isBuffer(buf) ? buf.length : typeof buf?.byteLength === "number" ? buf.byteLength : 0;
+  if (Number.isFinite(fromField) && fromField > 0) return Math.floor(fromField);
+  return Math.max(0, fromBuf);
+}
+
 function formatMb(bytes) {
-  return `${(bytes / (1024 * 1024)).toFixed(bytes % (1024 * 1024) === 0 ? 0 : 1)} MB`;
+  const n = Number(bytes);
+  if (!Number.isFinite(n) || n <= 0) return "0 MB";
+  const mb = n / (1024 * 1024);
+  const dec = mb < 10 ? 2 : 1;
+  return `${mb.toFixed(dec)} MB`;
 }
 
 /**
@@ -112,7 +127,7 @@ export function validateGenerationUploadSync(file, profile = "default") {
 
   const mime = String(file.mimetype || "").toLowerCase().split(";")[0].trim();
   const ext = extFromName(file.originalname);
-  const size = file.size || file.buffer.length;
+  const size = uploadFileByteLength(file);
 
   if (profile === "modelPhoto") {
     const extOk = ext && MODEL_PHOTO_EXT.has(ext);

@@ -211,6 +211,8 @@ import {
   listUserApiKeys,
   createUserApiKey,
   revokeUserApiKey,
+  getVoiceHostingDue,
+  postVoiceHostingRunBilling,
 } from "../controllers/admin.controller.js";
 import jwt from "jsonwebtoken";
 import { authMiddleware, setAuthCookie, setRefreshCookie } from "../middleware/auth.middleware.js";
@@ -1116,6 +1118,8 @@ router.post("/admin/subscriptions/reconcile", authMiddleware, adminMiddleware, r
 router.post("/admin/subscriptions/refills/audit", authMiddleware, adminMiddleware, auditSubscriptionRefills);
 router.post("/admin/subscriptions/refills/reconcile", authMiddleware, adminMiddleware, reconcileSubscriptionRefills);
 router.post("/admin/referrals/reconcile", authMiddleware, adminMiddleware, reconcileReferralCommissions);
+router.get("/admin/voice-hosting/due", authMiddleware, adminMiddleware, getVoiceHostingDue);
+router.post("/admin/voice-hosting/run", authMiddleware, adminMiddleware, postVoiceHostingRunBilling);
 router.post(
   "/admin/credits/add",
   authMiddleware,
@@ -2355,14 +2359,21 @@ router.post(
 // Handle Multer upload limits and file filter errors with explicit message + solution.
 router.use((err, _req, res, next) => {
   if (err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE") {
-    const msg = `This file exceeds the maximum upload size (${formatBlobUploadMaxForMessage()}). Set BLOB_CLIENT_UPLOAD_MAX_BYTES to match your Vercel Blob limit.`;
+    const maxLabel = formatBlobUploadMaxForMessage();
+    const maxBytes = getBlobClientUploadMaxBytes();
+    const msg =
+      `Upload rejected: larger than the server limit of ${maxLabel}. ` +
+      `That value is the maximum allowed — not your file’s size. ` +
+      `If your photo looks small on disk, HEIC/MOV→JPEG/MP4 conversion in the browser or a very large PNG often produces a much bigger upload; try a smaller JPEG export.`;
     return res.status(413).json({
       success: false,
       code: "FILE_TOO_LARGE",
       message: msg,
       error: msg,
+      maxUploadBytes: maxBytes,
+      maxUploadLabel: maxLabel,
       solution:
-        "Compress, shorten, or lower resolution in an editor, then upload again.",
+        "Resize or re-export as JPEG, or raise BLOB_CLIENT_UPLOAD_MAX_BYTES if your Blob/storage plan allows a higher cap.",
     });
   }
   if (

@@ -99,7 +99,14 @@ export default function FileUpload({ type = 'image', onUpload, preview, large, a
       });
       toast.success('Upload complete!');
     } catch (error) {
-      if (!error?.isAutoConvertFailed) toast.error('Upload failed');
+      if (!error?.isAutoConvertFailed) {
+        const msg =
+          error?.message ||
+          error?.response?.data?.message ||
+          error?.response?.data?.error ||
+          'Upload failed';
+        toast.error(msg, { duration: 8000 });
+      }
       console.error(error);
     } finally {
       setUploading(false);

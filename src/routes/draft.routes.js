@@ -165,14 +165,20 @@ router.post("/upload", authMiddleware, upload.single("file"), async (req, res) =
 
 router.use((err, _req, res, next) => {
   if (err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE") {
-    const msg = `This file exceeds the maximum upload size (${formatBlobUploadMaxForMessage()}). Set BLOB_CLIENT_UPLOAD_MAX_BYTES to match your provider.`;
+    const maxLabel = formatBlobUploadMaxForMessage();
+    const maxBytes = getBlobClientUploadMaxBytes();
+    const msg =
+      `Upload rejected: larger than the server limit of ${maxLabel}. ` +
+      `That number is the cap — not your file size. HEIC/MOV conversion or huge PNGs often exceed the limit; try a smaller JPEG.`;
     return res.status(413).json({
       success: false,
       code: "FILE_TOO_LARGE",
       message: msg,
       error: msg,
+      maxUploadBytes: maxBytes,
+      maxUploadLabel: maxLabel,
       solution:
-        "Compress, shorten, or lower resolution in an editor, then upload again.",
+        "Resize or export JPEG, or raise BLOB_CLIENT_UPLOAD_MAX_BYTES to match your plan.",
     });
   }
   if (

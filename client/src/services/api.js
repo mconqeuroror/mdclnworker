@@ -849,6 +849,19 @@ export const adminAPI = {
     });
     return response.data;
   },
+  getVoiceHostingDue: async () => {
+    const response = await api.get("/admin/voice-hosting/due");
+    return response.data;
+  },
+  /** Omit userId to run monthly voice hosting billing for every user who has custom voices. */
+  runVoiceHostingBilling: async ({ userId } = {}) => {
+    const response = await api.post("/admin/voice-hosting/run", {
+      ...(userId != null && String(userId).trim() !== ""
+        ? { userId: String(userId).trim() }
+        : {}),
+    });
+    return response.data;
+  },
   auditSubscriptionRefills: async ({
     days = 90,
     userId = "",
@@ -1211,10 +1224,34 @@ async function uploadFileMultipart(file, onProgress) {
   return response.data.url;
 }
 
+function uploadSizeExceededMessage(fileSize, maxBytes, maxLabel) {
+  const maxL =
+    maxLabel ||
+    (Number.isFinite(maxBytes) && maxBytes > 0
+      ? `${(maxBytes / (1024 * 1024)).toFixed(maxBytes >= 10 * 1024 * 1024 ? 0 : 1)} MB`
+      : "the configured limit");
+  const actualMb = fileSize / (1024 * 1024);
+  const actualStr = actualMb < 10 ? actualMb.toFixed(2) : actualMb.toFixed(1);
+  return `This file is about ${actualStr} MB after any conversion; maximum allowed is ${maxL}. HEIC/MOV→JPEG/MP4 in the browser often grows the file—try exporting a smaller JPEG.`;
+}
+
 // File upload: Vercel Blob client upload when configured (provider-enforced size via token).
 // Multipart /upload is dev-only fallback when Blob is not configured (local testing).
 export const uploadFile = async (file, onProgress) => {
   const config = await getUploadConfig();
+  if (
+    config?.maxUploadBytes &&
+    typeof file?.size === "number" &&
+    file.size > config.maxUploadBytes
+  ) {
+    throw new Error(
+      uploadSizeExceededMessage(
+        file.size,
+        config.maxUploadBytes,
+        config.maxUploadLabel,
+      ),
+    );
+  }
   if (config.directToBlob) {
     return uploadFileDirectToBlob(file, onProgress);
   }
