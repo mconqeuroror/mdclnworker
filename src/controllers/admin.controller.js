@@ -1,3 +1,5 @@
+import { randomBytes } from "node:crypto";
+import bcrypt from "bcryptjs";
 import prisma from "../lib/prisma.js";
 import Stripe from "stripe";
 import { recordReferralCommissionFromPayment } from "../services/referral.service.js";
@@ -2741,6 +2743,104 @@ export async function getStripeRevenue(req, res) {
   }
 }
 
+/**
+ * List API keys for a user (admin). Secrets are never returned.
+ */
+export async function listUserApiKeys(req, res) {
+  try {
+    const { id: userId } = req.params;
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+    const keys = await prisma.apiKey.findMany({
+      where: { userId },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        name: true,
+        keyPrefix: true,
+        corsOrigins: true,
+        lastUsedAt: true,
+        createdAt: true,
+        revokedAt: true,
+      },
+    });
+    return res.json({ success: true, keys });
+  } catch (error) {
+    console.error("listUserApiKeys error:", error);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+}
+
+/**
+ * Create API key for user. Plaintext key returned once in `key` field.
+ */
+export async function createUserApiKey(req, res) {
+  try {
+    const { id: userId } = req.params;
+    const { name, corsOrigins } = req.body || {};
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, email: true } });
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+    const plain = `mcl_${randomBytes(32).toString("base64url")}`;
+    const keyPrefix = plain.slice(0, 16);
+    const keyHash = await bcrypt.hash(plain, 12);
+    let corsJson = null;
+    if (corsOrigins != null) {
+      if (typeof corsOrigins === "string") {
+        corsJson = corsOrigins.trim() || null;
+      } else if (Array.isArray(corsOrigins)) {
+        corsJson = JSON.stringify(corsOrigins.map((o) => String(o).trim()).filter(Boolean));
+      }
+    }
+    const row = await prisma.apiKey.create({
+      data: {
+        userId,
+        name: name != null ? String(name).slice(0, 200) : null,
+        keyPrefix,
+        keyHash,
+        corsOrigins: corsJson,
+      },
+    });
+    return res.json({
+      success: true,
+      key: plain,
+      apiKey: {
+        id: row.id,
+        name: row.name,
+        keyPrefix: row.keyPrefix,
+        corsOrigins: row.corsOrigins,
+        createdAt: row.createdAt,
+      },
+    });
+  } catch (error) {
+    console.error("createUserApiKey error:", error);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+}
+
+export async function revokeUserApiKey(req, res) {
+  try {
+    const { id: userId, keyId } = req.params;
+    const existing = await prisma.apiKey.findFirst({
+      where: { id: keyId, userId },
+    });
+    if (!existing) {
+      return res.status(404).json({ success: false, message: "API key not found" });
+    }
+    await prisma.apiKey.update({
+      where: { id: keyId },
+      data: { revokedAt: new Date() },
+    });
+    return res.json({ success: true });
+  } catch (error) {
+    console.error("revokeUserApiKey error:", error);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+}
+
 export default {
   getAllUsers,
   getUserById,
@@ -2758,4 +2858,7 @@ export default {
   syncUserStripeState,
   reconcileAllSubscriptions,
   reconcileReferralCommissions,
+  listUserApiKeys,
+  createUserApiKey,
+  revokeUserApiKey,
 };
