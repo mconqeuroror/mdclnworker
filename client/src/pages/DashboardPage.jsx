@@ -523,10 +523,18 @@ export default function DashboardPage() {
         >
           <div className="px-3 py-1.5">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5">
-                <img src={branding.logoUrl} alt={branding.appName} className="w-7 h-7 rounded-lg object-cover" />
-                <span className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>{branding.appName}</span>
-              </div>
+              <button
+                type="button"
+                className="flex items-center gap-1.5 min-w-0 text-left rounded-lg -m-1 p-1 active:scale-[0.98] transition-transform"
+                onClick={() => {
+                  handleTabChange("home");
+                  setShowMobileMenu(false);
+                }}
+                aria-label={copy.mobileNavDashboard}
+              >
+                <img src={branding.logoUrl} alt="" className="w-7 h-7 rounded-lg object-cover shrink-0" />
+                <span className="text-sm font-bold truncate" style={{ color: "var(--text-primary)" }}>{branding.appName}</span>
+              </button>
               <div className="flex items-center gap-1.5">
                 <button onClick={() => setShowAddCredits(true)}
                   className="flex items-center gap-1 px-2 py-1.5 rounded-lg active:scale-[0.98] transition-all"

@@ -293,9 +293,13 @@ export default function AppSidebar({
         }}
       />
 
-      {/* Logo Section */}
+      {/* Logo Section — always returns to dashboard home (same tab stack as /dashboard) */}
       <div className="p-5 mb-2">
-        <Link to="/dashboard" className={`flex items-center gap-3 hover:opacity-80 transition-opacity ${visuallyCollapsed ? "justify-center" : ""}`}>
+        <Link
+          to="/dashboard"
+          onClick={() => setActiveTab("home")}
+          className={`flex items-center gap-3 hover:opacity-80 transition-opacity ${visuallyCollapsed ? "justify-center" : ""}`}
+        >
           <div className="relative flex-shrink-0">
             <img
               src={branding.logoUrl}
