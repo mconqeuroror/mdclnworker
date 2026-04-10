@@ -25,6 +25,10 @@ import {
   refundCredits,
 } from "../services/credit.service.js";
 import {
+  runMonthlyVoiceBillingForUser,
+  assertElevenLabsVoiceUsableForUser,
+} from "../services/voice-monthly-billing.service.js";
+import {
   uploadAsset,
   createPhotoAvatarGroup,
   createDigitalTwin,
@@ -239,6 +243,9 @@ router.get("/", async (req, res) => {
   await runMonthlyBillingForUser(req.user.id).catch(e =>
     console.error("[Avatar] Monthly billing error:", e.message)
   );
+  await runMonthlyVoiceBillingForUser(req.user.id).catch((e) =>
+    console.error("[Voice] Monthly billing error:", e.message),
+  );
 
   const avatars = await prisma.avatar.findMany({
     where: { modelId, userId: req.user.id },
@@ -276,6 +283,18 @@ async function createAvatarFromPhotoBuffer(req, res, buffer, mimeType) {
     return res.status(400).json({
       error: "This model has no default voice. Please create and select one in Voice Studio first.",
       code: "NO_VOICE",
+    });
+  }
+
+  await runMonthlyVoiceBillingForUser(req.user.id).catch((e) =>
+    console.error("[Voice] Monthly billing error:", e.message),
+  );
+  try {
+    await assertElevenLabsVoiceUsableForUser(req.user.id, model.elevenLabsVoiceId);
+  } catch (e) {
+    return res.status(e.statusCode || 403).json({
+      error: e.message,
+      code: e.code || "VOICE_BILLING_SUSPENDED",
     });
   }
 
@@ -396,6 +415,18 @@ router.post(
         return res.status(400).json({
           error: "This model has no default voice. Please create and select one in Voice Studio first.",
           code: "NO_VOICE",
+        });
+      }
+
+      await runMonthlyVoiceBillingForUser(req.user.id).catch((e) =>
+        console.error("[Voice] Monthly billing error:", e.message),
+      );
+      try {
+        await assertElevenLabsVoiceUsableForUser(req.user.id, model.elevenLabsVoiceId);
+      } catch (e) {
+        return res.status(e.statusCode || 403).json({
+          error: e.message,
+          code: e.code || "VOICE_BILLING_SUSPENDED",
         });
       }
 
@@ -611,6 +642,18 @@ router.post("/:id/generate", async (req, res) => {
   }
   if (!avatar.model.elevenLabsVoiceId) {
     return res.status(400).json({ error: "Model has no voice configured." });
+  }
+
+  await runMonthlyVoiceBillingForUser(req.user.id).catch((e) =>
+    console.error("[Voice] Monthly billing error:", e.message),
+  );
+  try {
+    await assertElevenLabsVoiceUsableForUser(req.user.id, avatar.model.elevenLabsVoiceId);
+  } catch (e) {
+    return res.status(e.statusCode || 403).json({
+      error: e.message,
+      code: e.code || "VOICE_BILLING_SUSPENDED",
+    });
   }
 
   const trimmedScript = script.trim();

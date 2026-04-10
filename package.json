@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "cross-env NODE_ENV=development tsx server/index.ts",
-    "build": "vite build && esbuild src/server.js --platform=node --packages=external --bundle --format=esm --outfile=dist/production.js && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
+    "build": "prisma generate && vite build && esbuild src/server.js --platform=node --packages=external --bundle --format=esm --outfile=dist/production.js && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
     "start": "cross-env NODE_ENV=production node dist/index.js",
     "check": "tsc",
     "test": "npm run check",
@@ -23,7 +23,9 @@
     "stripe:audit-subscriptions": "node scripts/audit-stripe-subscriptions.mjs",
     "figma:auth-state": "node scripts/capture-figma-auth-state.mjs",
     "figma:export:html": "node scripts/export-figma-html.mjs",
-    "figma:export:html:auth": "node scripts/export-figma-html.mjs --include-auth --storage-state scripts/figma-auth-state.json"
+    "figma:export:html:auth": "node scripts/export-figma-html.mjs --include-auth --storage-state scripts/figma-auth-state.json",
+    "openapi:generate": "node scripts/generate-openapi.mjs",
+    "openapi:routes": "node scripts/openapi-extract-routes.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.965.0",

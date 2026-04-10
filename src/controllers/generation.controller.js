@@ -41,6 +41,10 @@ import {
   refundCredits,
   refundGeneration,
 } from "../services/credit.service.js";
+import {
+  runMonthlyVoiceBillingForUser,
+  assertElevenLabsVoiceUsableForUser,
+} from "../services/voice-monthly-billing.service.js";
 import { isR2Configured, mirrorToR2, reMirrorToR2 } from "../utils/r2.js";
 import {
   mirrorToBlob,
@@ -3585,6 +3589,19 @@ export async function generateTalkingHeadVideo(req, res) {
       });
     }
 
+    await runMonthlyVoiceBillingForUser(userId).catch((e) =>
+      console.error("[Voice] Monthly billing error:", e.message),
+    );
+    try {
+      await assertElevenLabsVoiceUsableForUser(userId, voiceId);
+    } catch (e) {
+      return res.status(e.statusCode || 403).json({
+        success: false,
+        message: e.message,
+        code: e.code,
+      });
+    }
+
     // Estimate duration using voice-specific speed profile (no buffer needed)
     const estimatedDuration = estimateAudioDuration(text, voiceId);
     // Kling V2 Avatar ($0.056/sec) + ElevenLabs (~$0.005/sec) = ~$0.061/sec
@@ -3791,11 +3808,17 @@ async function processTalkingHeadInBackground(
  */
 export async function getVoices(req, res) {
   try {
+    const userId = req.user?.userId;
+    if (userId) {
+      await runMonthlyVoiceBillingForUser(userId).catch((e) =>
+        console.error("[Voice] Monthly billing error:", e.message),
+      );
+    }
+
     const { getVoices: getElVoices } = await import("../services/elevenlabs.service.js");
     let voices = await getElVoices();
 
     const modelId = typeof req.query.modelId === "string" ? req.query.modelId.trim() : "";
-    const userId = req.user?.userId;
     if (modelId && userId) {
       const model = await prisma.savedModel.findFirst({
         where: { id: modelId, userId },
@@ -3812,12 +3835,17 @@ export async function getVoices(req, res) {
           gender: true,
           previewUrl: true,
           isDefault: true,
+          voiceBillingStatus: true,
         },
       });
 
-      if (modelVoices.length > 0) {
+      const activeModelVoices = modelVoices.filter(
+        (voice) => voice.voiceBillingStatus !== "suspended",
+      );
+
+      if (activeModelVoices.length > 0) {
         const modelName = model?.name || "My model";
-        const customVoices = modelVoices.map((voice) => {
+        const customVoices = activeModelVoices.map((voice) => {
           const previewUrl = voice.previewUrl || "";
           return {
             id: voice.elevenLabsVoiceId,
@@ -3843,7 +3871,7 @@ export async function getVoices(req, res) {
           };
         });
         voices = [...customVoices, ...voices];
-      } else if (model) {
+      } else if (model && modelVoices.length === 0) {
         const legacyModel = await prisma.savedModel.findFirst({
           where: { id: modelId, userId },
           select: {
@@ -3852,9 +3880,10 @@ export async function getVoices(req, res) {
             modelVoicePreviewUrl: true,
             elevenLabsVoiceName: true,
             name: true,
+            legacyVoiceBillingSuspended: true,
           },
         });
-        if (legacyModel?.elevenLabsVoiceId) {
+        if (legacyModel?.elevenLabsVoiceId && !legacyModel.legacyVoiceBillingSuspended) {
           const previewUrl = legacyModel.modelVoicePreviewUrl || "";
           const modelName = legacyModel.name || "My model";
           const displayName = legacyModel.elevenLabsVoiceName || `${modelName}'s voice`;
@@ -3900,12 +3929,28 @@ export async function getVoicePreview(req, res) {
   try {
     const { voiceId } = req.params;
     const { language = "en" } = req.query;
-    
+    const userId = req.user?.userId;
+
     if (!voiceId) {
       return res.status(400).json({
         success: false,
         message: "Voice ID is required",
       });
+    }
+
+    if (userId) {
+      await runMonthlyVoiceBillingForUser(userId).catch((e) =>
+        console.error("[Voice] Monthly billing error:", e.message),
+      );
+      try {
+        await assertElevenLabsVoiceUsableForUser(userId, voiceId);
+      } catch (e) {
+        return res.status(e.statusCode || 403).json({
+          success: false,
+          message: e.message,
+          code: e.code,
+        });
+      }
     }
 
     // Validate language

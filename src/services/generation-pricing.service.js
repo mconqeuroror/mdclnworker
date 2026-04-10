@@ -49,6 +49,9 @@ export const DEFAULT_GENERATION_PRICING = Object.freeze({
   avatarMonthly: 500,     // monthly maintenance per avatar
   avatarVideoPerSec: 5,   // per second of generated video
 
+  /** Custom ElevenLabs voice — hosting debited from user credit balance every ~30 days per saved voice */
+  voiceMonthly: 1000,
+
   /** Legacy; recreate classic tier uses videoRecreateMotionProPerSec */
   videoRecreateStdPerSec: 10,
   /** kling-2.6/motion-control @ 1080p (default “classic” recreate) */

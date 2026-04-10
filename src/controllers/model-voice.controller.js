@@ -25,6 +25,8 @@ import {
   getVoicePlatformConfig,
   countModelsWithCustomVoice,
 } from "../services/voice-platform.service.js";
+import { runMonthlyVoiceBillingForUser } from "../services/voice-monthly-billing.service.js";
+import { getGenerationPricing } from "../services/generation-pricing.service.js";
 import {
   designVoicePreviews,
   createVoiceFromDesignPreview,
@@ -175,6 +177,7 @@ function mapModelVoice(voice) {
     createdAt: voice.createdAt,
     updatedAt: voice.updatedAt,
     elevenLabsVoiceId: voice.elevenLabsVoiceId,
+    voiceBillingStatus: voice.voiceBillingStatus || "active",
   };
 }
 
@@ -263,6 +266,12 @@ async function syncSavedModelDefaultVoice(tx, modelId) {
       elevenLabsVoiceType: defaultVoice?.type || null,
       elevenLabsVoiceName: defaultVoice?.name || null,
       modelVoicePreviewUrl: defaultVoice?.previewUrl || null,
+      ...(defaultVoice
+        ? {}
+        : {
+            legacyVoiceMonthlyLastBilledAt: null,
+            legacyVoiceBillingSuspended: false,
+          }),
     },
   });
 
@@ -310,11 +319,16 @@ async function removeStoredModelVoiceAssets(voice, { strictProviderDelete = fals
 }
 
 async function buildVoiceStudioPayload(userId, modelId) {
-  const [model, voices, history, config] = await Promise.all([
+  await runMonthlyVoiceBillingForUser(userId).catch((e) =>
+    console.error("[Voice] Monthly billing error:", e.message),
+  );
+
+  const [model, voices, history, config, genPricing] = await Promise.all([
     getOwnedModel(userId, modelId),
     getModelVoicesForUser(userId, modelId),
     getGeneratedVoiceHistoryForUser(userId, modelId),
     getVoicePlatformConfig(),
+    getGenerationPricing(),
   ]);
 
   if (!model) return null;
@@ -344,6 +358,7 @@ async function buildVoiceStudioPayload(userId, modelId) {
       cloneRecreate: VOICE_CLONE_CREDITS_RECREATE,
       audioPer1kChars: VOICE_AUDIO_CREDITS_PER_1K_CHARS,
       audioRegenPer1kChars: VOICE_AUDIO_REGEN_CREDITS_PER_1K_CHARS,
+      voiceMonthly: genPricing.voiceMonthly ?? 1000,
     },
     languageOptions: VOICE_STUDIO_LANGUAGE_OPTIONS,
   };
@@ -359,6 +374,7 @@ export async function getVoicePlatformStatus(req, res) {
     const used = await countModelsWithCustomVoice();
     const user = await checkAndExpireCredits(userId);
     const credits = getTotalCredits(user);
+    const genPricing = await getGenerationPricing();
     return res.json({
       success: true,
       usedCustomVoices: used,
@@ -371,6 +387,7 @@ export async function getVoicePlatformStatus(req, res) {
         cloneRecreate: VOICE_CLONE_CREDITS_RECREATE,
         audioPer1kChars: VOICE_AUDIO_CREDITS_PER_1K_CHARS,
         audioRegenPer1kChars: VOICE_AUDIO_REGEN_CREDITS_PER_1K_CHARS,
+        voiceMonthly: genPricing.voiceMonthly ?? 1000,
       },
       limits: {
         maxSavedVoicesPerModel: VOICE_MAX_SAVED_VOICES_PER_MODEL,
@@ -520,6 +537,8 @@ export async function postModelVoiceDesignConfirm(req, res) {
           elevenLabsVoiceType: null,
           elevenLabsVoiceName: null,
           modelVoicePreviewUrl: null,
+          legacyVoiceMonthlyLastBilledAt: null,
+          legacyVoiceBillingSuspended: false,
         },
       });
     }
@@ -558,6 +577,8 @@ export async function postModelVoiceDesignConfirm(req, res) {
           elevenLabsVoiceType: "design",
           elevenLabsVoiceName: voiceName,
           modelVoicePreviewUrl: previewUrl,
+          legacyVoiceMonthlyLastBilledAt: new Date(),
+          legacyVoiceBillingSuspended: false,
         },
       });
 
@@ -663,6 +684,8 @@ export async function postModelVoiceClone(req, res) {
           elevenLabsVoiceType: null,
           elevenLabsVoiceName: null,
           modelVoicePreviewUrl: null,
+          legacyVoiceMonthlyLastBilledAt: null,
+          legacyVoiceBillingSuspended: false,
         },
       });
     }
@@ -704,6 +727,8 @@ export async function postModelVoiceClone(req, res) {
           elevenLabsVoiceType: "clone",
           elevenLabsVoiceName: voiceName,
           modelVoicePreviewUrl: previewUrl,
+          legacyVoiceMonthlyLastBilledAt: new Date(),
+          legacyVoiceBillingSuspended: false,
         },
       });
 
@@ -1233,6 +1258,14 @@ export async function postGenerateModelVoiceAudio(req, res) {
     }
     if (!voice) {
       return res.status(404).json({ success: false, message: "Voice not found" });
+    }
+    if (voice.voiceBillingStatus === "suspended") {
+      return res.status(403).json({
+        success: false,
+        message:
+          "This voice is paused until the monthly hosting fee is paid. Add credits and open Voice Studio to refresh billing.",
+        code: "VOICE_BILLING_SUSPENDED",
+      });
     }
     if (regenerateFromId && !existingAudio) {
       return res.status(404).json({ success: false, message: "Original audio not found for regeneration." });

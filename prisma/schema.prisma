@@ -242,6 +242,9 @@ model SavedModel {
   elevenLabsVoiceName  String?
   /// Cached preview MP3 on R2 for UI / talking-head picker
   modelVoicePreviewUrl String?
+  /// Legacy-only custom voice monthly anchor (no ModelVoice rows)
+  legacyVoiceMonthlyLastBilledAt DateTime?
+  legacyVoiceBillingSuspended      Boolean             @default(false)
   generations          Generation[]
   modelVoices          ModelVoice[]
   generatedVoiceAudios GeneratedVoiceAudio[]
@@ -269,6 +272,8 @@ model ModelVoice {
   previewUrl        String?
   sampleAudioUrl    String?
   isDefault         Boolean              @default(false)
+  voiceMonthlyLastBilledAt DateTime      @default(now())
+  voiceBillingStatus       String        @default("active")
   createdAt         DateTime             @default(now())
   updatedAt         DateTime             @updatedAt
   user              User                 @relation(fields: [userId], references: [id], onDelete: Cascade)

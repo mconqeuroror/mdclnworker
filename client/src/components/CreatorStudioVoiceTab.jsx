@@ -57,10 +57,15 @@ const PAGE_COPY = {
     gateTitle: "Voice Studio",
     gateSubtitle: "Available for paid subscription users only.",
     gateBody:
-      "Create up to 3 saved voices per model, generate high-quality multilingual audio, and keep a per-model history of generated clips once your subscription is active.",
+      "Create up to 3 saved voices per model, generate high-quality multilingual audio, and keep a per-model history of generated clips once your subscription is active. Each saved custom voice has a hosting fee of about {monthly} credits per ~30 days, charged from your credit balance.",
     title: "Voice Studio",
     subtitle:
-      "Multilingual v3 audio generation, up to {max} saved voices per model.",
+      "Multilingual v3 audio generation, up to {max} saved voices per model. Each saved custom voice: about {monthly} credits per ~30 days from your balance.",
+    voiceHostingCallout:
+      "Hosting: about {monthly} credits per saved voice every ~30 days (debited from your credit balance).",
+    voiceSuspendedBadge: "Hosting paused",
+    voiceSuspendedHint:
+      "This voice is paused until the monthly hosting fee can be charged. Add credits and open Voice Studio to refresh billing.",
     creditsAvailable: "Credits available:",
     loadingModels: "Loading models...",
     emptyModels: "Create a model first to use Voice Studio.",
@@ -174,10 +179,15 @@ const PAGE_COPY = {
     gateTitle: "Голосовая студия",
     gateSubtitle: "Доступно только для пользователей с платной подпиской.",
     gateBody:
-      "Создавайте до 3 сохранённых голосов на модель, генерируйте многоязычное аудио высокого качества и храните историю сгенерированных клипов по каждой модели после активации подписки.",
+      "Создавайте до 3 сохранённых голосов на модель, генерируйте многоязычное аудио высокого качества и храните историю сгенерированных клипов по каждой модели после активации подписки. За хостинг каждого сохранённого кастомного голоса списывается около {monthly} кредитов за ~30 дней с вашего баланса.",
     title: "Голосовая студия",
     subtitle:
-      "Многоязычная генерация аудио v3, до {max} сохранённых голосов на модель.",
+      "Многоязычная генерация аудио v3, до {max} сохранённых голосов на модель. Каждый сохранённый кастомный голос: около {monthly} кредитов за ~30 дней с вашего баланса.",
+    voiceHostingCallout:
+      "Хостинг: около {monthly} кредитов за сохранённый голос каждые ~30 дней (списание с баланса кредитов).",
+    voiceSuspendedBadge: "Хостинг приостановлен",
+    voiceSuspendedHint:
+      "Голос на паузе, пока нельзя списать ежемесячный платёж за хостинг. Пополните кредиты и откройте Голосовую студию для обновления.",
     creditsAvailable: "Доступно кредитов:",
     loadingModels: "Загрузка моделей...",
     emptyModels: "Сначала создайте модель, чтобы использовать Голосовую студию.",
@@ -261,18 +271,45 @@ const PAGE_COPY = {
   },
 };
 
+PAGE_COPY.sk = {
+  ...PAGE_COPY.en,
+  title: "Voice Studio",
+  subtitle:
+    "Viacjazyčná generácia audia v3, až {max} uložených hlasov na model. Každý uložený vlastný hlas: približne {monthly} kreditov za ~30 dní z vášho zostatku.",
+  voiceHostingCallout:
+    "Prevádzka hlasu: približne {monthly} kreditov na každý uložený hlas každých ~30 dní (odpočítava sa z kreditového zostatku).",
+  voiceSuspendedBadge: "Hosting pozastavený",
+  voiceSuspendedHint:
+    "Hlas je pozastavený, kým sa nedá strhnúť mesačný poplatok za hosting. Doplňte kredity a znova otvorte Voice Studio.",
+  gateTitle: "Voice Studio",
+  gateSubtitle: "Len pre používateľov s plateným predplatným.",
+  gateBody:
+    "Po aktivácii predplatného môžete mať až 3 uložené hlasy na model, generovať kvalitné viacjazyčné audio a históriu klipov. Každý uložený vlastný hlas má aj približne {monthly} kreditov každých ~30 dní za hosting (zo zostatku).",
+  creditsAvailable: "Dostupné kredity:",
+  savedVoices: "Uložené hlasy",
+  savedCount: "{count}/{max} uložených",
+  createVoice: "Vytvoriť hlas",
+  designOrClone: "Navrhnúť alebo naklonovať",
+  modeDesign: "Návrh",
+  modeClone: "Klon",
+  generateAudioSection: "Generovať audio",
+  needSavedVoice: "Najprv vytvorte aspoň jeden uložený hlas.",
+};
+
 function resolveLocale() {
   try {
     const qsLang = new URLSearchParams(window.location.search).get("lang");
     const normalizedQs = String(qsLang || "").toLowerCase();
-    if (normalizedQs === "ru" || normalizedQs === "en") {
+    if (normalizedQs === "ru" || normalizedQs === "en" || normalizedQs === "sk") {
       localStorage.setItem(LOCALE_STORAGE_KEY, normalizedQs);
       return normalizedQs;
     }
     const saved = String(localStorage.getItem(LOCALE_STORAGE_KEY) || "").toLowerCase();
-    if (saved === "ru" || saved === "en") return saved;
+    if (saved === "ru" || saved === "en" || saved === "sk") return saved;
     const browser = String(navigator.language || "").toLowerCase();
-    return browser.startsWith("ru") ? "ru" : "en";
+    if (browser.startsWith("ru")) return "ru";
+    if (browser.startsWith("sk")) return "sk";
+    return "en";
   } catch {
     return "en";
   }
@@ -380,6 +417,7 @@ export default function CreatorStudioVoiceTab({ initialModelId = null }) {
   const history = voiceStudio.history || [];
   const pricing = voiceStudio.pricing || {};
   const limits = voiceStudio.limits || {};
+  const voiceMonthlyCredits = pricing.voiceMonthly ?? 1000;
   const creditsAvailable = voiceStudio.creditsAvailable ?? user?.credits ?? 0;
   const voiceStudioErrorMessage = getApiErrorMessage(
     voiceStudioQuery.error,
@@ -390,6 +428,7 @@ export default function CreatorStudioVoiceTab({ initialModelId = null }) {
     copy.errorLoadModels,
   );
   const selectedVoice = voices.find((voice) => voice.id === selectedVoiceId) || voices[0] || null;
+  const selectedVoiceSuspended = selectedVoice?.voiceBillingStatus === "suspended";
   const estimatedChars = audioScript.trim().length;
   const estimatedSecs = estimateSecsFromChars(estimatedChars);
   const estimatedCost = Math.max(
@@ -404,9 +443,18 @@ export default function CreatorStudioVoiceTab({ initialModelId = null }) {
       setSelectedVoiceId("");
       return;
     }
-    if (!voices.some((voice) => voice.id === selectedVoiceId)) {
-      const defaultVoice = voices.find((voice) => voice.isDefault) || voices[0];
-      setSelectedVoiceId(defaultVoice.id);
+    const current = voices.find((voice) => voice.id === selectedVoiceId);
+    const missingOrSuspended =
+      !current || current.voiceBillingStatus === "suspended";
+    if (missingOrSuspended) {
+      const next =
+        voices.find((voice) => voice.isDefault && voice.voiceBillingStatus !== "suspended") ||
+        voices.find((voice) => voice.voiceBillingStatus !== "suspended") ||
+        voices.find((voice) => voice.isDefault) ||
+        voices[0];
+      if (next && next.id !== selectedVoiceId) {
+        setSelectedVoiceId(next.id);
+      }
     }
   }, [voices, selectedVoiceId]);
 
@@ -634,7 +682,7 @@ export default function CreatorStudioVoiceTab({ initialModelId = null }) {
             </div>
           </div>
           <p className="mt-4 text-sm leading-6 text-slate-300">
-            {copy.gateBody}
+            {formatCopy(copy.gateBody, { monthly: 1000 })}
           </p>
         </div>
       </div>
@@ -647,7 +695,10 @@ export default function CreatorStudioVoiceTab({ initialModelId = null }) {
         <div>
           <h1 className="text-2xl font-bold text-white tracking-tight">{copy.title}</h1>
           <p className="text-sm text-slate-400">
-            {formatCopy(copy.subtitle, { max: limits.maxSavedVoicesPerModel || 3 })}
+            {formatCopy(copy.subtitle, {
+              max: limits.maxSavedVoicesPerModel || 3,
+              monthly: voiceMonthlyCredits,
+            })}
           </p>
           <TutorialInfoLink
             className="mt-2"
@@ -716,13 +767,17 @@ export default function CreatorStudioVoiceTab({ initialModelId = null }) {
                   </div>
 
                   <div className="mt-4 grid gap-3 md:grid-cols-2">
-                    {voices.map((voice) => (
+                    {voices.map((voice) => {
+                      const suspended = voice.voiceBillingStatus === "suspended";
+                      return (
                       <div
                         key={voice.id}
                         className={`rounded-2xl border p-4 transition ${
                           selectedVoiceId === voice.id
                             ? "border-violet-400/40 bg-violet-500/10"
-                            : "border-white/10 bg-black/20"
+                            : suspended
+                              ? "border-amber-400/25 bg-amber-500/5"
+                              : "border-white/10 bg-black/20"
                         }`}
                       >
                         <div className="flex items-start justify-between gap-3">
@@ -733,8 +788,11 @@ export default function CreatorStudioVoiceTab({ initialModelId = null }) {
                               {genderLabel(voice.gender) ? ` · ${copy[`gender${genderLabel(voice.gender).charAt(0).toUpperCase()}${genderLabel(voice.gender).slice(1)}`] || genderLabel(voice.gender)}` : ""}
                               {voice.isDefault ? ` · ${copy.defaultBadge}` : ""}
                             </p>
+                            {suspended && (
+                              <p className="mt-2 text-xs font-medium text-amber-200">{copy.voiceSuspendedBadge}</p>
+                            )}
                           </div>
-                          {voice.isDefault && <CheckCircle2 className="h-4 w-4 text-emerald-400" />}
+                          {voice.isDefault && !suspended && <CheckCircle2 className="h-4 w-4 text-emerald-400" />}
                         </div>
 
                         {voice.previewUrl ? (
@@ -747,7 +805,8 @@ export default function CreatorStudioVoiceTab({ initialModelId = null }) {
                           <button
                             type="button"
                             onClick={() => setSelectedVoiceId(voice.id)}
-                            className="rounded-xl border border-white/10 px-3 py-2 text-xs font-medium text-white hover:border-white/20"
+                            disabled={suspended}
+                            className="rounded-xl border border-white/10 px-3 py-2 text-xs font-medium text-white hover:border-white/20 disabled:cursor-not-allowed disabled:opacity-45"
                           >
                             {copy.useForAudio}
                           </button>
@@ -755,7 +814,7 @@ export default function CreatorStudioVoiceTab({ initialModelId = null }) {
                             <button
                               type="button"
                               onClick={() => handleSelectDefault(voice.id)}
-                              disabled={busyAction === `select:${voice.id}`}
+                              disabled={busyAction === `select:${voice.id}` || suspended}
                               className="rounded-xl border border-violet-400/30 px-3 py-2 text-xs font-medium text-violet-200 hover:border-violet-300/50 disabled:opacity-50"
                             >
                               {busyAction === `select:${voice.id}` ? copy.buttonSaving : copy.buttonMakeDefault}
@@ -771,7 +830,8 @@ export default function CreatorStudioVoiceTab({ initialModelId = null }) {
                           </button>
                         </div>
                       </div>
-                    ))}
+                    );
+                    })}
 
                     {voices.length === 0 && (
                       <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 p-5 text-sm text-slate-400">
@@ -826,7 +886,13 @@ export default function CreatorStudioVoiceTab({ initialModelId = null }) {
                         <button
                           type="button"
                           onClick={handleGenerateAudio}
-                          disabled={!selectedVoice || !audioScript.trim() || busyAction === "generate-audio" || creditsAvailable < estimatedCost}
+                          disabled={
+                            !selectedVoice ||
+                            selectedVoiceSuspended ||
+                            !audioScript.trim() ||
+                            busyAction === "generate-audio" ||
+                            creditsAvailable < estimatedCost
+                          }
                           className="mt-4 inline-flex items-center gap-2 rounded-2xl bg-violet-600 px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           {busyAction === "generate-audio" ? (
@@ -839,6 +905,9 @@ export default function CreatorStudioVoiceTab({ initialModelId = null }) {
                             </>
                           )}
                         </button>
+                        {selectedVoiceSuspended && (
+                          <p className="mt-3 text-xs text-amber-200">{copy.voiceSuspendedHint}</p>
+                        )}
                         {audioScript.trim() && creditsAvailable < estimatedCost && (
                           <p className="mt-3 text-xs text-red-400">
                             {copy.errorInsufficientCreditsRequest}
@@ -886,6 +955,13 @@ export default function CreatorStudioVoiceTab({ initialModelId = null }) {
                         )}
                         <Upload className="mr-1 inline h-3.5 w-3.5 relative z-[1]" /> <span className="relative z-[1]">{copy.modeClone}</span>
                       </button>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 rounded-2xl border border-violet-400/25 bg-violet-500/[0.08] px-4 py-3 text-xs leading-relaxed text-violet-100">
+                    <div className="flex gap-2">
+                      <Coins className="mt-0.5 h-4 w-4 shrink-0 text-violet-300" />
+                      <p>{formatCopy(copy.voiceHostingCallout, { monthly: voiceMonthlyCredits })}</p>
                     </div>
                   </div>
 
