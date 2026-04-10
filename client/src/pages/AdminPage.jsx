@@ -35,6 +35,13 @@ const redactProviderText = (value, fallback = '—') => {
   return raw.replace(PROVIDER_NAME_RE, 'provider');
 };
 
+const formatPromptTemplateLabel = (key = '') =>
+  String(key || '')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (m) => m.toUpperCase());
+
 const TELEMETRY_OPTIONS = [
   { value: 1,   label: '1h'  },
   { value: 24,  label: '24h' },
@@ -641,7 +648,12 @@ export default function AdminPage() {
   const [loadingVoicePlatform, setLoadingVoicePlatform] = useState(false);
   const [savingVoicePlatform, setSavingVoicePlatform] = useState(false);
   const [showPromptTemplates, setShowPromptTemplates] = useState(false);
-  const [promptTemplatesText, setPromptTemplatesText] = useState("{}");
+  const [promptTemplatesMap, setPromptTemplatesMap] = useState({});
+  const [promptTemplatesOverridesMap, setPromptTemplatesOverridesMap] = useState({});
+  const [promptTemplateKnownKeys, setPromptTemplateKnownKeys] = useState([]);
+  const [promptTemplateSearch, setPromptTemplateSearch] = useState('');
+  const [activePromptTemplateKey, setActivePromptTemplateKey] = useState('');
+  const [activePromptTemplateDraft, setActivePromptTemplateDraft] = useState('');
   const [loadingPromptTemplates, setLoadingPromptTemplates] = useState(false);
   const [savingPromptTemplates, setSavingPromptTemplates] = useState(false);
   const [showSafetyCheckerConfig, setShowSafetyCheckerConfig] = useState(false);
@@ -2034,12 +2046,15 @@ export default function AdminPage() {
       setLoadingPromptTemplates(true);
       const r = await api.get('/admin/prompt-templates');
       if (r.data?.success) {
-        const base = { ...(r.data.templates || {}) };
+        const overrides = { ...(r.data.templates || {}) };
+        const base = { ...(r.data.effectiveTemplates || overrides) };
         const keys = Array.isArray(r.data.knownKeys) ? r.data.knownKeys : [];
         keys.forEach((k) => {
           if (!(k in base)) base[k] = "";
         });
-        setPromptTemplatesText(JSON.stringify(base, null, 2));
+        setPromptTemplatesMap(base);
+        setPromptTemplatesOverridesMap(overrides);
+        setPromptTemplateKnownKeys(keys);
       }
     } catch (e) {
       toast.error(e?.response?.data?.error || 'Failed to load prompt templates');
@@ -2048,24 +2063,49 @@ export default function AdminPage() {
     }
   };
 
-  const savePromptTemplates = async () => {
+  const savePromptTemplates = async (nextTemplates) => {
     try {
       setSavingPromptTemplates(true);
-      const parsed = JSON.parse(promptTemplatesText || '{}');
-      const r = await api.put('/admin/prompt-templates', { templates: parsed });
+      const payload = nextTemplates && typeof nextTemplates === 'object'
+        ? nextTemplates
+        : promptTemplatesOverridesMap;
+      const r = await api.put('/admin/prompt-templates', { templates: payload });
       if (r.data?.success) {
-        setPromptTemplatesText(JSON.stringify(r.data.templates || {}, null, 2));
+        const overrides = { ...(r.data.templates || {}) };
+        const next = { ...(r.data.effectiveTemplates || overrides) };
+        const keys = Array.isArray(r.data.knownKeys) ? r.data.knownKeys : promptTemplateKnownKeys;
+        keys.forEach((k) => {
+          if (!(k in next)) next[k] = '';
+        });
+        setPromptTemplatesMap(next);
+        setPromptTemplatesOverridesMap(overrides);
         toast.success('Prompt templates saved');
       }
     } catch (e) {
-      if (e instanceof SyntaxError) {
-        toast.error('Invalid JSON in prompt templates');
-      } else {
-        toast.error(e?.response?.data?.error || 'Failed to save prompt templates');
-      }
+      toast.error(e?.response?.data?.error || 'Failed to save prompt templates');
     } finally {
       setSavingPromptTemplates(false);
     }
+  };
+
+  const openPromptTemplateModal = (key) => {
+    const k = String(key || '').trim();
+    if (!k) return;
+    setActivePromptTemplateKey(k);
+    setActivePromptTemplateDraft(String(promptTemplatesMap?.[k] || ''));
+  };
+
+  const closePromptTemplateModal = () => {
+    setActivePromptTemplateKey('');
+    setActivePromptTemplateDraft('');
+  };
+
+  const saveActivePromptTemplate = async () => {
+    const key = String(activePromptTemplateKey || '').trim();
+    if (!key) return;
+    const next = { ...promptTemplatesOverridesMap, [key]: String(activePromptTemplateDraft || '') };
+    await savePromptTemplates(next);
+    closePromptTemplateModal();
   };
 
   const loadSafetyCheckerConfig = async () => {
@@ -3953,18 +3993,52 @@ export default function AdminPage() {
           {showPromptTemplates && (
             <div className="space-y-3">
               <p className="text-[11px] text-gray-500 -mt-2">
-                Global overrides for AI agent system prompts. Leave key missing to keep code default.
+                Open each use-case to view the currently stored prompt template, edit it, and save it. Empty value means fallback to code default.
               </p>
-              <textarea
-                value={promptTemplatesText}
-                onChange={(e) => setPromptTemplatesText(e.target.value)}
-                className="w-full min-h-[220px] rounded-lg border border-white/[0.07] bg-white/[0.03] text-xs text-white p-3 font-mono outline-none focus:border-white/20"
-                spellCheck={false}
+              <input
+                value={promptTemplateSearch}
+                onChange={(e) => setPromptTemplateSearch(e.target.value)}
+                placeholder="Filter use-cases by key"
+                className="w-full px-3 py-2 rounded-lg border border-white/[0.07] bg-white/[0.03] text-xs text-white outline-none focus:border-white/20"
               />
+              <div className="max-h-[320px] overflow-y-auto rounded-xl border border-white/[0.07]">
+                <div className="divide-y divide-white/[0.06]">
+                  {(promptTemplateKnownKeys.length ? promptTemplateKnownKeys : Object.keys(promptTemplatesMap))
+                    .filter((key) => {
+                      const q = promptTemplateSearch.trim().toLowerCase();
+                      if (!q) return true;
+                      return String(key).toLowerCase().includes(q);
+                    })
+                    .map((key) => {
+                      const value = String(promptTemplatesMap?.[key] || '');
+                      const customValue = String(promptTemplatesOverridesMap?.[key] || '');
+                      const hasCustom = Boolean(customValue.trim());
+                      return (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => openPromptTemplateModal(key)}
+                          className="w-full text-left px-3 py-2.5 hover:bg-white/[0.03] transition"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-white">{formatPromptTemplateLabel(key)}</span>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded border border-white/[0.12] text-gray-400 font-mono">{key}</span>
+                            <span className={`ml-auto text-[10px] px-1.5 py-0.5 rounded border ${hasCustom ? 'border-emerald-500/30 text-emerald-300' : 'border-white/[0.10] text-gray-500'}`}>
+                              {hasCustom ? 'Custom prompt' : 'Code default'}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-gray-500 mt-1 max-h-8 overflow-hidden">
+                            {hasCustom ? value : 'No custom value saved. This use-case currently runs on the code fallback prompt.'}
+                          </p>
+                        </button>
+                      );
+                    })}
+                </div>
+              </div>
               <div className="flex items-center gap-2">
-                <PrimaryBtn onClick={savePromptTemplates} disabled={savingPromptTemplates}>
-                  {savingPromptTemplates ? 'Saving…' : 'Save prompt templates'}
-                </PrimaryBtn>
+                <span className="text-[11px] text-gray-500">
+                  {Object.keys(promptTemplatesMap || {}).length} prompt use-cases loaded
+                </span>
               </div>
             </div>
           )}
@@ -5323,6 +5397,50 @@ ${emailBuilder.ctaText && emailBuilder.ctaUrl ? `<div class="cta-wrap"><a class=
                   ))}
                 </ul>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!!activePromptTemplateKey && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm px-4">
+          <div className="w-full max-w-4xl rounded-2xl border border-white/[0.08] bg-[#111] p-5 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <div>
+                <h3 className="text-sm font-semibold text-white">AI prompt template editor</h3>
+                <p className="text-[11px] text-gray-500 mt-1">
+                  Use-case: <span className="text-gray-300">{formatPromptTemplateLabel(activePromptTemplateKey)}</span>
+                  <span className="ml-2 text-gray-600 font-mono">{activePromptTemplateKey}</span>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closePromptTemplateModal}
+                className="p-1.5 rounded-lg hover:bg-white/10 transition"
+                disabled={savingPromptTemplates}
+              >
+                <X className="w-4 h-4 text-gray-400" />
+              </button>
+            </div>
+            <div className="space-y-3">
+              <p className="text-[11px] text-gray-500">
+                Actual configured prompt for this use-case. If empty, backend falls back to code default prompt.
+              </p>
+              <textarea
+                value={activePromptTemplateDraft}
+                onChange={(e) => setActivePromptTemplateDraft(e.target.value)}
+                className="w-full min-h-[320px] rounded-lg border border-white/[0.07] bg-white/[0.03] text-xs text-white p-3 font-mono outline-none focus:border-white/20"
+                spellCheck={false}
+                autoFocus
+              />
+              <div className="flex items-center gap-2 justify-end">
+                <GhostBtn onClick={closePromptTemplateModal} disabled={savingPromptTemplates}>
+                  Cancel
+                </GhostBtn>
+                <PrimaryBtn onClick={saveActivePromptTemplate} disabled={savingPromptTemplates}>
+                  {savingPromptTemplates ? 'Saving…' : 'Save prompt'}
+                </PrimaryBtn>
+              </div>
             </div>
           </div>
         </div>

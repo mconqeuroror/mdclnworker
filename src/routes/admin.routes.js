@@ -35,6 +35,7 @@ import {
 } from "../services/generation-pricing.service.js";
 import {
   getPromptTemplateOverrides,
+  getPromptTemplateValue,
   upsertPromptTemplateOverrides,
 } from "../services/prompt-template-config.service.js";
 import {
@@ -64,6 +65,89 @@ const SENDGRID_MAX_EMAILS_PER_MINUTE = Math.max(
   parseInt(process.env.SENDGRID_MAX_EMAILS_PER_MINUTE || "600", 10) || 600,
 );
 const SENDGRID_WINDOW_MS = 60_000;
+
+const PROMPT_TEMPLATE_KNOWN_KEYS = [
+  "modelcloneXZImageTurbo",
+  "soulxZImageTurbo",
+  "nsfwPromptGenerator",
+  "analyzeLooksSystemPrompt",
+  "enhancePromptNanoBananaSystem",
+  "enhancePromptNsfwSystem",
+  "nudesPackPromptGeneratorSystem",
+  "nudesPackPromptGeneratorUserWrapper",
+  "describeTargetImageSystemPrompt",
+  "img2imgInjectSystemPrompt",
+  "falCaptionSystemPrompt",
+  "falLoraSelectorSystemPrompt",
+  "nsfwLoraStrengthSystemPrompt",
+  "nsfwAutoDetectAppearanceSystemPrompt",
+  "nsfwAutoSelectOptionsSystemPrompt",
+  "nanoBananaModelPromptEnhancerSystem",
+  "nanoBananaModelPromptEnhancerUserWrapper",
+  "nanoBananaModelReferenceBasePrompt",
+  "nanoBananaModelSelfieBasePrompt",
+  "nanoBananaModelPortraitBasePrompt",
+  "nanoBananaModelFullBodyBasePrompt",
+];
+
+const PROMPT_TEMPLATE_DEFAULTS = {
+  modelcloneXZImageTurbo:
+    'You are Z-Image-Turbo Prompt Master, an elite prompt engineer exclusively for Z-Image-Turbo (Tongyi-MAI 6B S3-DiT Turbo model). Transform a simple user request into one optimized positive prompt. Use structured flow: shot+subject, adult appearance, clothing/explicitness, environment, lighting, mood, style, technical notes, and finish with cleanup constraints for anatomy and artifacts.',
+  soulxZImageTurbo:
+    'You are Z-Image-Turbo Prompt Master, an elite prompt engineer exclusively for Z-Image-Turbo (Tongyi-MAI 6B S3-DiT Turbo model). Transform a simple user request into one optimized positive prompt. Use structured flow: shot+subject, adult appearance, clothing/explicitness, environment, lighting, mood, style, technical notes, and finish with cleanup constraints for anatomy and artifacts.',
+  nsfwPromptGenerator:
+    'You are an expert prompt engineer for Z-Image Turbo with private amateur smartphone realism. Keep outputs raw, imperfect, non-studio, logically consistent, and identity-locked to provided model attributes/chips. Output format must be exactly one JSON array with one prompt string.',
+  analyzeLooksSystemPrompt:
+    "You are an expert at analyzing photos of people to determine physical appearance for AI model configuration. Return one JSON object for the same person across all photos, using exact allowed option values and age as integer 1-120.",
+  enhancePromptNanoBananaSystem:
+    "You are a creative director prompt engineer for Nano Banana Pro. Rewrite user ideas into production-ready prompts with specific subject/action/context/composition/style, preserve user intent and modelLooks, keep results photoreal and distinctive, and enforce true selfie POV constraints when selfie is requested.",
+  enhancePromptNsfwSystem:
+    "You are an expert prompt engineer for an Illustrious NSFW model using tag-format prompts. Output only a comma-separated optimized tag list with quality tags, subject/feature/clothing/pose/camera/lighting tags and negative tags.",
+  nudesPackPromptGeneratorSystem:
+    "You are an expert prompt engineer for Z-Image Turbo NSFW generation focused on realistic private smartphone-photo feel. Respect model attributes and logical constraints, avoid contradictions, and output exactly one JSON array with one prompt.",
+  nudesPackPromptGeneratorUserWrapper:
+    "Compose one final NSFW prompt for this nudes-pack item. Use the full request as source-of-truth.\n\n{{REQUEST}}",
+  describeTargetImageSystemPrompt:
+    'You are an expert at describing reference images for AI identity recreation. Start with model name, describe scene/pose/camera/lighting/background/mood, avoid identity-trait details, keep under 150 words, output one paragraph only.',
+  img2imgInjectSystemPrompt:
+    "You are an expert prompt engineer for ComfyUI ZIT img2img workflows. Output one clean prompt that starts with trigger word, rewrites TARGET_CHARACTER_LOOKS into natural prose (no field labels), preserves scene/camera/lighting from original prompt, and swaps only identity.",
+  falCaptionSystemPrompt:
+    "You are an expert image captioner for Z-Image Turbo LoRA training datasets. Start each caption with trigger word (+ locked subject class if provided), describe visible pose/camera/clothing/environment/lighting/style, avoid fixed identity over-specification, and keep concise training-stable captions.",
+  falLoraSelectorSystemPrompt:
+    "You are an LoRA selector assistant. Pick pose LoRA and enhancement LoRAs from allowed lists based on scene/chips/final prompt, respect logical rules, and return only one-line JSON with strengths and effect toggles.",
+  nsfwLoraStrengthSystemPrompt:
+    "You are a LoRA strength calculator for AI image generation. Return only one decimal between 0.55 and 0.80 based on face visibility prominence in the scene.",
+  nsfwAutoDetectAppearanceSystemPrompt:
+    "You are an expert physical appearance analyst for AI model training. Analyze all photos of the same person and return complete JSON using only allowed selector options.",
+  nsfwAutoSelectOptionsSystemPrompt:
+    "You are a smart assistant that maps scene descriptions to the best matching predefined selector options. Respect logical constraints, choose only relevant keys, and output only valid JSON.",
+  nanoBananaModelPromptEnhancerSystem:
+    "You are a senior prompt director for Nano Banana Pro. Rewrite prompts with concrete specifics, coherent camera/light direction, preserved identity constraints, and premium realistic quality. For ai-model-reference, force stunning unique realism; for ai-model-selfie, force palm/arm-length selfie POV constraints.",
+  nanoBananaModelPromptEnhancerUserWrapper:
+    "Rewrite this Nano Banana prompt using best practices while preserving all mandatory identity and reference constraints.\n\nOperation: {{OPERATION}}\nAspect ratio: {{ASPECT_RATIO}}\nResolution: {{RESOLUTION}}\nReference count: {{REFERENCE_COUNT}}\n\nBase prompt:\n{{PROMPT}}",
+  nanoBananaModelReferenceBasePrompt:
+    "beautiful portrait photo of {{ARTICLE}} {{SUBJECT}}, {{HERITAGE_TEXT}}, {{FACE_TYPE_TEXT}}, {{HAIR_TEXT}}, {{EYE_TEXT}}, {{LIP_TEXT}}, {{BODY_TYPE_TEXT}}, {{STYLE_TEXT}}, {{SAVED_APPEARANCE_TEXT}}, {{REFERENCE_PROMPT}}, high quality, detailed face, clear features, photorealistic, attractive, {{SKIN_TEXTURE}}",
+  nanoBananaModelSelfieBasePrompt:
+    "Using image 1 as identity reference, create a close-up selfie of this exact same person. {{PROFILE_SENTENCE}} Keep the exact same face, facial features, hair color, eye color. True self-captured palm/arm-length first-person selfie POV, front-facing camera vibe, attractive selfie pose, alluring expression, no second photographer, no visible phone/device in hand, no mirror reflection. {{BASE_ENHANCEMENT}}. High quality, photorealistic, natural skin texture with visible pores, clear skin without acne.",
+  nanoBananaModelPortraitBasePrompt:
+    "Using images 1 and 2 as identity reference, create a 3/4 angle portrait of this exact same person. {{PROFILE_SENTENCE}} Keep the exact same face, facial features, hair color, eye color from the reference images. Captivating look, studio lighting. {{BASE_ENHANCEMENT}}. High quality, photorealistic, natural skin texture with visible pores, clear skin without acne.",
+  nanoBananaModelFullBodyBasePrompt:
+    "Using images 1 and 2 as identity references, create a full body photo of the same person. Preserve exact identity: face structure, skin tone, hairline, eye shape and key facial details from references. Outfit/clothing: {{OUTFIT_TEXT}}. Body proportions: {{BODY_DESCRIPTOR}}. Character/profile traits: {{CHARACTER_DESCRIPTOR}}. Pose/composition: full figure visible from head to toe, natural realistic anatomy, professional lighting. {{EXTRA_DIRECTION}} Photorealistic, high quality details, natural skin texture.",
+};
+
+async function buildEffectivePromptTemplates(overrides = {}) {
+  const effective = {};
+  for (const key of PROMPT_TEMPLATE_KNOWN_KEYS) {
+    const raw = overrides?.[key];
+    if (typeof raw === "string" && raw.trim()) {
+      effective[key] = raw;
+      continue;
+    }
+    const fallback = PROMPT_TEMPLATE_DEFAULTS[key] || "";
+    effective[key] = await getPromptTemplateValue(key, fallback);
+  }
+  return effective;
+}
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -452,32 +536,12 @@ router.post("/pricing/generation/reset", async (_req, res) => {
 router.get("/prompt-templates", async (_req, res) => {
   try {
     const templates = await getPromptTemplateOverrides();
+    const effectiveTemplates = await buildEffectivePromptTemplates(templates);
     res.json({
       success: true,
       templates,
-      knownKeys: [
-        "modelcloneXZImageTurbo",
-        "soulxZImageTurbo",
-        "nsfwPromptGenerator",
-        "analyzeLooksSystemPrompt",
-        "enhancePromptNanoBananaSystem",
-        "enhancePromptNsfwSystem",
-        "nudesPackPromptGeneratorSystem",
-        "nudesPackPromptGeneratorUserWrapper",
-        "describeTargetImageSystemPrompt",
-        "img2imgInjectSystemPrompt",
-        "falCaptionSystemPrompt",
-        "falLoraSelectorSystemPrompt",
-        "nsfwLoraStrengthSystemPrompt",
-        "nsfwAutoDetectAppearanceSystemPrompt",
-        "nsfwAutoSelectOptionsSystemPrompt",
-        "nanoBananaModelPromptEnhancerSystem",
-        "nanoBananaModelPromptEnhancerUserWrapper",
-        "nanoBananaModelReferenceBasePrompt",
-        "nanoBananaModelSelfieBasePrompt",
-        "nanoBananaModelPortraitBasePrompt",
-        "nanoBananaModelFullBodyBasePrompt",
-      ],
+      effectiveTemplates,
+      knownKeys: PROMPT_TEMPLATE_KNOWN_KEYS,
     });
   } catch (error) {
     console.error("Error fetching prompt templates:", error);
@@ -497,7 +561,8 @@ router.put("/prompt-templates", async (req, res) => {
       userId: req.user?.userId,
       email: req.user?.email,
     });
-    res.json({ success: true, templates });
+    const effectiveTemplates = await buildEffectivePromptTemplates(templates);
+    res.json({ success: true, templates, effectiveTemplates, knownKeys: PROMPT_TEMPLATE_KNOWN_KEYS });
   } catch (error) {
     console.error("Error updating prompt templates:", error);
     res.status(500).json({ success: false, error: "Failed to update prompt templates" });
