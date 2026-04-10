@@ -298,7 +298,7 @@ async function determineLoraStrengthWithAI(prompt, attributes) {
   const combined = `${prompt || ""} ${attributes || ""}`.trim();
   if (!combined) return 0.70;
 
-  const systemPrompt = `You are a LoRA strength calculator for AI image generation. Determine the optimal LoRA strength for a face/identity LoRA based on face visibility.
+  let systemPrompt = `You are a LoRA strength calculator for AI image generation. Determine the optimal LoRA strength for a face/identity LoRA based on face visibility.
 
 STRENGTH GUIDELINES (0.55 to 0.80):
 - 0.80: Face is the main focus (selfies, portraits, close-up face shots, headshots)
@@ -312,6 +312,7 @@ IMPORTANT: When in doubt, use 0.70. Too high causes face distortion/mutations.
 INPUT SCENE: "${combined}"
 
 OUTPUT: Return ONLY a single decimal number between 0.55 and 0.80. Nothing else. Example: 0.70`;
+  systemPrompt = await getPromptTemplateValue("nsfwLoraStrengthSystemPrompt", systemPrompt);
 
   try {
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -1018,7 +1019,7 @@ export async function autoDetectLoraAppearance(req, res) {
       .map(([key, opts]) => `${key}: ${JSON.stringify(opts)}`)
       .join("\n");
 
-    const systemPrompt = `You are an expert physical appearance analyst for AI model training. You will receive ${photos.length} photo(s) of the same person. Your job is to build a COMPREHENSIVE and PRECISE profile of this person's physical features so that an AI image generator can recreate them consistently across different scenes and poses.
+    let systemPrompt = `You are an expert physical appearance analyst for AI model training. You will receive ${photos.length} photo(s) of the same person. Your job is to build a COMPREHENSIVE and PRECISE profile of this person's physical features so that an AI image generator can recreate them consistently across different scenes and poses.
 
 CRITICAL: Be as thorough as possible. Fill in EVERY category you can determine. Cross-reference all photos to ensure accuracy. Look at the full body, face, hair, skin, and overall build. This profile is used to maintain model consistency — missing fields mean the AI will generate inconsistent results.
 
@@ -1037,6 +1038,7 @@ IMPORTANT GUIDELINES:
 - Tattoos/piercings: Note any visible body modifications
 
 Try to fill ALL fields. Only omit a key if it is truly impossible to determine from any of the photos.`;
+    systemPrompt = await getPromptTemplateValue("nsfwAutoDetectAppearanceSystemPrompt", systemPrompt);
 
     const { default: OpenAI } = await import("openai");
     const grok = new OpenAI({
@@ -3239,34 +3241,45 @@ export async function generateNudesPack(req, res) {
 
         const promptedRows = await mapWithConcurrencyLimit(rowsWithGen, promptConcurrency, async (row) => {
           const { idx, pose } = row;
-          // Build a clean natural-language scene description — no meta-noise, no tag dumps.
-          // The AI system prompt already has model identity + looks injected separately.
+          const modelLooksText = buildAttributeList(attributesDetail).join(", ") || attributesString || "";
           const userRequestForAi = [
-            packSceneNote.trim() || null,
-            pose.summary,
+            packSceneNote.trim() ? `Global scene note: ${packSceneNote.trim()}` : null,
+            `Pose summary: ${pose.summary || ""}`,
+            `Pose prompt fragment: ${pose.promptFragment || ""}`,
+            modelLooksText ? `Model look variables: ${modelLooksText}` : null,
           ]
             .filter(Boolean)
-            .join(". ");
+            .join("\n");
+          const composedFallbackPrompt = [
+            pose.promptFragment || "",
+            pose.summary || "",
+            modelLooksText ? `Model look variables: ${modelLooksText}` : "",
+            packSceneNote.trim() ? `Scene note: ${packSceneNote.trim()}` : "",
+          ]
+            .filter(Boolean)
+            .join(". ")
+            .trim();
 
-          let finalUserPrompt = pose.summary;
+          let finalUserPrompt = composedFallbackPrompt || pose.summary || pose.promptFragment || "";
           try {
             const aiPrompt = await runNsfwPromptGenerationForModel(
               model,
               userRequestForAi,
               attributesDetail,
               attributesString,
+              { mode: "nudes-pack", pose },
             );
             if (aiPrompt && typeof aiPrompt === "string" && aiPrompt.trim()) {
               if (isNsfwPromptLogicalConflict(aiPrompt)) {
-                console.warn(`Nudes pack ${pose.id}: AI reported logical conflict — using pose summary fallback`);
-                finalUserPrompt = pose.summary;
+                console.warn(`Nudes pack ${pose.id}: AI reported logical conflict — using composed pose fallback`);
+                finalUserPrompt = composedFallbackPrompt || pose.summary || pose.promptFragment || "";
               } else {
                 finalUserPrompt = aiPrompt.trim();
               }
             }
           } catch (promptErr) {
             console.error(`Nudes pack AI prompt failed for ${pose.id}:`, promptErr?.message || promptErr);
-            finalUserPrompt = pose.summary;
+            finalUserPrompt = composedFallbackPrompt || pose.summary || pose.promptFragment || "";
           }
 
           return { ...row, finalUserPrompt, userRequestForAi };
@@ -3714,8 +3727,23 @@ function humanizeNsfwPromptConflict(prompt) {
   return inner ? inner[1].trim() : s.replace(/^\[|\]$/g, "").trim() || "Please clarify your scene.";
 }
 
+function applyPromptTemplatePlaceholders(template, values = {}) {
+  let out = String(template || "");
+  for (const [key, value] of Object.entries(values)) {
+    const token = `{{${key}}}`;
+    out = out.split(token).join(String(value ?? ""));
+  }
+  return out;
+}
+
 /** Shared Grok prompt builder (also used by plan-generation). */
-async function runNsfwPromptGenerationForModel(model, userRequest, clientDetail = {}, clientAttributes = "") {
+async function runNsfwPromptGenerationForModel(
+  model,
+  userRequest,
+  clientDetail = {},
+  clientAttributes = "",
+  context = {},
+) {
   let triggerWord = model.loraTriggerWord || "lora_" + model.name.toLowerCase().replace(/[^a-z0-9]/g, "_");
     let lockedAppearance = {};
 
@@ -3889,7 +3917,25 @@ MODEL ATTRIBUTES:
 
 OUTPUT: Return ONLY a JSON array with one prompt: ["prompt text here"]. No markdown fences, no explanation.
 If the user request combined with locked attributes implies an unresolvable logical contradiction (cannot be one coherent photo even after dropping minor elements), return exactly: ["[Error: Irresolvable logical conflict in request — please clarify]"].`;
-    systemPrompt = await getPromptTemplateValue("nsfwPromptGenerator", systemPrompt);
+    const mode = String(context?.mode || "").trim().toLowerCase();
+    const systemTemplateKey = mode === "nudes-pack" ? "nudesPackPromptGeneratorSystem" : "nsfwPromptGenerator";
+    systemPrompt = await getPromptTemplateValue(systemTemplateKey, systemPrompt);
+
+    const defaultUserWrapper =
+      mode === "nudes-pack"
+        ? "Compose one final NSFW prompt for this nudes-pack item. Use the full request as source-of-truth.\n\n{{REQUEST}}"
+        : "{{REQUEST}}";
+    const wrapperTemplate =
+      mode === "nudes-pack"
+        ? await getPromptTemplateValue("nudesPackPromptGeneratorUserWrapper", defaultUserWrapper)
+        : defaultUserWrapper;
+    const userMessage = applyPromptTemplatePlaceholders(wrapperTemplate, {
+      REQUEST: userRequest,
+      MODEL_NAME: model?.name || "",
+      MODE: mode || "default",
+      POSE_ID: context?.pose?.id || "",
+      POSE_TITLE: context?.pose?.title || "",
+    });
 
     const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
     if (!OPENROUTER_API_KEY) {
@@ -3905,7 +3951,10 @@ If the user request combined with locked attributes implies an unresolvable logi
       body: JSON.stringify({
         model: "x-ai/grok-4.1-fast",
         max_tokens: 2048,
-        messages: [{ role: "user", content: systemPrompt }],
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userMessage },
+        ],
       }),
     });
 
@@ -4349,7 +4398,7 @@ async function runNsfwAutoSelectSelections(userId, modelId, description) {
     .map(([key, values]) => `"${key}": [${values.map(v => `"${v}"`).join(", ")}]`)
     .join("\n");
 
-  const systemPrompt = `You are a smart assistant that reads a user's scene description and picks the BEST matching options from predefined selector lists.
+  let systemPrompt = `You are a smart assistant that reads a user's scene description and picks the BEST matching options from predefined selector lists.
 
 SCENE DESCRIPTION: "${description}"
 
@@ -4368,6 +4417,7 @@ RULES:
 6. THINK about logical consistency BEFORE outputting. Ask yourself: "Do these options make sense together in the same scene?" If not, fix conflicts.
 7. Do NOT auto-add "sweaty glistening skin", "wet smeared mascara running down cheeks", or running makeup for blowjob/oral scenes unless the user EXPLICITLY asks for it. Blowjobs should default to clean, natural skin.
 8. Return ONLY valid JSON. No explanation, no markdown, no extra text.`;
+  systemPrompt = await getPromptTemplateValue("nsfwAutoSelectOptionsSystemPrompt", systemPrompt);
 
   const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",

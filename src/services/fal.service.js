@@ -18,6 +18,7 @@ import { falConstraints } from "../config/providerMediaConstraints.js";
 import { sanitizeLoraDownloadUrl } from "../utils/loraUrl.js";
 import { resolveNsfwResolution } from "../utils/nsfwResolution.js";
 import { resolveRunpodWebhookUrl } from "../lib/runpodWebhookUrl.js";
+import { getPromptTemplateValue } from "./prompt-template-config.service.js";
 // dynamicPoll removed — inline polling used directly
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -235,6 +236,8 @@ async function captionSingleImage(imageUrl, triggerWord, index, captionSubjectCl
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
+      const baseSystemPrompt = buildCaptionSystemPrompt(triggerWord, captionSubjectClass);
+      const systemPrompt = await getPromptTemplateValue("falCaptionSystemPrompt", baseSystemPrompt);
       const completion = await grok.chat.completions.create({
         model: "x-ai/grok-4.1-fast",
         temperature: 0.3,
@@ -242,7 +245,7 @@ async function captionSingleImage(imageUrl, triggerWord, index, captionSubjectCl
         messages: [
           {
             role: "system",
-            content: buildCaptionSystemPrompt(triggerWord, captionSubjectClass),
+            content: systemPrompt,
           },
           {
             role: "user",
@@ -1495,7 +1498,7 @@ This controls how strongly the girl's trained face/body features are applied. Lo
 - 0.65: Face partially visible or at distance (full body shots, from behind but looking back, lying down, face barely visible)
 IMPORTANT: When in doubt, use 0.70. Too high causes face distortion/mutations. MINIMUM is 0.65.`;
 
-  const systemPrompt = `You are a LoRA selector for AI image generation. You receive the FULL generation context and make ALL LoRA decisions in one pass.
+  let systemPrompt = `You are a LoRA selector for AI image generation. You receive the FULL generation context and make ALL LoRA decisions in one pass.
 
 CONTEXT PROVIDED:
 - Scene Description (user's original idea): "${sceneDescription}"
@@ -1539,6 +1542,7 @@ CUM EFFECT:
 
 OUTPUT: Return ONLY valid JSON on one line, no explanation:
 {"pose":"<pose_id or none>","girl_strength":0.XX,"amateur_nudes":0.XX,"deepthroat":0.XX,"masturbation":0.XX,"dildo":0.XX,"facial":0.XX,"makeup":false,"cum":false}`;
+  systemPrompt = await getPromptTemplateValue("falLoraSelectorSystemPrompt", systemPrompt);
 
   console.log(`🤖 AI LoRA selector input: scene="${sceneDescription.substring(0, 80)}", chips=[${chipSummary.substring(0, 100)}], prompt="${finalPrompt.substring(0, 80)}..."`);
 

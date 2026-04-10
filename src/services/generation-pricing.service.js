@@ -15,12 +15,12 @@ export const DEFAULT_GENERATION_PRICING = Object.freeze({
   enhancePromptDefault: 10,
   enhancePromptNsfw: 10,
   upscalerImage: 5,
-  soulxNoModel1: 10,
-  soulxWithModel1: 15,
-  soulxNoModel2: 15,
-  soulxWithModel2: 25,
-  soulxExtraStepsPer10: 5,
-  /** NSFW + Soul-X LoRA training (fal.ai) — standard vs pro dataset / steps */
+  modelcloneXNoModel1: 10,
+  modelcloneXWithModel1: 15,
+  modelcloneXNoModel2: 15,
+  modelcloneXWithModel2: 25,
+  modelcloneXExtraStepsPer10: 5,
+  /** NSFW + ModelClone-X LoRA training (fal.ai) — standard vs pro dataset / steps */
   loraTrainingStandard: 750,
   loraTrainingPro: 1500,
 
@@ -119,6 +119,9 @@ export const DEFAULT_GENERATION_PRICING = Object.freeze({
   talkingHeadPerSecondX10: 13,
 });
 
+export const GENERATION_PRICING_KEYS = Object.freeze(Object.keys(DEFAULT_GENERATION_PRICING));
+const GENERATION_PRICING_KEY_SET = new Set(GENERATION_PRICING_KEYS);
+
 const CACHE_TTL_MS = 5_000;
 let pricingCache = null;
 let pricingCacheAt = 0;
@@ -126,7 +129,7 @@ let pricingCacheAt = 0;
 function sanitizePricingObject(input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) return {};
   const sanitized = {};
-  for (const key of Object.keys(DEFAULT_GENERATION_PRICING)) {
+  for (const key of GENERATION_PRICING_KEYS) {
     if (!(key in input)) continue;
     const raw = input[key];
     const value = typeof raw === "string" ? Number(raw) : raw;
@@ -134,6 +137,61 @@ function sanitizePricingObject(input) {
     sanitized[key] = Math.round(value * 1000) / 1000;
   }
   return sanitized;
+}
+
+export function validateGenerationPricingPatch(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return {
+      valid: false,
+      error: "Pricing payload object is required",
+      unknownKeys: [],
+      invalidValueKeys: [],
+      cleanPatch: {},
+    };
+  }
+  const unknownKeys = [];
+  const invalidValueKeys = [];
+  for (const [key, raw] of Object.entries(input)) {
+    if (!GENERATION_PRICING_KEY_SET.has(key)) {
+      unknownKeys.push(key);
+      continue;
+    }
+    const value = typeof raw === "string" ? Number(raw) : raw;
+    if (!Number.isFinite(value) || value < 0) invalidValueKeys.push(key);
+  }
+  if (unknownKeys.length > 0) {
+    return {
+      valid: false,
+      error: `Unknown generation pricing keys: ${unknownKeys.join(", ")}`,
+      unknownKeys,
+      invalidValueKeys,
+      cleanPatch: {},
+    };
+  }
+  if (invalidValueKeys.length > 0) {
+    return {
+      valid: false,
+      error: `Invalid generation pricing values for keys: ${invalidValueKeys.join(", ")} (must be finite numbers >= 0)`,
+      unknownKeys,
+      invalidValueKeys,
+      cleanPatch: {},
+    };
+  }
+  return {
+    valid: true,
+    error: null,
+    unknownKeys: [],
+    invalidValueKeys: [],
+    cleanPatch: sanitizePricingObject(input),
+  };
+}
+
+export function getGenerationPricingContract() {
+  return {
+    keys: GENERATION_PRICING_KEYS,
+    defaults: DEFAULT_GENERATION_PRICING,
+    strict: true,
+  };
 }
 
 export async function getGenerationPricing({ forceRefresh = false } = {}) {
@@ -147,8 +205,22 @@ export async function getGenerationPricing({ forceRefresh = false } = {}) {
     select: { values: true },
   });
 
-  const overrides = sanitizePricingObject(row?.values || {});
+  const raw = row?.values || {};
+  const overrides = sanitizePricingObject(raw);
   const merged = { ...DEFAULT_GENERATION_PRICING, ...overrides };
+
+  if (row) {
+    const hasUnknownKeys = Object.keys(raw).some((key) => !GENERATION_PRICING_KEY_SET.has(key));
+    const cleanStoredValues = { ...DEFAULT_GENERATION_PRICING, ...overrides };
+    const differsFromClean = JSON.stringify(raw) !== JSON.stringify(cleanStoredValues);
+    if (hasUnknownKeys || differsFromClean) {
+      await prisma.generationPricingConfig.update({
+        where: { id: "global" },
+        data: { values: cleanStoredValues },
+      });
+    }
+  }
+
   pricingCache = merged;
   pricingCacheAt = now;
   return merged;
@@ -156,8 +228,17 @@ export async function getGenerationPricing({ forceRefresh = false } = {}) {
 
 export async function updateGenerationPricing(patch) {
   const current = await getGenerationPricing({ forceRefresh: true });
-  const sanitizedPatch = sanitizePricingObject(patch);
-  const next = { ...current, ...sanitizedPatch };
+  const validation = validateGenerationPricingPatch(patch);
+  if (!validation.valid) {
+    const err = new Error(validation.error || "Invalid generation pricing payload");
+    err.statusCode = 400;
+    err.details = {
+      unknownKeys: validation.unknownKeys,
+      invalidValueKeys: validation.invalidValueKeys,
+    };
+    throw err;
+  }
+  const next = { ...current, ...validation.cleanPatch };
 
   await prisma.generationPricingConfig.upsert({
     where: { id: "global" },

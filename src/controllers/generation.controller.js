@@ -69,6 +69,7 @@ import { getUserFriendlyGenerationError } from "../utils/generationErrorMessages
 import { buildAppearancePrefix } from "../utils/appearancePrompt.js";
 import { getErrorMessageForDb } from "../lib/userError.js";
 import { getGenerationPricing } from "../services/generation-pricing.service.js";
+import { getPromptTemplateValue } from "../services/prompt-template-config.service.js";
 import { persistKieGenerationCorrelation } from "../utils/kieTaskCorrelation.js";
 import {
   RECREATE_ENGINE,
@@ -578,7 +579,7 @@ export async function describeTargetImage(req, res) {
       ? "Describe the clothes/outfit in detail as they should be kept exactly."
       : "Do NOT describe any clothing or outfit — the outfit will be handled separately. Skip all mentions of clothes, lingerie, accessories, shoes, or any wearables.";
 
-    const systemPrompt = `You are an expert at describing reference images for AI identity recreation.
+    let systemPrompt = `You are an expert at describing reference images for AI identity recreation.
 Your task: analyze this image and write a detailed scene description that will be used to recreate this exact scene with a different person named "${safeName}".
 
 RULES:
@@ -591,6 +592,7 @@ RULES:
 7. Keep it under 150 words, single paragraph, no bullet points
 8. Be specific about spatial composition — where is the person in frame, what's around them
 9. Output ONLY the description text, nothing else`;
+    systemPrompt = await getPromptTemplateValue("describeTargetImageSystemPrompt", systemPrompt);
 
     const completion = await grok.chat.completions.create({
       model: "x-ai/grok-4.1-fast",
@@ -1310,6 +1312,8 @@ export async function getGenerations(req, res) {
         where.type = { in: ["video", "prompt-video", "face-swap", "nsfw-video", "nsfw-video-extend", "recreate-video", "talking-head", "creator-studio-video"] };
       } else if (type === "image") {
         where.type = { in: ["image", "image-identity", "prompt-image", "face-swap-image"] };
+      } else if (type === "modelclone-x" || type === "soulx") {
+        where.type = { in: ["modelclone-x", "soulx"] };
       } else {
         where.type = type;
       }
@@ -3100,7 +3104,7 @@ async function processPromptImageInBackground(
         };
         return await generateImageWithNanoBananaKie(kieImages, customPrompt, {
           aspectRatio: "9:16",
-          resolution: "2K",
+          resolution: "1K",
           onTaskCreated,
         });
       }

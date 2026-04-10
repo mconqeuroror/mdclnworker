@@ -62,7 +62,7 @@ import { ScrollArea } from "../components/ui/scroll-area";
 import { cn } from "../lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import toast from "react-hot-toast";
-import api, { uploadFile } from "../services/api";
+import api, { pricingAPI, uploadFile } from "../services/api";
 import { downloadFromPublicUrl } from "../utils/directDownload";
 import { useAuthStore } from "../store";
 import { sound } from "../utils/sounds";
@@ -1075,7 +1075,7 @@ function formatImg2imgUserMessage(value, fallback = "") {
 // ============================================
 // NSFW Img2Img Tab — Photo-to-Photo with LoRA
 // ============================================
-function NsfwImg2ImgTab({ modelId, activeLoraObj, chipSelections = {} }) {
+function NsfwImg2ImgTab({ modelId, activeLoraObj, chipSelections = {}, nsfwImageCost = 30 }) {
   const copy = NSFW_COPY[resolveLocale()] || NSFW_COPY.en;
   const { refreshUserCredits } = useAuthStore();
   const { draft: i2iDraft, isLoading: i2iDraftLoading, saveDraft: saveI2iDraft, clearDraft: clearI2iDraft } = useDraft("nsfw-img2img");
@@ -1743,7 +1743,7 @@ function NsfwImg2ImgTab({ modelId, activeLoraObj, chipSelections = {} }) {
             {isGenerating ? (
               <><Loader2 className="w-4 h-4 animate-spin" /><span>{statusLabel || copy.i2iProcessing}</span></>
             ) : (
-              <><Flame className="w-4 h-4 text-white" /><span>{copy.labelGenerate}</span><span className="inline-flex items-center gap-0.5 text-yellow-400">30 <Coins className="w-3.5 h-3.5" /></span></>
+              <><Flame className="w-4 h-4 text-white" /><span>{copy.labelGenerate}</span><span className="inline-flex items-center gap-0.5 text-yellow-400">{nsfwImageCost} <Coins className="w-3.5 h-3.5" /></span></>
             )}
           </button>
 
@@ -3457,7 +3457,7 @@ function LoRAManager({ modelId, loras, activeLora, onCreateLora, onSetActive, on
                 <div className="flex flex-col gap-0.5 leading-tight">
                   <span className="text-xs font-medium text-white">{copy.loraStandard}</span>
                   <p className="text-[10px] text-slate-400 flex items-center gap-1">
-                    <span>15 images, 750</span>
+                    <span>15 images, {loraStandardCost}</span>
                     <Coins className="w-3 h-3 text-yellow-400 flex-shrink-0" />
                   </p>
                   <p className="text-[10px] text-slate-500">{copy.loraTime1h}</p>
@@ -3479,7 +3479,7 @@ function LoRAManager({ modelId, loras, activeLora, onCreateLora, onSetActive, on
                     Pro
                   </span>
                   <p className="text-[10px] text-slate-400 flex items-center gap-1">
-                    <span>30 curated images, 1500</span>
+                    <span>30 curated images, {loraProCost}</span>
                     <Coins className="w-3 h-3 text-yellow-400 flex-shrink-0" />
                   </p>
                   <p className="text-[10px] text-slate-500">{copy.loraTime2h}</p>
@@ -3797,6 +3797,31 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
   const [generatedNsfwImages, setGeneratedNsfwImages] = useState([]);
   const [selectedPreset, setSelectedPreset] = useState(null);
   const [imageQuantity, setImageQuantity] = useState(1);
+  const { data: generationPricingData } = useQuery({
+    queryKey: ["generation-pricing-nsfw-page"],
+    queryFn: () => pricingAPI.getGeneration(),
+    staleTime: 60_000,
+  });
+  const generationPricing = generationPricingData?.pricing || {};
+  const nsfwImageBaseCost = Number.isFinite(Number(generationPricing.imagePromptNsfw))
+    ? Number(generationPricing.imagePromptNsfw)
+    : 30;
+  const faceSwapExtraCost = Number.isFinite(Number(generationPricing.imageFaceSwap))
+    ? Number(generationPricing.imageFaceSwap)
+    : 10;
+  const nsfwFaceSwapCost = nsfwImageBaseCost + faceSwapExtraCost;
+  const loraStandardCost = Number.isFinite(Number(generationPricing.loraTrainingStandard))
+    ? Number(generationPricing.loraTrainingStandard)
+    : 750;
+  const loraProCost = Number.isFinite(Number(generationPricing.loraTrainingPro))
+    ? Number(generationPricing.loraTrainingPro)
+    : 1500;
+  const nsfwVideoMinCost = Number.isFinite(Number(generationPricing.videoPrompt5s))
+    ? Number(generationPricing.videoPrompt5s)
+    : 50;
+  const nsfwVideoMaxCost = Number.isFinite(Number(generationPricing.videoPrompt10s))
+    ? Number(generationPricing.videoPrompt10s)
+    : 80;
 
   // AI Prompt generation state
   const [isGeneratingAiPrompt, setIsGeneratingAiPrompt] = useState(false);
@@ -4343,7 +4368,7 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
   const isProTraining = selectedLoraForTraining?.trainingMode === "pro";
   const requiredTrainingImages = isProTraining ? 30 : 15;
   const maxTrainingImages = isProTraining ? 30 : 15;
-  const trainingCreditCost = isProTraining ? 1500 : 750;
+  const trainingCreditCost = isProTraining ? loraProCost : loraStandardCost;
 
   const handleToggleTrainingImage = (gen) => {
     setTrainingSelections(prev => {
@@ -6262,6 +6287,7 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
                 modelId={selectedModel}
                 activeLoraObj={activeLoraObj}
                 chipSelections={chipSelections}
+                nsfwImageCost={nsfwImageBaseCost}
               />
             )}
           </div>
@@ -6280,19 +6306,19 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
           </h3>
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
             <div className="p-3 rounded-xl bg-white/[0.04] border border-white/[0.16] backdrop-blur-xl text-center">
-              <span className="text-yellow-400 font-bold text-lg flex items-center justify-center gap-1">750 <Coins className="w-4 h-4" /></span>
+              <span className="text-yellow-400 font-bold text-lg flex items-center justify-center gap-1">{loraStandardCost}/{loraProCost} <Coins className="w-4 h-4" /></span>
               <span className="text-slate-400">{copy.creditsPanelLoraTraining}</span>
             </div>
             <div className="p-3 rounded-xl bg-white/[0.04] border border-white/[0.16] backdrop-blur-xl text-center">
-              <span className="text-yellow-400 font-bold text-lg flex items-center justify-center gap-1">30 <Coins className="w-4 h-4" /></span>
+              <span className="text-yellow-400 font-bold text-lg flex items-center justify-center gap-1">{nsfwImageBaseCost} <Coins className="w-4 h-4" /></span>
               <span className="text-slate-400">{copy.creditsPanelNsfwImage}</span>
             </div>
             <div className="p-3 rounded-xl bg-white/[0.04] border border-white/[0.16] backdrop-blur-xl text-center">
-              <span className="text-yellow-400 font-bold text-lg flex items-center justify-center gap-1">40 <Coins className="w-4 h-4" /></span>
+              <span className="text-yellow-400 font-bold text-lg flex items-center justify-center gap-1">{nsfwFaceSwapCost} <Coins className="w-4 h-4" /></span>
               <span className="text-slate-400">{copy.creditsPanelFaceSwap}</span>
             </div>
             <div className="p-3 rounded-xl bg-white/[0.04] border border-white/[0.16] backdrop-blur-xl text-center">
-              <span className="text-yellow-400 font-bold text-lg flex items-center justify-center gap-1">50-80 <Coins className="w-4 h-4" /></span>
+              <span className="text-yellow-400 font-bold text-lg flex items-center justify-center gap-1">{nsfwVideoMinCost}-{nsfwVideoMaxCost} <Coins className="w-4 h-4" /></span>
               <span className="text-slate-400">{copy.creditsPanelNsfwVideo}</span>
             </div>
             <div className="p-3 rounded-xl bg-white/[0.04] border border-white/[0.16] backdrop-blur-xl text-center">

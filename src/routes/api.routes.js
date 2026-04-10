@@ -233,7 +233,7 @@ import {
   apiLimiter,
   downloadLimiter,
 } from "../middleware/rateLimiter.js";
-import { getGenerationPricing } from "../services/generation-pricing.service.js";
+import { getGenerationPricing, getGenerationPricingContract } from "../services/generation-pricing.service.js";
 import { getEffectiveNudesPackPoses } from "../services/nudes-pack-config.service.js";
 import { getPromptTemplateValue } from "../services/prompt-template-config.service.js";
 import {
@@ -763,7 +763,7 @@ router.get("/upload/config", authMiddleware, (req, res) => {
 router.get("/pricing/generation", authMiddleware, async (_req, res) => {
   try {
     const pricing = await getGenerationPricing();
-    res.json({ success: true, pricing });
+    res.json({ success: true, pricing, contract: getGenerationPricingContract() });
   } catch (error) {
     console.error("GET /pricing/generation error:", error);
     res.status(500).json({ success: false, message: "Failed to load pricing" });

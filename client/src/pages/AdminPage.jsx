@@ -171,11 +171,12 @@ const GENERATION_PRICING_GROUPS = [
     ],
   },
   {
-    title: 'Real Avatars (Photo Avatars)',
+    title: 'Real Avatars + Voice hosting',
     fields: [
       { key: 'avatarCreation', label: 'Avatar creation (one-time fee)' },
       { key: 'avatarMonthly', label: 'Avatar monthly maintenance' },
       { key: 'avatarVideoPerSec', label: 'Avatar video generation (per second)' },
+      { key: 'voiceMonthly', label: 'Custom voice hosting — monthly debit per saved voice' },
     ],
   },
   {
@@ -240,17 +241,6 @@ const GENERATION_PRICING_GROUPS = [
     ],
   },
 ];
-
-const KNOWN_GENERATION_PRICING_KEYS = new Set(
-  GENERATION_PRICING_GROUPS.flatMap((group) => group.fields.map((field) => field.key)),
-);
-
-const formatPricingKeyLabel = (key) =>
-  String(key || "")
-    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-    .replace(/[_-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
 
 // ── Primitive UI components ───────────────────────────────────────────────────
 
@@ -639,6 +629,7 @@ export default function AdminPage() {
   const [showGenerationPricing, setShowGenerationPricing] = useState(false);
   const [genPricing, setGenPricing] = useState(null);
   const [genPricingDefaults, setGenPricingDefaults] = useState(null);
+  const [genPricingContract, setGenPricingContract] = useState(null);
   const [loadingGenPricing, setLoadingGenPricing] = useState(false);
   const [savingGenPricing, setSavingGenPricing] = useState(false);
   const [showProviderBalances, setShowProviderBalances] = useState(false);
@@ -659,6 +650,9 @@ export default function AdminPage() {
   const [savingSafetyCheckerConfig, setSavingSafetyCheckerConfig] = useState(false);
   const [showNudesPackPoseOverrides, setShowNudesPackPoseOverrides] = useState(false);
   const [nudesPackPoseOverridesText, setNudesPackPoseOverridesText] = useState("{}");
+  const [nudesPackPoseCatalog, setNudesPackPoseCatalog] = useState([]);
+  const [nudesPackPoseViewMode, setNudesPackPoseViewMode] = useState('structured');
+  const [nudesPackPoseSearch, setNudesPackPoseSearch] = useState('');
   const [loadingNudesPackPoseOverrides, setLoadingNudesPackPoseOverrides] = useState(false);
   const [savingNudesPackPoseOverrides, setSavingNudesPackPoseOverrides] = useState(false);
   const [reconcileLimit, setReconcileLimit] = useState(250);
@@ -1926,13 +1920,29 @@ export default function AdminPage() {
     catch (e) { toast.error(e?.response?.data?.error || 'Action failed'); }
   };
 
+  const contractKeys = Array.isArray(genPricingContract?.keys) ? genPricingContract.keys : [];
+  const contractKeySet = new Set(contractKeys);
+  const mappedKeys = new Set(
+    GENERATION_PRICING_GROUPS.flatMap((group) => group.fields.map((field) => field.key)),
+  );
+  const missingUiMappings = contractKeys.filter((key) => !mappedKeys.has(key));
+  const staleUiMappings = [...mappedKeys].filter((key) => !contractKeySet.has(key));
+
   const loadGenerationPricing = async () => {
     try {
       setLoadingGenPricing(true);
       const r = await api.get('/admin/pricing/generation');
       if (r.data?.success) {
-        setGenPricing({ ...r.data.pricing });
-        setGenPricingDefaults(r.data.defaults ? { ...r.data.defaults } : null);
+        const contract = r.data.contract || null;
+        const keys = Array.isArray(contract?.keys) ? contract.keys : Object.keys(r.data.pricing || {});
+        const nextPricing = {};
+        const incomingPricing = r.data.pricing || {};
+        keys.forEach((key) => {
+          nextPricing[key] = Number.isFinite(Number(incomingPricing[key])) ? Number(incomingPricing[key]) : 0;
+        });
+        setGenPricing(nextPricing);
+        setGenPricingDefaults(contract?.defaults ? { ...contract.defaults } : (r.data.defaults ? { ...r.data.defaults } : null));
+        setGenPricingContract(contract);
       }
     } catch (e) {
       toast.error(e?.response?.data?.error || 'Failed to load generation pricing');
@@ -1943,9 +1953,19 @@ export default function AdminPage() {
 
   const saveGenerationPricing = async () => {
     if (!genPricing) return;
+    if (missingUiMappings.length > 0) {
+      toast.error(`Cannot save: missing UI mappings for ${missingUiMappings.length} backend pricing key(s).`);
+      return;
+    }
     try {
       setSavingGenPricing(true);
-      const r = await api.put('/admin/pricing/generation', { pricing: genPricing });
+      const payload = contractKeys.length > 0
+        ? contractKeys.reduce((acc, key) => {
+            acc[key] = Number.isFinite(Number(genPricing[key])) ? Number(genPricing[key]) : 0;
+            return acc;
+          }, {})
+        : genPricing;
+      const r = await api.put('/admin/pricing/generation', { pricing: payload });
       if (r.data?.success) {
         setGenPricing({ ...r.data.pricing });
         toast.success('Generation pricing saved');
@@ -1964,6 +1984,7 @@ export default function AdminPage() {
       if (r.data?.success) {
         setConfirmResetGenPricing(false);
         setGenPricing({ ...r.data.pricing });
+        if (r.data.contract) setGenPricingContract(r.data.contract);
         toast.success('Pricing reset to defaults');
       } else {
         toast.error(r.data?.error || 'Reset failed');
@@ -2087,12 +2108,32 @@ export default function AdminPage() {
       const r = await api.get('/admin/nudes-pack-poses');
       if (r.data?.success) {
         setNudesPackPoseOverridesText(JSON.stringify(r.data.overrides || {}, null, 2));
+        const catalog = Array.isArray(r.data.catalog)
+          ? r.data.catalog
+          : (Array.isArray(r.data.poses) ? r.data.poses.map((pose) => ({ ...pose, enabled: true })) : []);
+        setNudesPackPoseCatalog(catalog);
       }
     } catch (e) {
       toast.error(e?.response?.data?.error || 'Failed to load nudes pack pose overrides');
     } finally {
       setLoadingNudesPackPoseOverrides(false);
     }
+  };
+
+  const buildNudesPackOverridesFromCatalog = (catalog) => {
+    const out = {};
+    (catalog || []).forEach((pose) => {
+      const id = String(pose?.id || '').trim();
+      if (!id) return;
+      out[id] = {
+        title: String(pose?.title || ''),
+        summary: String(pose?.summary || ''),
+        promptFragment: String(pose?.promptFragment || ''),
+        category: String(pose?.category || ''),
+        enabled: pose?.enabled !== false,
+      };
+    });
+    return out;
   };
 
   const saveNudesPackPoseOverrides = async () => {
@@ -2102,6 +2143,10 @@ export default function AdminPage() {
       const r = await api.put('/admin/nudes-pack-poses', { overrides: parsed });
       if (r.data?.success) {
         setNudesPackPoseOverridesText(JSON.stringify(r.data.overrides || {}, null, 2));
+        const catalog = Array.isArray(r.data.catalog)
+          ? r.data.catalog
+          : (Array.isArray(r.data.poses) ? r.data.poses.map((pose) => ({ ...pose, enabled: true })) : []);
+        setNudesPackPoseCatalog(catalog);
         toast.success('Nudes pack pose overrides saved');
       }
     } catch (e) {
@@ -2110,6 +2155,26 @@ export default function AdminPage() {
       } else {
         toast.error(e?.response?.data?.error || 'Failed to save nudes pack overrides');
       }
+    } finally {
+      setSavingNudesPackPoseOverrides(false);
+    }
+  };
+
+  const saveStructuredNudesPackPoses = async () => {
+    try {
+      setSavingNudesPackPoseOverrides(true);
+      const payload = buildNudesPackOverridesFromCatalog(nudesPackPoseCatalog);
+      const r = await api.put('/admin/nudes-pack-poses', { overrides: payload });
+      if (r.data?.success) {
+        setNudesPackPoseOverridesText(JSON.stringify(r.data.overrides || {}, null, 2));
+        const catalog = Array.isArray(r.data.catalog)
+          ? r.data.catalog
+          : (Array.isArray(r.data.poses) ? r.data.poses.map((pose) => ({ ...pose, enabled: true })) : []);
+        setNudesPackPoseCatalog(catalog);
+        toast.success('Nudes pack pose catalog saved');
+      }
+    } catch (e) {
+      toast.error(e?.response?.data?.error || 'Failed to save nudes pack pose catalog');
     } finally {
       setSavingNudesPackPoseOverrides(false);
     }
@@ -3749,6 +3814,30 @@ export default function AdminPage() {
               <p className="text-[11px] text-gray-500 -mt-2">
                 Credit costs charged for generations and model workflows. Values are integers (credits). Changes apply on save; backend caches for a few seconds.
               </p>
+              {genPricingContract && (
+                <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-4 text-xs">
+                  <p className="font-medium text-gray-200">Contract check</p>
+                  <p className="text-gray-400 mt-1">
+                    Backend keys: {contractKeys.length} · UI mapped keys: {mappedKeys.size}
+                  </p>
+                  {missingUiMappings.length === 0 && staleUiMappings.length === 0 ? (
+                    <p className="text-emerald-300 mt-2">All backend pricing keys are mapped in this admin UI.</p>
+                  ) : (
+                    <div className="mt-2 space-y-1">
+                      {missingUiMappings.length > 0 && (
+                        <p className="text-amber-300">
+                          Missing UI mappings: {missingUiMappings.join(', ')}
+                        </p>
+                      )}
+                      {staleUiMappings.length > 0 && (
+                        <p className="text-amber-300">
+                          UI keys not in backend contract: {staleUiMappings.join(', ')}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
               {loadingGenPricing && !genPricing ? (
                 <div className="flex items-center gap-2 text-xs text-gray-500 py-6">
                   <Loader2 className="w-4 h-4 animate-spin" /> Loading pricing…
@@ -3789,43 +3878,6 @@ export default function AdminPage() {
                       </div>
                     </div>
                   ))}
-                  {Object.keys(genPricing).filter((key) => !KNOWN_GENERATION_PRICING_KEYS.has(key)).length > 0 && (
-                    <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-4">
-                      <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wider mb-3">Other endpoints</p>
-                      <div className="grid sm:grid-cols-2 gap-3">
-                        {Object.keys(genPricing)
-                          .filter((key) => !KNOWN_GENERATION_PRICING_KEYS.has(key))
-                          .sort((a, b) => a.localeCompare(b))
-                          .map((key) => {
-                            const def = genPricingDefaults?.[key];
-                            const val = genPricing[key];
-                            return (
-                              <label key={key} className="flex flex-col gap-1">
-                                <span className="text-[11px] text-gray-500">{formatPricingKeyLabel(key)}</span>
-                                <div className="flex items-center gap-2">
-                                  <input
-                                    type="number"
-                                    min={0}
-                                    step={1}
-                                    value={Number.isFinite(Number(val)) ? val : 0}
-                                    onChange={(e) => {
-                                      const n = parseInt(e.target.value, 10);
-                                      setGenPricing((p) => ({ ...p, [key]: Number.isFinite(n) && n >= 0 ? n : 0 }));
-                                    }}
-                                    className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-white/[0.07] bg-white/[0.03] text-xs text-white outline-none focus:border-white/20 transition [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                                  />
-                                  {def != null && def !== val && (
-                                    <span className="text-[10px] text-gray-600 whitespace-nowrap" title="Default">
-                                      def {def}
-                                    </span>
-                                  )}
-                                </div>
-                              </label>
-                            );
-                          })}
-                      </div>
-                    </div>
-                  )}
                   <div className="flex flex-wrap items-center gap-2">
                     <PrimaryBtn onClick={saveGenerationPricing} disabled={savingGenPricing}>
                       {savingGenPricing ? 'Saving…' : 'Save pricing'}
@@ -3939,18 +3991,101 @@ export default function AdminPage() {
           {showNudesPackPoseOverrides && (
             <div className="space-y-3">
               <p className="text-[11px] text-gray-500 -mt-2">
-                JSON map by pose ID. Supported fields: `title`, `summary`, `promptFragment`, `category`, `enabled`.
+                Manage effective nudes-pack poses. Structured mode supports inline edits; raw JSON mode is kept for bulk import/export.
               </p>
-              <textarea
-                value={nudesPackPoseOverridesText}
-                onChange={(e) => setNudesPackPoseOverridesText(e.target.value)}
-                className="w-full min-h-[220px] rounded-lg border border-white/[0.07] bg-white/[0.03] text-xs text-white p-3 font-mono outline-none focus:border-white/20"
-                spellCheck={false}
-              />
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => setNudesPackPoseViewMode('structured')}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] border ${nudesPackPoseViewMode === 'structured' ? 'border-white/30 bg-white/10 text-white' : 'border-white/10 text-gray-400 hover:text-white'}`}
+                >
+                  Structured editor
+                </button>
+                <button
+                  onClick={() => setNudesPackPoseViewMode('raw')}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] border ${nudesPackPoseViewMode === 'raw' ? 'border-white/30 bg-white/10 text-white' : 'border-white/10 text-gray-400 hover:text-white'}`}
+                >
+                  Raw JSON
+                </button>
+                {nudesPackPoseViewMode === 'structured' && (
+                  <input
+                    value={nudesPackPoseSearch}
+                    onChange={(e) => setNudesPackPoseSearch(e.target.value)}
+                    placeholder="Filter poses by id/title/category"
+                    className="ml-auto px-3 py-1.5 rounded-lg border border-white/[0.07] bg-white/[0.03] text-xs text-white outline-none focus:border-white/20 min-w-[220px]"
+                  />
+                )}
+              </div>
+
+              {nudesPackPoseViewMode === 'structured' ? (
+                <div className="space-y-3">
+                  {nudesPackPoseCatalog
+                    .filter((pose) => {
+                      const q = nudesPackPoseSearch.trim().toLowerCase();
+                      if (!q) return true;
+                      return [pose.id, pose.title, pose.category].some((v) => String(v || '').toLowerCase().includes(q));
+                    })
+                    .map((pose) => (
+                      <div key={pose.id} className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-3 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] text-gray-400 font-mono">{pose.id}</span>
+                          <label className="ml-auto inline-flex items-center gap-1.5 text-[11px] text-gray-400">
+                            <input
+                              type="checkbox"
+                              checked={pose.enabled !== false}
+                              onChange={(e) => setNudesPackPoseCatalog((prev) => prev.map((p) => p.id === pose.id ? { ...p, enabled: e.target.checked } : p))}
+                            />
+                            Enabled
+                          </label>
+                        </div>
+                        <div className="grid sm:grid-cols-2 gap-2">
+                          <input
+                            value={pose.title || ''}
+                            onChange={(e) => setNudesPackPoseCatalog((prev) => prev.map((p) => p.id === pose.id ? { ...p, title: e.target.value } : p))}
+                            placeholder="Title"
+                            className="px-3 py-2 rounded-lg border border-white/[0.07] bg-white/[0.03] text-xs text-white outline-none focus:border-white/20"
+                          />
+                          <input
+                            value={pose.category || ''}
+                            onChange={(e) => setNudesPackPoseCatalog((prev) => prev.map((p) => p.id === pose.id ? { ...p, category: e.target.value } : p))}
+                            placeholder="Category"
+                            className="px-3 py-2 rounded-lg border border-white/[0.07] bg-white/[0.03] text-xs text-white outline-none focus:border-white/20"
+                          />
+                        </div>
+                        <textarea
+                          value={pose.summary || ''}
+                          onChange={(e) => setNudesPackPoseCatalog((prev) => prev.map((p) => p.id === pose.id ? { ...p, summary: e.target.value } : p))}
+                          placeholder="Summary"
+                          rows={2}
+                          className="w-full px-3 py-2 rounded-lg border border-white/[0.07] bg-white/[0.03] text-xs text-white outline-none focus:border-white/20"
+                        />
+                        <textarea
+                          value={pose.promptFragment || ''}
+                          onChange={(e) => setNudesPackPoseCatalog((prev) => prev.map((p) => p.id === pose.id ? { ...p, promptFragment: e.target.value } : p))}
+                          placeholder="Prompt fragment"
+                          rows={4}
+                          className="w-full px-3 py-2 rounded-lg border border-white/[0.07] bg-white/[0.03] text-xs text-white outline-none focus:border-white/20 font-mono"
+                        />
+                      </div>
+                    ))}
+                </div>
+              ) : (
+                <textarea
+                  value={nudesPackPoseOverridesText}
+                  onChange={(e) => setNudesPackPoseOverridesText(e.target.value)}
+                  className="w-full min-h-[220px] rounded-lg border border-white/[0.07] bg-white/[0.03] text-xs text-white p-3 font-mono outline-none focus:border-white/20"
+                  spellCheck={false}
+                />
+              )}
               <div className="flex items-center gap-2">
-                <PrimaryBtn onClick={saveNudesPackPoseOverrides} disabled={savingNudesPackPoseOverrides}>
-                  {savingNudesPackPoseOverrides ? 'Saving…' : 'Save pose overrides'}
+                <PrimaryBtn
+                  onClick={nudesPackPoseViewMode === 'structured' ? saveStructuredNudesPackPoses : saveNudesPackPoseOverrides}
+                  disabled={savingNudesPackPoseOverrides}
+                >
+                  {savingNudesPackPoseOverrides ? 'Saving…' : (nudesPackPoseViewMode === 'structured' ? 'Save pose catalog' : 'Save pose overrides')}
                 </PrimaryBtn>
+                <GhostBtn onClick={loadNudesPackPoseOverrides} disabled={loadingNudesPackPoseOverrides || savingNudesPackPoseOverrides}>
+                  Reset from server
+                </GhostBtn>
               </div>
             </div>
           )}

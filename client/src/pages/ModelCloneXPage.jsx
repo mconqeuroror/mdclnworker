@@ -37,10 +37,6 @@ const DEFAULT_MODELCLONE_X_PRICING = Object.freeze({
   trainingStandard: 750,
   trainingPro: 1500,
 });
-const DEFAULT_MODELCLONE_X_TRAINING_PRICING = Object.freeze({
-  trainingStandard: DEFAULT_MODELCLONE_X_PRICING.trainingStandard,
-  trainingPro: DEFAULT_MODELCLONE_X_PRICING.trainingPro,
-});
 const DEFAULT_MODELCLONE_X_LIMITS = Object.freeze({
   includedSteps: 20,
   includedStepsNoModel: 20,
@@ -286,8 +282,8 @@ const COPY = {
   },
 };
 
-function useModelCloneXTrainingPricing() {
-  const [trainingPricing, setTrainingPricing] = useState(DEFAULT_MODELCLONE_X_TRAINING_PRICING);
+function useModelCloneXPricing() {
+  const [pricing, setPricing] = useState(DEFAULT_MODELCLONE_X_PRICING);
   useEffect(() => {
     const token = localStorage.getItem("token");
     axios
@@ -295,17 +291,11 @@ function useModelCloneXTrainingPricing() {
       .then((res) => {
         if (!res.data?.success || !res.data.pricing) return;
         const p = res.data.pricing;
-        const ts = Number(p.trainingStandard);
-        const tp = Number(p.trainingPro);
-        setTrainingPricing({
-          trainingStandard:
-            Number.isFinite(ts) && ts >= 0 ? ts : DEFAULT_MODELCLONE_X_TRAINING_PRICING.trainingStandard,
-          trainingPro: Number.isFinite(tp) && tp >= 0 ? tp : DEFAULT_MODELCLONE_X_TRAINING_PRICING.trainingPro,
-        });
+        setPricing({ ...DEFAULT_MODELCLONE_X_PRICING, ...p });
       })
       .catch(() => {});
   }, []);
-  return trainingPricing;
+  return pricing;
 }
 
 function ResultCard({ imageUrl, isDark, onDownload }) {
@@ -338,7 +328,7 @@ function ResultCard({ imageUrl, isDark, onDownload }) {
 
 // ── Character Tab ─────────────────────────────────────────────────────────────
 
-function CharacterTab({ isDark, trainingPricing }) {
+function CharacterTab({ isDark, pricing }) {
   const { models } = useCachedModels();
   const [selectedModelId, setSelectedModelId] = useState("");
   const [character, setCharacter] = useState(null);
@@ -466,8 +456,8 @@ function CharacterTab({ isDark, trainingPricing }) {
     ? "border border-white/[0.10] text-slate-400 hover:text-white hover:border-white/18 hover:bg-white/[0.04]"
     : "border border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300";
 
-  const stdCredits = trainingPricing?.trainingStandard ?? DEFAULT_MODELCLONE_X_TRAINING_PRICING.trainingStandard;
-  const proCredits = trainingPricing?.trainingPro ?? DEFAULT_MODELCLONE_X_TRAINING_PRICING.trainingPro;
+  const stdCredits = pricing?.trainingStandard ?? DEFAULT_MODELCLONE_X_PRICING.trainingStandard;
+  const proCredits = pricing?.trainingPro ?? DEFAULT_MODELCLONE_X_PRICING.trainingPro;
   const createCost = trainingMode === "pro" ? proCredits : stdCredits;
 
   return (
@@ -1242,18 +1232,18 @@ export default function ModelCloneXPage() {
   const locale = resolveLocale();
   const copy = COPY[locale] || COPY.en;
   const [activeTab, setActiveTab] = useState("generate");
-  const trainingPricing = useModelCloneXTrainingPricing();
+  const pricing = useModelCloneXPricing();
 
   const muted = isDark ? "rgba(148,163,184,0.85)" : "#64748b";
   const titleColor = isDark ? "#e2e8f0" : "#1e293b";
   const pricingRows = [
-    [copy.p1, 10],
-    [copy.p2, 15],
-    [copy.p3, 15],
-    [copy.p4, 25],
-    [copy.p5, 5],
-    [copy.p6, trainingPricing.trainingStandard],
-    [copy.p7, trainingPricing.trainingPro],
+    [copy.p1, pricing.noModel1],
+    [copy.p2, pricing.withModel1],
+    [copy.p3, pricing.noModel2],
+    [copy.p4, pricing.withModel2],
+    [copy.p5, pricing.extraStepsPer10],
+    [copy.p6, pricing.trainingStandard],
+    [copy.p7, pricing.trainingPro],
   ];
 
   return (
@@ -1330,7 +1320,7 @@ export default function ModelCloneXPage() {
               exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.18 }}
             >
-              <CharacterTab isDark={isDark} trainingPricing={trainingPricing} />
+              <CharacterTab isDark={isDark} pricing={pricing} />
             </motion.div>
           )}
         </AnimatePresence>

@@ -86,7 +86,7 @@ const PAGE_COPY = {
     limitReached: "Limit reached",
     deleteToAdd: "Delete an avatar to add a new one",
     recentVideos: "Recent Videos",
-    billingNote: "Active avatars are billed 500 credits/month to keep them live. Suspended avatars cannot generate videos.",
+    billingNote: "Active avatars are billed {monthly} credits/month to keep them live. Suspended avatars cannot generate videos.",
     tabPhoto: "Photo",
     tabVideo: "Video",
     tabGenerate: "Generate",
@@ -166,7 +166,7 @@ const PAGE_COPY = {
     limitReached: "Лимит достигнут",
     deleteToAdd: "Удалите аватар, чтобы добавить новый",
     recentVideos: "Последние видео",
-    billingNote: "За активные аватары списывается 500 кредитов/месяц для поддержания работы. Приостановленные аватары не могут создавать видео.",
+    billingNote: "За активные аватары списывается {monthly} кредитов/месяц для поддержания работы. Приостановленные аватары не могут создавать видео.",
     tabPhoto: "Фото",
     tabVideo: "Видео",
     tabGenerate: "Создать",
@@ -1168,6 +1168,10 @@ function RealAvatarsTab({ sidebarCollapsed, generationPricing = {} }) {
     const n = Number(generationPricing?.avatarVideoPerSec);
     return Number.isFinite(n) && n >= 0 ? n : 5;
   })();
+  const avatarMonthlyCost = (() => {
+    const n = Number(generationPricing?.avatarMonthly);
+    return Number.isFinite(n) && n >= 0 ? n : 500;
+  })();
   const [selectedModelId, setSelectedModelId] = useState(null);
   const [showCreate, setShowCreate] = useState(false);
   const [makeVideoFor, setMakeVideoFor] = useState(null);
@@ -1406,7 +1410,7 @@ function RealAvatarsTab({ sidebarCollapsed, generationPricing = {} }) {
           {avatars.filter(a => a.status !== "failed").length > 0 && (
             <div className="flex items-start gap-2 mb-6 text-[11px] text-slate-600">
               <Info className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-slate-700" />
-              <span>{copy.billingNote}</span>
+              <span>{formatCopy(copy.billingNote, { monthly: avatarMonthlyCost })}</span>
             </div>
           )}
         </div>

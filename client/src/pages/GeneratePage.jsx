@@ -1072,6 +1072,33 @@ function ImageGeneration() {
   const [selectedModel, setSelectedModel] = useState("");
   const [targetImage, setTargetImage] = useState(null);
   const [clothesMode, setClothesMode] = useState("model");
+  const { data: generationPricingData } = useQuery({
+    queryKey: ["generation-pricing-image-page"],
+    queryFn: () => pricingAPI.getGeneration(),
+    staleTime: 60_000,
+  });
+  const generationPricing = generationPricingData?.pricing || {};
+  const imageIdentityCost = Number.isFinite(generationPricing.imageIdentity)
+    ? generationPricing.imageIdentity
+    : 10;
+  const imagePromptCasualCost = Number.isFinite(generationPricing.imagePromptCasual)
+    ? generationPricing.imagePromptCasual
+    : 20;
+  const imagePromptNsfwCost = Number.isFinite(generationPricing.imagePromptNsfw)
+    ? generationPricing.imagePromptNsfw
+    : 10;
+  const imageFaceSwapCost = Number.isFinite(generationPricing.imageFaceSwap)
+    ? generationPricing.imageFaceSwap
+    : 10;
+  const enhancePromptCasualCost = Number.isFinite(generationPricing.enhancePromptDefault)
+    ? generationPricing.enhancePromptDefault
+    : 10;
+  const enhancePromptNsfwCost = Number.isFinite(generationPricing.enhancePromptNsfw)
+    ? generationPricing.enhancePromptNsfw
+    : 10;
+  const promptImageModeCostLabel = imagePromptCasualCost === imagePromptNsfwCost
+    ? String(imagePromptCasualCost)
+    : `${Math.min(imagePromptCasualCost, imagePromptNsfwCost)}-${Math.max(imagePromptCasualCost, imagePromptNsfwCost)}`;
   // Auto-select first model when models load
   useEffect(() => {
     if (models.length > 0 && (!selectedModel || !models.find(m => m.id === selectedModel))) {
@@ -1180,7 +1207,7 @@ function ImageGeneration() {
         const enhanced = response.data.enhancedPrompt;
         setAdvancedPrompt(enhanced);
         const modeLabel = advancedModel === "seedream" ? "Uncensored+" : "Ultra Realism";
-        const enhanceCost = advancedModel === "seedream" ? 0 : 10;
+        const enhanceCost = advancedModel === "seedream" ? enhancePromptNsfwCost : enhancePromptCasualCost;
         toast.success(
           enhanceCost > 0
             ? `Prompt enhanced! ${modeLabel} · ${enhanceCost} 🪙 used`
@@ -1217,7 +1244,7 @@ function ImageGeneration() {
     }
 
     const model = models.find((m) => m.id === selectedModel);
-    const creditsNeeded = 10; // 10 credits per image
+    const creditsNeeded = imageIdentityCost;
 
     if (!user || credits < creditsNeeded) {
       toast.error(!user ? copy.identityToastLoginRequired : `Need ${creditsNeeded} 🪙. You have ${credits} 🪙.`);
@@ -1274,8 +1301,8 @@ function ImageGeneration() {
       return;
     }
 
-    if (credits < 10) {
-      toast.error(`Need 10 🪙. You have ${credits} 🪙.`);
+    if (credits < imageFaceSwapCost) {
+      toast.error(`Need ${imageFaceSwapCost} 🪙. You have ${credits} 🪙.`);
       return;
     }
 
@@ -1407,7 +1434,7 @@ function ImageGeneration() {
               <p className="text-[11px] text-slate-400">{copy.modeIdentityTitle}</p>
               <div className="mt-2 flex items-center justify-center gap-1.5">
                 <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-yellow-500/10 border border-yellow-500/20">
-                  <span className="text-[10px] font-medium text-yellow-400 inline-flex items-center gap-0.5">10 <Coins className="w-2.5 h-2.5" /></span>
+                  <span className="text-[10px] font-medium text-yellow-400 inline-flex items-center gap-0.5">{imageIdentityCost} <Coins className="w-2.5 h-2.5" /></span>
                 </div>
                 <div className="inline-flex items-center px-1.5 py-0.5 rounded-full" style={{ background: 'linear-gradient(135deg, rgba(34,197,94,0.25), rgba(22,163,74,0.15))', border: '1px solid rgba(34,197,94,0.4)' }}>
                   <span className="text-[8px] font-bold tracking-wide" style={{ color: '#4ade80' }}>50% OFF</span>
@@ -1449,7 +1476,7 @@ function ImageGeneration() {
               <p className="text-[11px] text-slate-400">{copy.modePromptTitle}</p>
               <div className="mt-2 flex items-center justify-center gap-1.5">
                 <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-yellow-500/10 border border-yellow-500/20">
-                  <span className="text-[10px] font-medium text-yellow-400 inline-flex items-center gap-0.5">10-20 <Coins className="w-2.5 h-2.5" /></span>
+                  <span className="text-[10px] font-medium text-yellow-400 inline-flex items-center gap-0.5">{promptImageModeCostLabel} <Coins className="w-2.5 h-2.5" /></span>
                 </div>
                 <div className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full" style={{ background: 'linear-gradient(135deg, rgba(34,197,94,0.25), rgba(22,163,74,0.15))', border: '1px solid rgba(34,197,94,0.4)' }}>
                   <span className="text-[8px] font-bold tracking-wide" style={{ color: '#4ade80' }}>50% OFF</span>
@@ -1491,7 +1518,7 @@ function ImageGeneration() {
               <p className="text-[11px] text-slate-400">{copy.modeFaceswapTitle}</p>
               <div className="mt-2 flex items-center justify-center gap-1.5">
                 <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-yellow-500/10 border border-yellow-500/20">
-                  <span className="text-[10px] font-medium text-yellow-400 inline-flex items-center gap-0.5">10 <Coins className="w-2.5 h-2.5" /></span>
+                  <span className="text-[10px] font-medium text-yellow-400 inline-flex items-center gap-0.5">{imageFaceSwapCost} <Coins className="w-2.5 h-2.5" /></span>
                 </div>
               </div>
             </div>
@@ -1610,14 +1637,14 @@ function ImageGeneration() {
           )}
 
           {/* Premium Generate Button */}
-          {credits < 10 ? (
+          {credits < imageIdentityCost ? (
             <button
               onClick={() => setShowCreditsModal(true)}
               className="w-full py-4 rounded-xl font-semibold flex items-center justify-center gap-3 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] bg-white text-black hover:bg-white/90"
               data-testid="button-get-credits-image"
             >
               <CreditCard className="w-5 h-5" />
-              {copy.getCredits} <span className="inline-flex items-center gap-0.5 text-red-500">(10 <Coins className="w-3.5 h-3.5" />)</span>
+              {copy.getCredits} <span className="inline-flex items-center gap-0.5 text-red-500">({imageIdentityCost} <Coins className="w-3.5 h-3.5" />)</span>
             </button>
           ) : (
             <button
@@ -1641,7 +1668,7 @@ function ImageGeneration() {
               ) : (
                 <>
                   <Zap className="w-5 h-5 text-yellow-400" />
-                  <span className="inline-flex items-center gap-1.5">{copy.generateImage} <span className="inline-flex items-center gap-0.5 text-yellow-400">10 <Coins className="w-3.5 h-3.5" /></span></span>
+                  <span className="inline-flex items-center gap-1.5">{copy.generateImage} <span className="inline-flex items-center gap-0.5 text-yellow-400">{imageIdentityCost} <Coins className="w-3.5 h-3.5" /></span></span>
                 </>
               )}
             </button>
@@ -1658,6 +1685,12 @@ function ImageGeneration() {
           selectedModel={selectedModel}
           setSelectedModel={setSelectedModel}
           clearDraft={clearDraft}
+          pricing={{
+            imagePromptCasual: imagePromptCasualCost,
+            imagePromptNsfw: imagePromptNsfwCost,
+            enhancePromptDefault: enhancePromptCasualCost,
+            enhancePromptNsfw: enhancePromptNsfwCost,
+          }}
         />
       )}
 
@@ -1697,14 +1730,14 @@ function ImageGeneration() {
           </div>
 
           {/* Generate Button */}
-          {credits < 10 ? (
+          {credits < imageFaceSwapCost ? (
             <button
               onClick={() => setShowCreditsModal(true)}
               className="w-full py-3.5 px-6 rounded-xl font-semibold transition-all flex items-center justify-center gap-2 bg-white text-black hover:bg-white/90"
               data-testid="button-get-credits-faceswap"
             >
               <CreditCard className="w-5 h-5" />
-              {copy.getCredits} <span className="inline-flex items-center gap-0.5 text-red-500">(10 <Coins className="w-3.5 h-3.5" />)</span>
+              {copy.getCredits} <span className="inline-flex items-center gap-0.5 text-red-500">({imageFaceSwapCost} <Coins className="w-3.5 h-3.5" />)</span>
             </button>
           ) : (
             <button
@@ -1731,7 +1764,7 @@ function ImageGeneration() {
               ) : (
                 <>
                   <Zap className="w-5 h-5 text-white" />
-                  <span className="inline-flex items-center gap-1.5">{copy.faceswapAction} <span className="inline-flex items-center gap-0.5 text-yellow-400">10 <Coins className="w-3.5 h-3.5" /></span></span>
+                  <span className="inline-flex items-center gap-1.5">{copy.faceswapAction} <span className="inline-flex items-center gap-0.5 text-yellow-400">{imageFaceSwapCost} <Coins className="w-3.5 h-3.5" /></span></span>
                 </>
               )}
             </button>
@@ -1904,7 +1937,7 @@ function ImageGeneration() {
 
           {/* Generate Button */}
           {(() => {
-            const advCredits = advancedModel === "nano-banana" ? 20 : 10;
+            const advCredits = advancedModel === "nano-banana" ? imagePromptCasualCost : imagePromptNsfwCost;
             return credits < advCredits ? (
               <button
                 onClick={() => setShowCreditsModal(true)}
@@ -2184,6 +2217,20 @@ function VideoGeneration() {
       ? generationPricing.wan22AnimateMove480pPerSec
       : VIDEO_RECREATE_WAN_480_PER_SEC,
   };
+  const promptVideoCostByDuration = {
+    5: Number.isFinite(generationPricing.videoPrompt5s) ? generationPricing.videoPrompt5s : 60,
+    10: Number.isFinite(generationPricing.videoPrompt10s) ? generationPricing.videoPrompt10s : 100,
+  };
+  const videoFaceSwapPerSec = Number.isFinite(generationPricing.videoFaceSwapPerSec)
+    ? generationPricing.videoFaceSwapPerSec
+    : 10;
+  const talkingHeadMinCost = Number.isFinite(generationPricing.talkingHeadMin)
+    ? generationPricing.talkingHeadMin
+    : 70;
+  const talkingHeadPerSecondX10 = Number.isFinite(generationPricing.talkingHeadPerSecondX10)
+    ? generationPricing.talkingHeadPerSecondX10
+    : 13;
+  const talkingHeadPerSec = talkingHeadPerSecondX10 / 10;
 
   // Auto-select first model when models load
   useEffect(() => {
@@ -2556,7 +2603,7 @@ function VideoGeneration() {
     }
 
     // Calculate credits based on video duration (10 credits per second)
-    const creditsNeeded = Math.ceil(videoDuration * 10);
+    const creditsNeeded = Math.ceil(videoDuration * videoFaceSwapPerSec);
 
     if (credits < creditsNeeded) {
       toast.error(
@@ -2636,7 +2683,7 @@ function VideoGeneration() {
     }
 
     const estimatedDuration = Math.ceil(talkingHeadText.length / 12.5);
-    const creditsNeeded = Math.max(70, Math.ceil(estimatedDuration * 13));
+    const creditsNeeded = Math.max(talkingHeadMinCost, Math.ceil(estimatedDuration * talkingHeadPerSec));
 
     if (credits < creditsNeeded) {
       toast.error(`Need ~${creditsNeeded} 🪙. You have ${credits} 🪙.`);
@@ -2888,7 +2935,7 @@ function VideoGeneration() {
                 <TutorialButton tutorial={videoTutorialPrompt} showWhenMissing />
               </div>
               <div className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-yellow-500/10 border border-yellow-500/20">
-                <span className="text-[9px] font-medium text-yellow-400 inline-flex items-center gap-0.5">10-12 <Coins className="w-2.5 h-2.5" />/sec</span>
+                <span className="text-[9px] font-medium text-yellow-400 inline-flex items-center gap-0.5">{promptVideoCostByDuration[5]}-{promptVideoCostByDuration[10]} <Coins className="w-2.5 h-2.5" /></span>
               </div>
             </div>
           </button>
@@ -2922,7 +2969,7 @@ function VideoGeneration() {
                 <TutorialButton tutorial={videoTutorialFaceSwap} showWhenMissing />
               </div>
               <div className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-yellow-500/10 border border-yellow-500/20">
-                <span className="text-[9px] font-medium text-yellow-400 inline-flex items-center gap-0.5">10 <Coins className="w-2.5 h-2.5" />/sec</span>
+                <span className="text-[9px] font-medium text-yellow-400 inline-flex items-center gap-0.5">{videoFaceSwapPerSec} <Coins className="w-2.5 h-2.5" />/sec</span>
               </div>
             </div>
           </button>
@@ -2956,7 +3003,7 @@ function VideoGeneration() {
                 <TutorialButton tutorial={videoTutorialTalking} showWhenMissing />
               </div>
               <div className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-orange-500/10 border border-orange-500/20">
-                <span className="text-[9px] font-medium text-yellow-400 inline-flex items-center gap-0.5">~13 <Coins className="w-2.5 h-2.5" />/sec</span>
+                <span className="text-[9px] font-medium text-yellow-400 inline-flex items-center gap-0.5">~{talkingHeadPerSec} <Coins className="w-2.5 h-2.5" />/sec</span>
               </div>
             </div>
           </button>
@@ -3261,14 +3308,14 @@ function VideoGeneration() {
           </div>
 
           {/* Generate Button */}
-          {credits < (promptVideoDuration === 5 ? 60 : 100) ? (
+          {credits < (promptVideoCostByDuration[promptVideoDuration] ?? promptVideoCostByDuration[5]) ? (
             <button
               onClick={() => setShowCreditsModal(true)}
               className="w-full py-3.5 rounded-xl font-semibold flex items-center justify-center gap-2 transition-all bg-white text-black hover:bg-white/90"
               data-testid="button-get-credits-prompt-video"
             >
               <CreditCard className="w-4 h-4" />
-              {copy.getCredits} <span className="inline-flex items-center gap-0.5 text-red-500">({promptVideoDuration === 5 ? 60 : 100} <Coins className="w-3.5 h-3.5" />)</span>
+              {copy.getCredits} <span className="inline-flex items-center gap-0.5 text-red-500">({promptVideoCostByDuration[promptVideoDuration] ?? promptVideoCostByDuration[5]} <Coins className="w-3.5 h-3.5" />)</span>
             </button>
           ) : (
             <button
@@ -3285,7 +3332,7 @@ function VideoGeneration() {
               ) : (
                 <>
                   <Zap className="w-4 h-4 text-white" />
-                  {copy.promptVideoAction} <span className="inline-flex items-center gap-0.5 text-yellow-400">{promptVideoDuration === 5 ? 60 : 100} <Coins className="w-3.5 h-3.5" /></span>
+                  {copy.promptVideoAction} <span className="inline-flex items-center gap-0.5 text-yellow-400">{promptVideoCostByDuration[promptVideoDuration] ?? promptVideoCostByDuration[5]} <Coins className="w-3.5 h-3.5" /></span>
                 </>
               )}
             </button>
@@ -3315,7 +3362,7 @@ function VideoGeneration() {
             {videoDuration > 0 && (
               <div className="mt-2 flex items-center gap-2">
                 <span className="px-2 py-0.5 text-[10px] font-medium rounded-full" style={{ background: 'rgba(34,211,238,0.15)', color: '#22D3EE' }}>
-                  <span className="inline-flex items-center gap-0.5">{videoDuration}s = {Math.ceil(videoDuration * 10)} <Coins className="w-2.5 h-2.5" /></span>
+                  <span className="inline-flex items-center gap-0.5">{videoDuration}s = {Math.ceil(videoDuration * videoFaceSwapPerSec)} <Coins className="w-2.5 h-2.5" /></span>
                 </span>
               </div>
             )}
@@ -3347,14 +3394,14 @@ function VideoGeneration() {
           </div>
 
           {/* Generate Button */}
-          {videoDuration > 0 && credits < Math.ceil(videoDuration * 10) ? (
+          {videoDuration > 0 && credits < Math.ceil(videoDuration * videoFaceSwapPerSec) ? (
             <button
               onClick={() => setShowCreditsModal(true)}
               className="w-full py-3.5 rounded-xl font-semibold flex items-center justify-center gap-2 transition-all bg-white text-black hover:bg-white/90"
               data-testid="button-get-credits-faceswap-video"
             >
               <CreditCard className="w-4 h-4" />
-              {copy.getCredits} <span className="inline-flex items-center gap-0.5 text-red-500">({Math.ceil(videoDuration * 10)} <Coins className="w-3.5 h-3.5" />)</span>
+              {copy.getCredits} <span className="inline-flex items-center gap-0.5 text-red-500">({Math.ceil(videoDuration * videoFaceSwapPerSec)} <Coins className="w-3.5 h-3.5" />)</span>
             </button>
           ) : (
             <button
@@ -3371,7 +3418,7 @@ function VideoGeneration() {
               ) : (
                 <>
                   <RefreshCcw className="w-4 h-4" />
-                  {copy.faceswapVideoAction || copy.faceswapAction} <span className="inline-flex items-center gap-0.5 text-yellow-400">{videoDuration > 0 ? <>{Math.ceil(videoDuration * 10)} <Coins className="w-3.5 h-3.5" /></> : <>~ <Coins className="w-3.5 h-3.5" /></>}</span>
+                  {copy.faceswapVideoAction || copy.faceswapAction} <span className="inline-flex items-center gap-0.5 text-yellow-400">{videoDuration > 0 ? <>{Math.ceil(videoDuration * videoFaceSwapPerSec)} <Coins className="w-3.5 h-3.5" /></> : <>~ <Coins className="w-3.5 h-3.5" /></>}</span>
                 </>
               )}
             </button>
@@ -3628,7 +3675,14 @@ function VideoGeneration() {
   );
 }
 
-function PromptImageContent({ onGenerationUpdate, models, selectedModel, setSelectedModel, clearDraft }) {
+function PromptImageContent({
+  onGenerationUpdate,
+  models,
+  selectedModel,
+  setSelectedModel,
+  clearDraft,
+  pricing = {},
+}) {
   const copy = getGenerateCopy();
   const { user, refreshUserCredits } = useAuthStore();
   const credits = user?.credits ?? 0;
@@ -3656,6 +3710,11 @@ function PromptImageContent({ onGenerationUpdate, models, selectedModel, setSele
   const [useCustomPrompt, setUseCustomPrompt] = useState(false); // Toggle for custom vs AI-enhanced
   const [useNsfw, setUseNsfw] = useState(false); // SFW (Nano Banana) vs NSFW (Seedream v4.5)
   const isNsfwMode = !hideRestrictedModes && useNsfw;
+  const promptCasualCost = Number.isFinite(pricing.imagePromptCasual) ? pricing.imagePromptCasual : 20;
+  const promptNsfwCost = Number.isFinite(pricing.imagePromptNsfw) ? pricing.imagePromptNsfw : 10;
+  const enhancePromptCasualCost = Number.isFinite(pricing.enhancePromptDefault) ? pricing.enhancePromptDefault : 10;
+  const enhancePromptNsfwCost = Number.isFinite(pricing.enhancePromptNsfw) ? pricing.enhancePromptNsfw : 10;
+  const activePromptGenerationCost = isNsfwMode ? promptNsfwCost : promptCasualCost;
 
   // Draft: persist prompt text, nsfw toggle, custom prompt toggle across navigation
   const { draft: promptDraft, isLoading: promptDraftLoading, saveDraft: savePromptDraft, saveDraftNow: savePromptDraftNow, clearDraft: clearPromptDraft } = useDraft("prompt-image");
@@ -3796,7 +3855,7 @@ function PromptImageContent({ onGenerationUpdate, models, selectedModel, setSele
         await savePromptDraftNow({ prompt: enhanced, useNsfw: isNsfwMode, useCustomPrompt }, []);
         setPrompt(enhanced);
         const modeLabel = isNsfwMode ? "Spicy" : "Casual";
-        const enhanceCost = 10;
+        const enhanceCost = isNsfwMode ? enhancePromptNsfwCost : enhancePromptCasualCost;
         toast.success(`Prompt enhanced! ${modeLabel} mode · ${enhanceCost} 🪙 used`);
         // Refresh credits so balance updates immediately
         await refreshUserCredits?.();
@@ -3948,7 +4007,7 @@ function PromptImageContent({ onGenerationUpdate, models, selectedModel, setSele
               </div>
               <p className="text-[10px] text-slate-500 mt-1 ml-6">For casual IG style pics</p>
               <div className="mt-1.5 ml-6 flex items-center gap-1.5">
-                <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[9px] font-medium bg-yellow-500/10 border border-yellow-500/20 text-yellow-400" data-testid="text-price-casual">20 <Coins className="w-2.5 h-2.5" /></span>
+                <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[9px] font-medium bg-yellow-500/10 border border-yellow-500/20 text-yellow-400" data-testid="text-price-casual">{promptCasualCost} <Coins className="w-2.5 h-2.5" /></span>
                 <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[8px] font-bold tracking-wide" style={{ background: 'linear-gradient(135deg, rgba(34,197,94,0.25), rgba(22,163,74,0.15))', border: '1px solid rgba(34,197,94,0.4)', color: '#4ade80' }}>33% OFF</span>
               </div>
             </button>
@@ -3989,7 +4048,7 @@ function PromptImageContent({ onGenerationUpdate, models, selectedModel, setSele
                 </div>
                 <p className="text-[10px] text-slate-500 mt-1 ml-6">Designed for sexy content</p>
                 <div className="mt-1.5 ml-6 flex items-center gap-1.5">
-                  <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[9px] font-medium bg-yellow-500/10 border border-yellow-500/20 text-yellow-400" data-testid="text-price-sexy">10 <Coins className="w-2.5 h-2.5" /></span>
+                  <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[9px] font-medium bg-yellow-500/10 border border-yellow-500/20 text-yellow-400" data-testid="text-price-sexy">{promptNsfwCost} <Coins className="w-2.5 h-2.5" /></span>
                   <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[8px] font-bold tracking-wide" style={{ background: 'linear-gradient(135deg, rgba(34,197,94,0.25), rgba(22,163,74,0.15))', border: '1px solid rgba(34,197,94,0.4)', color: '#4ade80' }} data-testid="text-discount-badge">50% OFF</span>
                 </div>
               </button>
@@ -4134,14 +4193,14 @@ function PromptImageContent({ onGenerationUpdate, models, selectedModel, setSele
           </div>
         )}
 
-        {credits < (isNsfwMode ? 10 : 20) ? (
+        {credits < activePromptGenerationCost ? (
           <button
             onClick={() => setShowCreditsModal(true)}
             className="w-full py-3.5 rounded-xl font-semibold flex items-center justify-center gap-2 transition-all bg-white text-black hover:bg-white/90"
             data-testid="button-get-credits-prompt"
           >
             <CreditCard className="w-4 h-4" />
-            Get Credits <span className="inline-flex items-center gap-0.5 text-red-500">({isNsfwMode ? 10 : 20} <Coins className="w-3.5 h-3.5" />)</span>
+            Get Credits <span className="inline-flex items-center gap-0.5 text-red-500">({activePromptGenerationCost} <Coins className="w-3.5 h-3.5" />)</span>
           </button>
         ) : (
           <button
@@ -4158,7 +4217,7 @@ function PromptImageContent({ onGenerationUpdate, models, selectedModel, setSele
             ) : (
               <>
                 <Zap className="w-4 h-4 text-white" />
-                Generate <span className="inline-flex items-center gap-0.5 text-yellow-400">{isNsfwMode ? 10 : 20} <Coins className="w-3.5 h-3.5" /></span>
+                Generate <span className="inline-flex items-center gap-0.5 text-yellow-400">{activePromptGenerationCost} <Coins className="w-3.5 h-3.5" /></span>
               </>
             )}
           </button>

@@ -27,9 +27,11 @@ import {
 } from "../services/telemetry.service.js";
 import {
   DEFAULT_GENERATION_PRICING,
+  getGenerationPricingContract,
   getGenerationPricing,
   updateGenerationPricing,
   resetGenerationPricing,
+  validateGenerationPricingPatch,
 } from "../services/generation-pricing.service.js";
 import {
   getPromptTemplateOverrides,
@@ -40,6 +42,7 @@ import {
   upsertNudesPackPoseOverrides,
   getEffectiveNudesPackPoses,
 } from "../services/nudes-pack-config.service.js";
+import { NUDES_PACK_POSES } from "../../shared/nudesPackPoses.js";
 import {
   DEFAULT_GENERATION_SAFETY_CONFIG,
   getGenerationSafetyConfig,
@@ -402,7 +405,12 @@ router.post(
 router.get("/pricing/generation", async (_req, res) => {
   try {
     const pricing = await getGenerationPricing();
-    res.json({ success: true, pricing, defaults: DEFAULT_GENERATION_PRICING });
+    res.json({
+      success: true,
+      pricing,
+      defaults: DEFAULT_GENERATION_PRICING,
+      contract: getGenerationPricingContract(),
+    });
   } catch (error) {
     console.error("Error fetching generation pricing:", error);
     res.status(500).json({ success: false, error: "Failed to fetch generation pricing" });
@@ -414,8 +422,14 @@ router.put("/pricing/generation", async (req, res) => {
     const patch = req.body?.pricing && typeof req.body.pricing === "object"
       ? req.body.pricing
       : req.body;
-    if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
-      return res.status(400).json({ success: false, error: "Pricing payload object is required" });
+    const validation = validateGenerationPricingPatch(patch);
+    if (!validation.valid) {
+      return res.status(400).json({
+        success: false,
+        error: validation.error || "Invalid generation pricing payload",
+        unknownKeys: validation.unknownKeys,
+        invalidValueKeys: validation.invalidValueKeys,
+      });
     }
     const pricing = await updateGenerationPricing(patch);
     res.json({ success: true, pricing });
@@ -428,7 +442,7 @@ router.put("/pricing/generation", async (req, res) => {
 router.post("/pricing/generation/reset", async (_req, res) => {
   try {
     const pricing = await resetGenerationPricing();
-    res.json({ success: true, pricing });
+    res.json({ success: true, pricing, contract: getGenerationPricingContract() });
   } catch (error) {
     console.error("Error resetting generation pricing:", error);
     res.status(500).json({ success: false, error: "Failed to reset generation pricing" });
@@ -442,12 +456,22 @@ router.get("/prompt-templates", async (_req, res) => {
       success: true,
       templates,
       knownKeys: [
+        "modelcloneXZImageTurbo",
         "soulxZImageTurbo",
         "nsfwPromptGenerator",
         "analyzeLooksSystemPrompt",
         "enhancePromptCasualSystem",
         "enhancePromptUltraRealismSystem",
         "enhancePromptNsfwSystem",
+        "nudesPackPromptGeneratorSystem",
+        "nudesPackPromptGeneratorUserWrapper",
+        "describeTargetImageSystemPrompt",
+        "img2imgInjectSystemPrompt",
+        "falCaptionSystemPrompt",
+        "falLoraSelectorSystemPrompt",
+        "nsfwLoraStrengthSystemPrompt",
+        "nsfwAutoDetectAppearanceSystemPrompt",
+        "nsfwAutoSelectOptionsSystemPrompt",
       ],
     });
   } catch (error) {
@@ -508,7 +532,19 @@ router.get("/nudes-pack-poses", async (_req, res) => {
   try {
     const overrides = await getNudesPackPoseOverrides();
     const poses = await getEffectiveNudesPackPoses();
-    res.json({ success: true, overrides, poses });
+    const catalog = NUDES_PACK_POSES.map((pose) => {
+      const override = overrides?.[pose.id] || {};
+      const enabled = override.enabled !== false;
+      return {
+        ...pose,
+        ...(typeof override.title === "string" ? { title: override.title } : {}),
+        ...(typeof override.summary === "string" ? { summary: override.summary } : {}),
+        ...(typeof override.promptFragment === "string" ? { promptFragment: override.promptFragment } : {}),
+        ...(typeof override.category === "string" ? { category: override.category } : {}),
+        enabled,
+      };
+    });
+    res.json({ success: true, overrides, poses, catalog });
   } catch (error) {
     console.error("Error fetching nudes-pack poses:", error);
     res.status(500).json({ success: false, error: "Failed to fetch nudes-pack poses" });
@@ -528,7 +564,19 @@ router.put("/nudes-pack-poses", async (req, res) => {
       email: req.user?.email,
     });
     const poses = await getEffectiveNudesPackPoses();
-    res.json({ success: true, overrides, poses });
+    const catalog = NUDES_PACK_POSES.map((pose) => {
+      const override = overrides?.[pose.id] || {};
+      const enabled = override.enabled !== false;
+      return {
+        ...pose,
+        ...(typeof override.title === "string" ? { title: override.title } : {}),
+        ...(typeof override.summary === "string" ? { summary: override.summary } : {}),
+        ...(typeof override.promptFragment === "string" ? { promptFragment: override.promptFragment } : {}),
+        ...(typeof override.category === "string" ? { category: override.category } : {}),
+        enabled,
+      };
+    });
+    res.json({ success: true, overrides, poses, catalog });
   } catch (error) {
     console.error("Error updating nudes-pack poses:", error);
     res.status(500).json({ success: false, error: "Failed to update nudes-pack poses" });

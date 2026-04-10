@@ -28,6 +28,7 @@ import {
   removeRgthreeFastGroupsBypasserFromComfyUiGraph,
 } from "./fal.service.js";
 import { resolveRunpodWebhookUrl } from "../lib/runpodWebhookUrl.js";
+import { getPromptTemplateValue } from "./prompt-template-config.service.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -793,7 +794,7 @@ export async function injectModelIntoPrompt(rawDescription, triggerWord, lookDes
       baseURL: "https://openrouter.ai/api/v1",
     });
 
-    const systemPrompt = `You are an expert prompt engineer specialized in ComfyUI ZIT (Z Image Turbo) img2img workflows.
+    let systemPrompt = `You are an expert prompt engineer specialized in ComfyUI ZIT (Z Image Turbo) img2img workflows.
 
 You will receive labeled sections in every user message:
 - TRIGGER_WORD — the LoRA trigger token. Your output MUST start with exactly: TRIGGER_WORD followed by a comma and a space (example: "${trigger}, ").
@@ -813,6 +814,7 @@ Rules for the output prompt (ZIT-specific):
 - Prefer one line; stay under ~350 words.
 
 Output format: exactly one block of clean prompt text. Nothing more.`;
+    systemPrompt = await getPromptTemplateValue("img2imgInjectSystemPrompt", systemPrompt);
 
     const userMessage = `TRIGGER_WORD (start your output with this exact token, then comma and space):
 ${trigger}
