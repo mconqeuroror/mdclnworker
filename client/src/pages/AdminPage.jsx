@@ -2101,17 +2101,23 @@ export default function AdminPage() {
     }
   };
 
-  const cleanupZombieVoices = async () => {
+  const cleanupZombieVoices = async (dryRun = false) => {
     try {
       setCleaningZombieVoices(true);
       const r = await api.post('/admin/voice-platform/cleanup-zombies', {
-        dryRun: false,
+        dryRun: Boolean(dryRun),
         limit: 1000,
       });
       if (r.data?.success) {
         setZombieVoiceCleanupResult(r.data);
-        setVoicePlatformUsed(Number(r.data.usedCustomVoices) || 0);
-        toast.success(`Zombie cleanup done: ${r.data.deleted || 0} deleted`);
+        if (!dryRun) {
+          setVoicePlatformUsed(Number(r.data.usedCustomVoices) || 0);
+        }
+        if (dryRun) {
+          toast.success(`Dry run done: ${r.data.zombieCandidates || 0} zombie candidates found`);
+        } else {
+          toast.success(`Zombie cleanup done: ${r.data.deleted || 0} deleted`);
+        }
       } else {
         toast.error(r.data?.error || 'Zombie cleanup failed');
       }
@@ -4368,16 +4374,31 @@ export default function AdminPage() {
               <PrimaryBtn onClick={saveVoicePlatformConfig} disabled={savingVoicePlatform}>
                 {savingVoicePlatform ? 'Saving…' : 'Save cap'}
               </PrimaryBtn>
+              <GhostBtn onClick={() => cleanupZombieVoices(true)} disabled={cleaningZombieVoices}>
+                <Search className={`w-3 h-3 ${cleaningZombieVoices ? 'animate-pulse' : ''}`} />
+                Dry run zombies
+              </GhostBtn>
               <GhostBtn onClick={cleanupZombieVoices} disabled={cleaningZombieVoices}>
                 <Trash2 className={`w-3 h-3 ${cleaningZombieVoices ? 'animate-pulse' : ''}`} />
                 {cleaningZombieVoices ? 'Cleaning…' : 'Cleanup zombie voices'}
               </GhostBtn>
               {zombieVoiceCleanupResult?.success && (
                 <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/[0.05] p-2.5 text-[11px] text-emerald-300">
-                  Deleted <span className="font-mono text-emerald-200">{zombieVoiceCleanupResult.deleted || 0}</span>
-                  {' '}of{' '}
-                  <span className="font-mono text-emerald-200">{zombieVoiceCleanupResult.zombieCandidates || 0}</span>
-                  {' '}zombie voices.
+                  {zombieVoiceCleanupResult?.dryRun ? 'Dry run:' : 'Deleted'}{' '}
+                  <span className="font-mono text-emerald-200">
+                    {zombieVoiceCleanupResult?.dryRun
+                      ? zombieVoiceCleanupResult.zombieCandidates || 0
+                      : zombieVoiceCleanupResult.deleted || 0}
+                  </span>
+                  {' '}
+                  {zombieVoiceCleanupResult?.dryRun ? 'zombie candidates found' : 'of'}
+                  {!zombieVoiceCleanupResult?.dryRun && (
+                    <>
+                      {' '}
+                      <span className="font-mono text-emerald-200">{zombieVoiceCleanupResult.zombieCandidates || 0}</span>
+                      {' '}zombie voices.
+                    </>
+                  )}
                   {Number(zombieVoiceCleanupResult.failed || 0) > 0 && (
                     <span className="text-amber-300"> Failed: {zombieVoiceCleanupResult.failed}.</span>
                   )}
