@@ -1570,6 +1570,7 @@ export async function getDashboardStats(req, res) {
       periodUsersCreated,
       periodUsersPotentialOutflow,
       periodGenerations,
+      periodAbandonedSignupOffers,
       allTimeTopUsers,
       earliestUser,
     ] = await Promise.all([
@@ -1606,6 +1607,18 @@ export async function getDashboardStats(req, res) {
       prisma.generation.findMany({
         where: { createdAt: { gte: range.start, lte: range.end } },
         select: { createdAt: true, type: true, creditsCost: true },
+      }),
+      prisma.abandonedSignupEmailOffer.findMany({
+        where: {
+          OR: [
+            { sentAt: { gte: range.start, lte: range.end } },
+            { convertedAt: { gte: range.start, lte: range.end } },
+          ],
+        },
+        select: {
+          sentAt: true,
+          convertedAt: true,
+        },
       }),
       prisma.user.findMany({
         where: {
@@ -1690,6 +1703,54 @@ export async function getDashboardStats(req, res) {
       estimatedRevenue: Number((row.creditsSpent * CREDIT_TO_USD).toFixed(2)),
     }));
 
+    const emailDailyMap = new Map();
+    const emailCursor = startOfDay(range.start);
+    while (emailCursor <= rangeEnd) {
+      const k = dayKey(emailCursor);
+      emailDailyMap.set(k, { date: k, sent: 0, converted: 0, conversionRatePct: 0 });
+      emailCursor.setDate(emailCursor.getDate() + 1);
+    }
+    for (const offer of periodAbandonedSignupOffers) {
+      if (offer.sentAt) {
+        const sentKey = dayKey(offer.sentAt);
+        if (emailDailyMap.has(sentKey)) emailDailyMap.get(sentKey).sent += 1;
+      }
+      if (offer.convertedAt) {
+        const convertedKey = dayKey(offer.convertedAt);
+        if (emailDailyMap.has(convertedKey)) emailDailyMap.get(convertedKey).converted += 1;
+      }
+    }
+    const abandonedSignupDailySeries = Array.from(emailDailyMap.values()).map((row) => ({
+      ...row,
+      conversionRatePct: row.sent > 0 ? Number(((row.converted / row.sent) * 100).toFixed(2)) : 0,
+    }));
+    const abandonedSignupSent = abandonedSignupDailySeries.reduce((sum, row) => sum + row.sent, 0);
+    const abandonedSignupConverted = abandonedSignupDailySeries.reduce((sum, row) => sum + row.converted, 0);
+    const abandonedSignupConversionRatePct = abandonedSignupSent > 0
+      ? Number(((abandonedSignupConverted / abandonedSignupSent) * 100).toFixed(2))
+      : 0;
+
+    const toolStatsMap = new Map();
+    for (const g of periodGenerations) {
+      const key = String(g.type || "unknown");
+      const prev = toolStatsMap.get(key) || {
+        tool: key,
+        usageCount: 0,
+        creditsSpent: 0,
+        estimatedRevenue: 0,
+      };
+      const spent = Number(g.creditsCost || 0);
+      prev.usageCount += 1;
+      prev.creditsSpent += spent;
+      prev.estimatedRevenue = Number((prev.creditsSpent * CREDIT_TO_USD).toFixed(2));
+      toolStatsMap.set(key, prev);
+    }
+    const generationToolsByTool = Array.from(toolStatsMap.values()).sort((a, b) => b.estimatedRevenue - a.estimatedRevenue);
+    const generationToolsTopByRevenue = [...generationToolsByTool].slice(0, 10);
+    const generationToolsTopByUsage = [...generationToolsByTool]
+      .sort((a, b) => b.usageCount - a.usageCount)
+      .slice(0, 10);
+
     // Period totals
     const creditsUsedInPeriod = creditsUsedInPeriodAgg._sum.creditsCost || 0;
     const estimatedRevenue = Number((creditsUsedInPeriod * CREDIT_TO_USD).toFixed(2));
@@ -1731,6 +1792,19 @@ export async function getDashboardStats(req, res) {
           totalUsed: creditsUsedInPeriod,
           totalRemaining: totalCreditsRemaining,
           estimatedRevenue: estimatedRevenue.toFixed(2)
+        },
+        campaigns: {
+          abandonedSignup: {
+            sent: abandonedSignupSent,
+            converted: abandonedSignupConverted,
+            conversionRatePct: abandonedSignupConversionRatePct,
+            dailySeries: abandonedSignupDailySeries,
+          },
+        },
+        generationTools: {
+          byTool: generationToolsByTool,
+          topByRevenue: generationToolsTopByRevenue,
+          topByUsage: generationToolsTopByUsage,
         },
         topUsers: allTimeTopUsers,
         dailySeries,

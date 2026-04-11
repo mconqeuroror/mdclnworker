@@ -22,6 +22,7 @@ import {
   runEndpointHealthChecks,
 } from './services/telemetry.service.js';
 import { processPendingBlobRemirrorQueue } from "./services/blob-remirror-queue.service.js";
+import { runSignupNoPurchaseWinbackCampaign } from "./services/signup-winback-email.service.js";
 
 dotenv.config();
 
@@ -89,6 +90,8 @@ const ENDPOINT_HEALTHCHECK_INTERVAL_MS =
   readIntervalMs(process.env.ENDPOINT_HEALTHCHECK_INTERVAL_MS, 15 * 60 * 1000);
 const BLOB_REMIRROR_QUEUE_INTERVAL_MS =
   readIntervalMs(process.env.BLOB_REMIRROR_QUEUE_INTERVAL_MS, 60 * 1000);
+const SIGNUP_WINBACK_EMAIL_INTERVAL_MS =
+  readIntervalMs(process.env.SIGNUP_WINBACK_EMAIL_INTERVAL_MS, 30 * 60 * 1000);
 
 // Middleware - strict origin allowlist for production
 const allowedOrigins = new Set(
@@ -653,6 +656,27 @@ if (!process.env.VERCEL) {
     }
   }, BLOB_REMIRROR_QUEUE_INTERVAL_MS);
   console.log(`📦 Blob re-mirror queue enabled (${Math.round(BLOB_REMIRROR_QUEUE_INTERVAL_MS / 1000)}s interval)`);
+
+  let signupWinbackInProgress = false;
+  const runSignupWinbackTick = async () => {
+    if (signupWinbackInProgress) return;
+    signupWinbackInProgress = true;
+    try {
+      const summary = await runSignupNoPurchaseWinbackCampaign();
+      if ((summary?.sent || 0) > 0 || (summary?.converted || 0) > 0) {
+        console.log("📨 Signup winback campaign:", summary);
+      }
+    } catch (error) {
+      console.error("Signup winback campaign failed (non-fatal):", error?.message || error);
+    } finally {
+      signupWinbackInProgress = false;
+    }
+  };
+  await runSignupWinbackTick();
+  setInterval(runSignupWinbackTick, SIGNUP_WINBACK_EMAIL_INTERVAL_MS);
+  console.log(
+    `📨 Signup winback email automation enabled (${Math.round(SIGNUP_WINBACK_EMAIL_INTERVAL_MS / 1000)}s interval)`,
+  );
 
   // Heal stuck "generating" models every 10 min (initial 3-pose creation only).
   let modelHealingInProgress = false;

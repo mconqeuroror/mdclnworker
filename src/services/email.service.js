@@ -316,6 +316,70 @@ export async function sendPromoEmail(email, userName) {
   }
 }
 
+export async function sendFirstMembershipDiscountEmail({
+  email,
+  userName,
+  discountCode,
+  discountPercent = 15,
+  validUntil,
+}) {
+  try {
+    const branding = await getAppBranding();
+    const brandName = branding.appName || BRAND.name;
+    const fromEmail = process.env.SENDGRID_FROM_EMAIL || "noreply@modelclone.app";
+    const name = userName || "Creator";
+    const baseUrl = (branding.baseUrl || BRAND.defaultBaseUrl).replace(/\/$/, "");
+    const expiresAtLabel = validUntil
+      ? new Date(validUntil).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+      : "soon";
+    const subject = `${discountPercent}% off your first membership is waiting`;
+
+    const msg = {
+      to: email,
+      from: {
+        email: fromEmail,
+        name: brandName,
+      },
+      subject,
+      trackingSettings: {
+        clickTracking: { enable: false, enableText: false },
+        openTracking: { enable: false },
+      },
+      html: await renderBaseEmailShell({
+        subject,
+        sectionLabel: "Membership Offer",
+        title: `${discountPercent}% Off Your First Membership`,
+        introHtml: `<p class="greeting-text">Hey ${escapeHtml(name)}, thanks for signing up. We saved a private first-membership discount for you.</p>`,
+        contentHtml: `
+          <div style="background:#f7f7f5;border:1px solid #e2e2de;border-radius:4px;padding:20px 22px;margin-bottom:16px;">
+            <p style="font-size:13px;color:#9b9b93;margin-bottom:8px;">Discount code</p>
+            <p style="font-size:30px;line-height:1.1;font-weight:600;color:#111;font-family:'DM Mono', monospace;">${escapeHtml(discountCode)}</p>
+          </div>
+          <table style="width:100%;border-collapse:collapse;font-size:13px;color:#555550;margin:0 0 18px;">
+            <tr><td style="padding:8px 0;border-bottom:1px solid #e8e8e4;">Discount</td><td style="padding:8px 0;text-align:right;border-bottom:1px solid #e8e8e4;"><strong>${escapeHtml(String(discountPercent))}%</strong></td></tr>
+            <tr><td style="padding:8px 0;border-bottom:1px solid #e8e8e4;">Applies to</td><td style="padding:8px 0;text-align:right;border-bottom:1px solid #e8e8e4;">First membership checkout</td></tr>
+            <tr><td style="padding:8px 0;">Expires</td><td style="padding:8px 0;text-align:right;">${escapeHtml(expiresAtLabel)}</td></tr>
+          </table>
+          <p style="margin:0 0 16px;"><a href="${escapeHtml(baseUrl)}/dashboard" class="cta-btn">Claim membership offer</a></p>
+          <p class="note">Code is single-use and tied to your first membership purchase.</p>
+          <p class="note">If you've already joined, you can ignore this email.</p>
+        `,
+        preheader: `${discountPercent}% off your first membership`,
+      }),
+    };
+
+    await sgMail.send(msg);
+    console.log(`✅ First membership discount email sent to: ${email}`);
+    return { success: true };
+  } catch (error) {
+    console.error(`❌ Failed to send first membership discount email to ${email}:`, error.message);
+    if (error.response) {
+      console.error("SendGrid response:", error.response.body);
+    }
+    return { success: false, error: error.message };
+  }
+}
+
 export async function sendReferralPayoutRequestEmail({
   username,
   payoutAmountUsd,

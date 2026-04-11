@@ -79,6 +79,7 @@ model User {
   nsfwAutoSelectJobs            NsfwAutoSelectJob[]
   nsfwPlanGenerationJobs        NsfwPlanGenerationJob[]
   apiKeys                       ApiKey[]
+  abandonedSignupEmailOffer     AbandonedSignupEmailOffer?
 
   @@index([referredByUserId])
 }
@@ -860,6 +861,29 @@ model DiscountCode {
 
   @@index([code])
   @@index([isActive])
+}
+
+model AbandonedSignupEmailOffer {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  email           String
+  discountCodeId  String?
+  discountCode    String
+  discountPercent Int      @default(15)
+  status          String   @default("pending")
+  scheduledFor    DateTime
+  sentAt          DateTime?
+  convertedAt     DateTime?
+  membershipTxId  String?
+  errorMessage    String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([status, scheduledFor])
+  @@index([sentAt])
+  @@index([convertedAt])
+  @@index([email])
 }
 
 model DraftTask {

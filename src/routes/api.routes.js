@@ -53,6 +53,7 @@ import {
   deleteCreatorStudioAsset,
 } from "../controllers/generation.controller.js";
 import { processPendingBlobRemirrorQueue } from "../services/blob-remirror-queue.service.js";
+import { runSignupNoPurchaseWinbackCampaign } from "../services/signup-winback-email.service.js";
 import {
   createModel,
   getUserModels,
@@ -2250,6 +2251,14 @@ router.get("/cron/kie-recovery", async (req, res) => {
     }
   } catch (error) {
     console.error("[cron/kie-recovery] Blob re-mirror queue failed:", error?.message || error);
+  }
+  try {
+    const summary = await runSignupNoPurchaseWinbackCampaign();
+    if ((summary?.sent || 0) > 0 || (summary?.converted || 0) > 0) {
+      console.log("[cron/kie-recovery] Signup winback campaign:", summary);
+    }
+  } catch (error) {
+    console.error("[cron/kie-recovery] Signup winback campaign failed:", error?.message || error);
   }
   return cleanupStuckGenerations(req, res);
 });

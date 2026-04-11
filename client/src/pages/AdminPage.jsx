@@ -2449,6 +2449,83 @@ export default function AdminPage() {
                 <KpiCard label="Est. Revenue" value={`$${stats.credits?.estimatedRevenue || '0.00'}`} sub="1 credit ≈ $0.01 (usage implied)" />
               </div>
 
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+                <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-xs font-medium text-gray-300">12h Winback Email Performance</span>
+                    <span className="text-[11px] text-gray-500">{periodLabel}</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2.5 mb-3">
+                    <KpiCard
+                      label="Sent"
+                      value={stats.campaigns?.abandonedSignup?.sent || 0}
+                      sub="users without membership in first 12h"
+                    />
+                    <KpiCard
+                      label="Converted"
+                      value={stats.campaigns?.abandonedSignup?.converted || 0}
+                      sub="later purchased membership"
+                    />
+                    <KpiCard
+                      label="Conv. Rate"
+                      value={`${(stats.campaigns?.abandonedSignup?.conversionRatePct || 0).toFixed(2)}%`}
+                      sub="converted / sent"
+                    />
+                  </div>
+                  <div className="max-h-40 overflow-auto rounded-lg border border-white/[0.06]">
+                    <table className="w-full text-[11px]">
+                      <thead className="bg-white/[0.03] text-gray-500">
+                        <tr>
+                          <th className="text-left px-2 py-1.5 font-medium">Date</th>
+                          <th className="text-right px-2 py-1.5 font-medium">Sent</th>
+                          <th className="text-right px-2 py-1.5 font-medium">Converted</th>
+                          <th className="text-right px-2 py-1.5 font-medium">Rate</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(stats.campaigns?.abandonedSignup?.dailySeries || []).slice().reverse().map((row) => (
+                          <tr key={row.date} className="border-t border-white/[0.04]">
+                            <td className="px-2 py-1.5 text-gray-400">{row.date}</td>
+                            <td className="px-2 py-1.5 text-right text-gray-300">{row.sent || 0}</td>
+                            <td className="px-2 py-1.5 text-right text-gray-300">{row.converted || 0}</td>
+                            <td className="px-2 py-1.5 text-right text-gray-300">{Number(row.conversionRatePct || 0).toFixed(2)}%</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-xs font-medium text-gray-300">Generation Tool Revenue & Usage</span>
+                    <span className="text-[11px] text-gray-500">sorted by revenue</span>
+                  </div>
+                  <div className="max-h-64 overflow-auto rounded-lg border border-white/[0.06]">
+                    <table className="w-full text-[11px]">
+                      <thead className="bg-white/[0.03] text-gray-500">
+                        <tr>
+                          <th className="text-left px-2 py-1.5 font-medium">Tool</th>
+                          <th className="text-right px-2 py-1.5 font-medium">Usage</th>
+                          <th className="text-right px-2 py-1.5 font-medium">Credits</th>
+                          <th className="text-right px-2 py-1.5 font-medium">Est. Revenue</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(stats.generationTools?.topByRevenue || []).map((row) => (
+                          <tr key={row.tool} className="border-t border-white/[0.04]">
+                            <td className="px-2 py-1.5 text-gray-300">{row.tool}</td>
+                            <td className="px-2 py-1.5 text-right text-gray-300">{row.usageCount || 0}</td>
+                            <td className="px-2 py-1.5 text-right text-gray-300">{(row.creditsSpent || 0).toLocaleString()}</td>
+                            <td className="px-2 py-1.5 text-right text-gray-300">${Number(row.estimatedRevenue || 0).toFixed(2)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
               {/* Billing Revenue */}
               <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-4 mb-4">
                 <div className="flex items-center justify-between mb-3">
