@@ -159,6 +159,8 @@ export const SETTINGS_PAGE_COPY = {
     toastApiKeyRevoked: "API key revoked",
     toastApiCopyFailed: "Could not copy — select the text and copy manually (Ctrl+C)",
     toastApiKeyUnavailable: "This key cannot be copied (legacy key). Revoke it and create a new API key.",
+    apiRegenerateConfirm:
+      "This key cannot be copied directly. Regenerate it now? The old key will be revoked immediately.",
   },
   ru: {
     pageTitle: "Настройки",
@@ -320,6 +322,8 @@ export const SETTINGS_PAGE_COPY = {
     toastApiKeyRevoked: "Ключ отозван",
     toastApiCopyFailed: "Не удалось скопировать — выделите текст и скопируйте вручную (Ctrl+C)",
     toastApiKeyUnavailable: "Этот ключ нельзя скопировать (старый формат). Отзовите и создайте новый API-ключ.",
+    apiRegenerateConfirm:
+      "Этот ключ нельзя скопировать напрямую. Пересоздать его сейчас? Старый ключ будет сразу отозван.",
   },
 };
 

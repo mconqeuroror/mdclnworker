@@ -3005,15 +3005,73 @@ export async function listMyApiKeys(req, res) {
         id: true,
         name: true,
         keyPrefix: true,
+        encryptedKey: true,
         corsOrigins: true,
         lastUsedAt: true,
         createdAt: true,
         revokedAt: true,
       },
     });
-    return res.json({ success: true, keys });
+    const keysWithSecrets = keys.map(({ encryptedKey, ...k }) => ({
+      ...k,
+      fullKey: encryptedKey ? decryptApiKey(encryptedKey) : null,
+    }));
+    return res.json({ success: true, keys: keysWithSecrets });
   } catch (error) {
     console.error("listMyApiKeys error:", error);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+}
+
+export async function regenerateMyApiKey(req, res) {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+    const { keyId } = req.params;
+    const existing = await prisma.apiKey.findFirst({
+      where: { id: keyId, userId, revokedAt: null },
+      select: { id: true, name: true, corsOrigins: true },
+    });
+    if (!existing) {
+      return res.status(404).json({ success: false, message: "API key not found" });
+    }
+
+    const plain = `mcl_${randomBytes(32).toString("base64url")}`;
+    const keyPrefix = plain.slice(0, 16);
+    const keyHash = await bcrypt.hash(plain, 12);
+
+    const row = await prisma.$transaction(async (tx) => {
+      await tx.apiKey.update({
+        where: { id: existing.id },
+        data: { revokedAt: new Date() },
+      });
+      return tx.apiKey.create({
+        data: {
+          userId,
+          name: existing.name,
+          keyPrefix,
+          keyHash,
+          encryptedKey: encryptApiKey(plain),
+          corsOrigins: existing.corsOrigins,
+        },
+      });
+    });
+
+    return res.json({
+      success: true,
+      key: plain,
+      apiKey: {
+        id: row.id,
+        name: row.name,
+        keyPrefix: row.keyPrefix,
+        corsOrigins: row.corsOrigins,
+        createdAt: row.createdAt,
+      },
+    });
+  } catch (error) {
+    console.error("regenerateMyApiKey error:", error);
     return res.status(500).json({ success: false, message: "Server error" });
   }
 }
@@ -3139,6 +3197,7 @@ export default {
   revokeUserApiKey,
   listMyApiKeys,
   createMyApiKey,
+  regenerateMyApiKey,
   revokeMyApiKey,
   getVoiceHostingDue,
   postVoiceHostingRunBilling,

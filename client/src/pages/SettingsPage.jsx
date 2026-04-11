@@ -711,7 +711,25 @@ export default function SettingsPage() {
                           onClick={async () => {
                             const candidateKey = k.fullKey || sessionApiKeyByPrefix[k.keyPrefix] || null;
                             if (!candidateKey) {
-                              toast.error(t.toastApiKeyUnavailable);
+                              if (!window.confirm(t.apiRegenerateConfirm)) return;
+                              try {
+                                setUserApiKeyWorkingId(k.id);
+                                const r = await api.post(`/user/api-keys/${k.id}/regenerate`, {});
+                                const regeneratedKey = r?.data?.key;
+                                const newPrefix = r?.data?.apiKey?.keyPrefix || (regeneratedKey ? regeneratedKey.slice(0, 16) : null);
+                                if (!regeneratedKey || !newPrefix) {
+                                  throw new Error(r?.data?.message || t.toastApiKeyUnavailable);
+                                }
+                                setSessionApiKeyByPrefix((prev) => ({ ...prev, [newPrefix]: regeneratedKey }));
+                                const ok = await copyTextToClipboard(regeneratedKey);
+                                if (ok) toast.success(t.apiCopiedKey);
+                                else toast.error(t.toastApiCopyFailed);
+                                await loadMyApiKeys();
+                              } catch (e) {
+                                toast.error(e?.response?.data?.message || e?.message || t.toastApiKeyUnavailable);
+                              } finally {
+                                setUserApiKeyWorkingId(null);
+                              }
                               return;
                             }
                             const ok = await copyTextToClipboard(candidateKey);
