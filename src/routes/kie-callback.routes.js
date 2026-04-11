@@ -5,7 +5,6 @@
  * Always return 200 OK so KIE does not retry.
  */
 import express from "express";
-import crypto from "crypto";
 import prisma from "../lib/prisma.js";
 import { refundGeneration, refundCredits } from "../services/credit.service.js";
 import { enqueueCleanupOldGenerations } from "../controllers/generation.controller.js";
@@ -17,7 +16,6 @@ import { enqueueGenerationBlobRemirror } from "../services/blob-remirror-queue.s
 import { persistKieGenerationCorrelation } from "../utils/kieTaskCorrelation.js";
 
 const router = express.Router();
-const WEBHOOK_HMAC_KEY = process.env.WEBHOOK_HMAC_KEY;
 const KIE_API_KEY = process.env.KIE_API_KEY;
 const KIE_API_URL = "https://api.kie.ai/api/v1";
 
@@ -77,20 +75,6 @@ async function markKieTaskFailed(taskId, errorMessage) {
       completedAt: new Date(),
     },
   });
-}
-
-function verifyWebhookSignature(body, timestamp, receivedSignature) {
-  if (!WEBHOOK_HMAC_KEY || !timestamp || !receivedSignature) return !WEBHOOK_HMAC_KEY;
-  const taskId = body?.data?.taskId || body?.taskId || body?.data?.task_id;
-  if (!taskId) return false;
-  const message = `${taskId}.${timestamp}`;
-  const expected = crypto.createHmac("sha256", WEBHOOK_HMAC_KEY).update(message).digest("base64");
-  if (expected.length !== receivedSignature.length) return false;
-  try {
-    return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(receivedSignature));
-  } catch {
-    return false;
-  }
 }
 
 /** Recursively find first string that looks like an HTTP(S) URL in obj (for nested payloads). */
@@ -290,18 +274,10 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
       return ack();
     }
 
-    if (WEBHOOK_HMAC_KEY) {
-      const ts = req.headers["x-webhook-timestamp"];
-      const sig = req.headers["x-webhook-signature"];
-      if (!verifyWebhookSignature(body, ts, sig)) {
-        console.warn("[KIE Callback] Invalid signature");
-        if (!res.headersSent) return res.status(401).json({ error: "Invalid signature" });
-        return;
-      }
-    } else if (process.env.NODE_ENV === "production") {
-      console.warn("[KIE Callback] WEBHOOK_HMAC_KEY missing in production — rejecting unverified callback");
-      if (!res.headersSent) return res.status(503).json({ error: "Webhook signing not configured" });
-      return;
+    // Auth/signature is intentionally not required for provider callbacks.
+    // If headers are present we only log for troubleshooting, never reject.
+    if (!req.headers["x-webhook-signature"] || !req.headers["x-webhook-timestamp"]) {
+      console.log("[KIE Callback] Received unsigned callback (accepted)");
     }
 
     const normalizedState = String(state || "").toLowerCase();

@@ -6,7 +6,6 @@
  * If unset, requests are accepted (logs a one-time warning) — set the secret in production for security.
  */
 import express from "express";
-import crypto from "crypto";
 import prisma from "../lib/prisma.js";
 import { refundGeneration } from "../services/credit.service.js";
 import { enqueueCleanupOldGenerations } from "../controllers/generation.controller.js";
@@ -16,9 +15,7 @@ import { getErrorMessageForDb } from "../lib/userError.js";
 import { enqueueGenerationBlobRemirror } from "../services/blob-remirror-queue.service.js";
 
 const router = express.Router();
-const WAVESPEED_WEBHOOK_SECRET = process.env.WAVESPEED_WEBHOOK_SECRET;
 const CORS_ORIGIN = "https://api.wavespeed.ai";
-let warnedMissingWaveSpeedWebhookSecret = false;
 
 const PRISMA_RETRY_ATTEMPTS = 3;
 
@@ -57,22 +54,6 @@ function setCorsHeaders(res) {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, webhook-id, webhook-timestamp, webhook-signature");
 }
 
-function verifyWebhookSignature(rawBody, webhookId, timestamp, receivedSignature) {
-  if (!WAVESPEED_WEBHOOK_SECRET || !webhookId || !timestamp || !receivedSignature) {
-    return !WAVESPEED_WEBHOOK_SECRET;
-  }
-  const secret = String(WAVESPEED_WEBHOOK_SECRET).replace(/^whsec_/i, "");
-  const message = `${webhookId}.${timestamp}.${rawBody}`;
-  const expectedHex = crypto.createHmac("sha256", secret).update(message, "utf8").digest("hex");
-  const receivedHex = receivedSignature.startsWith("v3,") ? receivedSignature.slice(3).trim() : receivedSignature;
-  if (expectedHex.length !== receivedHex.length) return false;
-  try {
-    return crypto.timingSafeEqual(Buffer.from(expectedHex, "hex"), Buffer.from(receivedHex, "hex"));
-  } catch {
-    return false;
-  }
-}
-
 router.options("/", (req, res) => {
   setCorsHeaders(res);
   res.status(200).end();
@@ -89,22 +70,10 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
     const webhookId = req.headers["webhook-id"];
     const timestamp = req.headers["webhook-timestamp"];
     const signature = req.headers["webhook-signature"];
-
-    if (WAVESPEED_WEBHOOK_SECRET) {
-      const age = timestamp ? Math.abs(Date.now() / 1000 - parseInt(timestamp, 10)) : 999;
-      if (age > 300) {
-        console.warn("[WaveSpeed Callback] Rejected: timestamp too old");
-        return res.status(401).json({ error: "Invalid webhook timestamp" });
-      }
-      if (!verifyWebhookSignature(rawBody, webhookId, timestamp, signature)) {
-        console.warn("[WaveSpeed Callback] Invalid signature");
-        return res.status(401).json({ error: "Invalid signature" });
-      }
-    } else if (!warnedMissingWaveSpeedWebhookSecret) {
-      warnedMissingWaveSpeedWebhookSecret = true;
-      console.warn(
-        "[WaveSpeed Callback] WAVESPEED_WEBHOOK_SECRET not set — accepting webhooks without signature verification (set secret in production for security)",
-      );
+    // Auth/signature is intentionally not required for provider callbacks.
+    // If headers are missing we log for troubleshooting, but always accept.
+    if (!webhookId || !timestamp || !signature) {
+      console.log("[WaveSpeed Callback] Received unsigned callback (accepted)");
     }
 
     let body;
