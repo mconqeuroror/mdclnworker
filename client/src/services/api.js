@@ -1145,6 +1145,46 @@ export const reformatterAPI = {
   /** Upload video and extract first frame (JPEG) via FFmpeg worker. */
   extractFirstFrame: async (file, onUploadProgress) => {
     const name = file?.name || "video";
+    const baseName = String(name).replace(/\.[^/.]+$/, "") || "video";
+    const {
+      isFfmpegWasmSupported,
+      runReformatInBrowser,
+    } = await import("../utils/repurposeFfmpegWasm.js");
+
+    // Preferred path: compute in browser (free user device compute), then upload JPEG result.
+    if (isFfmpegWasmSupported()) {
+      try {
+        if (onUploadProgress) onUploadProgress(10);
+        const outBlob = await runReformatInBrowser(file, "image", (pct) => {
+          if (typeof pct === "number") {
+            onUploadProgress?.(Math.max(10, Math.min(80, Math.round(pct * 0.7))));
+          }
+        });
+        if (!(outBlob instanceof Blob) || outBlob.size <= 0) {
+          throw new Error("Browser extractor returned empty output");
+        }
+        if (onUploadProgress) onUploadProgress(82);
+        const jpegFile = new File([outBlob], `${baseName}_first_frame.jpg`, {
+          type: "image/jpeg",
+        });
+        const outputUrl = await uploadFile(jpegFile, (p) =>
+          onUploadProgress?.(Math.max(82, Math.min(100, 82 + Math.round((p || 0) * 0.18)))),
+        );
+        if (!outputUrl) throw new Error("Could not upload extracted frame");
+        if (onUploadProgress) onUploadProgress(100);
+        return {
+          success: true,
+          outputUrl,
+          outputExt: "jpg",
+          message: "First frame extracted in browser.",
+        };
+      } catch (err) {
+        // Fallback to worker path for browsers/devices where ffmpeg.wasm fails.
+        console.warn("[first-frame] browser path failed; falling back to worker:", err?.message || err);
+      }
+    }
+
+    // Fallback: worker extraction path
     if (onUploadProgress) onUploadProgress(8);
     const publicUrl = await uploadFile(file, (p) =>
       onUploadProgress?.(Math.max(8, Math.min(70, Math.round(p * 0.62)))),
