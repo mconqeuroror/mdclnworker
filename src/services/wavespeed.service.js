@@ -879,7 +879,7 @@ async function generateTextToImage(prompt, options = {}) {
  * @param {string} params.hairTexture - e.g., 'straight', 'wavy', 'curly'
  * @param {string} params.lipSize - e.g., 'small', 'medium', 'big'
  * @param {string} params.faceType - e.g., 'cute', 'model', 'natural'
- * @returns {Promise<{success: boolean, referenceUrl?: string, error?: string, deferred?: boolean, taskId?: string}>}
+ * @returns {Promise<{success: boolean, referenceUrl?: string, error?: string, deferred?: boolean, taskId?: string, promptUsed?: string}>}
  */
 async function generateReferenceImage(params, opts = {}) {
   const deferred = opts.deferred === true;
@@ -1035,6 +1035,7 @@ async function generateReferenceImage(params, opts = {}) {
         success: true,
         deferred: true,
         taskId: referenceResult.taskId,
+        promptUsed: finalPrompt,
       };
     }
 
@@ -1055,6 +1056,7 @@ async function generateReferenceImage(params, opts = {}) {
     return {
       success: true,
       referenceUrl: referenceImageUrl,
+      promptUsed: finalPrompt,
     };
   } catch (error) {
     console.error("âŒ ERROR in reference image generation:", error.message);

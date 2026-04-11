@@ -1173,6 +1173,16 @@ export async function generateAIModelPoses(req, res) {
       });
     }
 
+    if (generationResult.promptUsed) {
+      await prisma.generation.update({
+        where: { id: generation.id },
+        data: {
+          // Persist the actual final provider prompt (not only short UI summary).
+          prompt: String(generationResult.promptUsed).slice(0, 12000),
+        },
+      });
+    }
+
     return res.status(202).json({
       success: true,
       modelStatus: "processing",
