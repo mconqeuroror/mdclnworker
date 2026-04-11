@@ -1,6 +1,7 @@
 import sgMail from '@sendgrid/mail';
 import { BRAND } from "../utils/brand.js";
 import { getAppBranding } from "./branding.service.js";
+import { getPromptTemplateValue } from "./prompt-template-config.service.js";
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -332,7 +333,47 @@ export async function sendFirstMembershipDiscountEmail({
     const expiresAtLabel = validUntil
       ? new Date(validUntil).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
       : "soon";
-    const subject = `${discountPercent}% off your first membership is waiting`;
+    const templateVars = {
+      NAME: escapeHtml(name),
+      DISCOUNT_CODE: escapeHtml(discountCode),
+      DISCOUNT_PERCENT: escapeHtml(String(discountPercent)),
+      EXPIRES_AT: escapeHtml(expiresAtLabel),
+      DASHBOARD_URL: escapeHtml(`${baseUrl}/dashboard`),
+      BRAND_NAME: escapeHtml(brandName),
+      EMAIL: escapeHtml(email),
+    };
+    const renderTemplate = (value) => {
+      const raw = String(value || "");
+      return raw.replace(/\{\{\s*([A-Z0-9_]+)\s*\}\}/g, (_, key) => {
+        const k = String(key || "").trim().toUpperCase();
+        return Object.prototype.hasOwnProperty.call(templateVars, k) ? templateVars[k] : "";
+      });
+    };
+    const defaultSubjectTemplate = "{{DISCOUNT_PERCENT}}% off your first membership is waiting";
+    const defaultTitleTemplate = "{{DISCOUNT_PERCENT}}% Off Your First Membership";
+    const defaultIntroTemplate = "Hey {{NAME}}, thanks for signing up. We saved a private first-membership discount for you.";
+    const defaultContentTemplate = `
+          <div style="background:#f7f7f5;border:1px solid #e2e2de;border-radius:4px;padding:20px 22px;margin-bottom:16px;">
+            <p style="font-size:13px;color:#9b9b93;margin-bottom:8px;">Discount code</p>
+            <p style="font-size:30px;line-height:1.1;font-weight:600;color:#111;font-family:'DM Mono', monospace;">{{DISCOUNT_CODE}}</p>
+          </div>
+          <table style="width:100%;border-collapse:collapse;font-size:13px;color:#555550;margin:0 0 18px;">
+            <tr><td style="padding:8px 0;border-bottom:1px solid #e8e8e4;">Discount</td><td style="padding:8px 0;text-align:right;border-bottom:1px solid #e8e8e4;"><strong>{{DISCOUNT_PERCENT}}%</strong></td></tr>
+            <tr><td style="padding:8px 0;border-bottom:1px solid #e8e8e4;">Applies to</td><td style="padding:8px 0;text-align:right;border-bottom:1px solid #e8e8e4;">First membership checkout</td></tr>
+            <tr><td style="padding:8px 0;">Expires</td><td style="padding:8px 0;text-align:right;">{{EXPIRES_AT}}</td></tr>
+          </table>
+          <p style="margin:0 0 16px;"><a href="{{DASHBOARD_URL}}" class="cta-btn">Claim membership offer</a></p>
+          <p class="note">Code is single-use and tied to your first membership purchase.</p>
+          <p class="note">If you've already joined, you can ignore this email.</p>
+        `;
+    const subjectTemplate = await getPromptTemplateValue("winbackFirstMembershipEmailSubject", defaultSubjectTemplate);
+    const titleTemplate = await getPromptTemplateValue("winbackFirstMembershipEmailTitle", defaultTitleTemplate);
+    const introTemplate = await getPromptTemplateValue("winbackFirstMembershipEmailIntro", defaultIntroTemplate);
+    const contentTemplate = await getPromptTemplateValue("winbackFirstMembershipEmailContent", defaultContentTemplate);
+    const subject = renderTemplate(subjectTemplate);
+    const title = renderTemplate(titleTemplate);
+    const intro = renderTemplate(introTemplate);
+    const content = renderTemplate(contentTemplate);
 
     const msg = {
       to: email,
@@ -348,22 +389,9 @@ export async function sendFirstMembershipDiscountEmail({
       html: await renderBaseEmailShell({
         subject,
         sectionLabel: "Membership Offer",
-        title: `${discountPercent}% Off Your First Membership`,
-        introHtml: `<p class="greeting-text">Hey ${escapeHtml(name)}, thanks for signing up. We saved a private first-membership discount for you.</p>`,
-        contentHtml: `
-          <div style="background:#f7f7f5;border:1px solid #e2e2de;border-radius:4px;padding:20px 22px;margin-bottom:16px;">
-            <p style="font-size:13px;color:#9b9b93;margin-bottom:8px;">Discount code</p>
-            <p style="font-size:30px;line-height:1.1;font-weight:600;color:#111;font-family:'DM Mono', monospace;">${escapeHtml(discountCode)}</p>
-          </div>
-          <table style="width:100%;border-collapse:collapse;font-size:13px;color:#555550;margin:0 0 18px;">
-            <tr><td style="padding:8px 0;border-bottom:1px solid #e8e8e4;">Discount</td><td style="padding:8px 0;text-align:right;border-bottom:1px solid #e8e8e4;"><strong>${escapeHtml(String(discountPercent))}%</strong></td></tr>
-            <tr><td style="padding:8px 0;border-bottom:1px solid #e8e8e4;">Applies to</td><td style="padding:8px 0;text-align:right;border-bottom:1px solid #e8e8e4;">First membership checkout</td></tr>
-            <tr><td style="padding:8px 0;">Expires</td><td style="padding:8px 0;text-align:right;">${escapeHtml(expiresAtLabel)}</td></tr>
-          </table>
-          <p style="margin:0 0 16px;"><a href="${escapeHtml(baseUrl)}/dashboard" class="cta-btn">Claim membership offer</a></p>
-          <p class="note">Code is single-use and tied to your first membership purchase.</p>
-          <p class="note">If you've already joined, you can ignore this email.</p>
-        `,
+        title,
+        introHtml: `<p class="greeting-text">${intro}</p>`,
+        contentHtml: content,
         preheader: `${discountPercent}% off your first membership`,
       }),
     };
