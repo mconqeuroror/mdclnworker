@@ -5,7 +5,7 @@ import prisma from "../lib/prisma.js";
 import { authMiddleware } from "../middleware/auth.middleware.js";
 import { isR2Configured, getR2PresignedPutForKey, isBlobOnlyStorageMode } from "../utils/r2.js";
 import { convertAndStoreMedia, isConvertibleMedia } from "../services/media-reformatter.service.js";
-import { postRepurposeJobToWorker } from "../services/ffmpeg-worker-client.js";
+import { postFramesJobToWorker, postRepurposeJobToWorker } from "../services/ffmpeg-worker-client.js";
 import { isVercelBlobConfigured, mirrorToBlob } from "../utils/kieUpload.js";
 
 const router = express.Router();
@@ -245,6 +245,86 @@ router.post("/convert-with-worker", authMiddleware, express.json(), async (req, 
       success: false,
       message: e?.message || "Failed to start conversion.",
     });
+  }
+});
+
+/**
+ * Extract the first video frame as JPEG using the external FFmpeg worker.
+ * Free utility tool (no credits); output is persisted in conversion history.
+ */
+router.post("/extract-first-frame", authMiddleware, express.json(), async (req, res) => {
+  try {
+    if (!isR2Configured()) {
+      return res.status(503).json({
+        success: false,
+        message: "First Frame Extractor requires R2 storage for worker output.",
+      });
+    }
+    const userId = req.user?.id || req.user?.userId;
+    if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+
+    const { inputUrl: inputUrlRaw, originalFileName } = req.body || {};
+    if (!inputUrlRaw || typeof inputUrlRaw !== "string" || !inputUrlRaw.startsWith("http")) {
+      return res.status(400).json({ success: false, message: "inputUrl (public URL of uploaded file) is required" });
+    }
+    const name = typeof originalFileName === "string" ? originalFileName : "video";
+    const lower = name.toLowerCase();
+    const isVideo = /\.(mov|mp4|m4v|avi|mkv|wmv|flv|webm|mpeg|mpg|3gp)$/.test(lower);
+    if (!isVideo) {
+      return res.status(400).json({ success: false, message: "Only video files are supported for first-frame extraction." });
+    }
+
+    const job = await prisma.converterJob.create({
+      data: {
+        userId,
+        originalFileName: name.slice(0, 512),
+        status: "processing",
+        outputExt: "jpg",
+      },
+    });
+
+    try {
+      const key = `conversions/${userId}/${job.id}/first-frame.jpg`;
+      const { uploadUrl, publicUrl } = await getR2PresignedPutForKey(key, "image/jpeg", 3600);
+      const workerInputUrl = isVercelBlobConfigured() ? await mirrorToBlob(inputUrlRaw.trim()) : inputUrlRaw.trim();
+
+      await postFramesJobToWorker({
+        inputUrl: workerInputUrl,
+        timestamps: [0],
+        outputPutUrls: [{ putUrl: uploadUrl, publicUrl }],
+        jobRef: { converterJobId: job.id, source: "reformatter-first-frame" },
+      });
+
+      const expiresAt = new Date(Date.now() + CONVERTER_JOB_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+      await prisma.converterJob.update({
+        where: { id: job.id },
+        data: {
+          status: "completed",
+          outputUrl: publicUrl,
+          outputExt: "jpg",
+          completedAt: new Date(),
+          expiresAt,
+        },
+      });
+
+      return res.json({
+        success: true,
+        jobId: job.id,
+        outputUrl: publicUrl,
+        outputExt: "jpg",
+        message: "First frame extracted successfully.",
+      });
+    } catch (inner) {
+      const msg = (inner?.message || "First frame extraction failed").slice(0, 500);
+      await prisma.converterJob.update({
+        where: { id: job.id },
+        data: { status: "failed", errorMessage: msg, completedAt: new Date() },
+      }).catch(() => {});
+      throw inner;
+    }
+  } catch (e) {
+    console.error("Reformatter extract-first-frame error:", e?.message);
+    return res.status(500).json({ success: false, message: e?.message || "Failed to extract first frame." });
   }
 });
 

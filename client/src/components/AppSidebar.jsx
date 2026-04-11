@@ -31,6 +31,7 @@ import {
   Moon,
   ZoomIn,
   Wand2,
+  Image as ImageIcon,
 } from "lucide-react";
 import { SiTelegram, SiDiscord, SiInstagram } from "react-icons/si";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -65,6 +66,7 @@ const SIDEBAR_COPY = {
     creatorStudio: "Creator Studio",
     voiceStudio: "Voice Studio",
     reformatter: "Reformatter",
+    firstFrameExtractor: "First Frame Extractor",
     upscaler: "Upscaler",
     modelcloneX: "ModelClone-X",
     history: "History",
@@ -94,6 +96,7 @@ const SIDEBAR_COPY = {
     creatorStudio: "Студия автора",
     voiceStudio: "Голосовая студия",
     reformatter: "Конвертер",
+    firstFrameExtractor: "Первый кадр",
     upscaler: "Апскейлер",
     modelcloneX: "ModelClone-X",
     history: "История",
@@ -232,6 +235,7 @@ export default function AppSidebar({
     { id: "creator-studio", label: copy.creatorStudio, icon: Clapperboard, isCreatorStudio: true },
     { id: "voice-studio", label: copy.voiceStudio, icon: Mic, premium: true },
     { id: "reformatter", label: copy.reformatter, icon: FileType2 },
+    { id: "frame-extractor", label: copy.firstFrameExtractor, icon: ImageIcon },
     { id: "upscaler", label: copy.upscaler, icon: ZoomIn },
     { id: "modelclone-x", label: copy.modelcloneX, icon: Wand2 },
     { id: "history", label: copy.history, icon: Clock },

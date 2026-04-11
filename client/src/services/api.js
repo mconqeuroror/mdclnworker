@@ -1142,6 +1142,22 @@ export const reformatterAPI = {
         "Conversion started. You can leave this page — check Conversion history for progress.",
     };
   },
+  /** Upload video and extract first frame (JPEG) via FFmpeg worker. */
+  extractFirstFrame: async (file, onUploadProgress) => {
+    const name = file?.name || "video";
+    if (onUploadProgress) onUploadProgress(8);
+    const publicUrl = await uploadFile(file, (p) =>
+      onUploadProgress?.(Math.max(8, Math.min(70, Math.round(p * 0.62)))),
+    );
+    if (!publicUrl) throw new Error("Could not upload file");
+    if (onUploadProgress) onUploadProgress(70);
+    const res = await api.post("/reformatter/extract-first-frame", {
+      inputUrl: publicUrl,
+      originalFileName: name,
+    });
+    if (onUploadProgress) onUploadProgress(100);
+    return res.data;
+  },
   getJobStatus: async (jobId) => {
     const res = await api.get(`/reformatter/status/${jobId}`);
     return res.data;

@@ -54,6 +54,7 @@ import VideoRepurposerPage from "./VideoRepurposerPage";
 import ReferralProgramPage from "./ReferralProgramPage";
 import ViralReelFinderPage from "./ViralReelFinderPage";
 import ContentReformatterPage from "./ContentReformatterPage";
+import FirstFrameExtractorPage from "./FirstFrameExtractorPage";
 import UpscalerPage from "./UpscalerPage";
 import ModelCloneXPage from "./ModelCloneXPage";
 import CreatorStudioPage from "./CreatorStudioPage";
@@ -94,6 +95,7 @@ const COPY = {
     mobileNavCreatorStudio: "Creator Studio",
     mobileNavVoiceStudio: "Voice Studio",
     mobileNavReformatter: "Reformatter",
+    mobileNavFirstFrame: "First Frame",
     mobileNavHistory: "History",
     mobileNavSettings: "Settings",
     mobileNavCourses: "Courses",
@@ -182,6 +184,7 @@ const COPY = {
     mobileNavCreatorStudio: "Студия автора",
     mobileNavVoiceStudio: "Голосовая студия",
     mobileNavReformatter: "Рефоматер",
+    mobileNavFirstFrame: "1-й кадр",
     mobileNavHistory: "История",
     mobileNavSettings: "Настройки",
     mobileNavCourses: "Курсы",
@@ -339,7 +342,7 @@ export default function DashboardPage() {
       const urlParams = new URLSearchParams(window.location.search);
       let tabParam = urlParams.get("tab");
       if (tabParam === "soulx") tabParam = "modelclone-x";
-      if (tabParam && ["home", "models", "generate", "creator-studio", "voice-studio", "reformatter", "upscaler", "modelclone-x", "history", "settings", "nsfw", "course", "repurposer", "reelfinder", "referral"].includes(tabParam)) {
+      if (tabParam && ["home", "models", "generate", "creator-studio", "voice-studio", "reformatter", "frame-extractor", "upscaler", "modelclone-x", "history", "settings", "nsfw", "course", "repurposer", "reelfinder", "referral"].includes(tabParam)) {
         if (premiumTabs.includes(tabParam)) {
           const hasAccess = hasPremiumAccess(freshUser);
           if (!hasAccess) {
@@ -485,6 +488,7 @@ export default function DashboardPage() {
     { id: 'creator-studio', label: copy.mobileNavCreatorStudio, icon: Wand2 },
     { id: 'voice-studio', label: copy.mobileNavVoiceStudio, icon: Mic, premium: true },
     { id: 'reformatter', label: copy.mobileNavReformatter, icon: FileType2 },
+    { id: 'frame-extractor', label: copy.mobileNavFirstFrame, icon: ImageIcon },
     { id: 'history', label: copy.mobileNavHistory, icon: Clock },
     { id: 'settings', label: copy.mobileNavSettings, icon: SettingsIcon },
     ...(hideRestrictedTabs ? [] : [{ id: 'course', label: copy.mobileNavCourses, icon: BookOpen, premium: true }]),
@@ -781,6 +785,7 @@ export default function DashboardPage() {
         {activeTab === "creator-studio" && <CreatorStudioPage sidebarCollapsed={sidebarNarrow} initialTab="generate" initialModelId={voiceStudioInitialModelId} initialPrompt={creatorStudioInitialPrompt} />}
         {activeTab === "voice-studio" && <CreatorStudioPage sidebarCollapsed={sidebarNarrow} initialTab="voices" initialModelId={voiceStudioInitialModelId} />}
         {activeTab === "reformatter" && <ContentReformatterPage />}
+          {activeTab === "frame-extractor" && <FirstFrameExtractorPage />}
           {activeTab === "upscaler" && <UpscalerPage />}
           {activeTab === "modelclone-x" && <ModelCloneXPage />}
           {activeTab === "history" && <HistoryPage />}
