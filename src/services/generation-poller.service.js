@@ -5,6 +5,8 @@ import { getUserFriendlyGenerationError } from "../utils/generationErrorMessages
 import { getErrorMessageForDb } from "../lib/userError.js";
 import { enqueueCleanupOldGenerations } from "../controllers/generation.controller.js";
 import { refundGeneration } from "../services/credit.service.js";
+import { pollUpscalerJob, extractUpscalerImage } from "./upscaler.service.js";
+import { pollModelCloneXJob, extractModelCloneXImages } from "./modelcloneX.service.js";
 import http from "http";
 const WAVESPEED_API_KEY = process.env.WAVESPEED_API_KEY;
 const WAVESPEED_API_URL = "https://api.wavespeed.ai/api/v3";
@@ -81,6 +83,7 @@ class GenerationPollerService {
     // Some KIE generation types are intentionally excluded from WaveSpeed polling, and if
     // their callback is missed they would otherwise stay stuck in "processing" forever.
     await this.reconcileStaleKieGenerations();
+    await this.reconcileStaleRunpodGenerations();
 
     // Find all processing generations
     // Exclude talking-head type - it uses inline polling in the background process
@@ -89,7 +92,22 @@ class GenerationPollerService {
       where: {
         status: "processing",
         type: {
-          notIn: ["talking-head", "nsfw", "nsfw-video", "nsfw-video-extend", "prompt-image", "prompt-video", "image-identity", "motion-transfer", "complete-recreation", "face-swap", "advanced-image"],
+          notIn: [
+            "talking-head",
+            "nsfw",
+            "nsfw-video",
+            "nsfw-video-extend",
+            "prompt-image",
+            "prompt-video",
+            "image-identity",
+            "motion-transfer",
+            "complete-recreation",
+            "face-swap",
+            "advanced-image",
+            "upscale",
+            "modelclone-x",
+            "soulx",
+          ],
         },
       },
       select: {
@@ -588,6 +606,100 @@ class GenerationPollerService {
         }
       } catch (e) {
         console.warn(`[KIE Watchdog] Error checking ${gen.id.slice(0, 8)}: ${e.message}`);
+      }
+    }
+  }
+
+  /**
+   * Reconcile RunPod-backed generations that should be completed via callback.
+   * Callback remains primary path; polling here is recovery for missed callbacks.
+   */
+  async reconcileStaleRunpodGenerations() {
+    const RUNPOD_GRACE_MS = 45 * 1000;
+    const now = Date.now();
+
+    const rows = await prisma.generation.findMany({
+      where: {
+        status: "processing",
+        type: { in: ["upscale", "modelclone-x", "soulx"] },
+        createdAt: { lt: new Date(now - RUNPOD_GRACE_MS) },
+      },
+      select: {
+        id: true,
+        type: true,
+        inputImageUrl: true,
+        userId: true,
+        modelId: true,
+      },
+      take: 30,
+      orderBy: { createdAt: "asc" },
+    });
+
+    if (rows.length === 0) return;
+
+    for (const gen of rows) {
+      let runpodJobId = null;
+      try {
+        const meta = JSON.parse(gen.inputImageUrl || "{}");
+        runpodJobId = typeof meta?.runpodJobId === "string" ? meta.runpodJobId.trim() : null;
+      } catch {
+        runpodJobId = null;
+      }
+      if (!runpodJobId) continue;
+
+      try {
+        const rp = gen.type === "upscale"
+          ? await pollUpscalerJob(runpodJobId)
+          : await pollModelCloneXJob(runpodJobId);
+        const status = String(rp?.status || "").toLowerCase();
+
+        if (["failed", "error", "timed_out", "timed-out", "cancelled", "canceled"].includes(status)) {
+          const msg =
+            rp?.error ||
+            rp?.output?.error ||
+            (typeof rp?.output === "string" ? rp.output : null) ||
+            `RunPod ${status}`;
+          await this.markFailed(gen.id, msg, { refund: true });
+          continue;
+        }
+
+        if (status !== "completed") continue;
+
+        let imageData = null;
+        if (gen.type === "upscale") {
+          imageData = extractUpscalerImage(rp);
+        } else {
+          const imgs = extractModelCloneXImages(rp);
+          imageData = imgs[0] || null;
+        }
+
+        if (!imageData) {
+          await this.markFailed(gen.id, "RunPod completed but returned no image", { refund: true });
+          continue;
+        }
+
+        let outputUrl = imageData;
+        if (!imageData.startsWith("http")) {
+          const buf = Buffer.from(imageData, "base64");
+          outputUrl = await uploadBufferToBlobOrR2(
+            buf,
+            gen.type === "upscale" ? "upscale" : "modelclone-x",
+            "png",
+            "image/png",
+          );
+        }
+
+        await prisma.generation.update({
+          where: { id: gen.id },
+          data: { status: "completed", outputUrl, completedAt: new Date() },
+        });
+        if (gen.userId && gen.modelId) {
+          enqueueCleanupOldGenerations(gen.userId, gen.modelId);
+        }
+      } catch (err) {
+        if (String(err?.message || "").trim()) {
+          console.warn(`[RunPod Watchdog] ${gen.id.slice(0, 8)} ${gen.type}: ${err.message}`);
+        }
       }
     }
   }
