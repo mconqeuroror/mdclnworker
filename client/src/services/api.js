@@ -1142,7 +1142,7 @@ export const reformatterAPI = {
         "Conversion started. You can leave this page — check Conversion history for progress.",
     };
   },
-  /** Upload video and extract first frame (JPEG) via FFmpeg worker. */
+  /** Upload video and extract first frame (JPEG) in browser compute. */
   extractFirstFrame: async (file, onUploadProgress) => {
     const name = file?.name || "video";
     const baseName = String(name).replace(/\.[^/.]+$/, "") || "video";
@@ -1151,7 +1151,7 @@ export const reformatterAPI = {
       runReformatInBrowser,
     } = await import("../utils/repurposeFfmpegWasm.js");
 
-    // Preferred path: compute in browser (free user device compute), then upload JPEG result.
+    // Preferred path: ffmpeg.wasm in browser.
     if (isFfmpegWasmSupported()) {
       try {
         if (onUploadProgress) onUploadProgress(10);
@@ -1179,30 +1179,76 @@ export const reformatterAPI = {
           message: "First frame extracted in browser.",
         };
       } catch (err) {
-        // Fallback to worker path for browsers/devices where ffmpeg.wasm fails.
-        console.warn("[first-frame] browser path failed; falling back to worker:", err?.message || err);
+        console.warn("[first-frame] ffmpeg.wasm path failed; trying canvas fallback:", err?.message || err);
       }
     }
 
-    // Fallback: worker extraction path
-    if (onUploadProgress) onUploadProgress(8);
-    const publicUrl = await uploadFile(file, (p) =>
-      onUploadProgress?.(Math.max(8, Math.min(70, Math.round(p * 0.62)))),
-    );
-    if (!publicUrl) throw new Error("Could not upload file");
-    if (onUploadProgress) onUploadProgress(70);
-    const res = await api.post("/reformatter/extract-first-frame", {
-      inputUrl: publicUrl,
-      originalFileName: name,
+    // Secondary browser fallback: HTMLVideoElement + canvas snapshot.
+    if (onUploadProgress) onUploadProgress(20);
+    const canvasBlob = await extractFirstFrameWithCanvas(file);
+    if (!(canvasBlob instanceof Blob) || canvasBlob.size <= 0) {
+      throw new Error("Could not extract first frame in browser");
+    }
+    if (onUploadProgress) onUploadProgress(82);
+    const jpegFile = new File([canvasBlob], `${baseName}_first_frame.jpg`, {
+      type: "image/jpeg",
     });
+    const outputUrl = await uploadFile(jpegFile, (p) =>
+      onUploadProgress?.(Math.max(82, Math.min(100, 82 + Math.round((p || 0) * 0.18)))),
+    );
+    if (!outputUrl) throw new Error("Could not upload extracted frame");
     if (onUploadProgress) onUploadProgress(100);
-    return res.data;
+    return {
+      success: true,
+      outputUrl,
+      outputExt: "jpg",
+      message: "First frame extracted in browser.",
+    };
   },
   getJobStatus: async (jobId) => {
     const res = await api.get(`/reformatter/status/${jobId}`);
     return res.data;
   },
 };
+
+async function extractFirstFrameWithCanvas(file) {
+  if (typeof window === "undefined") {
+    throw new Error("Browser APIs are unavailable");
+  }
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const video = document.createElement("video");
+    video.preload = "metadata";
+    video.muted = true;
+    video.playsInline = true;
+    video.crossOrigin = "anonymous";
+    video.src = objectUrl;
+
+    await new Promise((resolve, reject) => {
+      const onLoaded = () => resolve();
+      const onError = () => reject(new Error("Could not decode video in browser"));
+      video.addEventListener("loadeddata", onLoaded, { once: true });
+      video.addEventListener("error", onError, { once: true });
+      video.load();
+    });
+
+    const width = Math.max(1, video.videoWidth || 1280);
+    const height = Math.max(1, video.videoHeight || 720);
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d", { alpha: false });
+    if (!ctx) throw new Error("Could not initialize canvas context");
+    ctx.drawImage(video, 0, 0, width, height);
+
+    const blob = await new Promise((resolve, reject) => {
+      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Failed to encode JPEG"))), "image/jpeg", 0.92);
+    });
+    return blob;
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
 
 // Support chat (subscribers only)
 export const supportAPI = {
