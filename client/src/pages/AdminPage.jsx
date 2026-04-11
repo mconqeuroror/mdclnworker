@@ -4378,7 +4378,7 @@ export default function AdminPage() {
                 <Search className={`w-3 h-3 ${cleaningZombieVoices ? 'animate-pulse' : ''}`} />
                 Dry run zombies
               </GhostBtn>
-              <GhostBtn onClick={cleanupZombieVoices} disabled={cleaningZombieVoices}>
+              <GhostBtn onClick={() => cleanupZombieVoices(false)} disabled={cleaningZombieVoices}>
                 <Trash2 className={`w-3 h-3 ${cleaningZombieVoices ? 'animate-pulse' : ''}`} />
                 {cleaningZombieVoices ? 'Cleaning…' : 'Cleanup zombie voices'}
               </GhostBtn>
