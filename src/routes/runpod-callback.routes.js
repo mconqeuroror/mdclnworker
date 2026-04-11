@@ -17,7 +17,7 @@ import {
   parseRunpodHandlerOutput,
 } from "../services/img2img.service.js";
 import { extractUpscalerImage } from "../services/upscaler.service.js";
-import { extractSoulXImages } from "../services/soulx.service.js";
+import { extractModelCloneXImages } from "../services/modelcloneX.service.js";
 import { uploadBufferToBlobOrR2 } from "../utils/kieUpload.js";
 
 const router = express.Router();
@@ -47,6 +47,20 @@ function verifyWebhook(req) {
 
 async function findNsfwGenerationByRunpodJobId(jobId) {
   if (!jobId) return null;
+  const direct = await prisma.generation.findFirst({
+    where: {
+      type: "nsfw",
+      status: { in: ["processing", "pending"] },
+      createdAt: { gt: new Date(Date.now() - 48 * 60 * 60 * 1000) },
+      OR: [
+        { inputImageUrl: { contains: `"runpodJobId":"${jobId}"` } },
+        { inputImageUrl: { contains: `"comfyuiPromptId":"${jobId}"` } },
+      ],
+    },
+    orderBy: { createdAt: "desc" },
+  });
+  if (direct) return direct;
+
   const rows = await prisma.generation.findMany({
     where: {
       type: "nsfw",
@@ -56,20 +70,29 @@ async function findNsfwGenerationByRunpodJobId(jobId) {
     take: 200,
     orderBy: { createdAt: "desc" },
   });
-  return (
-    rows.find((g) => {
-      try {
-        const j = typeof g.inputImageUrl === "string" ? JSON.parse(g.inputImageUrl) : g.inputImageUrl;
-        return j?.comfyuiPromptId === jobId || j?.runpodJobId === jobId;
-      } catch {
-        return false;
-      }
-    }) || null
-  );
+  return rows.find((g) => {
+    try {
+      const j = typeof g.inputImageUrl === "string" ? JSON.parse(g.inputImageUrl) : g.inputImageUrl;
+      return j?.comfyuiPromptId === jobId || j?.runpodJobId === jobId;
+    } catch {
+      return false;
+    }
+  }) || null;
 }
 
 async function findGenerationByRunpodJobId(jobId, types) {
   if (!jobId) return null;
+  const direct = await prisma.generation.findFirst({
+    where: {
+      type: { in: types },
+      status: { in: ["processing", "pending"] },
+      createdAt: { gt: new Date(Date.now() - 48 * 60 * 60 * 1000) },
+      inputImageUrl: { contains: `"runpodJobId":"${jobId}"` },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+  if (direct) return direct;
+
   const rows = await prisma.generation.findMany({
     where: {
       type: { in: types },
@@ -89,6 +112,17 @@ async function findGenerationByRunpodJobId(jobId, types) {
 
 async function findDescribeJobByRunpodJobId(jobId) {
   if (!jobId) return null;
+  const direct = await prisma.generation.findFirst({
+    where: {
+      type: "img2img-describe",
+      status: { in: ["processing", "pending"] },
+      createdAt: { gt: new Date(Date.now() - 4 * 60 * 60 * 1000) },
+      inputImageUrl: { contains: `"runpodJobId":"${jobId}"` },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+  if (direct) return direct;
+
   const rows = await prisma.generation.findMany({
     where: {
       type: "img2img-describe",
@@ -98,16 +132,14 @@ async function findDescribeJobByRunpodJobId(jobId) {
     take: 50,
     orderBy: { createdAt: "desc" },
   });
-  return (
-    rows.find((g) => {
-      try {
-        const j = JSON.parse(g.inputImageUrl || "{}");
-        return j?.runpodJobId === jobId;
-      } catch {
-        return false;
-      }
-    }) || null
-  );
+  return rows.find((g) => {
+    try {
+      const j = JSON.parse(g.inputImageUrl || "{}");
+      return j?.runpodJobId === jobId;
+    } catch {
+      return false;
+    }
+  }) || null;
 }
 
 async function handleRunpodCallback(req, res) {
@@ -123,8 +155,8 @@ async function handleRunpodCallback(req, res) {
         ? req.body
         : (req.query || {});
     const jobId = body.id || body.requestId || body.jobId;
-    const st = body.status;
-    const rawOut = body.output;
+    const st = String(body.status || body.state || body.jobStatus || "").toUpperCase();
+    const rawOut = body.output ?? body.result ?? body.data?.output ?? body.data ?? null;
 
     if (!jobId) {
       // Health/probe style callback with only secret in query — acknowledge.
@@ -184,7 +216,7 @@ async function handleRunpodCallback(req, res) {
     }
 
     // ── Upscaler / Soul-X generation ─────────────────────────────────────────
-    const imageGen = await findGenerationByRunpodJobId(jobId, ["upscale", "soulx"]);
+    const imageGen = await findGenerationByRunpodJobId(jobId, ["upscale", "modelclone-x", "soulx"]);
     if (imageGen) {
       if (st === "FAILED" || st === "CANCELLED") {
         const msg = rawOut?.error || body.error || "RunPod job failed";
@@ -203,13 +235,19 @@ async function handleRunpodCallback(req, res) {
         if (imageGen.type === "upscale") {
           imageData = extractUpscalerImage(rawOut);
         } else {
-          const imgs = extractSoulXImages(rawOut);
+          const imgs = extractModelCloneXImages(rawOut);
           imageData = imgs[0] || null;
         }
 
         if (!imageData) {
+          const msg = "RunPod completed but returned no image";
           console.warn(`[RunPod webhook] ${imageGen.type} COMPLETED but no image in output for ${jobId}`);
-          return res.status(200).json({ ok: true, skipped: true, reason: "no_image" });
+          await refundGeneration(imageGen.id).catch(() => {});
+          await prisma.generation.updateMany({
+            where: { id: imageGen.id, status: { in: ["processing", "pending"] } },
+            data: { status: "failed", errorMessage: msg, completedAt: new Date() },
+          });
+          return res.status(200).json({ ok: true, type: imageGen.type, failed: true, reason: "no_image" });
         }
 
         let outputUrl;

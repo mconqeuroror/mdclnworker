@@ -2895,8 +2895,13 @@ router.get("/upscale/status/:generationId", authMiddleware, async (req, res) => 
       return res.json({ success: true, status: "processing" });
     }
 
-    // Webhook completes the job and writes outputUrl — do not poll RunPod from this route
-    if (resolveRunpodWebhookUrl()) {
+    // Callback-first strategy:
+    // - Recent jobs rely on RunPod webhook to update DB.
+    // - If the row is still processing after a grace period, self-heal by polling RunPod status.
+    const webhookConfigured = Boolean(resolveRunpodWebhookUrl());
+    const ageMs = gen?.createdAt ? Date.now() - new Date(gen.createdAt).getTime() : 0;
+    const webhookGraceMs = 45 * 1000;
+    if (webhookConfigured && ageMs < webhookGraceMs) {
       return res.json({ success: true, status: "processing" });
     }
 
@@ -3378,8 +3383,13 @@ router.get("/modelclone-x/status/:generationId", authMiddleware, async (req, res
       return res.json({ success: true, status: "processing" });
     }
 
-    // Webhook completes the job and writes outputUrl — do not poll RunPod from this route
-    if (resolveRunpodWebhookUrl()) {
+    // Callback-first strategy:
+    // - Recent jobs rely on RunPod webhook to update DB.
+    // - If still processing after a grace period, self-heal by polling RunPod status.
+    const webhookConfigured = Boolean(resolveRunpodWebhookUrl());
+    const ageMs = gen?.createdAt ? Date.now() - new Date(gen.createdAt).getTime() : 0;
+    const webhookGraceMs = 45 * 1000;
+    if (webhookConfigured && ageMs < webhookGraceMs) {
       return res.json({ success: true, status: "processing" });
     }
 
