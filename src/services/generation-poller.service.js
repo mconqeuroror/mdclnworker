@@ -77,6 +77,11 @@ class GenerationPollerService {
    * Check all pending generations and update their status
    */
   async checkPendingGenerations() {
+    // Always reconcile stale KIE generations, even when there are no WaveSpeed-pollable rows.
+    // Some KIE generation types are intentionally excluded from WaveSpeed polling, and if
+    // their callback is missed they would otherwise stay stuck in "processing" forever.
+    await this.reconcileStaleKieGenerations();
+
     // Find all processing generations
     // Exclude talking-head type - it uses inline polling in the background process
     // Exclude nsfw type - it uses RunComfy polling in nsfw.controller.js
@@ -103,10 +108,6 @@ class GenerationPollerService {
       if (gen.replicateModel && gen.replicateModel.startsWith("wavespeed-seedream:")) return false; // completed via WaveSpeed webhook
       return true;
     });
-
-    // Also reconcile any stale KIE-backed generations (image or video) that have been
-    // stuck in processing longer than their expected max time.
-    await this.reconcileStaleKieGenerations();
 
     if (wavespeedOnly.length === 0) {
       return;
