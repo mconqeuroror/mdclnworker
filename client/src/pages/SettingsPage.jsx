@@ -62,6 +62,7 @@ export default function SettingsPage() {
   const [myApiKeysList, setMyApiKeysList] = useState([]);
   const [myApiKeysLoading, setMyApiKeysLoading] = useState(false);
   const [newUserApiKeyPlain, setNewUserApiKeyPlain] = useState(null);
+  const [sessionApiKeyByPrefix, setSessionApiKeyByPrefix] = useState({});
   const [userApiKeyNameDraft, setUserApiKeyNameDraft] = useState('');
   const [userApiKeyWorkingId, setUserApiKeyWorkingId] = useState(null);
   const [showApiEnrollModal, setShowApiEnrollModal] = useState(false);
@@ -353,6 +354,8 @@ export default function SettingsPage() {
       });
       if (r.data?.success && r.data.key) {
         setNewUserApiKeyPlain(r.data.key);
+        const createdPrefix = String(r.data?.apiKey?.keyPrefix || r.data.key.slice(0, 16));
+        setSessionApiKeyByPrefix((prev) => ({ ...prev, [createdPrefix]: r.data.key }));
         toast.success(t.toastApiKeyCreated);
         setUserApiKeyNameDraft('');
         await loadMyApiKeys();
@@ -371,8 +374,16 @@ export default function SettingsPage() {
     if (!window.confirm('Revoke this API key? Integrations using it will stop working immediately.')) return;
     setUserApiKeyWorkingId(keyId);
     try {
+      const revoked = myApiKeysList.find((k) => k.id === keyId);
       await api.delete(`/user/api-keys/${keyId}`);
       toast.success(t.toastApiKeyRevoked);
+      if (revoked?.keyPrefix) {
+        setSessionApiKeyByPrefix((prev) => {
+          const next = { ...prev };
+          delete next[revoked.keyPrefix];
+          return next;
+        });
+      }
       setNewUserApiKeyPlain(null);
       await loadMyApiKeys();
     } catch (error) {
@@ -698,11 +709,12 @@ export default function SettingsPage() {
                         <button
                           type="button"
                           onClick={async () => {
-                            if (!k.fullKey) {
+                            const candidateKey = k.fullKey || sessionApiKeyByPrefix[k.keyPrefix] || null;
+                            if (!candidateKey) {
                               toast.error(t.toastApiKeyUnavailable);
                               return;
                             }
-                            const ok = await copyTextToClipboard(k.fullKey);
+                            const ok = await copyTextToClipboard(candidateKey);
                             if (ok) toast.success(t.apiCopiedKey);
                             else toast.error(t.toastApiCopyFailed);
                           }}
