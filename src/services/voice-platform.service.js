@@ -35,6 +35,23 @@ function isMissingVoicePlatformConfigTable(error) {
   );
 }
 
+function isMissingModelVoiceTable(error) {
+  const message = String(error?.message || "").toLowerCase();
+  const code = String(error?.code || "");
+  const modelName = String(error?.meta?.modelName || "").toLowerCase();
+  const table = String(error?.meta?.table || "").toLowerCase();
+  const mentionsModelVoice =
+    message.includes("modelvoice") || modelName.includes("modelvoice") || table.includes("modelvoice");
+  return (
+    (code === "P2021" && mentionsModelVoice) ||
+    (mentionsModelVoice &&
+      (message.includes("does not exist") ||
+        message.includes("no such table") ||
+        message.includes("relation") ||
+        message.includes("table")))
+  );
+}
+
 export async function getVoicePlatformConfig() {
   try {
     let row = await prisma.voicePlatformConfig.findUnique({
@@ -69,11 +86,45 @@ export async function updateVoicePlatformMaxVoices(maxCustomElevenLabsVoices) {
   });
 }
 
-/** Count models that currently hold a custom ElevenLabs voice (platform-wide cap). */
+/**
+ * Count unique persisted custom ElevenLabs voices for platform-wide cap checks.
+ *
+ * We intentionally union voice ids from both storage paths:
+ * - modelVoice (new multi-voice studio)
+ * - savedModel.elevenLabsVoiceId (legacy/default pointer)
+ *
+ * This keeps admin counters and enforcement aligned even when one model stores
+ * multiple voices or when legacy pointers still exist.
+ */
 export async function countModelsWithCustomVoice() {
-  return prisma.savedModel.count({
+  const legacyRowsPromise = prisma.savedModel.findMany({
     where: { elevenLabsVoiceId: { not: null } },
+    select: { elevenLabsVoiceId: true },
+    distinct: ["elevenLabsVoiceId"],
   });
+  const studioRowsPromise = prisma.modelVoice
+    .findMany({
+      where: { elevenLabsVoiceId: { not: null } },
+      select: { elevenLabsVoiceId: true },
+      distinct: ["elevenLabsVoiceId"],
+    })
+    .catch((error) => {
+      if (isMissingModelVoiceTable(error)) {
+        return [];
+      }
+      throw error;
+    });
+  const [studioRows, legacyRows] = await Promise.all([studioRowsPromise, legacyRowsPromise]);
+
+  const ids = new Set();
+  for (const row of studioRows) {
+    if (row?.elevenLabsVoiceId) ids.add(row.elevenLabsVoiceId);
+  }
+  for (const row of legacyRows) {
+    if (row?.elevenLabsVoiceId) ids.add(row.elevenLabsVoiceId);
+  }
+
+  return ids.size;
 }
 
 /**

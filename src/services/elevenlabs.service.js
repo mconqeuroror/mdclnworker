@@ -85,6 +85,31 @@ export async function getVoices() {
 }
 
 /**
+ * List all voices in the current ElevenLabs account.
+ * Returns raw account voices (not curated app list).
+ */
+export async function listElevenLabsAccountVoices() {
+  const apiKey = getElevenLabsApiKey();
+  if (!apiKey) {
+    throw new Error("Voice service not configured");
+  }
+
+  const response = await fetch(`${ELEVENLABS_API_URL}/voices`, {
+    headers: {
+      "xi-api-key": apiKey,
+    },
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Voice service error: ${response.status} - ${error}`);
+  }
+
+  const data = await response.json();
+  return Array.isArray(data?.voices) ? data.voices : [];
+}
+
+/**
  * Infer age category from voice name/description
  */
 function inferAgeFromName(name) {

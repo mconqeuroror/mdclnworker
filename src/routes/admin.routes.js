@@ -39,6 +39,11 @@ import {
   upsertPromptTemplateOverrides,
 } from "../services/prompt-template-config.service.js";
 import {
+  DEFAULT_WINBACK_EMAIL_TEMPLATE,
+  getWinbackEmailTemplate,
+  upsertWinbackEmailTemplate,
+} from "../services/winback-email-template.service.js";
+import {
   getNudesPackPoseOverrides,
   upsertNudesPackPoseOverrides,
   getEffectiveNudesPackPoses,
@@ -55,6 +60,10 @@ import {
   updateVoicePlatformMaxVoices,
   countModelsWithCustomVoice,
 } from "../services/voice-platform.service.js";
+import {
+  listElevenLabsAccountVoices,
+  deleteElevenLabsVoiceStrict,
+} from "../services/elevenlabs.service.js";
 
 const router = express.Router();
 const KIE_API_KEY = process.env.KIE_API_KEY;
@@ -88,10 +97,6 @@ const PROMPT_TEMPLATE_KNOWN_KEYS = [
   "nanoBananaModelSelfieBasePrompt",
   "nanoBananaModelPortraitBasePrompt",
   "nanoBananaModelFullBodyBasePrompt",
-  "winbackFirstMembershipEmailSubject",
-  "winbackFirstMembershipEmailTitle",
-  "winbackFirstMembershipEmailIntro",
-  "winbackFirstMembershipEmailContent",
 ];
 
 const PROMPT_TEMPLATE_DEFAULTS = {
@@ -137,25 +142,6 @@ const PROMPT_TEMPLATE_DEFAULTS = {
     "Using images 1 and 2 as identity reference, create a 3/4 angle portrait of this exact same person. {{PROFILE_SENTENCE}} Keep the exact same face, facial features, hair color, eye color from the reference images. Captivating look, studio lighting. {{BASE_ENHANCEMENT}}. High quality, photorealistic, natural skin texture with visible pores, clear skin without acne.",
   nanoBananaModelFullBodyBasePrompt:
     "Using images 1 and 2 as identity references, create a full body photo of the same person. Preserve exact identity: face structure, skin tone, hairline, eye shape and key facial details from references. Outfit/clothing: {{OUTFIT_TEXT}}. Body proportions: {{BODY_DESCRIPTOR}}. Character/profile traits: {{CHARACTER_DESCRIPTOR}}. Pose/composition: full figure visible from head to toe, natural realistic anatomy, professional lighting. {{EXTRA_DIRECTION}} Photorealistic, high quality details, natural skin texture.",
-  winbackFirstMembershipEmailSubject:
-    "{{DISCOUNT_PERCENT}}% off your first membership is waiting",
-  winbackFirstMembershipEmailTitle:
-    "{{DISCOUNT_PERCENT}}% Off Your First Membership",
-  winbackFirstMembershipEmailIntro:
-    "Hey {{NAME}}, thanks for signing up. We saved a private first-membership discount for you.",
-  winbackFirstMembershipEmailContent:
-    `<div style="background:#f7f7f5;border:1px solid #e2e2de;border-radius:4px;padding:20px 22px;margin-bottom:16px;">
-  <p style="font-size:13px;color:#9b9b93;margin-bottom:8px;">Discount code</p>
-  <p style="font-size:30px;line-height:1.1;font-weight:600;color:#111;font-family:'DM Mono', monospace;">{{DISCOUNT_CODE}}</p>
-</div>
-<table style="width:100%;border-collapse:collapse;font-size:13px;color:#555550;margin:0 0 18px;">
-  <tr><td style="padding:8px 0;border-bottom:1px solid #e8e8e4;">Discount</td><td style="padding:8px 0;text-align:right;border-bottom:1px solid #e8e8e4;"><strong>{{DISCOUNT_PERCENT}}%</strong></td></tr>
-  <tr><td style="padding:8px 0;border-bottom:1px solid #e8e8e4;">Applies to</td><td style="padding:8px 0;text-align:right;border-bottom:1px solid #e8e8e4;">First membership checkout</td></tr>
-  <tr><td style="padding:8px 0;">Expires</td><td style="padding:8px 0;text-align:right;">{{EXPIRES_AT}}</td></tr>
-</table>
-<p style="margin:0 0 16px;"><a href="{{DASHBOARD_URL}}" class="cta-btn">Claim membership offer</a></p>
-<p class="note">Code is single-use and tied to your first membership purchase.</p>
-<p class="note">If you've already joined, you can ignore this email.</p>`,
 };
 
 async function buildEffectivePromptTemplates(overrides = {}) {
@@ -592,6 +578,35 @@ router.put("/prompt-templates", async (req, res) => {
   }
 });
 
+router.get("/winback-email-template", async (_req, res) => {
+  try {
+    const template = await getWinbackEmailTemplate();
+    res.json({ success: true, template, defaults: DEFAULT_WINBACK_EMAIL_TEMPLATE });
+  } catch (error) {
+    console.error("Error fetching winback email template:", error);
+    res.status(500).json({ success: false, error: "Failed to fetch winback email template" });
+  }
+});
+
+router.put("/winback-email-template", async (req, res) => {
+  try {
+    const next = req.body?.template && typeof req.body.template === "object"
+      ? req.body.template
+      : req.body;
+    if (!next || typeof next !== "object" || Array.isArray(next)) {
+      return res.status(400).json({ success: false, error: "Template object is required" });
+    }
+    const template = await upsertWinbackEmailTemplate(next, {
+      userId: req.user?.userId,
+      email: req.user?.email,
+    });
+    res.json({ success: true, template, defaults: DEFAULT_WINBACK_EMAIL_TEMPLATE });
+  } catch (error) {
+    console.error("Error updating winback email template:", error);
+    res.status(500).json({ success: false, error: "Failed to update winback email template" });
+  }
+});
+
 router.get("/safety-checker-config", async (_req, res) => {
   try {
     const config = await getGenerationSafetyConfig();
@@ -703,6 +718,112 @@ router.put("/voice-platform/config", async (req, res) => {
   } catch (error) {
     console.error("Error updating voice platform config:", error);
     res.status(400).json({ success: false, error: error.message || "Failed to update voice platform config" });
+  }
+});
+
+function isMissingModelVoiceTable(error) {
+  const message = String(error?.message || "").toLowerCase();
+  const code = String(error?.code || "");
+  const modelName = String(error?.meta?.modelName || "").toLowerCase();
+  const table = String(error?.meta?.table || "").toLowerCase();
+  const mentionsModelVoice =
+    message.includes("modelvoice") || modelName.includes("modelvoice") || table.includes("modelvoice");
+  return (
+    (code === "P2021" && mentionsModelVoice) ||
+    (mentionsModelVoice &&
+      (message.includes("does not exist") ||
+        message.includes("no such table") ||
+        message.includes("relation") ||
+        message.includes("table")))
+  );
+}
+
+router.post("/voice-platform/cleanup-zombies", async (req, res) => {
+  try {
+    const dryRun = req.body?.dryRun === true;
+    const rawLimit = parseInt(String(req.body?.limit ?? "300"), 10);
+    const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 5000) : 300;
+
+    const [accountVoices, legacyRefs, studioRefs] = await Promise.all([
+      listElevenLabsAccountVoices(),
+      prisma.savedModel.findMany({
+        where: { elevenLabsVoiceId: { not: null } },
+        select: { elevenLabsVoiceId: true },
+        distinct: ["elevenLabsVoiceId"],
+      }),
+      prisma.modelVoice
+        .findMany({
+          where: { elevenLabsVoiceId: { not: null } },
+          select: { elevenLabsVoiceId: true },
+          distinct: ["elevenLabsVoiceId"],
+        })
+        .catch((error) => {
+          if (isMissingModelVoiceTable(error)) return [];
+          throw error;
+        }),
+    ]);
+
+    const referencedIds = new Set();
+    for (const row of legacyRefs) {
+      if (row?.elevenLabsVoiceId) referencedIds.add(row.elevenLabsVoiceId);
+    }
+    for (const row of studioRefs) {
+      if (row?.elevenLabsVoiceId) referencedIds.add(row.elevenLabsVoiceId);
+    }
+
+    // "Zombie" = custom app voice in ElevenLabs (mc_*) that is no longer referenced in DB.
+    const zombies = accountVoices
+      .filter((voice) => {
+        const voiceId = String(voice?.voice_id || "").trim();
+        const name = String(voice?.name || "").toLowerCase();
+        if (!voiceId) return false;
+        if (!name.startsWith("mc_")) return false;
+        return !referencedIds.has(voiceId);
+      })
+      .slice(0, limit);
+
+    const result = {
+      success: true,
+      dryRun,
+      scannedAccountVoices: accountVoices.length,
+      referencedVoiceIds: referencedIds.size,
+      zombieCandidates: zombies.length,
+      limitApplied: limit,
+      deleted: 0,
+      failed: 0,
+      failures: [],
+      sample: zombies.slice(0, 20).map((voice) => ({
+        voiceId: String(voice?.voice_id || ""),
+        name: String(voice?.name || ""),
+        category: String(voice?.category || ""),
+      })),
+      usedCustomVoices: await countModelsWithCustomVoice(),
+    };
+
+    if (!dryRun) {
+      for (const voice of zombies) {
+        const voiceId = String(voice?.voice_id || "").trim();
+        if (!voiceId) continue;
+        try {
+          await deleteElevenLabsVoiceStrict(voiceId);
+          result.deleted += 1;
+        } catch (error) {
+          result.failed += 1;
+          if (result.failures.length < 20) {
+            result.failures.push({
+              voiceId,
+              name: String(voice?.name || ""),
+              error: error?.message || "Delete failed",
+            });
+          }
+        }
+      }
+    }
+
+    res.json(result);
+  } catch (error) {
+    console.error("Error cleaning zombie voices:", error);
+    res.status(500).json({ success: false, error: error?.message || "Failed to clean zombie voices" });
   }
 });
 

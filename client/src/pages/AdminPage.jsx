@@ -647,6 +647,8 @@ export default function AdminPage() {
   const [voicePlatformUsed, setVoicePlatformUsed] = useState(0);
   const [loadingVoicePlatform, setLoadingVoicePlatform] = useState(false);
   const [savingVoicePlatform, setSavingVoicePlatform] = useState(false);
+  const [cleaningZombieVoices, setCleaningZombieVoices] = useState(false);
+  const [zombieVoiceCleanupResult, setZombieVoiceCleanupResult] = useState(null);
   const [showPromptTemplates, setShowPromptTemplates] = useState(false);
   const [promptTemplatesMap, setPromptTemplatesMap] = useState({});
   const [promptTemplatesOverridesMap, setPromptTemplatesOverridesMap] = useState({});
@@ -694,6 +696,14 @@ export default function AdminPage() {
     ctaUrl: 'https://modelclone.app/dashboard',
     heroImageUrl: '', imageUrls: [], videoUrl: '', testEmail: '',
   });
+  const [winbackEmailTemplate, setWinbackEmailTemplate] = useState({
+    subject: '{{DISCOUNT_PERCENT}}% off your first membership is waiting',
+    title: '{{DISCOUNT_PERCENT}}% Off Your First Membership',
+    intro: 'Hey {{NAME}}, thanks for signing up. We saved a private first-membership discount for you.',
+    content: '',
+  });
+  const [loadingWinbackTemplate, setLoadingWinbackTemplate] = useState(false);
+  const [savingWinbackTemplate, setSavingWinbackTemplate] = useState(false);
   const [emailAudience, setEmailAudience] = useState({
     verifiedOnly: true,
     subscriptionStatuses: [],
@@ -841,6 +851,7 @@ export default function AdminPage() {
     loadTelemetry(telemetryHours);
     loadReelFinderAdmin();
     loadBranding();
+    loadWinbackEmailTemplate();
     loadTutorialSlots();
     loadBackupHistory();
     loadCampaigns();
@@ -971,6 +982,55 @@ export default function AdminPage() {
       });
     } catch { toast.error('Failed to load brand settings'); }
     finally { setLoadingBranding(false); }
+  };
+
+  const loadWinbackEmailTemplate = async () => {
+    try {
+      setLoadingWinbackTemplate(true);
+      const r = await api.get('/admin/winback-email-template');
+      if (r.data?.success && r.data?.template) {
+        setWinbackEmailTemplate({
+          subject: String(r.data.template.subject || ''),
+          title: String(r.data.template.title || ''),
+          intro: String(r.data.template.intro || ''),
+          content: String(r.data.template.content || ''),
+        });
+      }
+    } catch (e) {
+      toast.error(e?.response?.data?.error || 'Failed to load winback email template');
+    } finally {
+      setLoadingWinbackTemplate(false);
+    }
+  };
+
+  const saveWinbackEmailTemplate = async () => {
+    try {
+      setSavingWinbackTemplate(true);
+      const payload = {
+        template: {
+          subject: winbackEmailTemplate.subject,
+          title: winbackEmailTemplate.title,
+          intro: winbackEmailTemplate.intro,
+          content: winbackEmailTemplate.content,
+        },
+      };
+      const r = await api.put('/admin/winback-email-template', payload);
+      if (r.data?.success && r.data?.template) {
+        setWinbackEmailTemplate({
+          subject: String(r.data.template.subject || ''),
+          title: String(r.data.template.title || ''),
+          intro: String(r.data.template.intro || ''),
+          content: String(r.data.template.content || ''),
+        });
+        toast.success('Winback email template saved');
+      } else {
+        toast.error('Failed to save winback email template');
+      }
+    } catch (e) {
+      toast.error(e?.response?.data?.error || 'Failed to save winback email template');
+    } finally {
+      setSavingWinbackTemplate(false);
+    }
   };
 
   const loadTutorialSlots = async () => {
@@ -2038,6 +2098,27 @@ export default function AdminPage() {
       toast.error(e?.response?.data?.error || 'Failed to save');
     } finally {
       setSavingVoicePlatform(false);
+    }
+  };
+
+  const cleanupZombieVoices = async () => {
+    try {
+      setCleaningZombieVoices(true);
+      const r = await api.post('/admin/voice-platform/cleanup-zombies', {
+        dryRun: false,
+        limit: 1000,
+      });
+      if (r.data?.success) {
+        setZombieVoiceCleanupResult(r.data);
+        setVoicePlatformUsed(Number(r.data.usedCustomVoices) || 0);
+        toast.success(`Zombie cleanup done: ${r.data.deleted || 0} deleted`);
+      } else {
+        toast.error(r.data?.error || 'Zombie cleanup failed');
+      }
+    } catch (e) {
+      toast.error(e?.response?.data?.error || 'Zombie cleanup failed');
+    } finally {
+      setCleaningZombieVoices(false);
     }
   };
 
@@ -4264,11 +4345,11 @@ export default function AdminPage() {
           {showVoicePlatform && (
             <div className="space-y-4 max-w-md">
               <p className="text-[11px] text-gray-500 -mt-2">
-                Hard cap on how many saved models may hold a custom voice at once (design + clone).
-                Recreating a voice on the same model does not increase usage.
+                Hard cap on unique custom ElevenLabs voices stored on this platform (design + clone, legacy + Voice Studio).
+                Re-selecting an already stored voice does not increase usage.
               </p>
               <p className="text-xs text-gray-400">
-                Currently using: <span className="text-white font-mono">{voicePlatformUsed}</span> models with a saved model voice
+                Currently using: <span className="text-white font-mono">{voicePlatformUsed}</span> unique custom voices
               </p>
               <label className="flex flex-col gap-1">
                 <span className="text-[11px] text-gray-500">Max saved model voices (platform-wide)</span>
@@ -4287,6 +4368,21 @@ export default function AdminPage() {
               <PrimaryBtn onClick={saveVoicePlatformConfig} disabled={savingVoicePlatform}>
                 {savingVoicePlatform ? 'Saving…' : 'Save cap'}
               </PrimaryBtn>
+              <GhostBtn onClick={cleanupZombieVoices} disabled={cleaningZombieVoices}>
+                <Trash2 className={`w-3 h-3 ${cleaningZombieVoices ? 'animate-pulse' : ''}`} />
+                {cleaningZombieVoices ? 'Cleaning…' : 'Cleanup zombie voices'}
+              </GhostBtn>
+              {zombieVoiceCleanupResult?.success && (
+                <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/[0.05] p-2.5 text-[11px] text-emerald-300">
+                  Deleted <span className="font-mono text-emerald-200">{zombieVoiceCleanupResult.deleted || 0}</span>
+                  {' '}of{' '}
+                  <span className="font-mono text-emerald-200">{zombieVoiceCleanupResult.zombieCandidates || 0}</span>
+                  {' '}zombie voices.
+                  {Number(zombieVoiceCleanupResult.failed || 0) > 0 && (
+                    <span className="text-amber-300"> Failed: {zombieVoiceCleanupResult.failed}.</span>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </Section>
@@ -4837,6 +4933,55 @@ export default function AdminPage() {
         {/* ── Mass Email ────────────────────────────────────────────────────── */}
         <Section>
           <SectionHeader title="Mass Email" />
+          <div className="mb-4 rounded-xl border border-white/[0.07] bg-white/[0.02] p-4">
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <p className="text-xs font-medium text-gray-300">Winback Email Template (12h No-Purchase Flow)</p>
+              <div className="flex items-center gap-2">
+                <GhostBtn onClick={loadWinbackEmailTemplate} disabled={loadingWinbackTemplate || savingWinbackTemplate}>
+                  {loadingWinbackTemplate ? 'Refreshing…' : 'Refresh'}
+                </GhostBtn>
+                <PrimaryBtn onClick={saveWinbackEmailTemplate} disabled={loadingWinbackTemplate || savingWinbackTemplate}>
+                  {savingWinbackTemplate ? 'Saving…' : 'Save template'}
+                </PrimaryBtn>
+              </div>
+            </div>
+            <p className="text-[11px] text-gray-500 mb-3">
+              This is the actual email sent to users who register and do not buy membership in the first 12 hours.
+            </p>
+            <div className="grid lg:grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <input
+                  value={winbackEmailTemplate.subject}
+                  onChange={(e) => setWinbackEmailTemplate((p) => ({ ...p, subject: e.target.value }))}
+                  placeholder="Email subject"
+                  className="w-full px-3 py-2 rounded-lg border border-white/[0.07] bg-white/[0.03] text-xs outline-none focus:border-white/20 transition"
+                />
+                <input
+                  value={winbackEmailTemplate.title}
+                  onChange={(e) => setWinbackEmailTemplate((p) => ({ ...p, title: e.target.value }))}
+                  placeholder="Email title"
+                  className="w-full px-3 py-2 rounded-lg border border-white/[0.07] bg-white/[0.03] text-xs outline-none focus:border-white/20 transition"
+                />
+                <textarea
+                  value={winbackEmailTemplate.intro}
+                  onChange={(e) => setWinbackEmailTemplate((p) => ({ ...p, intro: e.target.value }))}
+                  placeholder="Intro paragraph"
+                  rows={3}
+                  className="w-full px-3 py-2 rounded-lg border border-white/[0.07] bg-white/[0.03] text-xs outline-none focus:border-white/20 transition resize-none"
+                />
+              </div>
+              <textarea
+                value={winbackEmailTemplate.content}
+                onChange={(e) => setWinbackEmailTemplate((p) => ({ ...p, content: e.target.value }))}
+                placeholder="HTML content block"
+                rows={10}
+                className="w-full px-3 py-2 rounded-lg border border-white/[0.07] bg-black/40 text-[11px] text-gray-200 font-mono outline-none focus:border-white/20 transition resize-y"
+              />
+            </div>
+            <div className="mt-2 text-[10px] text-gray-500">
+              Placeholders: <code>{'{{NAME}}'}</code>, <code>{'{{DISCOUNT_CODE}}'}</code>, <code>{'{{DISCOUNT_PERCENT}}'}</code>, <code>{'{{EXPIRES_AT}}'}</code>, <code>{'{{DASHBOARD_URL}}'}</code>, <code>{'{{BRAND_NAME}}'}</code>, <code>{'{{EMAIL}}'}</code>
+            </div>
+          </div>
           {emailSendResult && (
             <div className="mb-4 p-3 rounded-lg border border-emerald-500/20 bg-emerald-500/[0.05] text-xs">
               <p className="text-emerald-400 font-medium">
