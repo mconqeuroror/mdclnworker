@@ -104,7 +104,6 @@ export async function countModelsWithCustomVoice() {
   });
   const studioRowsPromise = prisma.modelVoice
     .findMany({
-      where: { elevenLabsVoiceId: { not: null } },
       select: { elevenLabsVoiceId: true },
       distinct: ["elevenLabsVoiceId"],
     })

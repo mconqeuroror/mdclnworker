@@ -753,7 +753,6 @@ router.post("/voice-platform/cleanup-zombies", async (req, res) => {
       }),
       prisma.modelVoice
         .findMany({
-          where: { elevenLabsVoiceId: { not: null } },
           select: { elevenLabsVoiceId: true },
           distinct: ["elevenLabsVoiceId"],
         })
