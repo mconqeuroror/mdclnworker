@@ -376,12 +376,32 @@ app.post("/transcode", requireAuth, async (req, res) => {
  * Returns: { ok: true, frameUrls: string[] }
  */
 app.post("/frames", requireAuth, async (req, res) => {
-  const { inputUrl, timestamps, outputPutUrls } = req.body || {};
+  const { inputUrl, timestamps, outputPutUrls, vercelBlobOutput, outputBlobPrefix } = req.body || {};
+  const useBlob = vercelBlobOutput === true;
+  const prefixRaw = typeof outputBlobPrefix === "string" ? outputBlobPrefix.trim() : "";
 
-  if (!inputUrl || !Array.isArray(timestamps) || timestamps.length === 0 || !Array.isArray(outputPutUrls)) {
-    return res.status(400).json({ ok: false, error: "Bad request", message: "inputUrl, timestamps[], and outputPutUrls[] are required" });
+  if (!inputUrl || !Array.isArray(timestamps) || timestamps.length === 0) {
+    return res.status(400).json({ ok: false, error: "Bad request", message: "inputUrl and timestamps[] are required" });
   }
-  if (timestamps.length !== outputPutUrls.length) {
+  if (useBlob) {
+    if (!BLOB_PREFIX_RE.test(prefixRaw)) {
+      return res.status(400).json({
+        ok: false,
+        error: "Invalid outputBlobPrefix",
+        message: "outputBlobPrefix must match content-studio/... (safe path for Vercel Blob)",
+      });
+    }
+    if (!process.env.BLOB_READ_WRITE_TOKEN) {
+      return res.status(500).json({
+        ok: false,
+        error: "BLOB_READ_WRITE_TOKEN not set on worker",
+        message: "Set the same BLOB_READ_WRITE_TOKEN as Content Studio so outputs upload to Blob",
+      });
+    }
+  } else if (!Array.isArray(outputPutUrls)) {
+    return res.status(400).json({ ok: false, error: "Bad request", message: "outputPutUrls[] is required when vercelBlobOutput is false" });
+  }
+  if (!useBlob && timestamps.length !== outputPutUrls.length) {
     return res.status(400).json({ ok: false, error: "Bad request", message: "timestamps and outputPutUrls must have the same length" });
   }
 
@@ -401,6 +421,7 @@ app.post("/frames", requireAuth, async (req, res) => {
 
     const ffmpegBin = process.env.FFMPEG_PATH || "ffmpeg";
     const frameUrls = [];
+    const outputs = [];
 
     for (let i = 0; i < timestamps.length; i++) {
       const t = Math.max(0, Number(timestamps[i]) || 0);
@@ -415,11 +436,18 @@ app.post("/frames", requireAuth, async (req, res) => {
         framePath,
       ];
       await execFileAsync(ffmpegBin, args, { timeout: 60_000 });
-      await uploadToPutUrl(outputPutUrls[i].putUrl, framePath, "image/jpeg");
-      frameUrls.push(outputPutUrls[i].publicUrl);
-      try { fs.unlinkSync(framePath); } catch (_) {}
+      outputs.push({ absolutePath: framePath, fileName: path.basename(framePath) });
     }
 
+    if (useBlob) {
+      const urls = await uploadOutputsToVercelBlob(outputs, prefixRaw, true);
+      frameUrls.push(...urls);
+    } else {
+      for (let i = 0; i < outputs.length; i++) {
+        await uploadToPutUrl(outputPutUrls[i].putUrl, outputs[i].absolutePath, "image/jpeg");
+        frameUrls.push(outputPutUrls[i].publicUrl);
+      }
+    }
     res.json({ ok: true, frameUrls });
   } catch (e) {
     console.error("[frames] error:", e?.message || e);

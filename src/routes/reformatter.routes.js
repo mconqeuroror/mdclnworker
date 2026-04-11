@@ -254,11 +254,8 @@ router.post("/convert-with-worker", authMiddleware, express.json(), async (req, 
  */
 router.post("/extract-first-frame", authMiddleware, express.json(), async (req, res) => {
   try {
-    if (!isR2Configured()) {
-      return res.status(503).json({
-        success: false,
-        message: "First Frame Extractor requires R2 storage for worker output.",
-      });
+    if (!isVercelBlobConfigured() && !isR2Configured()) {
+      return res.status(503).json({ success: false, message: "File storage is not configured (Blob/R2)" });
     }
     const userId = req.user?.id || req.user?.userId;
     if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
@@ -284,23 +281,42 @@ router.post("/extract-first-frame", authMiddleware, express.json(), async (req, 
     });
 
     try {
-      const key = `conversions/${userId}/${job.id}/first-frame.jpg`;
-      const { uploadUrl, publicUrl } = await getR2PresignedPutForKey(key, "image/jpeg", 3600);
+      const target = isVercelBlobConfigured()
+        ? {
+            vercelBlobOutput: true,
+            outputBlobPrefix: `content-studio/conversions/${userId}/${job.id}/first-frame`,
+            fallbackPublicUrl: null,
+          }
+        : (() => {
+            const key = `conversions/${userId}/${job.id}/first-frame.jpg`;
+            return getR2PresignedPutForKey(key, "image/jpeg", 3600).then(({ uploadUrl, publicUrl }) => ({
+              outputPutUrls: [{ putUrl: uploadUrl, publicUrl }],
+              fallbackPublicUrl: publicUrl,
+            }));
+          })();
+      const resolvedTarget = await target;
       const workerInputUrl = isVercelBlobConfigured() ? await mirrorToBlob(inputUrlRaw.trim()) : inputUrlRaw.trim();
 
-      await postFramesJobToWorker({
+      const wr = await postFramesJobToWorker({
         inputUrl: workerInputUrl,
         timestamps: [0],
-        outputPutUrls: [{ putUrl: uploadUrl, publicUrl }],
+        ...(resolvedTarget.outputPutUrls ? { outputPutUrls: resolvedTarget.outputPutUrls } : {}),
+        ...(resolvedTarget.vercelBlobOutput
+          ? { vercelBlobOutput: true, outputBlobPrefix: resolvedTarget.outputBlobPrefix }
+          : {}),
         jobRef: { converterJobId: job.id, source: "reformatter-first-frame" },
       });
+      const outUrl = wr?.frameUrls?.[0] || resolvedTarget.fallbackPublicUrl || "";
+      if (!outUrl) {
+        throw new Error("Worker finished but no frame URL was returned");
+      }
 
       const expiresAt = new Date(Date.now() + CONVERTER_JOB_RETENTION_DAYS * 24 * 60 * 60 * 1000);
       await prisma.converterJob.update({
         where: { id: job.id },
         data: {
           status: "completed",
-          outputUrl: publicUrl,
+          outputUrl: outUrl,
           outputExt: "jpg",
           completedAt: new Date(),
           expiresAt,
@@ -310,7 +326,7 @@ router.post("/extract-first-frame", authMiddleware, express.json(), async (req, 
       return res.json({
         success: true,
         jobId: job.id,
-        outputUrl: publicUrl,
+        outputUrl: outUrl,
         outputExt: "jpg",
         message: "First frame extracted successfully.",
       });
