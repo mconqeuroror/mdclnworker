@@ -52,6 +52,8 @@ import {
   mirrorExternalUrlToPersistentBlob,
   uploadBufferToBlobOrR2,
 } from "../utils/kieUpload.js";
+import { pollModelCloneXJob, extractModelCloneXImages } from "../services/modelcloneX.service.js";
+import { pollUpscalerJob, extractUpscalerImage } from "../services/upscaler.service.js";
 import { enqueueGenerationBlobRemirror } from "../services/blob-remirror-queue.service.js";
 import { deleteStoredMediaFromOutputField } from "../utils/storageDelete.js";
 import { enforceGeneratedContentDeletionBlock } from "../utils/generated-content-deletion-guard.js";
@@ -111,6 +113,8 @@ const PERSISTED_IMAGE_TYPES = new Set([
   "advanced-image",
   "nsfw",
 ]);
+const RUNPOD_HISTORY_RECONCILE_TYPES = new Set(["modelclone-x", "soulx", "upscale"]);
+const RUNPOD_HISTORY_RECONCILE_GRACE_MS = 30 * 1000;
 
 async function registerKieTaskForGeneration(taskId, generationId, userId, kind = "generation") {
   if (!taskId || !generationId) return;
@@ -240,6 +244,95 @@ async function ensureGenerationOutputPersisted(generation) {
     data: { outputUrl: mirrored },
   });
   return { ...generation, outputUrl: mirrored };
+}
+
+async function reconcileRunpodGenerationForHistory(generation, userId) {
+  if (!generation) return generation;
+  if (!RUNPOD_HISTORY_RECONCILE_TYPES.has(generation.type)) return generation;
+  if (!["processing", "pending"].includes(String(generation.status || "").toLowerCase())) return generation;
+  const ageMs = generation?.createdAt ? Date.now() - new Date(generation.createdAt).getTime() : 0;
+  if (ageMs < RUNPOD_HISTORY_RECONCILE_GRACE_MS) return generation;
+
+  let runpodJobId = null;
+  try {
+    const meta =
+      typeof generation.inputImageUrl === "string"
+        ? JSON.parse(generation.inputImageUrl || "{}")
+        : (generation.inputImageUrl || {});
+    runpodJobId = typeof meta?.runpodJobId === "string" ? meta.runpodJobId.trim() : null;
+  } catch {
+    runpodJobId = null;
+  }
+  if (!runpodJobId) return generation;
+
+  try {
+    const rp =
+      generation.type === "upscale"
+        ? await pollUpscalerJob(runpodJobId)
+        : await pollModelCloneXJob(runpodJobId);
+    const status = String(rp?.status || "").toLowerCase();
+
+    if (["failed", "error", "timed_out", "timed-out", "cancelled", "canceled"].includes(status)) {
+      const msg =
+        rp?.error ||
+        rp?.output?.error ||
+        (typeof rp?.output === "string" ? rp.output : null) ||
+        `RunPod ${status}`;
+      await refundGeneration(generation.id).catch(() => {});
+      const failError = getErrorMessageForDb(String(msg));
+      const completedAt = new Date();
+      await prisma.generation.updateMany({
+        where: { id: generation.id, status: { in: ["processing", "pending"] } },
+        data: { status: "failed", errorMessage: failError, completedAt },
+      });
+      return { ...generation, status: "failed", errorMessage: failError, completedAt };
+    }
+
+    if (status !== "completed") return generation;
+
+    let imageData = null;
+    if (generation.type === "upscale") {
+      imageData = extractUpscalerImage(rp);
+    } else {
+      const imgs = extractModelCloneXImages(rp);
+      imageData = imgs[0] || null;
+    }
+
+    if (!imageData) {
+      const failError = "RunPod completed but returned no image";
+      await refundGeneration(generation.id).catch(() => {});
+      const completedAt = new Date();
+      await prisma.generation.updateMany({
+        where: { id: generation.id, status: { in: ["processing", "pending"] } },
+        data: { status: "failed", errorMessage: failError, completedAt },
+      });
+      return { ...generation, status: "failed", errorMessage: failError, completedAt };
+    }
+
+    let outputUrl = imageData;
+    if (!imageData.startsWith("http")) {
+      const buf = Buffer.from(imageData, "base64");
+      outputUrl = await uploadBufferToBlobOrR2(
+        buf,
+        generation.type === "upscale" ? "upscale" : "modelclone-x",
+        "png",
+        "image/png",
+      );
+    }
+
+    const completedAt = new Date();
+    await prisma.generation.updateMany({
+      where: { id: generation.id, status: { in: ["processing", "pending"] } },
+      data: { status: "completed", outputUrl, completedAt },
+    });
+    if (userId && generation.modelId) {
+      enqueueCleanupOldGenerations(userId, generation.modelId);
+    }
+    return { ...generation, status: "completed", outputUrl, completedAt };
+  } catch (err) {
+    console.warn(`[history reconcile] RunPod check failed for ${generation.id}:`, err.message);
+    return generation;
+  }
 }
 
 /**
@@ -1359,8 +1452,19 @@ export async function getGenerations(req, res) {
       },
     });
 
-    const healedGenerations = generations;
-    for (const generation of generations) {
+    let healedGenerations = generations;
+    const runpodCandidates = generations
+      .filter((g) => RUNPOD_HISTORY_RECONCILE_TYPES.has(g.type))
+      .slice(0, 8);
+    if (runpodCandidates.length > 0) {
+      const reconciled = await Promise.all(
+        runpodCandidates.map((g) => reconcileRunpodGenerationForHistory(g, userId)),
+      );
+      const byId = new Map(reconciled.map((g) => [g.id, g]));
+      healedGenerations = generations.map((g) => byId.get(g.id) || g);
+    }
+
+    for (const generation of healedGenerations) {
       void ensureGenerationOutputPersisted(generation).catch((healError) => {
         console.warn(`⚠️ Failed to self-heal generation ${generation.id} output URL:`, healError.message);
       });
