@@ -3002,7 +3002,16 @@ async function handleLegacyAction(chatId, action, telegramUserId) {
     return;
   }
 
-
+  await sendTrackedMessage(
+    chatId,
+    `That action is not available in Legacy Bot yet ("${String(action || "").slice(0, 40)}").\n\nUse the menu buttons below, or open the full studio in Telegram.`,
+    {
+      inline_keyboard: [
+        [{ text: "📱 Open Mini App", web_app: { url: miniAppBaseUrl } }],
+        [{ text: "🏠 Home", callback_data: "legacy:home" }],
+      ],
+    },
+  );
 
   if (telegramUserId) {
     await prisma.user
