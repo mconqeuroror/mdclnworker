@@ -1543,7 +1543,7 @@ async function sendLegacyMenu(chatId, firstName = "") {
   const greeting = firstName ? `Hi ${firstName}!` : "Hi!";
   const text =
     `${greeting} Legacy Bot mode is active.\n\n` +
-    "This mode is fully chat-based (no Mini App links).";
+    "Most tasks run here in chat. For masks, inpainting, and the full Creator Studio (every option), use the Mini App — tap “Switch to Mini App mode” below or /app.";
   await sendTrackedMessage(chatId, text, legacyReplyKeyboard());
   await sendTrackedMessage(chatId, "Legacy actions:", legacyMainKeyboard());
 }
@@ -1577,7 +1577,7 @@ async function sendLegacyWelcome(chatId, userId) {
   } catch {}
   await sendTrackedMessage(
     chatId,
-    `✅ Logged in as ${name}\n💰 Credits: ${credits}\n\nWhat would you like to do?`,
+    `✅ Logged in as ${name}\n💰 Credits: ${credits}\n\nWhat would you like to do?\n\nTip: masks, brush edits, and the full Creator Studio are in the Mini App (/app or Switch Mode).`,
     legacyReplyKeyboard(),
   );
   await sendTrackedMessage(chatId, "Choose an action:", legacyMainKeyboard());
@@ -2999,7 +2999,8 @@ async function handleLegacyAction(chatId, action, telegramUserId) {
   if (action === "help") {
     await sendTrackedMessage(
       chatId,
-      "Support:\n- Telegram: https://t.me/modelclonechat\n- Discord: https://discord.gg/vpwGygjEaB",
+      "Support:\n- Telegram: https://t.me/modelclonechat\n- Discord: https://discord.gg/vpwGygjEaB\n\n" +
+        "Advanced workflows (masks, inpainting, full Creator Studio, and other complex tools) are in the Mini App — use /app or switch mode.",
       legacyMainKeyboard(),
     );
     return;
@@ -3041,7 +3042,16 @@ async function handleLegacyAction(chatId, action, telegramUserId) {
   }
 
   if (action === "generate") {
-    await sendTrackedMessage(chatId, "🎬 Create Content\n\nChoose generation type:", {
+    await sendTrackedMessage(
+      chatId,
+      "🎬 Create Content\n\nFor masks, inpainting, and the full Creator Studio (all options), open the Mini App — tap 📱 Full studio.",
+      {
+        inline_keyboard: [
+          [{ text: "📱 Full studio (masks & advanced)", web_app: { url: buildSectionUrl("creator") } }],
+        ],
+      },
+    );
+    await sendTrackedMessage(chatId, "Generation shortcuts:", {
       inline_keyboard: [
         [{ text: "🎬 AI Video (model + prompt)", callback_data: "legacy:gen:type:video" }],
         [{ text: "🖼 AI Photo (standard still)", callback_data: "legacy:gen:type:photo" }],
@@ -3212,7 +3222,7 @@ async function handleCommand(chatId, command, firstName = "", telegramUserId = n
     const name = firstName ? ` ${firstName}` : "";
     await sendTrackedMessage(
       chatId,
-      `👋 Welcome${name} to ModelClone!\n\nCreate AI model content — photos, videos, voice clones, avatars and more.\n\n📱 Mini App — full studio UI inside Telegram\n🤖 Legacy Bot — everything via chat buttons, no UI required`,
+      `👋 Welcome${name} to ModelClone!\n\nCreate AI model content — photos, videos, voice clones, avatars and more.\n\n📱 Mini App — full studio UI (masks, Creator Studio, advanced tools)\n🤖 Legacy Bot — quick flows via chat buttons; use Mini App for complex editing`,
       {
         inline_keyboard: [
           [{ text: "📱 Open Mini App Studio", web_app: { url: miniAppBaseUrl } }],
