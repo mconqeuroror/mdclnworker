@@ -244,9 +244,12 @@ async function hydrateLegacyState(chatId, telegramUserId = null) {
   }
 
   // Auto-restore session from telegram_id if no session was found in DB.
-  // This makes the bot work even when the TelegramLegacyState table is missing
-  // or the row has expired, as long as the user has linked their Telegram account.
-  if (!legacySessionMap.has(key) && telegramUserId) {
+  // Skip while user is explicitly in email / password / 2FA login (they may log into a different account).
+  const pendingFlow = legacyFlowMap.get(key);
+  const loginFlowSteps = new Set(["await_email", "await_password", "await_2fa"]);
+  const inLoginFlow = pendingFlow?.step && loginFlowSteps.has(String(pendingFlow.step));
+
+  if (!legacySessionMap.has(key) && telegramUserId && !inLoginFlow) {
     try {
       // Check if telegram_id column exists on User (it may not if the migration
       // was not applied yet to production).
@@ -474,6 +477,150 @@ async function submitLegacyPromptVideoGeneration(userId, imageUrl, prompt, durat
     generation: data.generation || null,
     creditsUsed: data.creditsUsed ?? null,
   };
+}
+
+async function submitLegacyPromptImage(userId, modelId, prompt, options = {}) {
+  let response;
+  let data;
+  const body = {
+    modelId,
+    prompt,
+    quantity: options.quantity ?? 1,
+    style: options.style || "amateur",
+    contentRating: options.contentRating || "sexy",
+    useNsfw: Boolean(options.useNsfw),
+    useCustomPrompt: Boolean(options.useCustomPrompt),
+  };
+  try {
+    ({ response, data } = await callLegacyApi(userId, "/api/generate/prompt-image", "POST", body));
+  } catch (error) {
+    return { ok: false, message: error?.message || "Failed to start prompt image generation." };
+  }
+  if (!response.ok || !data?.success) {
+    return { ok: false, message: data?.message || `Prompt image failed (${response.status}).` };
+  }
+  return { ok: true, generation: data.generation || null, creditsUsed: data.creditsUsed ?? null };
+}
+
+async function submitLegacyImageIdentity(userId, body) {
+  let response;
+  let data;
+  try {
+    ({ response, data } = await callLegacyApi(userId, "/api/generate/image-identity", "POST", body));
+  } catch (e) {
+    return { ok: false, message: e?.message || "Identity generation failed." };
+  }
+  if (!response.ok || !data?.success) return { ok: false, message: data?.message || `Identity failed (${response.status}).` };
+  return { ok: true, generation: data.generation || data.generations || null, creditsUsed: data.creditsUsed };
+}
+
+async function submitLegacyAdvancedImage(userId, modelId, prompt, engine = "nano-banana", referencePhotos = []) {
+  let response;
+  let data;
+  try {
+    ({ response, data } = await callLegacyApi(userId, "/api/generate/advanced", "POST", {
+      modelId,
+      engine,
+      prompt,
+      referencePhotos,
+    }));
+  } catch (e) {
+    return { ok: false, message: e?.message || "Advanced generation failed." };
+  }
+  if (!response.ok || !data?.success) {
+    return { ok: false, message: data?.error || data?.message || `Advanced failed (${response.status}).` };
+  }
+  return { ok: true, generation: data.generation || null, creditsUsed: data.creditsUsed };
+}
+
+async function submitLegacyTalkingHead(userId, imageUrl, voiceId, text, prompt = "") {
+  let response;
+  let data;
+  try {
+    ({ response, data } = await callLegacyApi(userId, "/api/generate/talking-head", "POST", {
+      imageUrl,
+      voiceId,
+      text,
+      prompt: prompt || undefined,
+    }));
+  } catch (e) {
+    return { ok: false, message: e?.message || "Talking head failed." };
+  }
+  if (!response.ok || !data?.success) return { ok: false, message: data?.message || `Talking head failed (${response.status}).` };
+  return { ok: true, generation: data.generation || null, creditsUsed: data.creditsUsed };
+}
+
+async function submitLegacyVideoDirectly(userId, payload) {
+  let response;
+  let data;
+  try {
+    ({ response, data } = await callLegacyApi(userId, "/api/generate/video-directly", "POST", payload));
+  } catch (e) {
+    return { ok: false, message: e?.message || "Quick video failed." };
+  }
+  if (!response.ok || !data?.success) return { ok: false, message: data?.message || `Quick video failed (${response.status}).` };
+  return { ok: true, generation: data.generation || null, creditsUsed: data.creditsUsed };
+}
+
+async function submitLegacyDescribeTarget(userId, targetImageUrl, modelName = "") {
+  let response;
+  let data;
+  try {
+    ({ response, data } = await callLegacyApi(userId, "/api/generate/describe-target", "POST", { targetImageUrl, modelName }));
+  } catch (e) {
+    return { ok: false, message: e?.message || "Describe target failed." };
+  }
+  if (!response.ok || !data?.success) return { ok: false, message: data?.message || `Describe failed (${response.status}).` };
+  return { ok: true, description: data.description || data.text || data.prompt || "" };
+}
+
+async function submitLegacyEnhancePrompt(userId, prompt, mode = "casual") {
+  let response;
+  let data;
+  try {
+    ({ response, data } = await callLegacyApi(userId, "/api/generate/enhance-prompt", "POST", { prompt, mode }));
+  } catch (e) {
+    return { ok: false, message: e?.message || "Enhance prompt failed." };
+  }
+  if (!response.ok || !data?.success) return { ok: false, message: data?.message || `Enhance failed (${response.status}).` };
+  return { ok: true, enhancedPrompt: data.enhancedPrompt || data.prompt || "", creditsUsed: data.creditsUsed };
+}
+
+async function submitLegacyCreatorStudioImage(userId, body) {
+  let response;
+  let data;
+  try {
+    ({ response, data } = await callLegacyApi(userId, "/api/generate/creator-studio", "POST", body));
+  } catch (e) {
+    return { ok: false, message: e?.message || "Creator studio failed." };
+  }
+  if (!response.ok || !data?.success) return { ok: false, message: data?.message || `Creator studio failed (${response.status}).` };
+  return { ok: true, generation: data.generation || data.generations || null, creditsUsed: data.creditsUsed };
+}
+
+async function submitLegacyCreatorStudioVideo(userId, body) {
+  let response;
+  let data;
+  try {
+    ({ response, data } = await callLegacyApi(userId, "/api/generate/creator-studio/video", "POST", body));
+  } catch (e) {
+    return { ok: false, message: e?.message || "Creator studio video failed." };
+  }
+  if (!response.ok || !data?.success) return { ok: false, message: data?.message || `Creator video failed (${response.status}).` };
+  return { ok: true, generation: data.generation || null, creditsUsed: data.creditsUsed };
+}
+
+async function fetchLegacyVoices(userId, modelId = "") {
+  let response;
+  let data;
+  const q = modelId ? `?modelId=${encodeURIComponent(String(modelId))}` : "";
+  try {
+    ({ response, data } = await callLegacyApi(userId, `/api/voices${q}`, "GET"));
+  } catch (e) {
+    return { ok: false, voices: [] };
+  }
+  if (!response.ok) return { ok: false, voices: [] };
+  return { ok: true, voices: Array.isArray(data?.voices) ? data.voices : Array.isArray(data) ? data : [] };
 }
 
 async function submitLegacyFaceSwap(userId, sourceVideoUrl, modelId) {
@@ -1477,7 +1624,7 @@ async function linkTelegramIdentity(userId, telegramUserId) {
 
 async function verifyEmailPasswordAndBeginSession(chatId, email, password, telegramUserId) {
   const normalizedEmail = String(email || "").trim().toLowerCase();
-  const rawPassword = String(password || "");
+  const rawPassword = String(password || "").trim();
   if (!normalizedEmail || !rawPassword) {
     await sendTrackedMessage(chatId, "Email and password are required.", legacyMainKeyboard());
     return false;
@@ -1488,33 +1635,51 @@ async function verifyEmailPasswordAndBeginSession(chatId, email, password, teleg
   const hash = user?.password;
 
   if (!user) {
-    await sendTrackedMessage(chatId, "No account found with this email.", legacyMainKeyboard());
+    clearFlow(chatId);
+    setFlow(chatId, { step: "await_email" });
+    await sendTrackedMessage(chatId, "No account found with this email. Try again or use Telegram login if your account is linked.", {
+      keyboard: [["Cancel"]],
+      resize_keyboard: true,
+      one_time_keyboard: true,
+    });
     return false;
   }
   if (authProvider !== "email") {
+    clearFlow(chatId);
+    await sendLegacyLoginChoice(chatId);
     await sendTrackedMessage(
       chatId,
-      "This account is linked to a non-password provider (Google/Telegram). Use that method, then link Telegram in account settings.",
-      legacyMainKeyboard(),
+      "This account uses Google or another provider for sign-in. Use “Log in with Telegram” if linked, or open the Mini App to sign in with Google.",
+      null,
     );
     return false;
   }
   if (typeof hash !== "string" || !hash.startsWith("$2")) {
-    await sendTrackedMessage(chatId, "This account cannot use password login yet. Contact support.", legacyMainKeyboard());
+    clearFlow(chatId);
+    await sendLegacyLoginChoice(chatId);
+    await sendTrackedMessage(chatId, "Password login is not enabled for this account. Open the Mini App or use Telegram login.", null);
     return false;
   }
   if (user.banLocked) {
-    await sendTrackedMessage(chatId, "This account is suspended.", legacyMainKeyboard());
+    clearFlow(chatId);
+    await sendLegacyLoginChoice(chatId);
+    await sendTrackedMessage(chatId, "This account is suspended.", null);
     return false;
   }
   if (!user.isVerified) {
-    await sendTrackedMessage(chatId, "Please verify your email before logging in.", legacyMainKeyboard());
+    clearFlow(chatId);
+    await sendLegacyLoginChoice(chatId);
+    await sendTrackedMessage(chatId, "Please verify your email (check your inbox) before logging in here.", null);
     return false;
   }
 
   const valid = await bcrypt.compare(rawPassword, hash);
   if (!valid) {
-    await sendTrackedMessage(chatId, "Incorrect password.", legacyMainKeyboard());
+    await sendTrackedMessage(chatId, "Incorrect password. Try again or tap Cancel.", {
+      keyboard: [["Cancel"]],
+      resize_keyboard: true,
+      one_time_keyboard: true,
+    });
     return false;
   }
 
@@ -1999,6 +2164,18 @@ async function resolveLegacyImageInputUrl(message, text) {
   return url;
 }
 
+async function resolveLegacyVideoInputUrl(message, text) {
+  const url = await resolveLegacyMediaInputUrl(message, text, {
+    allowImages: false,
+    allowVideos: true,
+    allowDocuments: true,
+  });
+  if (!url || !isHttpUrl(url)) {
+    return null;
+  }
+  return url;
+}
+
 async function createModelFromLegacyFlow(chatId, userId, payload) {
   const name = String(payload?.name || "").trim();
   const photo1Url = String(payload?.photo1Url || "").trim();
@@ -2444,7 +2621,7 @@ async function retryLegacyAvatarVideo(chatId, userId, videoId, modelId = "") {
   );
 }
 
-async function renderModelPickerForAction(chatId, userId, actionPrefix, title) {
+async function renderModelPickerForAction(chatId, userId, actionPrefix, title, backCallback = "legacy:home") {
   const models = await prisma.savedModel.findMany({
     where: { userId },
     select: { id: true, name: true, status: true },
@@ -2461,7 +2638,7 @@ async function renderModelPickerForAction(chatId, userId, actionPrefix, title) {
       callback_data: `${actionPrefix}:${m.id}`,
     },
   ]);
-  rows.push([{ text: "⬅️ Back", callback_data: "legacy:home" }]);
+  rows.push([{ text: "⬅️ Back", callback_data: backCallback }]);
   await sendTrackedMessage(chatId, title, { inline_keyboard: rows });
 }
 
@@ -2868,6 +3045,13 @@ async function handleLegacyAction(chatId, action, telegramUserId) {
       inline_keyboard: [
         [{ text: "🎬 AI Video (model + prompt)", callback_data: "legacy:gen:type:video" }],
         [{ text: "🖼 AI Photo (standard still)", callback_data: "legacy:gen:type:photo" }],
+        [{ text: "🪪 Identity recreation (image)", callback_data: "legacy:gen:identity" }],
+        [{ text: "🗣 Talking head (lip-sync)", callback_data: "legacy:gen:talking" }],
+        [{ text: "⚡ Quick video (frame + ref clip)", callback_data: "legacy:gen:quickvid" }],
+        [{ text: "📝 Describe reference image", callback_data: "legacy:gen:describe" }],
+        [{ text: "✨ Enhance prompt (AI)", callback_data: "legacy:gen:enhance" }],
+        [{ text: "🎛 Creator Studio — image", callback_data: "legacy:gen:csimg" }],
+        [{ text: "🎬 Creator Studio — video", callback_data: "legacy:gen:csvid" }],
         [{ text: "🔞 NSFW Image", callback_data: "legacy:nsfw:menu:generate" }],
         [{ text: "🔞 NSFW Video", callback_data: "legacy:nsfw:menu:video" }],
         [{ text: "✨ Advanced AI (NSFW)", callback_data: "legacy:nsfw:menu:advanced" }],
@@ -3200,6 +3384,16 @@ async function handleLegacyPlainMessage(message) {
   }
 
   const flow = getFlow(chatId);
+  const loginFlowSteps = new Set(["await_email", "await_password", "await_2fa"]);
+  if (flow?.step && loginFlowSteps.has(String(flow.step))) {
+    const loginCancel = normalizeLegacyTextAction(text);
+    if (loginCancel === "cancel") {
+      clearFlow(chatId);
+      await sendTrackedMessage(chatId, "Login cancelled.", { remove_keyboard: true });
+      await sendLegacyLoginChoice(chatId, String(message?.from?.first_name || ""));
+      return true;
+    }
+  }
   if (flow?.step === "await_email") {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text)) {
       await sendTrackedMessage(chatId, "Invalid email format. Enter a valid email:", {
@@ -3563,13 +3757,29 @@ async function handleLegacyPlainMessage(message) {
           ],
         });
       } else {
-        // Photo — go straight to submit
-        setFlow(chatId, { ...flow, step: "await_generate_source_image", prompt, duration: 0 });
-        await sendTrackedMessage(chatId, `Prompt: "${prompt.slice(0, 220)}"\n\nSend a source photo URL or upload an image (used as reference):`, {
-          keyboard: [["Skip", "Cancel"]],
-          resize_keyboard: true,
-          one_time_keyboard: true,
+        clearFlow(chatId);
+        await sendTrackedMessage(chatId, "⏳ Starting AI Photo (prompt-image)…", null);
+        const submit = await submitLegacyPromptImage(session.userId, flow.modelId, prompt, {
+          quantity: 1,
+          style: "amateur",
+          contentRating: "sexy",
         });
+        if (!submit.ok) {
+          await sendTrackedMessage(chatId, `❌ Photo generation failed to start: ${submit.message}`, legacyMainKeyboard());
+          return true;
+        }
+        const generationId = submit.generation?.id || "unknown";
+        await sendTrackedMessage(
+          chatId,
+          `✅ 🖼 AI Photo started.\nID: ${generationId}\nCredits used: ${submit.creditsUsed ?? "n/a"}`,
+          {
+            inline_keyboard: [
+              ...(generationId !== "unknown" ? [[{ text: "🔄 Refresh status", callback_data: `legacy:generation:refresh:${generationId}:0` }]] : []),
+              [{ text: "🕘 View history", callback_data: "legacy:history" }],
+              [{ text: "🎬 Create more", callback_data: "legacy:generate" }],
+            ],
+          },
+        );
       }
       return true;
     }
@@ -3589,6 +3799,387 @@ async function handleLegacyPlainMessage(message) {
     const rows = models.map((m) => [{ text: `${m.name} (${m.status || "ready"})`, callback_data: `legacy:generate:model:${m.id}` }]);
     rows.push([{ text: "Cancel", callback_data: "legacy:home" }]);
     await sendTrackedMessage(chatId, `Prompt received:\n"${text}"\n\nChoose a model:`, { inline_keyboard: rows });
+    return true;
+  }
+
+  if (flow?.step === "await_identity_target") {
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return true;
+    let targetUrl = null;
+    try {
+      targetUrl = await resolveLegacyImageInputUrl(message, text);
+    } catch {
+      targetUrl = null;
+    }
+    if (!targetUrl || !isHttpUrl(targetUrl)) {
+      await sendTrackedMessage(chatId, "Send a valid image URL or upload the target/reference image.", {
+        keyboard: [["Cancel"]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      });
+      return true;
+    }
+    clearFlow(chatId);
+    await sendTrackedMessage(chatId, "⏳ Starting identity recreation…", null);
+    const result = await submitLegacyImageIdentity(session.userId, {
+      modelId: flow.modelId,
+      targetImage: targetUrl,
+      aspectRatio: "9:16",
+      quantity: 1,
+    });
+    if (!result.ok) {
+      await sendTrackedMessage(chatId, `❌ Identity generation failed: ${result.message}`, legacyMainKeyboard());
+      return true;
+    }
+    const rawGen = result.generation;
+    const genId =
+      (rawGen && !Array.isArray(rawGen) ? rawGen.id : null) ||
+      (Array.isArray(rawGen) ? rawGen[0]?.id : null) ||
+      "unknown";
+    await sendTrackedMessage(
+      chatId,
+      `✅ Identity recreation started.\nID: ${genId}\nCredits used: ${result.creditsUsed ?? "n/a"}`,
+      {
+        inline_keyboard: [
+          ...(genId !== "unknown" ? [[{ text: "🔄 Refresh status", callback_data: `legacy:generation:refresh:${genId}:0` }]] : []),
+          [{ text: "🕘 View history", callback_data: "legacy:history" }],
+          [{ text: "🎬 Create more", callback_data: "legacy:generate" }],
+        ],
+      },
+    );
+    return true;
+  }
+
+  if (flow?.step === "await_th_image") {
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return true;
+    let imageUrl = null;
+    try {
+      imageUrl = await resolveLegacyImageInputUrl(message, text);
+    } catch {
+      imageUrl = null;
+    }
+    if (!imageUrl || !isHttpUrl(imageUrl)) {
+      await sendTrackedMessage(chatId, "Upload a face image or send an HTTPS image URL for the talking head.", {
+        keyboard: [["Cancel"]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      });
+      return true;
+    }
+    const voicesRes = await fetchLegacyVoices(session.userId, flow.modelId);
+    const rawVoices = voicesRes.voices || [];
+    const picked = rawVoices.slice(0, 8);
+    if (!picked.length) {
+      await sendTrackedMessage(chatId, "No ElevenLabs voices available. Open Voice Studio in the web app first.", legacyMainKeyboard());
+      clearFlow(chatId);
+      return true;
+    }
+    const voiceIds = picked.map((v) => String(v.id || "").trim()).filter(Boolean);
+    if (!voiceIds.length) {
+      clearFlow(chatId);
+      await sendTrackedMessage(chatId, "Voice list was empty. Try again later.", legacyMainKeyboard());
+      return true;
+    }
+    setFlow(chatId, {
+      step: "await_th_voice",
+      modelId: flow.modelId,
+      modelName: flow.modelName,
+      imageUrl,
+      voiceIds,
+    });
+    const rows = [];
+    for (let i = 0; i < picked.length; i += 1) {
+      const v = picked[i];
+      const label = String(v.name || `Voice ${i + 1}`).slice(0, 28);
+      rows.push([{ text: label, callback_data: `legacy:gth:v:${i}` }]);
+    }
+    rows.push([{ text: "Cancel", callback_data: "legacy:home" }]);
+    await sendTrackedMessage(chatId, "Pick a voice for the talking head:", { inline_keyboard: rows });
+    return true;
+  }
+
+  if (flow?.step === "await_th_text") {
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return true;
+    const script = text.trim();
+    if (script.length < 5) {
+      await sendTrackedMessage(chatId, "Script must be at least 5 characters.", {
+        keyboard: [["Cancel"]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      });
+      return true;
+    }
+    clearFlow(chatId);
+    await sendTrackedMessage(chatId, "⏳ Starting talking head…", null);
+    const result = await submitLegacyTalkingHead(session.userId, flow.imageUrl, flow.voiceId, script, "");
+    if (!result.ok) {
+      await sendTrackedMessage(chatId, `❌ Talking head failed: ${result.message}`, legacyMainKeyboard());
+      return true;
+    }
+    const genId = result.generation?.id || "unknown";
+    await sendTrackedMessage(
+      chatId,
+      `✅ Talking head started.\nID: ${genId}\nCredits used: ${result.creditsUsed ?? "n/a"}`,
+      {
+        inline_keyboard: [
+          ...(genId !== "unknown" ? [[{ text: "🔄 Refresh status", callback_data: `legacy:generation:refresh:${genId}:0` }]] : []),
+          [{ text: "🕘 View history", callback_data: "legacy:history" }],
+          [{ text: "🎬 Create more", callback_data: "legacy:generate" }],
+        ],
+      },
+    );
+    return true;
+  }
+
+  if (flow?.step === "await_qv_identity") {
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return true;
+    let imageUrl = null;
+    try {
+      imageUrl = await resolveLegacyImageInputUrl(message, text);
+    } catch {
+      imageUrl = null;
+    }
+    if (!imageUrl || !isHttpUrl(imageUrl)) {
+      await sendTrackedMessage(chatId, "Send the start-frame image (HTTPS URL or upload) for quick video.", {
+        keyboard: [["Cancel"]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      });
+      return true;
+    }
+    setFlow(chatId, { step: "await_qv_refvideo", identityImageUrl: imageUrl });
+    await sendTrackedMessage(chatId, "Now send the reference video (HTTPS URL, upload, or document video):", {
+      keyboard: [["Cancel"]],
+      resize_keyboard: true,
+      one_time_keyboard: true,
+    });
+    return true;
+  }
+
+  if (flow?.step === "await_qv_refvideo") {
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return true;
+    let refUrl = null;
+    try {
+      refUrl = await resolveLegacyVideoInputUrl(message, text);
+    } catch {
+      refUrl = null;
+    }
+    if (!refUrl || !isHttpUrl(refUrl)) {
+      await sendTrackedMessage(chatId, "Send a valid reference video URL or upload the clip.", {
+        keyboard: [["Cancel"]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      });
+      return true;
+    }
+    setFlow(chatId, {
+      step: "await_qv_pick_duration",
+      identityImageUrl: flow.identityImageUrl,
+      referenceVideoUrl: refUrl,
+    });
+    await sendTrackedMessage(chatId, "Pick output duration (seconds):", {
+      inline_keyboard: [
+        [
+          { text: "5s", callback_data: "legacy:gqv:d:5" },
+          { text: "8s", callback_data: "legacy:gqv:d:8" },
+          { text: "10s", callback_data: "legacy:gqv:d:10" },
+        ],
+        [
+          { text: "12s", callback_data: "legacy:gqv:d:12" },
+          { text: "15s", callback_data: "legacy:gqv:d:15" },
+        ],
+        [{ text: "Cancel", callback_data: "legacy:home" }],
+      ],
+    });
+    return true;
+  }
+
+  if (flow?.step === "await_describe_image") {
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return true;
+    let imgUrl = null;
+    try {
+      imgUrl = await resolveLegacyImageInputUrl(message, text);
+    } catch {
+      imgUrl = null;
+    }
+    if (!imgUrl || !isHttpUrl(imgUrl)) {
+      await sendTrackedMessage(chatId, "Send the image to describe (URL or upload).", {
+        keyboard: [["Cancel"]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      });
+      return true;
+    }
+    clearFlow(chatId);
+    await sendTrackedMessage(chatId, "⏳ Describing image…", null);
+    const modelName = String(flow.modelName || "the model").trim() || "the model";
+    const result = await submitLegacyDescribeTarget(session.userId, imgUrl, modelName);
+    if (!result.ok) {
+      await sendTrackedMessage(chatId, `❌ Describe failed: ${result.message}`, legacyMainKeyboard());
+      return true;
+    }
+    const desc = String(result.description || "").trim();
+    await sendTrackedMessage(
+      chatId,
+      `📝 Scene description:\n\n${desc || "(empty)"}`,
+      {
+        inline_keyboard: [
+          [{ text: "🎬 Create more", callback_data: "legacy:generate" }],
+          [{ text: "🏠 Home", callback_data: "legacy:home" }],
+        ],
+      },
+    );
+    return true;
+  }
+
+  if (flow?.step === "await_enhance_prompt") {
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return true;
+    const raw = text.trim();
+    if (raw.length < 3) {
+      await sendTrackedMessage(chatId, "Send a prompt to enhance (at least 3 characters).", {
+        keyboard: [["Cancel"]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      });
+      return true;
+    }
+    clearFlow(chatId);
+    await sendTrackedMessage(chatId, "⏳ Enhancing prompt…", null);
+    const result = await submitLegacyEnhancePrompt(session.userId, raw, "casual");
+    if (!result.ok) {
+      await sendTrackedMessage(chatId, `❌ Enhance failed: ${result.message}`, legacyMainKeyboard());
+      return true;
+    }
+    const enhanced = String(result.enhancedPrompt || "").trim();
+    await sendTrackedMessage(
+      chatId,
+      `✨ Enhanced prompt${result.creditsUsed != null ? ` (${result.creditsUsed} credits)` : ""}:\n\n${enhanced || "(empty)"}`,
+      {
+        inline_keyboard: [
+          [{ text: "🎬 Create more", callback_data: "legacy:generate" }],
+          [{ text: "🏠 Home", callback_data: "legacy:home" }],
+        ],
+      },
+    );
+    return true;
+  }
+
+  if (flow?.step === "await_csimg_prompt") {
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return true;
+    const prompt = text.trim();
+    if (prompt.length < 3) {
+      await sendTrackedMessage(chatId, "Enter a Creator Studio image prompt (3+ characters).", {
+        keyboard: [["Cancel"]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      });
+      return true;
+    }
+    const model = await prisma.savedModel.findFirst({
+      where: { id: flow.modelId, userId: session.userId },
+      select: { photo1Url: true, photo2Url: true, photo3Url: true },
+    });
+    const referencePhotos = [model?.photo1Url, model?.photo2Url, model?.photo3Url].filter(Boolean);
+    clearFlow(chatId);
+    await sendTrackedMessage(chatId, "⏳ Starting Creator Studio image…", null);
+    const result = await submitLegacyCreatorStudioImage(session.userId, {
+      prompt,
+      referencePhotos,
+      aspectRatio: "9:16",
+      resolution: "1K",
+      generationModel: "nano-banana-pro",
+      numImages: 1,
+    });
+    if (!result.ok) {
+      await sendTrackedMessage(chatId, `❌ Creator Studio image failed: ${result.message}`, legacyMainKeyboard());
+      return true;
+    }
+    const rawCs = result.generation;
+    const genId =
+      (rawCs && !Array.isArray(rawCs) ? rawCs.id : null) ||
+      (Array.isArray(rawCs) ? rawCs[0]?.id : null) ||
+      "unknown";
+    await sendTrackedMessage(
+      chatId,
+      `✅ Creator Studio image started.\nID: ${genId}\nCredits used: ${result.creditsUsed ?? "n/a"}`,
+      {
+        inline_keyboard: [
+          ...(genId !== "unknown" ? [[{ text: "🔄 Refresh status", callback_data: `legacy:generation:refresh:${genId}:0` }]] : []),
+          [{ text: "🕘 View history", callback_data: "legacy:history" }],
+          [{ text: "🎬 Create more", callback_data: "legacy:generate" }],
+        ],
+      },
+    );
+    return true;
+  }
+
+  if (flow?.step === "await_csvid_prompt") {
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return true;
+    const prompt = text.trim();
+    if (prompt.length < 3) {
+      await sendTrackedMessage(chatId, "Enter a video prompt (3+ characters).", {
+        keyboard: [["Cancel"]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      });
+      return true;
+    }
+    const model = await prisma.savedModel.findFirst({
+      where: { id: flow.modelId, userId: session.userId },
+      select: { photo1Url: true },
+    });
+    const imageUrl = String(model?.photo1Url || "").trim();
+    if (!imageUrl) {
+      clearFlow(chatId);
+      await sendTrackedMessage(chatId, "Model is missing photo1 for image-to-video. Add photos in the web app.", legacyMainKeyboard());
+      return true;
+    }
+    clearFlow(chatId);
+    await sendTrackedMessage(chatId, "⏳ Starting Creator Studio video (Kling 3.0 i2v)…", null);
+    const result = await submitLegacyCreatorStudioVideo(session.userId, {
+      family: "kling30",
+      mode: "i2v",
+      prompt,
+      imageUrl,
+      durationSeconds: 5,
+      aspectRatio: "9:16",
+      kling30Quality: "std",
+      nFrames: "10",
+    });
+    if (!result.ok) {
+      await sendTrackedMessage(chatId, `❌ Creator Studio video failed: ${result.message}`, legacyMainKeyboard());
+      return true;
+    }
+    const genId = result.generation?.id || "unknown";
+    await sendTrackedMessage(
+      chatId,
+      `✅ Creator Studio video started.\nID: ${genId}\nCredits used: ${result.creditsUsed ?? "n/a"}`,
+      {
+        inline_keyboard: [
+          ...(genId !== "unknown" ? [[{ text: "🔄 Refresh status", callback_data: `legacy:generation:refresh:${genId}:0` }]] : []),
+          [{ text: "🕘 View history", callback_data: "legacy:history" }],
+          [{ text: "🎬 Create more", callback_data: "legacy:generate" }],
+        ],
+      },
+    );
+    return true;
+  }
+
+  if (flow?.step === "await_th_voice") {
+    await sendTrackedMessage(chatId, "Tap a voice button above to continue (or Cancel).", null);
+    return true;
+  }
+
+  if (flow?.step === "await_qv_pick_duration") {
+    await sendTrackedMessage(chatId, "Pick a duration with the inline buttons (or Cancel).", null);
     return true;
   }
 
@@ -4165,12 +4756,21 @@ async function handleLegacyPlainMessage(message) {
       }
     }
     const duration = [5, 10].includes(Number(flow.duration)) ? Number(flow.duration) : 5;
-    const submit = await submitLegacyPromptVideoGeneration(
-      session.userId,
-      inputImageUrl,
-      String(flow.prompt || "").trim(),
-      isPhoto ? 5 : duration,
-    );
+    let submit;
+    if (isPhoto) {
+      submit = await submitLegacyPromptImage(session.userId, flow.modelId, String(flow.prompt || "").trim(), {
+        quantity: 1,
+        style: "amateur",
+        contentRating: "sexy",
+      });
+    } else {
+      submit = await submitLegacyPromptVideoGeneration(
+        session.userId,
+        inputImageUrl,
+        String(flow.prompt || "").trim(),
+        duration,
+      );
+    }
     clearFlow(chatId);
     if (!submit.ok) {
       await sendTrackedMessage(chatId, `❌ Generation failed to start: ${submit.message}`, legacyMainKeyboard());
@@ -6215,6 +6815,306 @@ async function handleCallback(callbackQuery) {
         [{ text: "🗑 Yes, delete", callback_data: `legacy:voice:delete:run:${voice.id}` }],
         [{ text: "Cancel", callback_data: `legacy:voice:model:${voice.modelId}` }],
       ],
+    });
+    return;
+  }
+
+  if (data === "legacy:gen:identity") {
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    await renderModelPickerForAction(
+      chatId,
+      session.userId,
+      "legacy:gid:m",
+      "🪪 Identity recreation\n\nPick your model (needs 3 photos on the model):",
+      "legacy:generate",
+    );
+    return;
+  }
+
+  if (data.startsWith("legacy:gid:m:")) {
+    const modelId = data.split(":").pop();
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    const model = await prisma.savedModel.findFirst({
+      where: { id: modelId, userId: session.userId },
+      select: { id: true, name: true, photo1Url: true, photo2Url: true, photo3Url: true },
+    });
+    if (!model) {
+      await sendTrackedMessage(chatId, "Model not found.", legacyMainKeyboard());
+      return;
+    }
+    if (!model.photo1Url || !model.photo2Url || !model.photo3Url) {
+      await sendTrackedMessage(chatId, "This model needs 3 reference photos for identity recreation.", {
+        inline_keyboard: [[{ text: "⬅️ Back", callback_data: "legacy:generate" }]],
+      });
+      return;
+    }
+    setFlow(chatId, { step: "await_identity_target", modelId: model.id, modelName: model.name });
+    await sendTrackedMessage(
+      chatId,
+      `Send the target/reference image (HTTPS URL or upload) to recreate with "${model.name}":`,
+      {
+        keyboard: [["Cancel"]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      },
+    );
+    return;
+  }
+
+  if (data === "legacy:gen:talking") {
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    await renderModelPickerForAction(
+      chatId,
+      session.userId,
+      "legacy:gth:m",
+      "🗣 Talking head\n\nPick the model (used to load custom voices if any):",
+      "legacy:generate",
+    );
+    return;
+  }
+
+  if (data.startsWith("legacy:gth:m:")) {
+    const modelId = data.split(":").pop();
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    const model = await prisma.savedModel.findFirst({
+      where: { id: modelId, userId: session.userId },
+      select: { id: true, name: true },
+    });
+    if (!model) {
+      await sendTrackedMessage(chatId, "Model not found.", legacyMainKeyboard());
+      return;
+    }
+    setFlow(chatId, { step: "await_th_image", modelId: model.id, modelName: model.name });
+    await sendTrackedMessage(chatId, "Upload a clear face image or send an HTTPS image URL:", {
+      keyboard: [["Cancel"]],
+      resize_keyboard: true,
+      one_time_keyboard: true,
+    });
+    return;
+  }
+
+  if (data.startsWith("legacy:gth:v:")) {
+    const idx = Number.parseInt(String(data.split(":").pop() || "0"), 10);
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    const flow = getFlow(chatId);
+    if (!flow || flow.step !== "await_th_voice" || !Array.isArray(flow.voiceIds)) {
+      await sendTrackedMessage(chatId, "Voice selection expired. Start talking head again from Generate.", legacyMainKeyboard());
+      return;
+    }
+    const voiceId = flow.voiceIds[idx];
+    if (!voiceId) {
+      await sendTrackedMessage(chatId, "Invalid voice choice.", legacyMainKeyboard());
+      return;
+    }
+    setFlow(chatId, {
+      step: "await_th_text",
+      modelId: flow.modelId,
+      modelName: flow.modelName,
+      imageUrl: flow.imageUrl,
+      voiceId,
+    });
+    await sendTrackedMessage(chatId, "Send the script to speak (5+ characters):", {
+      keyboard: [["Cancel"]],
+      resize_keyboard: true,
+      one_time_keyboard: true,
+    });
+    return;
+  }
+
+  if (data === "legacy:gen:quickvid") {
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    setFlow(chatId, { step: "await_qv_identity" });
+    await sendTrackedMessage(
+      chatId,
+      "⚡ Quick video\n\nStep 1/2: send your identity start-frame image (URL or upload).",
+      {
+        keyboard: [["Cancel"]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      },
+    );
+    return;
+  }
+
+  if (data.startsWith("legacy:gqv:d:")) {
+    const duration = Number.parseInt(String(data.split(":").pop() || "0"), 10);
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    const flow = getFlow(chatId);
+    if (!flow || flow.step !== "await_qv_pick_duration") {
+      await sendTrackedMessage(chatId, "No pending quick video. Start again from Generate.", legacyMainKeyboard());
+      return;
+    }
+    if (!flow.identityImageUrl || !flow.referenceVideoUrl) {
+      clearFlow(chatId);
+      await sendTrackedMessage(chatId, "Quick video draft incomplete. Start again.", legacyMainKeyboard());
+      return;
+    }
+    if (!Number.isFinite(duration) || duration < 3 || duration > 120) {
+      await sendTrackedMessage(chatId, "Pick a duration between 3 and 120 seconds.", {
+        inline_keyboard: [
+          [
+            { text: "5s", callback_data: "legacy:gqv:d:5" },
+            { text: "8s", callback_data: "legacy:gqv:d:8" },
+            { text: "10s", callback_data: "legacy:gqv:d:10" },
+          ],
+          [
+            { text: "12s", callback_data: "legacy:gqv:d:12" },
+            { text: "15s", callback_data: "legacy:gqv:d:15" },
+          ],
+          [{ text: "Cancel", callback_data: "legacy:home" }],
+        ],
+      });
+      return;
+    }
+    clearFlow(chatId);
+    await sendTrackedMessage(chatId, "⏳ Starting quick video…", null);
+    const result = await submitLegacyVideoDirectly(session.userId, {
+      referenceVideoUrl: flow.referenceVideoUrl,
+      videoDuration: duration,
+      selectedImageUrl: flow.identityImageUrl,
+    });
+    if (!result.ok) {
+      await sendTrackedMessage(chatId, `❌ Quick video failed: ${result.message}`, legacyMainKeyboard());
+      return;
+    }
+    const genId = result.generation?.id || "unknown";
+    await sendTrackedMessage(
+      chatId,
+      `✅ Quick video started.\nID: ${genId}\nDuration: ${duration}s\nCredits used: ${result.creditsUsed ?? "n/a"}`,
+      {
+        inline_keyboard: [
+          ...(genId !== "unknown" ? [[{ text: "🔄 Refresh status", callback_data: `legacy:generation:refresh:${genId}:0` }]] : []),
+          [{ text: "🕘 View history", callback_data: "legacy:history" }],
+          [{ text: "🎬 Create more", callback_data: "legacy:generate" }],
+        ],
+      },
+    );
+    return;
+  }
+
+  if (data === "legacy:gen:describe") {
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    await renderModelPickerForAction(
+      chatId,
+      session.userId,
+      "legacy:gds:m",
+      "📝 Describe reference image\n\nPick a model (their name is injected into the description):",
+      "legacy:generate",
+    );
+    return;
+  }
+
+  if (data.startsWith("legacy:gds:m:")) {
+    const modelId = data.split(":").pop();
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    const model = await prisma.savedModel.findFirst({
+      where: { id: modelId, userId: session.userId },
+      select: { id: true, name: true },
+    });
+    if (!model) {
+      await sendTrackedMessage(chatId, "Model not found.", legacyMainKeyboard());
+      return;
+    }
+    setFlow(chatId, { step: "await_describe_image", modelId: model.id, modelName: model.name });
+    await sendTrackedMessage(chatId, `Send the image to analyze for "${model.name}" (URL or upload):`, {
+      keyboard: [["Cancel"]],
+      resize_keyboard: true,
+      one_time_keyboard: true,
+    });
+    return;
+  }
+
+  if (data === "legacy:gen:enhance") {
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    setFlow(chatId, { step: "await_enhance_prompt" });
+    await sendTrackedMessage(chatId, "Send the prompt text to enhance (casual / SFW mode):", {
+      keyboard: [["Cancel"]],
+      resize_keyboard: true,
+      one_time_keyboard: true,
+    });
+    return;
+  }
+
+  if (data === "legacy:gen:csimg") {
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    await renderModelPickerForAction(
+      chatId,
+      session.userId,
+      "legacy:gci:m",
+      "🎛 Creator Studio — image\n\nPick a model (uses its photos as references):",
+      "legacy:generate",
+    );
+    return;
+  }
+
+  if (data.startsWith("legacy:gci:m:")) {
+    const modelId = data.split(":").pop();
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    const model = await prisma.savedModel.findFirst({
+      where: { id: modelId, userId: session.userId },
+      select: { id: true, name: true },
+    });
+    if (!model) {
+      await sendTrackedMessage(chatId, "Model not found.", legacyMainKeyboard());
+      return;
+    }
+    setFlow(chatId, { step: "await_csimg_prompt", modelId: model.id, modelName: model.name });
+    await sendTrackedMessage(chatId, `Creator Studio image for "${model.name}".\n\nEnter your prompt:`, {
+      keyboard: [["Cancel"]],
+      resize_keyboard: true,
+      one_time_keyboard: true,
+    });
+    return;
+  }
+
+  if (data === "legacy:gen:csvid") {
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    await renderModelPickerForAction(
+      chatId,
+      session.userId,
+      "legacy:gcv:m",
+      "🎬 Creator Studio — video (Kling 3.0 i2v)\n\nPick a model (uses photo #1 as start frame):",
+      "legacy:generate",
+    );
+    return;
+  }
+
+  if (data.startsWith("legacy:gcv:m:")) {
+    const modelId = data.split(":").pop();
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    const model = await prisma.savedModel.findFirst({
+      where: { id: modelId, userId: session.userId },
+      select: { id: true, name: true, photo1Url: true },
+    });
+    if (!model) {
+      await sendTrackedMessage(chatId, "Model not found.", legacyMainKeyboard());
+      return;
+    }
+    if (!model.photo1Url) {
+      await sendTrackedMessage(chatId, "Model is missing photo1. Add it in the web app first.", {
+        inline_keyboard: [[{ text: "⬅️ Back", callback_data: "legacy:gen:csvid" }]],
+      });
+      return;
+    }
+    setFlow(chatId, { step: "await_csvid_prompt", modelId: model.id, modelName: model.name });
+    await sendTrackedMessage(chatId, `Enter the motion/scene prompt for "${model.name}" (5s, 9:16, std quality):`, {
+      keyboard: [["Cancel"]],
+      resize_keyboard: true,
+      one_time_keyboard: true,
     });
     return;
   }
