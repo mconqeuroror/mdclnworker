@@ -764,6 +764,17 @@ async function handleLegacyPlainMessage(message) {
   // Recovery path for stateless/restarted workers:
   // allow one-line login command: "login email password" or "email password".
   if (!getFlow(chatId)) {
+    const standaloneEmailMatch = text.match(/^([^\s@]+@[^\s@]+\.[^\s@]+)$/i);
+    if (standaloneEmailMatch) {
+      const [, email] = standaloneEmailMatch;
+      setFlow(chatId, { step: "await_password", email: email.toLowerCase() });
+      await sendTrackedMessage(chatId, "Enter your password:", {
+        keyboard: [["Cancel"]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      });
+      return true;
+    }
     const loginCommandMatch = text.match(/^login\s+([^\s@]+@[^\s@]+\.[^\s@]+)\s+(.+)$/i);
     if (loginCommandMatch) {
       const [, email, password] = loginCommandMatch;
@@ -804,7 +815,7 @@ async function handleLegacyPlainMessage(message) {
       text,
       telegramUserId,
     );
-    if (!ok) {
+    if (!ok && getFlow(chatId)?.step === "await_password") {
       await sendTrackedMessage(chatId, "Incorrect password. Try again or press Cancel.", {
         keyboard: [["Cancel"]],
         resize_keyboard: true,
@@ -1128,13 +1139,22 @@ router.post("/webhook", async (req, res) => {
       const hasLegacyFlow = Boolean(getFlow(message.chat.id));
       const hasLegacySession = Boolean(getSession(message.chat.id));
       const isPlainText = !message.text.trim().startsWith("/");
-      if (isPlainText && (currentMode === MODE_LEGACY || hasLegacyFlow || hasLegacySession)) {
+      if (isPlainText) {
         const handledLegacyMessage = await handleLegacyPlainMessage(message);
-        if (!handledLegacyMessage) {
+        if (handledLegacyMessage) {
+          return res.json({ ok: true });
+        }
+        if (currentMode === MODE_LEGACY || hasLegacyFlow || hasLegacySession) {
           await sendTrackedMessage(
             message.chat.id,
             "Legacy mode: use the buttons, or type /menu for full options.",
             legacyMainKeyboard(),
+          );
+        } else {
+          await sendTrackedMessage(
+            message.chat.id,
+            "Use /menu to open navigation or /mode to switch interaction mode.",
+            { inline_keyboard: [[{ text: "Open Menu", callback_data: "menu:main" }]] },
           );
         }
       } else {
