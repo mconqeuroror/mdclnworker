@@ -32,12 +32,17 @@ import {
   ZoomIn,
   Wand2,
   Image as ImageIcon,
+  Pin,
+  PinOff,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 import { SiTelegram, SiDiscord, SiInstagram } from "react-icons/si";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useBranding } from "../hooks/useBranding";
 import { useTheme } from "../hooks/useTheme.jsx";
 import { hasPremiumAccess } from "../utils/premiumAccess";
+import { sound } from "../utils/sounds";
 
 const LOCALE_STORAGE_KEY = "app_locale";
 const SUPPORTED_LOCALES = ["en", "ru"];
@@ -88,6 +93,10 @@ const SIDEBAR_COPY = {
     adminPanel: "Admin Panel",
     collapse: "Collapse",
     proStudio: "Pro Studio",
+    pinSidebar: "Pin sidebar open",
+    unpinSidebar: "Unpin sidebar",
+    soundOn: "Click sound on",
+    soundOff: "Click sound off",
   },
   ru: {
     dashboard: "Панель",
@@ -118,6 +127,10 @@ const SIDEBAR_COPY = {
     adminPanel: "Админ панель",
     collapse: "Свернуть",
     proStudio: "Pro Studio",
+    pinSidebar: "Закрепить открытую панель",
+    unpinSidebar: "Открепить панель",
+    soundOn: "Звук клика включен",
+    soundOff: "Звук клика выключен",
   },
 };
 
@@ -147,6 +160,8 @@ export default function AppSidebar({
   onOpenAdmin,
   collapsed: collapsedProp,
   setCollapsed: setCollapsedProp,
+  sidebarPinned: sidebarPinnedProp,
+  setSidebarPinned: setSidebarPinnedProp,
   onDesktopHoverChange,
 }) {
   const location = useLocation();
@@ -161,12 +176,16 @@ export default function AppSidebar({
   const [localCollapsed, setLocalCollapsed] = useState(true);
   const collapsed = typeof collapsedProp === "boolean" ? collapsedProp : localCollapsed;
   const setCollapsed = setCollapsedProp || setLocalCollapsed;
+  const [localSidebarPinned, setLocalSidebarPinned] = useState(false);
+  const sidebarPinned = typeof sidebarPinnedProp === "boolean" ? sidebarPinnedProp : localSidebarPinned;
+  const setSidebarPinned = setSidebarPinnedProp || setLocalSidebarPinned;
   /** Desktop: expand visually while pinned collapsed (rail + hover) */
   const [desktopHovered, setDesktopHovered] = useState(false);
   const [canHoverExpand, setCanHoverExpand] = useState(false);
   const visuallyCollapsed = collapsed && !desktopHovered;
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [locale, setLocale] = useState(getCurrentLocale);
+  const [soundEnabled, setSoundEnabled] = useState(() => sound.isEnabled());
   const copy = SIDEBAR_COPY[locale] || SIDEBAR_COPY.en;
   const collapsedRow = visuallyCollapsed ? "justify-center px-0 gap-0 min-h-[44px]" : "";
   const collapsedProfileRow = visuallyCollapsed ? "justify-center px-0 gap-0 min-h-[48px]" : "";
@@ -194,6 +213,16 @@ export default function AppSidebar({
   }, [onDesktopHoverChange]);
 
   useEffect(() => {
+    if (sidebarPinned && collapsed) {
+      setCollapsed(false);
+    }
+    if (sidebarPinned) {
+      setDesktopHovered(false);
+      onDesktopHoverChange?.(false);
+    }
+  }, [sidebarPinned, collapsed, setCollapsed, onDesktopHoverChange]);
+
+  useEffect(() => {
     if (!collapsed) {
       setDesktopHovered(false);
       onDesktopHoverChange?.(false);
@@ -201,13 +230,13 @@ export default function AppSidebar({
   }, [collapsed, onDesktopHoverChange]);
 
   const handleAsidePointerEnter = () => {
-    if (!collapsed || !canHoverExpand) return;
+    if (sidebarPinned || !collapsed || !canHoverExpand) return;
     setDesktopHovered(true);
     onDesktopHoverChange?.(true);
   };
 
   const handleAsidePointerLeave = () => {
-    if (!canHoverExpand) return;
+    if (sidebarPinned || !canHoverExpand) return;
     setDesktopHovered(false);
     onDesktopHoverChange?.(false);
   };
@@ -752,6 +781,38 @@ export default function AppSidebar({
 
       {/* Bottom Section */}
       <div className="p-4 space-y-2">
+        <div className={`w-full flex items-center gap-2 ${visuallyCollapsed ? "justify-center" : ""}`}>
+          <button
+            onClick={() => {
+              const next = !sidebarPinned;
+              setSidebarPinned(next);
+              if (next) {
+                setCollapsed(false);
+                setDesktopHovered(false);
+                onDesktopHoverChange?.(false);
+              }
+            }}
+            className="h-10 w-10 rounded-xl inline-flex items-center justify-center text-slate-500 hover:text-slate-300 hover:bg-white/[0.04] transition-all duration-200"
+            title={sidebarPinned ? copy.unpinSidebar : copy.pinSidebar}
+            aria-label={sidebarPinned ? copy.unpinSidebar : copy.pinSidebar}
+            data-testid="sidebar-pin-toggle"
+          >
+            {sidebarPinned ? <PinOff className="w-5 h-5" /> : <Pin className="w-5 h-5" />}
+          </button>
+          <button
+            onClick={() => {
+              const next = sound.toggle();
+              setSoundEnabled(next);
+            }}
+            className="h-10 w-10 rounded-xl inline-flex items-center justify-center text-slate-500 hover:text-slate-300 hover:bg-white/[0.04] transition-all duration-200"
+            title={soundEnabled ? copy.soundOn : copy.soundOff}
+            aria-label={soundEnabled ? copy.soundOn : copy.soundOff}
+            data-testid="sidebar-sound-toggle"
+          >
+            {soundEnabled ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
+          </button>
+        </div>
+
         {/* Theme Toggle */}
         <button
           onClick={toggleTheme}
@@ -772,6 +833,7 @@ export default function AppSidebar({
         {/* Collapse Toggle */}
         <button
           onClick={() => {
+            if (sidebarPinned) return;
             if (visuallyCollapsed) {
               setCollapsed(false);
             } else {
@@ -783,6 +845,8 @@ export default function AppSidebar({
           className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-500 hover:text-slate-300 hover:bg-white/[0.04] transition-all duration-200 ${
             collapsedRow
           }`}
+          disabled={sidebarPinned}
+          aria-disabled={sidebarPinned}
           data-testid="sidebar-collapse"
         >
           {visuallyCollapsed ? (

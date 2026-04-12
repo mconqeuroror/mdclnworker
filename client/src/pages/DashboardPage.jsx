@@ -65,6 +65,7 @@ import AppSidebar from "../components/AppSidebar";
 import { useBranding } from "../hooks/useBranding";
 
 const LOCALE_STORAGE_KEY = "app_locale";
+const SIDEBAR_PINNED_KEY = "dashboard_sidebar_pinned";
 const hasRestrictedFeatureAccess = (user) => {
   if (!user) return false;
   if (user?.role === "admin") return true;
@@ -298,6 +299,14 @@ function safeLocalStorageSet(key, value) {
   }
 }
 
+function getInitialSidebarPinned() {
+  try {
+    return localStorage.getItem(SIDEBAR_PINNED_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
 export default function DashboardPage() {
   const [locale] = useState(resolveLocale);
   const copy = COPY[locale] || COPY.en;
@@ -322,6 +331,7 @@ export default function DashboardPage() {
   const [showWhatsNew, setShowWhatsNew] = useState(false);
   const [courseVideoId, setCourseVideoId] = useState(null);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
+  const [isSidebarPinned, setIsSidebarPinned] = useState(getInitialSidebarPinned);
   const [sidebarDesktopHovered, setSidebarDesktopHovered] = useState(false);
   /** Narrow rail (80px) only when pinned collapsed and not hovering the sidebar on desktop */
   const sidebarNarrow = isSidebarCollapsed && !sidebarDesktopHovered;
@@ -380,6 +390,14 @@ export default function DashboardPage() {
       document.documentElement.style.removeProperty("--dashboard-mobile-tab-stack");
     };
   }, []);
+
+  useEffect(() => {
+    safeLocalStorageSet(SIDEBAR_PINNED_KEY, String(isSidebarPinned));
+    if (isSidebarPinned) {
+      setIsSidebarCollapsed(false);
+      setSidebarDesktopHovered(false);
+    }
+  }, [isSidebarPinned]);
 
   useEffect(() => {
     if (premiumTabs.includes(activeTab) && !canAccessPremiumTabs) {
@@ -513,6 +531,8 @@ export default function DashboardPage() {
           onOpenAdmin={() => navigate("/admin")}
           collapsed={isSidebarCollapsed}
           setCollapsed={setIsSidebarCollapsed}
+          sidebarPinned={isSidebarPinned}
+          setSidebarPinned={setIsSidebarPinned}
           onDesktopHoverChange={setSidebarDesktopHovered}
         />
       </div>

@@ -4,7 +4,27 @@
 class SoundFeedback {
   constructor() {
     this.audioContext = null;
-    this.enabled = true;
+    this.enabled = this.loadInitialEnabledState();
+  }
+
+  loadInitialEnabledState() {
+    try {
+      if (typeof window === "undefined") return true;
+      const stored = window.localStorage.getItem("app_click_sound_enabled");
+      if (stored == null) return true;
+      return stored !== "false";
+    } catch {
+      return true;
+    }
+  }
+
+  persistEnabledState() {
+    try {
+      if (typeof window === "undefined") return;
+      window.localStorage.setItem("app_click_sound_enabled", String(this.enabled));
+    } catch {
+      // Ignore storage write failures.
+    }
   }
 
   // Initialize audio context (must be called after user interaction)
@@ -133,6 +153,17 @@ class SoundFeedback {
   // Toggle sound on/off
   toggle() {
     this.enabled = !this.enabled;
+    this.persistEnabledState();
+    return this.enabled;
+  }
+
+  setEnabled(next) {
+    this.enabled = next !== false;
+    this.persistEnabledState();
+    return this.enabled;
+  }
+
+  isEnabled() {
     return this.enabled;
   }
 }

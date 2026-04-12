@@ -98,6 +98,7 @@ const PREVIEW_BADGE_STYLE = {
 };
 
 const LOCALE_STORAGE_KEY = "app_locale";
+const NSFW_SIDEBAR_PINNED_KEY = "nsfw_sidebar_pinned";
 const NSFW_COPY = {
   en: {
     galleryEmptyModel: "No images in gallery for this model",
@@ -3768,9 +3769,29 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
   const [showEarnModal, setShowEarnModal] = useState(false);
   const [showReferralModal, setShowReferralModal] = useState(false);
   const [standaloneSidebarCollapsed, setStandaloneSidebarCollapsed] = useState(true);
+  const [standaloneSidebarPinned, setStandaloneSidebarPinned] = useState(() => {
+    try {
+      return localStorage.getItem(NSFW_SIDEBAR_PINNED_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
   const [standaloneSidebarHovered, setStandaloneSidebarHovered] = useState(false);
   const standaloneNarrow = standaloneSidebarCollapsed && !standaloneSidebarHovered;
   const layoutSidebarNarrow = embedded ? sidebarCollapsed : standaloneNarrow;
+
+  useEffect(() => {
+    if (embedded) return;
+    try {
+      localStorage.setItem(NSFW_SIDEBAR_PINNED_KEY, String(standaloneSidebarPinned));
+    } catch {
+      // Ignore storage failures.
+    }
+    if (standaloneSidebarPinned) {
+      setStandaloneSidebarCollapsed(false);
+      setStandaloneSidebarHovered(false);
+    }
+  }, [embedded, standaloneSidebarPinned]);
   
   const handleLogout = async () => {
     await logout();
@@ -5002,6 +5023,8 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
               onOpenAdmin={() => navigate("/admin")}
               collapsed={standaloneSidebarCollapsed}
               setCollapsed={setStandaloneSidebarCollapsed}
+              sidebarPinned={standaloneSidebarPinned}
+              setSidebarPinned={setStandaloneSidebarPinned}
               onDesktopHoverChange={setStandaloneSidebarHovered}
             />
           </div>

@@ -281,13 +281,32 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
     }
 
     const normalizedState = String(state || "").toLowerCase();
+    const numericCode = Number.isFinite(Number(code)) ? Number(code) : null;
     const successStates = new Set(["success", "succeeded", "completed", "finished", "done"]);
     const failedStates = new Set(["fail", "failed", "error", "canceled", "cancelled"]);
     const nonTerminalStates = new Set(["waiting", "queued", "queuing", "processing", "generating", "running", "pending", "submitted", "created", "starting"]);
     const isTerminalSuccess = successStates.has(normalizedState);
     const isTerminalFailure = failedStates.has(normalizedState);
+    const callbackErrorText = [
+      failCode,
+      failMsg,
+      body?.message,
+      body?.msg,
+      data?.message,
+      data?.error,
+    ]
+      .map((v) => (v == null ? "" : String(v).trim()))
+      .filter(Boolean)
+      .join(" — ");
+    const hasErrorSignals =
+      (numericCode != null && numericCode !== 200)
+      || isTerminalFailure
+      || Boolean(failCode)
+      || Boolean(failMsg)
+      || (callbackErrorText.length > 0
+        && /(^|\b)(error|failed|fail|sensitive|flagged|blocked|reject|rejected|e\d{3,})(\b|$)/i.test(callbackErrorText));
     let outputUrl = null;
-    if (isTerminalSuccess || code === 200) {
+    if (isTerminalSuccess || numericCode === 200) {
       outputUrl =
         parseResultJsonAndGetUrl(resultJson)
         || (resultUrls[0] && typeof resultUrls[0] === "string" && resultUrls[0].startsWith("http") ? resultUrls[0] : null)
@@ -328,7 +347,7 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
       }
     }
     const isSuccess = isTerminalSuccess || (!normalizedState && !!outputUrl);
-    const isFailure = isTerminalFailure || (normalizedState === "fail");
+    const isFailure = hasErrorSignals || (normalizedState === "fail");
 
     if (!isSuccess && !isFailure && nonTerminalStates.has(normalizedState)) {
       console.log("[KIE Callback] Non-terminal update taskId=%s state=%s", taskId.slice(0, 12), normalizedState);
