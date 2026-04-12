@@ -297,6 +297,71 @@ async function linkTelegramIdentity(userId, telegramUserId) {
     .catch(() => {});
 }
 
+async function verifyEmailPasswordAndBeginSession(chatId, email, password, telegramUserId) {
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+  const rawPassword = String(password || "");
+  if (!normalizedEmail || !rawPassword) {
+    await sendTrackedMessage(chatId, "Email and password are required.", legacyMainKeyboard());
+    return false;
+  }
+
+  const user = await findEmailUserForLegacyLogin(normalizedEmail);
+  const authProvider = user?.authProvider ?? "email";
+  const hash = user?.password;
+
+  if (!user) {
+    await sendTrackedMessage(chatId, "No account found with this email.", legacyMainKeyboard());
+    return false;
+  }
+  if (authProvider !== "email") {
+    await sendTrackedMessage(
+      chatId,
+      "This account is linked to a non-password provider (Google/Telegram). Use that method, then link Telegram in account settings.",
+      legacyMainKeyboard(),
+    );
+    return false;
+  }
+  if (typeof hash !== "string" || !hash.startsWith("$2")) {
+    await sendTrackedMessage(chatId, "This account cannot use password login yet. Contact support.", legacyMainKeyboard());
+    return false;
+  }
+  if (user.banLocked) {
+    await sendTrackedMessage(chatId, "This account is suspended.", legacyMainKeyboard());
+    return false;
+  }
+  if (!user.isVerified) {
+    await sendTrackedMessage(chatId, "Please verify your email before logging in.", legacyMainKeyboard());
+    return false;
+  }
+
+  const valid = await bcrypt.compare(rawPassword, hash);
+  if (!valid) {
+    await sendTrackedMessage(chatId, "Incorrect password.", legacyMainKeyboard());
+    return false;
+  }
+
+  if (user.twoFactorEnabled && user.twoFactorSecret) {
+    setFlow(chatId, {
+      step: "await_2fa",
+      userId: user.id,
+      email: user.email,
+      twoFactorSecret: user.twoFactorSecret,
+    });
+    await sendTrackedMessage(chatId, "2FA is enabled. Enter your 6-digit authenticator code:", {
+      keyboard: [["Cancel"]],
+      resize_keyboard: true,
+      one_time_keyboard: true,
+    });
+    return true;
+  }
+
+  clearFlow(chatId);
+  setSession(chatId, { userId: user.id, email: user.email });
+  await linkTelegramIdentity(user.id, telegramUserId);
+  await sendTrackedMessage(chatId, "Login successful. Legacy session is active.", legacyMainKeyboard());
+  return true;
+}
+
 async function renderLegacyHome(chatId) {
   const session = getSession(chatId);
   const statusLine = session?.userId
@@ -696,6 +761,23 @@ async function handleLegacyPlainMessage(message) {
   const telegramUserId = message?.from?.id;
   if (!chatId || !text) return false;
 
+  // Recovery path for stateless/restarted workers:
+  // allow one-line login command: "login email password" or "email password".
+  if (!getFlow(chatId)) {
+    const loginCommandMatch = text.match(/^login\s+([^\s@]+@[^\s@]+\.[^\s@]+)\s+(.+)$/i);
+    if (loginCommandMatch) {
+      const [, email, password] = loginCommandMatch;
+      await verifyEmailPasswordAndBeginSession(chatId, email, password, telegramUserId);
+      return true;
+    }
+    const compactCredentialMatch = text.match(/^([^\s@]+@[^\s@]+\.[^\s@]+)\s+(.+)$/i);
+    if (compactCredentialMatch) {
+      const [, email, password] = compactCredentialMatch;
+      await verifyEmailPasswordAndBeginSession(chatId, email, password, telegramUserId);
+      return true;
+    }
+  }
+
   const flow = getFlow(chatId);
   if (flow?.step === "await_email") {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text)) {
@@ -716,51 +798,19 @@ async function handleLegacyPlainMessage(message) {
   }
 
   if (flow?.step === "await_password") {
-    const user = await findEmailUserForLegacyLogin(String(flow.email || "").toLowerCase());
-    const authProvider = user?.authProvider ?? "email";
-    const hash = user?.password;
-    if (!user || authProvider !== "email" || typeof hash !== "string" || !hash.startsWith("$2")) {
-      clearFlow(chatId);
-      await sendTrackedMessage(chatId, "No email/password account found for this email.", legacyMainKeyboard());
-      return true;
-    }
-    if (user.banLocked) {
-      clearFlow(chatId);
-      await sendTrackedMessage(chatId, "This account is suspended.", legacyMainKeyboard());
-      return true;
-    }
-    if (!user.isVerified) {
-      clearFlow(chatId);
-      await sendTrackedMessage(chatId, "Please verify your email before logging in.", legacyMainKeyboard());
-      return true;
-    }
-    const valid = await bcrypt.compare(text, hash);
-    if (!valid) {
+    const ok = await verifyEmailPasswordAndBeginSession(
+      chatId,
+      String(flow.email || "").toLowerCase(),
+      text,
+      telegramUserId,
+    );
+    if (!ok) {
       await sendTrackedMessage(chatId, "Incorrect password. Try again or press Cancel.", {
         keyboard: [["Cancel"]],
         resize_keyboard: true,
         one_time_keyboard: true,
       });
-      return true;
     }
-    if (user.twoFactorEnabled && user.twoFactorSecret) {
-      setFlow(chatId, {
-        step: "await_2fa",
-        userId: user.id,
-        email: user.email,
-        twoFactorSecret: user.twoFactorSecret,
-      });
-      await sendTrackedMessage(chatId, "2FA is enabled. Enter your 6-digit authenticator code:", {
-        keyboard: [["Cancel"]],
-        resize_keyboard: true,
-        one_time_keyboard: true,
-      });
-      return true;
-    }
-    clearFlow(chatId);
-    setSession(chatId, { userId: user.id, email: user.email });
-    await linkTelegramIdentity(user.id, telegramUserId);
-    await sendTrackedMessage(chatId, "Login successful. Legacy session is active.", legacyMainKeyboard());
     return true;
   }
 
@@ -854,7 +904,18 @@ async function handleLegacyPlainMessage(message) {
   }
 
   const action = normalizeLegacyTextAction(text);
-  if (!action) return false;
+  if (!action) {
+    // Helpful recovery for expired login flow / worker restart.
+    if (text.length >= 6 && !text.includes(" ") && !text.includes("@")) {
+      await sendTrackedMessage(
+        chatId,
+        "Login step seems expired. Use:\n`login your@email.com yourPassword`\nor tap Login again.",
+        legacyMainKeyboard(),
+      );
+      return true;
+    }
+    return false;
+  }
   if (action === "cancel") {
     clearFlow(chatId);
     await sendTrackedMessage(chatId, "Cancelled.", legacyMainKeyboard());
@@ -1064,7 +1125,10 @@ router.post("/webhook", async (req, res) => {
     if (message?.text && message?.chat?.id) {
       const command = toCommand(message.text);
       const currentMode = getChatMode(message.chat.id);
-      if (!message.text.trim().startsWith("/") && currentMode === MODE_LEGACY) {
+      const hasLegacyFlow = Boolean(getFlow(message.chat.id));
+      const hasLegacySession = Boolean(getSession(message.chat.id));
+      const isPlainText = !message.text.trim().startsWith("/");
+      if (isPlainText && (currentMode === MODE_LEGACY || hasLegacyFlow || hasLegacySession)) {
         const handledLegacyMessage = await handleLegacyPlainMessage(message);
         if (!handledLegacyMessage) {
           await sendTrackedMessage(
