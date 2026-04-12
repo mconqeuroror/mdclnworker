@@ -168,7 +168,7 @@ function queuePersistLegacyState(chatId) {
   persistStateTimers.set(key, timer);
 }
 
-async function hydrateLegacyState(chatId) {
+async function hydrateLegacyState(chatId, telegramUserId = null) {
   if (chatId === null || chatId === undefined) return;
   const key = String(chatId);
   // Only hydrate once per server lifetime. A Set is used rather than checking
@@ -189,35 +189,55 @@ async function hydrateLegacyState(chatId) {
         expiresAt: true,
       },
     });
-    if (!state) return;
-    if (state.expiresAt && new Date(state.expiresAt).getTime() < Date.now()) {
-      return;
-    }
-    const mode = String(state.mode || MODE_MINI) === MODE_LEGACY ? MODE_LEGACY : MODE_MINI;
-    chatModeMap.set(key, mode);
-    if (state.sessionUserId) {
-      legacySessionMap.set(key, {
-        userId: String(state.sessionUserId),
-        email: state.sessionEmail ? String(state.sessionEmail) : null,
-      });
-    }
-    if (state.flow && typeof state.flow === "object" && !Array.isArray(state.flow)) {
-      const flow = {
-        ...state.flow,
-        _updatedAt: state.flowUpdatedAt
-          ? new Date(state.flowUpdatedAt).toISOString()
-          : new Date().toISOString(),
-      };
-      if (!isFlowExpired(flow)) {
-        legacyFlowMap.set(key, flow);
+    if (state) {
+      if (!state.expiresAt || new Date(state.expiresAt).getTime() >= Date.now()) {
+        const mode = String(state.mode || MODE_MINI) === MODE_LEGACY ? MODE_LEGACY : MODE_MINI;
+        chatModeMap.set(key, mode);
+        if (state.sessionUserId) {
+          legacySessionMap.set(key, {
+            userId: String(state.sessionUserId),
+            email: state.sessionEmail ? String(state.sessionEmail) : null,
+          });
+        }
+        if (state.flow && typeof state.flow === "object" && !Array.isArray(state.flow)) {
+          const flow = {
+            ...state.flow,
+            _updatedAt: state.flowUpdatedAt
+              ? new Date(state.flowUpdatedAt).toISOString()
+              : new Date().toISOString(),
+          };
+          if (!isFlowExpired(flow)) {
+            legacyFlowMap.set(key, flow);
+          }
+        }
+        const ids = parseMessageIds(state.lastBotMessageIds);
+        if (ids.length) {
+          lastBotMessagesMap.set(key, ids);
+        }
       }
     }
-    const ids = parseMessageIds(state.lastBotMessageIds);
-    if (ids.length) {
-      lastBotMessagesMap.set(key, ids);
-    }
   } catch (error) {
-    console.warn("hydrateLegacyState warning:", error?.message || error);
+    // TelegramLegacyState table may not exist yet — swallow gracefully
+    console.warn("hydrateLegacyState DB warning:", error?.message || error);
+  }
+
+  // Auto-restore session from telegram_id if no session was found in DB.
+  // This makes the bot work even when the TelegramLegacyState table is missing
+  // or the row has expired, as long as the user has linked their Telegram account.
+  if (!legacySessionMap.has(key) && telegramUserId) {
+    try {
+      const linkedUser = await prisma.user.findFirst({
+        where: { telegram_id: String(telegramUserId) },
+        select: { id: true, email: true, banLocked: true },
+      });
+      if (linkedUser && !linkedUser.banLocked) {
+        legacySessionMap.set(key, { userId: linkedUser.id, email: linkedUser.email ?? null });
+        // Keep the mode that was already set (or leave as mini default).
+        // The user will naturally trigger legacy handlers via the keyboard.
+      }
+    } catch (autoErr) {
+      console.warn("hydrateLegacyState auto-restore warning:", autoErr?.message);
+    }
   }
 }
 
@@ -432,6 +452,146 @@ async function submitLegacyPromptVideoGeneration(userId, imageUrl, prompt, durat
     generation: data.generation || null,
     creditsUsed: data.creditsUsed ?? null,
   };
+}
+
+async function submitLegacyFaceSwap(userId, sourceVideoUrl, modelId) {
+  let response;
+  let data;
+  try {
+    ({ response, data } = await callLegacyApi(
+      userId,
+      "/api/generate/face-swap",
+      "POST",
+      { sourceVideoUrl, modelId, videoDuration: 0 },
+    ));
+  } catch (error) {
+    return { ok: false, message: error?.message || "Failed to initialize face swap." };
+  }
+  if (!response.ok || !data?.success) {
+    return {
+      ok: false,
+      message: data?.message || `Face swap request failed (${response.status}).`,
+    };
+  }
+  return {
+    ok: true,
+    generation: data.generation || null,
+    creditsUsed: data.creditsUsed ?? null,
+  };
+}
+
+async function submitLegacyModelCloneXGenerate(userId, prompt, modelId = null, loraId = null) {
+  const body = { prompt: String(prompt || "").trim(), aspectRatio: "9:16", quantity: 1 };
+  if (modelId) body.modelId = modelId;
+  if (loraId) body.characterLoraId = loraId;
+  let response;
+  let data;
+  try {
+    ({ response, data } = await callLegacyApi(userId, "/api/modelclone-x/generate", "POST", body));
+  } catch (error) {
+    return { ok: false, message: error?.message || "Failed to initialize MCX generation." };
+  }
+  if (!response.ok || !data?.success) {
+    return {
+      ok: false,
+      message: data?.error || data?.message || `MCX generation failed (${response.status}).`,
+    };
+  }
+  return {
+    ok: true,
+    generation: data.generation || null,
+    creditsUsed: data.creditsUsed ?? null,
+  };
+}
+
+async function fetchLegacyMCXStatus(userId, generationId) {
+  let response;
+  let data;
+  try {
+    ({ response, data } = await callLegacyApi(
+      userId,
+      `/api/modelclone-x/status/${generationId}`,
+      "GET",
+    ));
+  } catch (error) {
+    return { ok: false, message: error?.message || "Failed to check MCX status." };
+  }
+  if (!response.ok) {
+    return { ok: false, message: data?.error || `Status check failed (${response.status}).` };
+  }
+  return { ok: true, status: data?.status, urls: data?.urls, generation: data?.generation };
+}
+
+async function fetchLegacyMCXCharacters(userId, modelId) {
+  let response;
+  let data;
+  try {
+    ({ response, data } = await callLegacyApi(
+      userId,
+      `/api/modelclone-x/characters/${modelId}`,
+      "GET",
+    ));
+  } catch (error) {
+    return { ok: false, characters: [] };
+  }
+  if (!response.ok) return { ok: false, characters: [] };
+  return { ok: true, characters: data?.characters || [] };
+}
+
+async function submitLegacyCreateMCXCharacter(userId, modelId) {
+  let response;
+  let data;
+  try {
+    ({ response, data } = await callLegacyApi(
+      userId,
+      "/api/modelclone-x/character/create",
+      "POST",
+      { modelId },
+    ));
+  } catch (error) {
+    return { ok: false, message: error?.message || "Failed to create character." };
+  }
+  if (!response.ok || !data?.success) {
+    return { ok: false, message: data?.message || `Create character failed (${response.status}).` };
+  }
+  return { ok: true, lora: data?.lora };
+}
+
+async function submitLegacyStartMCXTraining(userId, modelId, loraId) {
+  let response;
+  let data;
+  try {
+    ({ response, data } = await callLegacyApi(
+      userId,
+      "/api/modelclone-x/character/train",
+      "POST",
+      { modelId, loraId },
+    ));
+  } catch (error) {
+    return { ok: false, message: error?.message || "Failed to start training." };
+  }
+  if (!response.ok || !data?.success) {
+    return { ok: false, message: data?.message || `Training start failed (${response.status}).` };
+  }
+  return { ok: true };
+}
+
+async function fetchLegacyLoraTrainingStatus(userId, loraId) {
+  let response;
+  let data;
+  try {
+    ({ response, data } = await callLegacyApi(
+      userId,
+      `/api/modelclone-x/character/training-status/${loraId}`,
+      "GET",
+    ));
+  } catch (error) {
+    return { ok: false, message: error?.message || "Failed to check training status." };
+  }
+  if (!response.ok) {
+    return { ok: false, message: data?.message || `Status check failed (${response.status}).` };
+  }
+  return { ok: true, lora: data?.lora, status: data?.status };
 }
 
 async function submitLegacySelectVoice(userId, modelId, voiceId) {
@@ -927,10 +1087,11 @@ function legacyReplyKeyboard() {
       ["🔐 Login", "🧬 Models", "📊 Dashboard"],
       ["➕ Create Model", "🖼 My Photos", "✏️ Edit Model"],
       ["🎤 Voice", "🧍 Avatars", "⚙️ Settings"],
+      ["🎬 Generate", "🎭 Face Swap", "🎨 AI Images"],
       ["🕘 History", "📥 Queue", "💳 Pricing"],
       ["🧰 Tools", "🎞 Reformatter", "🔍 Upscaler"],
       ["♻️ Repurposer"],
-      ["🎬 Generate", "🚪 Logout", "🔁 Switch Mode"],
+      ["🚪 Logout", "🔁 Switch Mode"],
     ],
     resize_keyboard: true,
     is_persistent: true,
@@ -948,7 +1109,11 @@ function legacyMainKeyboard() {
       [
         { text: "🧬 Models", callback_data: "legacy:models" },
         { text: "➕ Create", callback_data: "legacy:create_model" },
+      ],
+      [
         { text: "🎬 Generate", callback_data: "legacy:generate" },
+        { text: "🎭 Face Swap", callback_data: "legacy:faceswap" },
+        { text: "🎨 AI Images", callback_data: "legacy:mcxgenerate" },
       ],
       [
         { text: "📊 Dashboard", callback_data: "legacy:dashboard" },
@@ -1264,6 +1429,7 @@ async function renderModelDetails(chatId, userId, modelId, fromPage = 0) {
         ],
         [{ text: "✏️ Edit menu", callback_data: `legacy:model:edit:menu:${model.id}:${fromPage}` }],
         [{ text: "📝 Rename", callback_data: `legacy:model:rename:${model.id}:${fromPage}` }],
+        [{ text: "🔬 AI Characters / LoRA", callback_data: `legacy:lora:characters:${model.id}` }],
         [{ text: "🗑 Delete", callback_data: `lg:mdc:${model.id}:${fromPage}` }],
         [{ text: "⬅️ Back to models", callback_data: `legacy:models:page:${fromPage}` }],
       ],
@@ -2427,6 +2593,53 @@ async function handleLegacyAction(chatId, action, telegramUserId) {
     return;
   }
 
+  if (action === "faceswap") {
+    const models = await prisma.savedModel.findMany({
+      where: { userId: session.userId },
+      select: { id: true, name: true },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+    });
+    if (!models.length) {
+      await sendTrackedMessage(
+        chatId,
+        "You need at least one model to use Face Swap. Create a model first.",
+        {
+          inline_keyboard: [
+            [{ text: "➕ Create Model", callback_data: "legacy:create_model" }],
+            [{ text: "⬅️ Back", callback_data: "legacy:home" }],
+          ],
+        },
+      );
+      return;
+    }
+    setFlow(chatId, { step: "await_faceswap_video" });
+    await sendTrackedMessage(
+      chatId,
+      "🎭 Face Swap\n\nSend the source video URL or upload a video file. Your face will be swapped into it using your model.",
+      {
+        keyboard: [["Cancel"]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      },
+    );
+    return;
+  }
+
+  if (action === "mcxgenerate") {
+    setFlow(chatId, { step: "await_mcx_prompt" });
+    await sendTrackedMessage(
+      chatId,
+      "🎨 AI Image Generation (ModelClone-X)\n\nDescribe what you want to generate. You can optionally pick a model character afterwards for consistent identity.",
+      {
+        keyboard: [["Cancel"]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      },
+    );
+    return;
+  }
+
   if (action === "models") {
     await renderModelsList(chatId, session.userId, 0);
     return;
@@ -2590,6 +2803,8 @@ function normalizeLegacyTextAction(rawText = "") {
   if (text === "login" || text === "🔐 login") return "login";
   if (text === "logout" || text === "🚪 logout") return "logout";
   if (text === "generate" || text === "🎬 generate") return "generate";
+  if (text === "face swap" || text === "🎭 face swap") return "faceswap";
+  if (text === "ai images" || text === "🎨 ai images") return "mcxgenerate";
   if (text === "models" || text === "🧬 models") return "models";
   if (text === "dashboard" || text === "📊 dashboard") return "dashboard";
   if (text === "history" || text === "🕘 history") return "history";
@@ -3348,6 +3563,82 @@ async function handleLegacyPlainMessage(message) {
         [{ text: "🧰 Back to tools", callback_data: "legacy:tools" }],
       ],
     });
+    return true;
+  }
+
+  if (flow?.step === "await_faceswap_video") {
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return true;
+    let videoUrl = null;
+    try {
+      videoUrl = await resolveLegacyMediaInputUrl(message, text, {
+        allowImages: false,
+        allowVideos: true,
+        allowDocuments: true,
+      });
+    } catch {
+      videoUrl = null;
+    }
+    if (!videoUrl && isHttpUrl(text)) videoUrl = text;
+    if (!videoUrl || !isHttpUrl(videoUrl)) {
+      await sendTrackedMessage(chatId, "Please send a valid video URL or upload a video file.", {
+        keyboard: [["Cancel"]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      });
+      return true;
+    }
+    const models = await prisma.savedModel.findMany({
+      where: { userId: session.userId },
+      select: { id: true, name: true },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+    });
+    if (!models.length) {
+      clearFlow(chatId);
+      await sendTrackedMessage(chatId, "No models found. Create a model first.", legacyMainKeyboard());
+      return true;
+    }
+    setFlow(chatId, { step: "await_faceswap_model", videoUrl });
+    const rows = models.map((m) => [
+      { text: m.name, callback_data: `legacy:faceswap:model:${m.id}` },
+    ]);
+    rows.push([{ text: "Cancel", callback_data: "legacy:home" }]);
+    await sendTrackedMessage(chatId, "Video received. Select the model whose face to use:", {
+      inline_keyboard: rows,
+    });
+    return true;
+  }
+
+  if (flow?.step === "await_mcx_prompt") {
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return true;
+    const prompt = text.trim();
+    if (prompt.length < 3) {
+      await sendTrackedMessage(chatId, "Prompt is too short. Describe what you want to generate.", {
+        keyboard: [["Cancel"]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      });
+      return true;
+    }
+    const models = await prisma.savedModel.findMany({
+      where: { userId: session.userId },
+      select: { id: true, name: true },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+    });
+    setFlow(chatId, { step: "await_mcx_model", prompt });
+    const rows = models.map((m) => [
+      { text: m.name, callback_data: `legacy:mcx:model:${m.id}` },
+    ]);
+    rows.push([{ text: "🎨 Generate without model", callback_data: "legacy:mcx:model:none" }]);
+    rows.push([{ text: "Cancel", callback_data: "legacy:home" }]);
+    await sendTrackedMessage(
+      chatId,
+      `Prompt: "${prompt}"\n\nPick a model character for consistent identity, or generate without one:`,
+      { inline_keyboard: rows },
+    );
     return true;
   }
 
@@ -4220,7 +4511,259 @@ async function handleCallback(callbackQuery) {
     return;
   }
 
-  // ── Short-form callback handlers (64-byte limit compliance) ──────────────
+  if (data.startsWith("legacy:generate:duration:")) {
+    const duration = Number(data.split(":").pop());
+    const flow = getFlow(chatId);
+    if (!flow || flow.step !== "await_generate_duration") {
+      await sendTrackedMessage(chatId, "No pending generation draft found. Use /generate first.", legacyMainKeyboard());
+      return;
+    }
+    if (![5, 10].includes(duration)) {
+      await sendTrackedMessage(chatId, "Invalid duration.", legacyMainKeyboard());
+      return;
+    }
+    setFlow(chatId, {
+      step: "await_generate_source_image",
+      modelId: flow.modelId,
+      modelName: flow.modelName,
+      prompt: flow.prompt,
+      duration,
+    });
+    await sendTrackedMessage(
+      chatId,
+      `Duration set to ${duration}s.\nNow send source image URL or upload image for prompt:\n"${String(flow.prompt || "").slice(0, 220)}"`,
+      {
+        keyboard: [["Cancel"]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      },
+    );
+    return;
+  }
+
+  // ── Face Swap callbacks ────────────────────────────────────────────────────
+
+  if (data.startsWith("legacy:faceswap:model:")) {
+    const modelId = data.split(":").pop();
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    const flow = getFlow(chatId);
+    if (!flow || flow.step !== "await_faceswap_model") {
+      await sendTrackedMessage(chatId, "No active face swap video found. Start again.", legacyMainKeyboard());
+      return;
+    }
+    const model = await prisma.savedModel.findFirst({
+      where: { id: modelId, userId: session.userId },
+      select: { id: true, name: true },
+    });
+    if (!model) {
+      await sendTrackedMessage(chatId, "Model not found.", legacyMainKeyboard());
+      return;
+    }
+    clearFlow(chatId);
+    await sendTrackedMessage(chatId, `⏳ Starting face swap with model "${model.name}"...`, null);
+    const result = await submitLegacyFaceSwap(session.userId, flow.videoUrl, model.id);
+    if (!result.ok) {
+      await sendTrackedMessage(chatId, `❌ Face swap failed: ${result.message}`, legacyMainKeyboard());
+      return;
+    }
+    const genId = result.generation?.id || "unknown";
+    await sendTrackedMessage(
+      chatId,
+      `✅ Face swap started!\nID: ${genId}\nCredits used: ${result.creditsUsed ?? "n/a"}`,
+      {
+        inline_keyboard: [
+          ...(genId !== "unknown" ? [[{ text: "🔄 Refresh status", callback_data: `legacy:generation:refresh:${genId}:0` }]] : []),
+          [{ text: "🕘 View history", callback_data: "legacy:history" }],
+          [{ text: "🎭 Another face swap", callback_data: "legacy:faceswap" }],
+        ],
+      },
+    );
+    return;
+  }
+
+  // ── ModelClone-X image generation callbacks ───────────────────────────────
+
+  if (data.startsWith("legacy:mcx:model:")) {
+    const rawModelId = data.split(":").pop();
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    const flow = getFlow(chatId);
+    if (!flow || flow.step !== "await_mcx_model") {
+      await sendTrackedMessage(chatId, "No active AI image prompt found. Start again.", legacyMainKeyboard());
+      return;
+    }
+    const modelId = rawModelId === "none" ? null : rawModelId;
+    let characterLoraId = null;
+    let modelName = "no model";
+    if (modelId) {
+      const model = await prisma.savedModel.findFirst({
+        where: { id: modelId, userId: session.userId },
+        select: { id: true, name: true, activeLoraId: true },
+      });
+      if (!model) {
+        await sendTrackedMessage(chatId, "Model not found.", legacyMainKeyboard());
+        return;
+      }
+      modelName = model.name;
+      characterLoraId = model.activeLoraId || null;
+    }
+    clearFlow(chatId);
+    await sendTrackedMessage(chatId, `⏳ Generating AI image for prompt: "${String(flow.prompt).slice(0, 100)}"...`, null);
+    const result = await submitLegacyModelCloneXGenerate(session.userId, flow.prompt, modelId, characterLoraId);
+    if (!result.ok) {
+      await sendTrackedMessage(chatId, `❌ AI image generation failed: ${result.message}`, legacyMainKeyboard());
+      return;
+    }
+    const genId = result.generation?.id || "unknown";
+    await sendTrackedMessage(
+      chatId,
+      `✅ AI image generation started!\nModel: ${modelName}\nID: ${genId}\nCredits used: ${result.creditsUsed ?? "n/a"}`,
+      {
+        inline_keyboard: [
+          ...(genId !== "unknown" ? [[{ text: "🔄 Refresh status", callback_data: `legacy:mcx:status:${genId}` }]] : []),
+          [{ text: "🕘 View history", callback_data: "legacy:history" }],
+          [{ text: "🎨 Generate another", callback_data: "legacy:mcxgenerate" }],
+        ],
+      },
+    );
+    return;
+  }
+
+  if (data.startsWith("legacy:mcx:status:")) {
+    const generationId = data.split(":").pop();
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    const result = await fetchLegacyMCXStatus(session.userId, generationId);
+    if (!result.ok) {
+      await sendTrackedMessage(chatId, `❌ Status check failed: ${result.message}`, legacyMainKeyboard());
+      return;
+    }
+    const status = result.status || result.generation?.status || "unknown";
+    const urls = result.urls || [];
+    let text = `🎨 AI Image Status\nID: ${generationId}\nStatus: ${status}`;
+    if (urls.length) {
+      text += `\nImages: ${urls.length} ready`;
+    }
+    await sendTrackedMessage(chatId, text, {
+      inline_keyboard: [
+        [{ text: "🔄 Refresh", callback_data: `legacy:mcx:status:${generationId}` }],
+        [{ text: "🕘 View history", callback_data: "legacy:history" }],
+        [{ text: "🎨 Generate another", callback_data: "legacy:mcxgenerate" }],
+      ],
+    });
+    // If images ready, send them
+    if (urls.length && status === "completed") {
+      for (const url of urls.slice(0, 4)) {
+        try {
+          await sendPhoto(chatId, url, null).catch(() => {});
+        } catch {}
+      }
+    }
+    return;
+  }
+
+  // ── LoRA training callbacks ───────────────────────────────────────────────
+
+  if (data.startsWith("legacy:lora:characters:")) {
+    const modelId = data.split(":").pop();
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    const result = await fetchLegacyMCXCharacters(session.userId, modelId);
+    if (!result.ok || !result.characters.length) {
+      await sendTrackedMessage(
+        chatId,
+        "No trained AI characters found for this model.\n\nTo train a character identity, upload at least 15 photos of the person, then start training.",
+        {
+          inline_keyboard: [
+            [{ text: "🔬 Create character", callback_data: `legacy:lora:create:${modelId}` }],
+            [{ text: "⬅️ Back to model", callback_data: `legacy:model:open:${modelId}:0` }],
+          ],
+        },
+      );
+      return;
+    }
+    const rows = result.characters.map((c) => [
+      { text: `${c.name || "Character"} [${c.status}] — ${c.trainingImages?.length || 0} imgs`, callback_data: `legacy:lora:status:${c.id}` },
+    ]);
+    rows.push([{ text: "🔬 Create new character", callback_data: `legacy:lora:create:${modelId}` }]);
+    rows.push([{ text: "⬅️ Back to model", callback_data: `legacy:model:open:${modelId}:0` }]);
+    await sendTrackedMessage(chatId, `AI Characters for this model (${result.characters.length}):`, { inline_keyboard: rows });
+    return;
+  }
+
+  if (data.startsWith("legacy:lora:status:")) {
+    const loraId = data.split(":").pop();
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    const result = await fetchLegacyLoraTrainingStatus(session.userId, loraId);
+    if (!result.ok) {
+      await sendTrackedMessage(chatId, `❌ Training status check failed: ${result.message}`, legacyMainKeyboard());
+      return;
+    }
+    const lora = result.lora;
+    const imgCount = lora?.trainingImages?.length || 0;
+    const statusText = `🔬 Character: ${lora?.name || loraId}\nStatus: ${lora?.status || "unknown"}\nMode: ${lora?.trainingMode || "standard"}\nTraining images: ${imgCount}`;
+    const inlineButtons = [[{ text: "🔄 Refresh status", callback_data: `legacy:lora:status:${loraId}` }]];
+    if (lora?.status === "awaiting_images" || lora?.status === "failed") {
+      inlineButtons.push([{ text: "🚀 Start training", callback_data: `legacy:lora:train:${lora.modelId}:${loraId}` }]);
+    }
+    inlineButtons.push([{ text: "⬅️ Back", callback_data: `legacy:lora:characters:${lora?.modelId}` }]);
+    await sendTrackedMessage(chatId, statusText, { inline_keyboard: inlineButtons });
+    return;
+  }
+
+  if (data.startsWith("legacy:lora:create:")) {
+    const modelId = data.split(":").pop();
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    const result = await submitLegacyCreateMCXCharacter(session.userId, modelId);
+    if (!result.ok) {
+      await sendTrackedMessage(chatId, `❌ Failed to create character: ${result.message}`, legacyMainKeyboard());
+      return;
+    }
+    const lora = result.lora;
+    await sendTrackedMessage(
+      chatId,
+      `✅ Character created!\nName: ${lora?.name || "Character"}\nStatus: ${lora?.status}\n\nNext: upload 15+ photos to train this character.\nEach photo should clearly show the person's face from different angles.`,
+      {
+        inline_keyboard: [
+          [{ text: "📸 View character status", callback_data: `legacy:lora:status:${lora?.id}` }],
+          [{ text: "⬅️ Back to model", callback_data: `legacy:model:open:${modelId}:0` }],
+        ],
+      },
+    );
+    return;
+  }
+
+  if (data.startsWith("legacy:lora:train:")) {
+    const parts = data.split(":");
+    const modelId = parts[3];
+    const loraId = parts[4];
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    await sendTrackedMessage(chatId, "⏳ Starting LoRA training...", null);
+    const result = await submitLegacyStartMCXTraining(session.userId, modelId, loraId);
+    if (!result.ok) {
+      await sendTrackedMessage(chatId, `❌ Training start failed: ${result.message}`, {
+        inline_keyboard: [[{ text: "⬅️ Back", callback_data: `legacy:lora:status:${loraId}` }]],
+      });
+      return;
+    }
+    await sendTrackedMessage(
+      chatId,
+      `✅ Training started! This takes 20-40 minutes.\nCheck back in a bit for results.`,
+      {
+        inline_keyboard: [
+          [{ text: "🔄 Check training status", callback_data: `legacy:lora:status:${loraId}` }],
+          [{ text: "⬅️ Back to model", callback_data: `legacy:model:open:${modelId}:0` }],
+        ],
+      },
+    );
+    return;
+  }
+
+
 
   if (data.startsWith("lg:mpv:")) {
     // lg:mpv:${modelId}:${page}:${slot}
@@ -4511,7 +5054,7 @@ router.post("/webhook", async (req, res) => {
     }
 
     if (message?.chat?.id) {
-      await hydrateLegacyState(message.chat.id);
+      await hydrateLegacyState(message.chat.id, message?.from?.id);
       const text = String(message?.text || "");
       const hasText = Boolean(text.trim());
       const command = hasText ? toCommand(text) : "";
@@ -4550,7 +5093,7 @@ router.post("/webhook", async (req, res) => {
     }
 
     if (callbackQuery) {
-      await hydrateLegacyState(callbackQuery?.message?.chat?.id);
+      await hydrateLegacyState(callbackQuery?.message?.chat?.id, callbackQuery?.from?.id);
       await handleCallback(callbackQuery);
     }
 
