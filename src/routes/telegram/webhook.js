@@ -15,6 +15,7 @@ const chatModeMap = new Map();
 const legacySessionMap = new Map();
 const legacyFlowMap = new Map();
 const lastBotMessagesMap = new Map();
+const LEGACY_PAGE_SIZE = 8;
 const MODE_MINI = "mini";
 const MODE_LEGACY = "legacy";
 
@@ -121,6 +122,12 @@ async function sendTrackedMessage(chatId, text, replyMarkup) {
   return sent;
 }
 
+function formatDate(dateLike) {
+  const value = dateLike ? new Date(dateLike) : null;
+  if (!value || Number.isNaN(value.getTime())) return "n/a";
+  return value.toLocaleString();
+}
+
 function modeChooserKeyboard() {
   return {
     inline_keyboard: [
@@ -169,6 +176,7 @@ function legacyMainKeyboard() {
   return {
     inline_keyboard: [
       [
+        { text: "Home", callback_data: "legacy:home" },
         { text: "Login", callback_data: "legacy:login" },
         { text: "Logout", callback_data: "legacy:logout" },
       ],
@@ -258,28 +266,256 @@ async function ensureLegacyAuth(chatId) {
   return null;
 }
 
-async function sendModelsList(chatId, userId) {
-  const models = await prisma.savedModel.findMany({
-    where: { userId },
-    select: { id: true, name: true, status: true },
-    orderBy: { createdAt: "desc" },
-    take: 20,
+async function findEmailUserForLegacyLogin(email) {
+  return prisma.user.findFirst({
+    where: {
+      email: {
+        equals: String(email || "").trim(),
+        mode: "insensitive",
+      },
+    },
+    select: {
+      id: true,
+      email: true,
+      password: true,
+      authProvider: true,
+      isVerified: true,
+      banLocked: true,
+      twoFactorEnabled: true,
+      twoFactorSecret: true,
+    },
   });
+}
+
+async function linkTelegramIdentity(userId, telegramUserId) {
+  if (!telegramUserId || !userId) return;
+  await prisma.user
+    .update({
+      where: { id: userId },
+      data: { telegram_id: String(telegramUserId), is_telegram: true },
+    })
+    .catch(() => {});
+}
+
+async function renderLegacyHome(chatId) {
+  const session = getSession(chatId);
+  const statusLine = session?.userId
+    ? `Logged in as: ${session.email || "user"}`
+    : "Not logged in yet.";
+  await sendTrackedMessage(
+    chatId,
+    `Legacy Home\n\n${statusLine}\nUse buttons below for full chat-based actions.`,
+    legacyMainKeyboard(),
+  );
+}
+
+async function renderLegacyDashboard(chatId, userId) {
+  const [user, modelCount, pendingCount] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        name: true,
+        email: true,
+        credits: true,
+        subscriptionCredits: true,
+        purchasedCredits: true,
+        subscriptionStatus: true,
+      },
+    }),
+    prisma.savedModel.count({ where: { userId } }),
+    prisma.generation.count({ where: { userId, status: { in: ["pending", "processing"] } } }),
+  ]);
+
+  if (!user) {
+    clearSession(chatId);
+    await sendTrackedMessage(chatId, "Session expired. Please login again.", legacyMainKeyboard());
+    return;
+  }
+  const totalCredits = Number(user.credits ?? 0) || 0;
+  const subCredits = Number(user.subscriptionCredits ?? 0) || 0;
+  const purchased = Number(user.purchasedCredits ?? 0) || 0;
+  await sendTrackedMessage(
+    chatId,
+    `Account: ${user.name || user.email || "User"}\n` +
+      `Credits: ${totalCredits}\nSubscription credits: ${subCredits}\nPurchased credits: ${purchased}\n` +
+      `Plan: ${user.subscriptionStatus || "trial"}\nModels: ${modelCount}\nPending jobs: ${pendingCount}`,
+    legacyMainKeyboard(),
+  );
+}
+
+async function renderModelsList(chatId, userId, page = 0) {
+  const safePage = Math.max(0, Number(page) || 0);
+  const skip = safePage * LEGACY_PAGE_SIZE;
+  const [models, total] = await Promise.all([
+    prisma.savedModel.findMany({
+      where: { userId },
+      select: { id: true, name: true, status: true, createdAt: true },
+      orderBy: { createdAt: "desc" },
+      skip,
+      take: LEGACY_PAGE_SIZE,
+    }),
+    prisma.savedModel.count({ where: { userId } }),
+  ]);
   if (!models.length) {
     await sendTrackedMessage(chatId, "No models found yet.", legacyMainKeyboard());
     return;
   }
+  const totalPages = Math.max(1, Math.ceil(total / LEGACY_PAGE_SIZE));
   const rows = models.map((model) => [
     {
       text: `${model.name} (${model.status || "ready"})`,
-      callback_data: `legacy:model:open:${model.id}`,
+      callback_data: `legacy:model:open:${model.id}:${safePage}`,
     },
   ]);
-  rows.push([{ text: "Back", callback_data: "menu:main" }]);
-  await sendTrackedMessage(chatId, "Your models:", { inline_keyboard: rows });
+  const pager = [];
+  if (safePage > 0) pager.push({ text: "Prev", callback_data: `legacy:models:page:${safePage - 1}` });
+  if (safePage + 1 < totalPages) pager.push({ text: "Next", callback_data: `legacy:models:page:${safePage + 1}` });
+  if (pager.length) rows.push(pager);
+  rows.push([{ text: "Back", callback_data: "legacy:home" }]);
+  await sendTrackedMessage(
+    chatId,
+    `Your models (page ${safePage + 1}/${totalPages}):`,
+    { inline_keyboard: rows },
+  );
 }
 
+async function renderModelDetails(chatId, userId, modelId, fromPage = 0) {
+  const model = await prisma.savedModel.findFirst({
+    where: { id: modelId, userId },
+    select: {
+      id: true,
+      name: true,
+      status: true,
+      loraStatus: true,
+      nsfwUnlocked: true,
+      isAIGenerated: true,
+      createdAt: true,
+      updatedAt: true,
+      age: true,
+    },
+  });
+  if (!model) {
+    await sendTrackedMessage(chatId, "Model not found.", legacyMainKeyboard());
+    return;
+  }
+  await sendTrackedMessage(
+    chatId,
+    `Model: ${model.name}\nStatus: ${model.status || "ready"}\nLoRA: ${model.loraStatus || "n/a"}\n` +
+      `NSFW unlocked: ${model.nsfwUnlocked ? "yes" : "no"}\nAI generated: ${model.isAIGenerated ? "yes" : "no"}\n` +
+      `Age: ${model.age ?? "n/a"}\nCreated: ${formatDate(model.createdAt)}\nUpdated: ${formatDate(model.updatedAt)}`,
+    {
+      inline_keyboard: [
+        [{ text: "Rename", callback_data: `legacy:model:rename:${model.id}:${fromPage}` }],
+        [{ text: "Delete", callback_data: `legacy:model:delete:confirm:${model.id}:${fromPage}` }],
+        [{ text: "Back to models", callback_data: `legacy:models:page:${fromPage}` }],
+      ],
+    },
+  );
+}
+
+async function renderHistoryList(chatId, userId, page = 0) {
+  const safePage = Math.max(0, Number(page) || 0);
+  const skip = safePage * LEGACY_PAGE_SIZE;
+  const [rows, total] = await Promise.all([
+    prisma.generation.findMany({
+      where: { userId },
+      orderBy: { createdAt: "desc" },
+      take: LEGACY_PAGE_SIZE,
+      skip,
+      select: { id: true, type: true, status: true, createdAt: true },
+    }),
+    prisma.generation.count({ where: { userId } }),
+  ]);
+  if (!rows.length) {
+    await sendTrackedMessage(chatId, "No generation history yet.", legacyMainKeyboard());
+    return;
+  }
+  const totalPages = Math.max(1, Math.ceil(total / LEGACY_PAGE_SIZE));
+  const keyboard = rows.map((item, index) => [
+    {
+      text: `${skip + index + 1}. ${item.type} • ${item.status}`,
+      callback_data: `legacy:history:item:${item.id}:${safePage}`,
+    },
+  ]);
+  const pager = [];
+  if (safePage > 0) pager.push({ text: "Prev", callback_data: `legacy:history:page:${safePage - 1}` });
+  if (safePage + 1 < totalPages) pager.push({ text: "Next", callback_data: `legacy:history:page:${safePage + 1}` });
+  if (pager.length) keyboard.push(pager);
+  keyboard.push([{ text: "Back", callback_data: "legacy:home" }]);
+  await sendTrackedMessage(
+    chatId,
+    `Recent generations (page ${safePage + 1}/${totalPages}):`,
+    { inline_keyboard: keyboard },
+  );
+}
+
+async function renderHistoryItem(chatId, userId, generationId, fromPage = 0) {
+  const generation = await prisma.generation.findFirst({
+    where: { id: generationId, userId },
+    select: {
+      id: true,
+      type: true,
+      status: true,
+      prompt: true,
+      createdAt: true,
+      completedAt: true,
+      outputUrl: true,
+      creditsCost: true,
+      errorMessage: true,
+    },
+  });
+  if (!generation) {
+    await sendTrackedMessage(chatId, "Generation not found.", legacyMainKeyboard());
+    return;
+  }
+  await sendTrackedMessage(
+    chatId,
+    `Generation ${generation.id}\nType: ${generation.type}\nStatus: ${generation.status}\nCredits: ${generation.creditsCost ?? 0}\n` +
+      `Created: ${formatDate(generation.createdAt)}\nCompleted: ${formatDate(generation.completedAt)}\n` +
+      `Output: ${generation.outputUrl || "n/a"}\n` +
+      `Prompt: ${(generation.prompt || "").slice(0, 300) || "n/a"}\n` +
+      `${generation.errorMessage ? `Error: ${generation.errorMessage.slice(0, 200)}` : ""}`,
+    {
+      inline_keyboard: [
+        [{ text: "Back to history", callback_data: `legacy:history:page:${fromPage}` }],
+      ],
+    },
+  );
+}
+
+async function safeDeleteModel(chatId, userId, modelId, fromPage = 0) {
+  const model = await prisma.savedModel.findFirst({
+    where: { id: modelId, userId },
+    select: { id: true, name: true },
+  });
+  if (!model) {
+    await sendTrackedMessage(chatId, "Model not found.", legacyMainKeyboard());
+    return;
+  }
+  const inProgress = await prisma.generation.count({
+    where: { modelId, status: { in: ["pending", "processing"] } },
+  });
+  if (inProgress > 0) {
+    await sendTrackedMessage(
+      chatId,
+      `Cannot delete "${model.name}" while ${inProgress} generation(s) are still in progress.`,
+      {
+        inline_keyboard: [[{ text: "Back to model", callback_data: `legacy:model:open:${modelId}:${fromPage}` }]],
+      },
+    );
+    return;
+  }
+  await prisma.generation.deleteMany({ where: { modelId } });
+  await prisma.savedModel.deleteMany({ where: { id: modelId, userId } });
+  await sendTrackedMessage(chatId, `Model "${model.name}" deleted.`, {
+    inline_keyboard: [[{ text: "Back to models", callback_data: `legacy:models:page:${fromPage}` }]],
+  });
+}
 async function handleLegacyAction(chatId, action, telegramUserId) {
+  if (action === "home") {
+    await renderLegacyHome(chatId);
+    return;
+  }
   if (action === "login") {
     setFlow(chatId, { step: "await_email" });
     await sendTrackedMessage(chatId, "Enter your email:", {
@@ -322,63 +558,24 @@ async function handleLegacyAction(chatId, action, telegramUserId) {
     setFlow(chatId, { step: "await_generate_prompt" });
     await sendTrackedMessage(
       chatId,
-      "Send your generation prompt now.",
+      "Send your generation prompt now. I will guide model selection next.",
       legacyMainKeyboard(),
     );
     return;
   }
 
   if (action === "models") {
-    await sendModelsList(chatId, session.userId);
+    await renderModelsList(chatId, session.userId, 0);
     return;
   }
 
   if (action === "dashboard") {
-    const user = await prisma.user.findUnique({
-      where: { id: session.userId },
-      select: {
-        name: true,
-        email: true,
-        credits: true,
-        subscriptionCredits: true,
-        purchasedCredits: true,
-        subscriptionStatus: true,
-      },
-    });
-    if (!user) {
-      clearSession(chatId);
-      await sendTrackedMessage(chatId, "Session expired. Please login again.", legacyMainKeyboard());
-      return;
-    }
-    const totalCredits = Number(user.credits ?? 0) || 0;
-    const subCredits = Number(user.subscriptionCredits ?? 0) || 0;
-    const purchased = Number(user.purchasedCredits ?? 0) || 0;
-    await sendTrackedMessage(
-      chatId,
-      `Account: ${user.name || user.email || "User"}\n` +
-        `Credits: ${totalCredits}\nSubscription credits: ${subCredits}\nPurchased credits: ${purchased}\n` +
-        `Plan: ${user.subscriptionStatus || "trial"}`,
-      legacyMainKeyboard(),
-    );
+    await renderLegacyDashboard(chatId, session.userId);
     return;
   }
 
   if (action === "history") {
-    const rows = await prisma.generation.findMany({
-      where: { userId: session.userId },
-      orderBy: { createdAt: "desc" },
-      take: 8,
-      select: { type: true, status: true, createdAt: true },
-    });
-    if (!rows.length) {
-      await sendTrackedMessage(chatId, "No generation history yet.", legacyMainKeyboard());
-      return;
-    }
-    const lines = rows.map(
-      (item, index) =>
-        `${index + 1}. ${item.type} • ${item.status} • ${new Date(item.createdAt).toLocaleString()}`,
-    );
-    await sendTrackedMessage(chatId, `Recent generations:\n${lines.join("\n")}`, legacyMainKeyboard());
+    await renderHistoryList(chatId, session.userId, 0);
     return;
   }
 
@@ -416,7 +613,11 @@ async function handleCommand(chatId, command, firstName = "", telegramUserId = n
     return;
   }
 
-  if (mode === MODE_LEGACY && ["login", "logout", "help", "pricing", "models", "dashboard", "generate", "history"].includes(command)) {
+  if (mode === MODE_LEGACY && ["home", "menu", "login", "logout", "help", "pricing", "models", "dashboard", "generate", "history"].includes(command)) {
+    if (command === "menu") {
+      await sendLegacyMenu(chatId, firstName);
+      return;
+    }
     await handleLegacyAction(chatId, command, telegramUserId);
     return;
   }
@@ -474,6 +675,8 @@ async function handleCommand(chatId, command, firstName = "", telegramUserId = n
 
 function normalizeLegacyTextAction(rawText = "") {
   const text = String(rawText || "").trim().toLowerCase();
+  if (text === "home") return "home";
+  if (text === "menu") return "home";
   if (text === "cancel") return "cancel";
   if (text === "login") return "login";
   if (text === "logout") return "logout";
@@ -513,18 +716,10 @@ async function handleLegacyPlainMessage(message) {
   }
 
   if (flow?.step === "await_password") {
-    const user = await prisma.user.findUnique({
-      where: { email: String(flow.email || "").toLowerCase() },
-      select: {
-        id: true,
-        email: true,
-        password: true,
-        authProvider: true,
-        isVerified: true,
-        banLocked: true,
-      },
-    });
-    if (!user || user.authProvider !== "email" || !user.password) {
+    const user = await findEmailUserForLegacyLogin(String(flow.email || "").toLowerCase());
+    const authProvider = user?.authProvider ?? "email";
+    const hash = user?.password;
+    if (!user || authProvider !== "email" || typeof hash !== "string" || !hash.startsWith("$2")) {
       clearFlow(chatId);
       await sendTrackedMessage(chatId, "No email/password account found for this email.", legacyMainKeyboard());
       return true;
@@ -539,7 +734,7 @@ async function handleLegacyPlainMessage(message) {
       await sendTrackedMessage(chatId, "Please verify your email before logging in.", legacyMainKeyboard());
       return true;
     }
-    const valid = await bcrypt.compare(text, user.password);
+    const valid = await bcrypt.compare(text, hash);
     if (!valid) {
       await sendTrackedMessage(chatId, "Incorrect password. Try again or press Cancel.", {
         keyboard: [["Cancel"]],
@@ -548,17 +743,54 @@ async function handleLegacyPlainMessage(message) {
       });
       return true;
     }
+    if (user.twoFactorEnabled && user.twoFactorSecret) {
+      setFlow(chatId, {
+        step: "await_2fa",
+        userId: user.id,
+        email: user.email,
+        twoFactorSecret: user.twoFactorSecret,
+      });
+      await sendTrackedMessage(chatId, "2FA is enabled. Enter your 6-digit authenticator code:", {
+        keyboard: [["Cancel"]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      });
+      return true;
+    }
     clearFlow(chatId);
     setSession(chatId, { userId: user.id, email: user.email });
-    if (telegramUserId) {
-      await prisma.user
-        .update({
-          where: { id: user.id },
-          data: { telegram_id: String(telegramUserId), is_telegram: true },
-        })
-        .catch(() => {});
-    }
+    await linkTelegramIdentity(user.id, telegramUserId);
     await sendTrackedMessage(chatId, "Login successful. Legacy session is active.", legacyMainKeyboard());
+    return true;
+  }
+
+  if (flow?.step === "await_2fa") {
+    const code = text.replace(/\s+/g, "");
+    if (!/^\d{6}$/.test(code)) {
+      await sendTrackedMessage(chatId, "2FA code must be 6 digits. Try again or tap Cancel.", {
+        keyboard: [["Cancel"]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      });
+      return true;
+    }
+    const { authenticator } = await import("otplib");
+    const isValid = authenticator.verify({
+      token: code,
+      secret: flow.twoFactorSecret,
+    });
+    if (!isValid) {
+      await sendTrackedMessage(chatId, "Invalid 2FA code. Try again or tap Cancel.", {
+        keyboard: [["Cancel"]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      });
+      return true;
+    }
+    clearFlow(chatId);
+    setSession(chatId, { userId: flow.userId, email: flow.email });
+    await linkTelegramIdentity(flow.userId, telegramUserId);
+    await sendTrackedMessage(chatId, "Login successful with 2FA. Legacy session is active.", legacyMainKeyboard());
     return true;
   }
 
@@ -574,21 +806,49 @@ async function handleLegacyPlainMessage(message) {
       });
       return true;
     }
-    await prisma.savedModel.updateMany({
+    const result = await prisma.savedModel.updateMany({
       where: { id: flow.modelId, userId: session.userId },
       data: { name: newName },
     });
+    if (!result.count) {
+      clearFlow(chatId);
+      await sendTrackedMessage(chatId, "Model not found for rename.", legacyMainKeyboard());
+      return true;
+    }
     clearFlow(chatId);
-    await sendTrackedMessage(chatId, `Model renamed to "${newName}".`, legacyMainKeyboard());
+    await sendTrackedMessage(chatId, `Model renamed to "${newName}".`, {
+      inline_keyboard: [[{ text: "Back to models", callback_data: `legacy:models:page:${flow.page || 0}` }]],
+    });
     return true;
   }
 
   if (flow?.step === "await_generate_prompt") {
-    clearFlow(chatId);
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return true;
+    setFlow(chatId, { step: "await_generate_model", prompt: text });
+    const models = await prisma.savedModel.findMany({
+      where: { userId: session.userId },
+      select: { id: true, name: true, status: true },
+      orderBy: { createdAt: "desc" },
+      take: 10,
+    });
+    if (!models.length) {
+      clearFlow(chatId);
+      await sendTrackedMessage(
+        chatId,
+        `Prompt saved:\n"${text}"\n\nNo models found. Create one first, then run /generate again.`,
+        legacyMainKeyboard(),
+      );
+      return true;
+    }
+    const rows = models.map((m) => [
+      { text: `${m.name} (${m.status || "ready"})`, callback_data: `legacy:generate:model:${m.id}` },
+    ]);
+    rows.push([{ text: "Cancel", callback_data: "legacy:home" }]);
     await sendTrackedMessage(
       chatId,
-      `Prompt received:\n"${text}"\n\nPure chat generation execution can now be wired to your generator endpoints.`,
-      legacyMainKeyboard(),
+      `Prompt received:\n"${text}"\n\nChoose a model to continue generation flow:`,
+      { inline_keyboard: rows },
     );
     return true;
   }
@@ -636,44 +896,91 @@ async function handleCallback(callbackQuery) {
   await answerCallbackQuery(callbackId, "");
 
   if (data.startsWith("legacy:model:open:")) {
-    const modelId = data.replace("legacy:model:open:", "");
+    const [, , , modelId, page = "0"] = data.split(":");
     const session = await ensureLegacyAuth(chatId);
     if (!session) return;
-    const model = await prisma.savedModel.findFirst({
-      where: { id: modelId, userId: session.userId },
-      select: {
-        id: true,
-        name: true,
-        status: true,
-        loraStatus: true,
-        createdAt: true,
-      },
-    });
-    if (!model) {
-      await sendTrackedMessage(chatId, "Model not found.", legacyMainKeyboard());
-      return;
-    }
-    await sendTrackedMessage(
-      chatId,
-      `Model: ${model.name}\nStatus: ${model.status || "ready"}\nLoRA: ${model.loraStatus || "n/a"}\nCreated: ${new Date(model.createdAt).toLocaleString()}`,
-      {
-        inline_keyboard: [
-          [{ text: "Rename", callback_data: `legacy:model:rename:${model.id}` }],
-          [{ text: "Back to models", callback_data: "legacy:models" }],
-        ],
-      },
-    );
+    await renderModelDetails(chatId, session.userId, modelId, Number(page) || 0);
     return;
   }
 
   if (data.startsWith("legacy:model:rename:")) {
-    const modelId = data.replace("legacy:model:rename:", "");
-    setFlow(chatId, { step: "await_model_rename", modelId });
+    const [, , , modelId, page = "0"] = data.split(":");
+    setFlow(chatId, { step: "await_model_rename", modelId, page: Number(page) || 0 });
     await sendTrackedMessage(chatId, "Enter the new model name:", {
       keyboard: [["Cancel"]],
       resize_keyboard: true,
       one_time_keyboard: true,
     });
+    return;
+  }
+
+  if (data.startsWith("legacy:model:delete:confirm:")) {
+    const [, , , , modelId, page = "0"] = data.split(":");
+    await sendTrackedMessage(chatId, "Confirm model deletion:", {
+      inline_keyboard: [
+        [{ text: "Yes, delete", callback_data: `legacy:model:delete:run:${modelId}:${page}` }],
+        [{ text: "Cancel", callback_data: `legacy:model:open:${modelId}:${page}` }],
+      ],
+    });
+    return;
+  }
+
+  if (data.startsWith("legacy:model:delete:run:")) {
+    const [, , , , modelId, page = "0"] = data.split(":");
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    await safeDeleteModel(chatId, session.userId, modelId, Number(page) || 0);
+    return;
+  }
+
+  if (data.startsWith("legacy:models:page:")) {
+    const page = Number(data.split(":").pop() || 0) || 0;
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    await renderModelsList(chatId, session.userId, page);
+    return;
+  }
+
+  if (data.startsWith("legacy:history:page:")) {
+    const page = Number(data.split(":").pop() || 0) || 0;
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    await renderHistoryList(chatId, session.userId, page);
+    return;
+  }
+
+  if (data.startsWith("legacy:history:item:")) {
+    const [, , , generationId, page = "0"] = data.split(":");
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    await renderHistoryItem(chatId, session.userId, generationId, Number(page) || 0);
+    return;
+  }
+
+  if (data.startsWith("legacy:generate:model:")) {
+    const modelId = data.split(":").pop();
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    const flow = getFlow(chatId);
+    if (!flow || flow.step !== "await_generate_model") {
+      await sendTrackedMessage(chatId, "No active generation prompt found. Use /generate first.", legacyMainKeyboard());
+      return;
+    }
+    const model = await prisma.savedModel.findFirst({
+      where: { id: modelId, userId: session.userId },
+      select: { id: true, name: true, photo1Url: true },
+    });
+    if (!model) {
+      await sendTrackedMessage(chatId, "Model not found.", legacyMainKeyboard());
+      return;
+    }
+    clearFlow(chatId);
+    await sendTrackedMessage(
+      chatId,
+      `Generation draft prepared.\nModel: ${model.name}\nPrompt: "${String(flow.prompt || "").slice(0, 400)}"\n\n` +
+        "Next: send a source image URL (https) and I can run the first chat-native generation endpoint.",
+      legacyMainKeyboard(),
+    );
     return;
   }
 
