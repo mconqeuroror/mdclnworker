@@ -341,6 +341,15 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
     if (isTerminalSuccess || numericCode === 200) {
       outputUrl =
         parseResultJsonAndGetUrl(resultJson)
+        || (info.resultImageUrl && typeof info.resultImageUrl === "string" && info.resultImageUrl.startsWith("http") ? info.resultImageUrl : null)
+        || (info.result_image_url && typeof info.result_image_url === "string" && info.result_image_url.startsWith("http") ? info.result_image_url : null)
+        || (info.originImageUrl && typeof info.originImageUrl === "string" && info.originImageUrl.startsWith("http") ? info.originImageUrl : null)
+        || (info.origin_image_url && typeof info.origin_image_url === "string" && info.origin_image_url.startsWith("http") ? info.origin_image_url : null)
+        || (info.outputUrl && typeof info.outputUrl === "string" && info.outputUrl.startsWith("http") ? info.outputUrl : null)
+        || (info.output_url && typeof info.output_url === "string" && info.output_url.startsWith("http") ? info.output_url : null)
+        || (info.url && typeof info.url === "string" && info.url.startsWith("http") ? info.url : null)
+        || (info.imageUrl && typeof info.imageUrl === "string" && info.imageUrl.startsWith("http") ? info.imageUrl : null)
+        || (info.image_url && typeof info.image_url === "string" && info.image_url.startsWith("http") ? info.image_url : null)
         || (resultUrls[0] && typeof resultUrls[0] === "string" && resultUrls[0].startsWith("http") ? resultUrls[0] : null)
         || (data.outputUrl && data.outputUrl.startsWith("http") ? data.outputUrl : null)
         || (data.output_url && data.output_url.startsWith("http") ? data.output_url : null)
