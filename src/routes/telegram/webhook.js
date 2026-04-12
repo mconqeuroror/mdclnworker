@@ -654,23 +654,6 @@ async function fetchLegacySubscriptionStatus(userId) {
   return { ok: true, data };
 }
 
-async function submitLegacyDeleteAccount(userId) {
-  let response;
-  let data;
-  try {
-    ({ response, data } = await callLegacyApi(userId, "/api/account/delete", "DELETE"));
-  } catch (error) {
-    return { ok: false, message: error?.message || "Failed to initialize account deletion." };
-  }
-  if (!response.ok) {
-    return {
-      ok: false,
-      message: data?.error || data?.message || `Account deletion failed (${response.status}).`,
-    };
-  }
-  return { ok: true };
-}
-
 async function submitLegacyCancelSubscription(userId) {
   let response;
   let data;
@@ -2335,7 +2318,6 @@ async function renderSettingsSummary(chatId, userId) {
         [{ text: "✏️ Change display name", callback_data: "legacy:settings:name" }],
         [{ text: "💳 Billing & credits", callback_data: "legacy:pricing" }],
         [{ text: "🔄 Refresh", callback_data: "legacy:settings" }],
-        [{ text: "🗑 Delete account", callback_data: "legacy:settings:delete:confirm" }],
         [{ text: "⬅️ Back", callback_data: "legacy:home" }],
       ],
     },
@@ -3848,44 +3830,6 @@ async function handleCallback(callbackQuery) {
       resize_keyboard: true,
       one_time_keyboard: true,
     });
-    return;
-  }
-
-  if (data === "legacy:settings:delete:confirm") {
-    const session = await ensureLegacyAuth(chatId);
-    if (!session) return;
-    await sendTrackedMessage(
-      chatId,
-      "⚠️ Are you sure you want to permanently delete your account?\n\nThis will erase all your models, generations, and billing data. This action CANNOT be undone.",
-      {
-        inline_keyboard: [
-          [{ text: "🗑 Yes, delete my account", callback_data: "legacy:settings:delete:run" }],
-          [{ text: "❌ Cancel", callback_data: "legacy:settings" }],
-        ],
-      },
-    );
-    return;
-  }
-
-  if (data === "legacy:settings:delete:run") {
-    const session = await ensureLegacyAuth(chatId);
-    if (!session) return;
-    const result = await submitLegacyDeleteAccount(session.userId);
-    if (!result.ok) {
-      await sendTrackedMessage(chatId, `❌ Account deletion failed: ${result.message}`, {
-        inline_keyboard: [[{ text: "⬅️ Back to settings", callback_data: "legacy:settings" }]],
-      });
-      return;
-    }
-    // Clear local session state immediately
-    clearSession(chatId);
-    clearFlow(chatId);
-    legacyAuthTokenCache.delete(session.userId);
-    await sendTrackedMessage(
-      chatId,
-      "✅ Your account has been permanently deleted. All data has been removed.\n\nYou have been logged out.",
-      legacyMainKeyboard(),
-    );
     return;
   }
 
