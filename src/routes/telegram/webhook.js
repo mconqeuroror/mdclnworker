@@ -1,5 +1,6 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
 import {
   answerCallbackQuery,
   deleteMessage,
@@ -26,6 +27,7 @@ const COMMANDS = [
   { command: "login", description: "Login with email/password in chat" },
   { command: "logout", description: "Logout from legacy mode" },
   { command: "models", description: "List and manage your models" },
+  { command: "create", description: "Create model in chat" },
   { command: "dashboard", description: "Show account stats" },
   { command: "history", description: "Show recent generations" },
   { command: "generate", description: "Start legacy prompt flow" },
@@ -128,6 +130,61 @@ function formatDate(dateLike) {
   return value.toLocaleString();
 }
 
+function getModelLimit(subscriptionTier) {
+  const limits = { starter: 1, pro: 2, business: 4 };
+  return limits[String(subscriptionTier || "").toLowerCase()] || 1;
+}
+
+function getApiBaseUrl() {
+  const base = (process.env.TELEGRAM_MINI_APP_URL || "https://modelclone.app").replace(/\/$/, "");
+  return base;
+}
+
+async function submitLegacyPromptVideoGeneration(userId, imageUrl, prompt, duration = 5) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, email: true },
+  });
+  if (!user) {
+    return { ok: false, message: "User not found." };
+  }
+  if (!process.env.JWT_SECRET) {
+    return { ok: false, message: "JWT secret is missing on server." };
+  }
+  const token = jwt.sign({ userId: user.id, email: user.email }, process.env.JWT_SECRET, {
+    expiresIn: "10m",
+  });
+  const response = await fetch(`${getApiBaseUrl()}/api/generate/video-prompt`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      imageUrl,
+      prompt,
+      duration,
+    }),
+  });
+  let data = null;
+  try {
+    data = await response.json();
+  } catch {
+    data = null;
+  }
+  if (!response.ok || !data?.success) {
+    return {
+      ok: false,
+      message: data?.message || `Generation request failed (${response.status}).`,
+    };
+  }
+  return {
+    ok: true,
+    generation: data.generation || null,
+    creditsUsed: data.creditsUsed ?? null,
+  };
+}
+
 function modeChooserKeyboard() {
   return {
     inline_keyboard: [
@@ -163,9 +220,10 @@ function mainMenuKeyboard() {
 function legacyReplyKeyboard() {
   return {
     keyboard: [
-      ["Login", "Models", "Dashboard"],
-      ["History", "Pricing", "Help"],
-      ["Generate", "Logout", "Switch Mode"],
+      ["🔐 Login", "🧬 Models", "📊 Dashboard"],
+      ["➕ Create Model", "🖼 My Photos", "✏️ Edit Model"],
+      ["🕘 History", "💳 Pricing", "🆘 Help"],
+      ["🎬 Generate", "🚪 Logout", "🔁 Switch Mode"],
     ],
     resize_keyboard: true,
     is_persistent: true,
@@ -176,23 +234,24 @@ function legacyMainKeyboard() {
   return {
     inline_keyboard: [
       [
-        { text: "Home", callback_data: "legacy:home" },
-        { text: "Login", callback_data: "legacy:login" },
-        { text: "Logout", callback_data: "legacy:logout" },
+        { text: "🏠 Home", callback_data: "legacy:home" },
+        { text: "🔐 Login", callback_data: "legacy:login" },
+        { text: "🚪 Logout", callback_data: "legacy:logout" },
       ],
       [
-        { text: "Models", callback_data: "legacy:models" },
-        { text: "Generate", callback_data: "legacy:generate" },
+        { text: "🧬 Models", callback_data: "legacy:models" },
+        { text: "➕ Create", callback_data: "legacy:create_model" },
+        { text: "🎬 Generate", callback_data: "legacy:generate" },
       ],
       [
-        { text: "Dashboard", callback_data: "legacy:dashboard" },
-        { text: "History", callback_data: "legacy:history" },
+        { text: "📊 Dashboard", callback_data: "legacy:dashboard" },
+        { text: "🕘 History", callback_data: "legacy:history" },
       ],
       [
-        { text: "Pricing", callback_data: "legacy:pricing" },
-        { text: "Help", callback_data: "legacy:help" },
+        { text: "💳 Pricing", callback_data: "legacy:pricing" },
+        { text: "🆘 Help", callback_data: "legacy:help" },
       ],
-      [{ text: "Switch to Mini App mode", callback_data: "mode:set:mini" }],
+      [{ text: "🌐 Switch to Mini App mode", callback_data: "mode:set:mini" }],
     ],
   };
 }
@@ -369,7 +428,7 @@ async function renderLegacyHome(chatId) {
     : "Not logged in yet.";
   await sendTrackedMessage(
     chatId,
-    `Legacy Home\n\n${statusLine}\nUse buttons below for full chat-based actions.`,
+    `Legacy Home\n\n${statusLine}\nUse buttons below for full chat-based actions.\nTip: use ➕ Create Model to build a new model fully in chat.`,
     legacyMainKeyboard(),
   );
 }
@@ -453,10 +512,53 @@ async function renderModelDetails(chatId, userId, modelId, fromPage = 0) {
       status: true,
       loraStatus: true,
       nsfwUnlocked: true,
+      nsfwOverride: true,
+      looksUnlockedByAdmin: true,
       isAIGenerated: true,
       createdAt: true,
       updatedAt: true,
       age: true,
+      photo1Url: true,
+      photo2Url: true,
+      photo3Url: true,
+    },
+  });
+  if (!model) {
+    await sendTrackedMessage(chatId, "Model not found.", legacyMainKeyboard());
+    return;
+  }
+  const photosLocked =
+    (model.isAIGenerated || model.nsfwOverride || model.nsfwUnlocked) &&
+    !model.looksUnlockedByAdmin;
+  await sendTrackedMessage(
+    chatId,
+    `Model: ${model.name}\nStatus: ${model.status || "ready"}\nLoRA: ${model.loraStatus || "n/a"}\n` +
+      `NSFW unlocked: ${model.nsfwUnlocked ? "yes" : "no"}\nAI generated: ${model.isAIGenerated ? "yes" : "no"}\n` +
+      `Age: ${model.age ?? "n/a"}\nPhotos editable: ${photosLocked ? "no (locked)" : "yes"}\n` +
+      `Created: ${formatDate(model.createdAt)}\nUpdated: ${formatDate(model.updatedAt)}`,
+    {
+      inline_keyboard: [
+        [
+          { text: "🖼 View photos", callback_data: `legacy:model:photos:${model.id}:${fromPage}` },
+          { text: "✏️ Edit", callback_data: `legacy:model:edit:menu:${model.id}:${fromPage}` },
+        ],
+        [{ text: "📝 Rename", callback_data: `legacy:model:rename:${model.id}:${fromPage}` }],
+        [{ text: "🗑 Delete", callback_data: `legacy:model:delete:confirm:${model.id}:${fromPage}` }],
+        [{ text: "⬅️ Back to models", callback_data: `legacy:models:page:${fromPage}` }],
+      ],
+    },
+  );
+}
+
+async function renderModelPhotos(chatId, userId, modelId, fromPage = 0) {
+  const model = await prisma.savedModel.findFirst({
+    where: { id: modelId, userId },
+    select: {
+      id: true,
+      name: true,
+      photo1Url: true,
+      photo2Url: true,
+      photo3Url: true,
     },
   });
   if (!model) {
@@ -465,17 +567,124 @@ async function renderModelDetails(chatId, userId, modelId, fromPage = 0) {
   }
   await sendTrackedMessage(
     chatId,
-    `Model: ${model.name}\nStatus: ${model.status || "ready"}\nLoRA: ${model.loraStatus || "n/a"}\n` +
-      `NSFW unlocked: ${model.nsfwUnlocked ? "yes" : "no"}\nAI generated: ${model.isAIGenerated ? "yes" : "no"}\n` +
-      `Age: ${model.age ?? "n/a"}\nCreated: ${formatDate(model.createdAt)}\nUpdated: ${formatDate(model.updatedAt)}`,
+    `📷 Photos for "${model.name}"\n` +
+      `1) ${model.photo1Url || "n/a"}\n` +
+      `2) ${model.photo2Url || "n/a"}\n` +
+      `3) ${model.photo3Url || "n/a"}`,
     {
       inline_keyboard: [
-        [{ text: "Rename", callback_data: `legacy:model:rename:${model.id}:${fromPage}` }],
-        [{ text: "Delete", callback_data: `legacy:model:delete:confirm:${model.id}:${fromPage}` }],
-        [{ text: "Back to models", callback_data: `legacy:models:page:${fromPage}` }],
+        [
+          { text: "Open 1", url: model.photo1Url || miniAppBaseUrl },
+          { text: "Open 2", url: model.photo2Url || miniAppBaseUrl },
+          { text: "Open 3", url: model.photo3Url || miniAppBaseUrl },
+        ],
+        [{ text: "⬅️ Back to model", callback_data: `legacy:model:open:${model.id}:${fromPage}` }],
       ],
     },
   );
+}
+
+async function renderModelEditMenu(chatId, userId, modelId, fromPage = 0) {
+  const model = await prisma.savedModel.findFirst({
+    where: { id: modelId, userId },
+    select: {
+      id: true,
+      name: true,
+      age: true,
+      isAIGenerated: true,
+      nsfwOverride: true,
+      nsfwUnlocked: true,
+      looksUnlockedByAdmin: true,
+    },
+  });
+  if (!model) {
+    await sendTrackedMessage(chatId, "Model not found.", legacyMainKeyboard());
+    return;
+  }
+  const photosLocked =
+    (model.isAIGenerated || model.nsfwOverride || model.nsfwUnlocked) &&
+    !model.looksUnlockedByAdmin;
+  await sendTrackedMessage(
+    chatId,
+    `✏️ Edit "${model.name}"\nAge: ${model.age ?? "n/a"}\nPhoto editing: ${photosLocked ? "locked" : "available"}`,
+    {
+      inline_keyboard: [
+        [{ text: "📝 Rename model", callback_data: `legacy:model:rename:${model.id}:${fromPage}` }],
+        [{ text: "🎂 Set age", callback_data: `legacy:model:edit:age:${model.id}:${fromPage}` }],
+        [{ text: "🖼 Edit photo 1 URL", callback_data: `legacy:model:edit:photo:${model.id}:photo1:${fromPage}` }],
+        [{ text: "🖼 Edit photo 2 URL", callback_data: `legacy:model:edit:photo:${model.id}:photo2:${fromPage}` }],
+        [{ text: "🖼 Edit photo 3 URL", callback_data: `legacy:model:edit:photo:${model.id}:photo3:${fromPage}` }],
+        [{ text: "⬅️ Back to model", callback_data: `legacy:model:open:${model.id}:${fromPage}` }],
+      ],
+    },
+  );
+}
+
+function isHttpUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return false;
+  try {
+    const parsed = new URL(raw);
+    return parsed.protocol === "https:" || parsed.protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
+async function createModelFromLegacyFlow(chatId, userId, payload) {
+  const name = String(payload?.name || "").trim();
+  const photo1Url = String(payload?.photo1Url || "").trim();
+  const photo2Url = String(payload?.photo2Url || "").trim();
+  const photo3Url = String(payload?.photo3Url || "").trim();
+  if (!name || !photo1Url || !photo2Url || !photo3Url) {
+    await sendTrackedMessage(chatId, "Missing model data. Please start again.", legacyMainKeyboard());
+    return false;
+  }
+  const [user, currentModelCount, existingByName] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: { maxModels: true, subscriptionTier: true, role: true },
+    }),
+    prisma.savedModel.count({ where: { userId } }),
+    prisma.savedModel.findFirst({ where: { userId, name } }),
+  ]);
+  const modelLimit = user?.maxModels ?? getModelLimit(user?.subscriptionTier);
+  if (user?.role !== "admin" && currentModelCount >= modelLimit) {
+    await sendTrackedMessage(
+      chatId,
+      `Model limit reached (${currentModelCount}/${modelLimit}). Delete one model or upgrade plan.`,
+      legacyMainKeyboard(),
+    );
+    return false;
+  }
+  if (existingByName) {
+    await sendTrackedMessage(chatId, `Model "${name}" already exists. Use a different name.`, legacyMainKeyboard());
+    return false;
+  }
+  const created = await prisma.savedModel.create({
+    data: {
+      userId,
+      name,
+      photo1Url,
+      photo2Url,
+      photo3Url,
+      thumbnail: photo1Url,
+      isAIGenerated: false,
+      status: "ready",
+    },
+    select: { id: true, name: true },
+  });
+  await sendTrackedMessage(
+    chatId,
+    `✅ Model "${created.name}" created successfully in legacy mode.`,
+    {
+      inline_keyboard: [
+        [{ text: "🧬 Open model", callback_data: `legacy:model:open:${created.id}:0` }],
+        [{ text: "➕ Create another", callback_data: "legacy:create_model" }],
+      ],
+    },
+  );
+  return true;
 }
 
 async function renderHistoryList(chatId, userId, page = 0) {
@@ -619,6 +828,16 @@ async function handleLegacyAction(chatId, action, telegramUserId) {
   const session = await ensureLegacyAuth(chatId);
   if (!session) return;
 
+  if (action === "create_model") {
+    setFlow(chatId, { step: "await_create_model_name" });
+    await sendTrackedMessage(chatId, "Send the model name:", {
+      keyboard: [["Cancel"]],
+      resize_keyboard: true,
+      one_time_keyboard: true,
+    });
+    return;
+  }
+
   if (action === "generate") {
     setFlow(chatId, { step: "await_generate_prompt" });
     await sendTrackedMessage(
@@ -740,18 +959,21 @@ async function handleCommand(chatId, command, firstName = "", telegramUserId = n
 
 function normalizeLegacyTextAction(rawText = "") {
   const text = String(rawText || "").trim().toLowerCase();
-  if (text === "home") return "home";
+  if (text === "home" || text === "🏠 home") return "home";
   if (text === "menu") return "home";
+  if (text === "create model" || text === "➕ create model") return "create_model";
+  if (text === "my photos" || text === "🖼 my photos") return "models";
+  if (text === "edit model" || text === "✏️ edit model") return "models";
   if (text === "cancel") return "cancel";
-  if (text === "login") return "login";
-  if (text === "logout") return "logout";
-  if (text === "generate") return "generate";
-  if (text === "models") return "models";
-  if (text === "dashboard") return "dashboard";
-  if (text === "history") return "history";
-  if (text === "pricing") return "pricing";
-  if (text === "help") return "help";
-  if (text === "switch mode") return "switch_mode";
+  if (text === "login" || text === "🔐 login") return "login";
+  if (text === "logout" || text === "🚪 logout") return "logout";
+  if (text === "generate" || text === "🎬 generate") return "generate";
+  if (text === "models" || text === "🧬 models") return "models";
+  if (text === "dashboard" || text === "📊 dashboard") return "dashboard";
+  if (text === "history" || text === "🕘 history") return "history";
+  if (text === "pricing" || text === "💳 pricing") return "pricing";
+  if (text === "help" || text === "🆘 help") return "help";
+  if (text === "switch mode" || text === "🔁 switch mode") return "switch_mode";
   return null;
 }
 
@@ -883,6 +1105,169 @@ async function handleLegacyPlainMessage(message) {
     return true;
   }
 
+  if (flow?.step === "await_model_photo_url") {
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return true;
+    if (!isHttpUrl(text)) {
+      await sendTrackedMessage(chatId, "Please send a valid photo URL starting with http/https.", {
+        keyboard: [["Cancel"]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      });
+      return true;
+    }
+    const model = await prisma.savedModel.findFirst({
+      where: { id: flow.modelId, userId: session.userId },
+      select: {
+        id: true,
+        isAIGenerated: true,
+        nsfwOverride: true,
+        nsfwUnlocked: true,
+        looksUnlockedByAdmin: true,
+      },
+    });
+    if (!model) {
+      clearFlow(chatId);
+      await sendTrackedMessage(chatId, "Model not found.", legacyMainKeyboard());
+      return true;
+    }
+    const photosLocked =
+      (model.isAIGenerated || model.nsfwOverride || model.nsfwUnlocked) &&
+      !model.looksUnlockedByAdmin;
+    if (photosLocked) {
+      clearFlow(chatId);
+      await sendTrackedMessage(chatId, "Photos are locked for this model and cannot be edited here.", legacyMainKeyboard());
+      return true;
+    }
+    const slot = flow.photoSlot;
+    if (!["photo1", "photo2", "photo3"].includes(slot)) {
+      clearFlow(chatId);
+      await sendTrackedMessage(chatId, "Invalid photo slot.", legacyMainKeyboard());
+      return true;
+    }
+    const data = { [`${slot}Url`]: text.trim() };
+    if (slot === "photo1") data.thumbnail = text.trim();
+    await prisma.savedModel.updateMany({
+      where: { id: flow.modelId, userId: session.userId },
+      data,
+    });
+    clearFlow(chatId);
+    await sendTrackedMessage(chatId, `Updated ${slot} URL successfully.`, {
+      inline_keyboard: [[{ text: "⬅️ Back to model", callback_data: `legacy:model:open:${flow.modelId}:${flow.page || 0}` }]],
+    });
+    return true;
+  }
+
+  if (flow?.step === "await_model_age") {
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return true;
+    const age = Number.parseInt(text, 10);
+    if (Number.isNaN(age) || age < 1 || age > 85) {
+      await sendTrackedMessage(chatId, "Age must be a number between 1 and 85. Try again or tap Cancel.", {
+        keyboard: [["Cancel"]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      });
+      return true;
+    }
+    await prisma.savedModel.updateMany({
+      where: { id: flow.modelId, userId: session.userId },
+      data: { age },
+    });
+    clearFlow(chatId);
+    await sendTrackedMessage(chatId, `Updated model age to ${age}.`, {
+      inline_keyboard: [[{ text: "⬅️ Back to model", callback_data: `legacy:model:open:${flow.modelId}:${flow.page || 0}` }]],
+    });
+    return true;
+  }
+
+  if (flow?.step === "await_create_model_name") {
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return true;
+    const name = text.trim();
+    if (name.length < 2 || name.length > 80) {
+      await sendTrackedMessage(chatId, "Model name must be 2-80 characters. Try again:", {
+        keyboard: [["Cancel"]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      });
+      return true;
+    }
+    setFlow(chatId, { step: "await_create_model_photo1", name });
+    await sendTrackedMessage(chatId, `Great. Send photo 1 URL for "${name}":`, {
+      keyboard: [["Cancel"]],
+      resize_keyboard: true,
+      one_time_keyboard: true,
+    });
+    return true;
+  }
+
+  if (flow?.step === "await_create_model_photo1") {
+    if (!isHttpUrl(text)) {
+      await sendTrackedMessage(chatId, "Please send a valid URL for photo 1 (http/https).", {
+        keyboard: [["Cancel"]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      });
+      return true;
+    }
+    setFlow(chatId, {
+      step: "await_create_model_photo2",
+      name: flow.name,
+      photo1Url: text.trim(),
+    });
+    await sendTrackedMessage(chatId, "Now send photo 2 URL:", {
+      keyboard: [["Cancel"]],
+      resize_keyboard: true,
+      one_time_keyboard: true,
+    });
+    return true;
+  }
+
+  if (flow?.step === "await_create_model_photo2") {
+    if (!isHttpUrl(text)) {
+      await sendTrackedMessage(chatId, "Please send a valid URL for photo 2 (http/https).", {
+        keyboard: [["Cancel"]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      });
+      return true;
+    }
+    setFlow(chatId, {
+      step: "await_create_model_photo3",
+      name: flow.name,
+      photo1Url: flow.photo1Url,
+      photo2Url: text.trim(),
+    });
+    await sendTrackedMessage(chatId, "Now send photo 3 URL:", {
+      keyboard: [["Cancel"]],
+      resize_keyboard: true,
+      one_time_keyboard: true,
+    });
+    return true;
+  }
+
+  if (flow?.step === "await_create_model_photo3") {
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return true;
+    if (!isHttpUrl(text)) {
+      await sendTrackedMessage(chatId, "Please send a valid URL for photo 3 (http/https).", {
+        keyboard: [["Cancel"]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      });
+      return true;
+    }
+    await createModelFromLegacyFlow(chatId, session.userId, {
+      name: flow.name,
+      photo1Url: flow.photo1Url,
+      photo2Url: flow.photo2Url,
+      photo3Url: text.trim(),
+    });
+    clearFlow(chatId);
+    return true;
+  }
+
   if (flow?.step === "await_generate_prompt") {
     const session = await ensureLegacyAuth(chatId);
     if (!session) return true;
@@ -911,6 +1296,76 @@ async function handleLegacyPlainMessage(message) {
       `Prompt received:\n"${text}"\n\nChoose a model to continue generation flow:`,
       { inline_keyboard: rows },
     );
+    return true;
+  }
+
+  if (flow?.step === "await_generate_source_image") {
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return true;
+    if (!isHttpUrl(text)) {
+      await sendTrackedMessage(chatId, "Send a valid image URL (http/https) to start generation.", {
+        keyboard: [["Cancel"]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      });
+      return true;
+    }
+    const duration = [5, 10].includes(Number(flow.duration)) ? Number(flow.duration) : 5;
+    const submit = await submitLegacyPromptVideoGeneration(
+      session.userId,
+      text.trim(),
+      String(flow.prompt || "").trim(),
+      duration,
+    );
+    clearFlow(chatId);
+    if (!submit.ok) {
+      await sendTrackedMessage(
+        chatId,
+        `❌ Generation failed to start: ${submit.message}`,
+        legacyMainKeyboard(),
+      );
+      return true;
+    }
+    const generationId = submit.generation?.id || "unknown";
+    await sendTrackedMessage(
+      chatId,
+      `✅ Generation started.\nID: ${generationId}\nDuration: ${duration}s\nCredits used: ${submit.creditsUsed ?? "n/a"}`,
+      {
+        inline_keyboard: [
+          [{ text: "🕘 View history", callback_data: "legacy:history" }],
+          [{ text: "🎬 Start another", callback_data: "legacy:generate" }],
+        ],
+      },
+    );
+    return true;
+  }
+
+  if (flow?.step === "await_generate_duration") {
+    const parsed = Number.parseInt(text, 10);
+    if (![5, 10].includes(parsed)) {
+      await sendTrackedMessage(chatId, "Choose duration by replying 5 or 10, or tap the duration buttons.", {
+        inline_keyboard: [
+          [
+            { text: "5s", callback_data: "legacy:generate:duration:5" },
+            { text: "10s", callback_data: "legacy:generate:duration:10" },
+          ],
+          [{ text: "Cancel", callback_data: "legacy:home" }],
+        ],
+      });
+      return true;
+    }
+    setFlow(chatId, {
+      step: "await_generate_source_image",
+      modelId: flow.modelId,
+      modelName: flow.modelName,
+      prompt: flow.prompt,
+      duration: parsed,
+    });
+    await sendTrackedMessage(chatId, `Duration set to ${parsed}s. Send source image URL (https):`, {
+      keyboard: [["Cancel"]],
+      resize_keyboard: true,
+      one_time_keyboard: true,
+    });
     return true;
   }
 
@@ -986,6 +1441,65 @@ async function handleCallback(callbackQuery) {
     return;
   }
 
+  if (data.startsWith("legacy:model:photos:")) {
+    const [, , , modelId, page = "0"] = data.split(":");
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    await renderModelPhotos(chatId, session.userId, modelId, Number(page) || 0);
+    return;
+  }
+
+  if (data.startsWith("legacy:model:edit:menu:")) {
+    const [, , , , modelId, page = "0"] = data.split(":");
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    await renderModelEditMenu(chatId, session.userId, modelId, Number(page) || 0);
+    return;
+  }
+
+  if (data.startsWith("legacy:model:edit:photo:")) {
+    const [, , , , modelId, slot, page = "0"] = data.split(":");
+    setFlow(chatId, {
+      step: "await_model_photo_url",
+      modelId,
+      photoSlot: slot,
+      page: Number(page) || 0,
+    });
+    await sendTrackedMessage(chatId, `Send the new URL for ${slot}:`, {
+      keyboard: [["Cancel"]],
+      resize_keyboard: true,
+      one_time_keyboard: true,
+    });
+    return;
+  }
+
+  if (data.startsWith("legacy:model:edit:age:")) {
+    const [, , , , modelId, page = "0"] = data.split(":");
+    setFlow(chatId, {
+      step: "await_model_age",
+      modelId,
+      page: Number(page) || 0,
+    });
+    await sendTrackedMessage(chatId, "Send the new age (1-85):", {
+      keyboard: [["Cancel"]],
+      resize_keyboard: true,
+      one_time_keyboard: true,
+    });
+    return;
+  }
+
+  if (data === "legacy:create_model") {
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    setFlow(chatId, { step: "await_create_model_name" });
+    await sendTrackedMessage(chatId, "Send the model name:", {
+      keyboard: [["Cancel"]],
+      resize_keyboard: true,
+      one_time_keyboard: true,
+    });
+    return;
+  }
+
   if (data.startsWith("legacy:model:delete:confirm:")) {
     const [, , , , modelId, page = "0"] = data.split(":");
     await sendTrackedMessage(chatId, "Confirm model deletion:", {
@@ -1046,12 +1560,50 @@ async function handleCallback(callbackQuery) {
       await sendTrackedMessage(chatId, "Model not found.", legacyMainKeyboard());
       return;
     }
-    clearFlow(chatId);
+    setFlow(chatId, {
+      step: "await_generate_duration",
+      modelId: model.id,
+      modelName: model.name,
+      prompt: String(flow.prompt || "").slice(0, 2000),
+    });
+    await sendTrackedMessage(chatId, `Choose video duration for model "${model.name}":`, {
+      inline_keyboard: [
+        [
+          { text: "5s", callback_data: "legacy:generate:duration:5" },
+          { text: "10s", callback_data: "legacy:generate:duration:10" },
+        ],
+        [{ text: "Cancel", callback_data: "legacy:home" }],
+      ],
+    });
+    return;
+  }
+
+  if (data.startsWith("legacy:generate:duration:")) {
+    const duration = Number(data.split(":").pop());
+    const flow = getFlow(chatId);
+    if (!flow || flow.step !== "await_generate_duration") {
+      await sendTrackedMessage(chatId, "No pending generation draft found. Use /generate first.", legacyMainKeyboard());
+      return;
+    }
+    if (![5, 10].includes(duration)) {
+      await sendTrackedMessage(chatId, "Invalid duration.", legacyMainKeyboard());
+      return;
+    }
+    setFlow(chatId, {
+      step: "await_generate_source_image",
+      modelId: flow.modelId,
+      modelName: flow.modelName,
+      prompt: flow.prompt,
+      duration,
+    });
     await sendTrackedMessage(
       chatId,
-      `Generation draft prepared.\nModel: ${model.name}\nPrompt: "${String(flow.prompt || "").slice(0, 400)}"\n\n` +
-        "Next: send a source image URL (https) and I can run the first chat-native generation endpoint.",
-      legacyMainKeyboard(),
+      `Duration set to ${duration}s.\nNow send source image URL (https) for prompt:\n"${String(flow.prompt || "").slice(0, 220)}"`,
+      {
+        keyboard: [["Cancel"]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      },
     );
     return;
   }
