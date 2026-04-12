@@ -21,6 +21,8 @@ import {
   generateVideoWithKlingTextKie,
   generateVideoWithVeo31Kie,
   extendVideoWithVeo31Kie,
+  requestVeo31Video4k,
+  requestVeo31Video1080p,
 } from "../services/kie.service.js";
 import {
   generateImageWithIdentityWaveSpeed,
@@ -4123,7 +4125,7 @@ export async function getVoicePreview(req, res) {
 
 const CREATOR_STUDIO_ASPECT_RATIOS = [
   "1:1", "9:16", "16:9", "3:4", "4:3", "2:3", "3:2",
-  "5:4", "4:5", "21:9",
+  "5:4", "4:5", "21:9", "8:1", "1:8",
 ];
 const CREATOR_STUDIO_RESOLUTIONS = ["1K", "2K", "4K"];
 const CREATOR_STUDIO_MODELS = [
@@ -4279,7 +4281,8 @@ function estimateCreatorStudioVideoCredits(pricing, payload) {
   const mode = normalizeCreatorStudioVideoMode(family, payload.mode);
   const duration = Number(payload.durationSeconds || 8);
   const seconds = Number.isFinite(duration) ? Math.max(1, duration) : 8;
-  const speed = String(payload.speed || "fast").toLowerCase() === "quality" ? "quality" : "fast";
+  const speedRaw = String(payload.speed || "fast").toLowerCase();
+  const speed = speedRaw === "quality" ? "quality" : speedRaw === "lite" ? "lite" : "fast";
   const sound = payload.soundEnabled === true;
   if (family === "sora2") {
     const nFrames = String(payload.nFrames || "10") === "15" ? "15" : "10";
@@ -4309,9 +4312,13 @@ function estimateCreatorStudioVideoCredits(pricing, payload) {
   }
   if (family === "veo31") {
     if (mode === "extend") {
-      return speed === "quality" ? pricing.veo31ExtendQuality : pricing.veo31ExtendFast;
+      if (speed === "quality") return pricing.veo31ExtendQuality;
+      if (speed === "lite") return pricing.veo31ExtendLite ?? pricing.veo31ExtendFast;
+      return pricing.veo31ExtendFast;
     }
-    return speed === "quality" ? pricing.veo31GenerateQuality1080p8s : pricing.veo31GenerateFast1080p8s;
+    if (speed === "quality") return pricing.veo31GenerateQuality1080p8s;
+    if (speed === "lite") return pricing.veo31GenerateLite1080p8s ?? pricing.veo31GenerateFast1080p8s;
+    return pricing.veo31GenerateFast1080p8s;
   }
   if (family === "wan22") {
     const resolution = String(payload.wanResolution || "580p");
@@ -4361,6 +4368,7 @@ export async function generateCreatorStudio(req, res) {
       resolution = "1K",
       generationModel = "nano-banana-pro",
       inputImageUrl = "",
+      inputImage = "",
       maskUrl = "",
       numImages = 1,
       renderingSpeed = "BALANCED",
@@ -4370,7 +4378,12 @@ export async function generateCreatorStudio(req, res) {
       ideogramExpandPrompt = true,
       outputFormat = "jpeg",
       promptUpsampling = false,
+      enableTranslation = true,
+      uploadCn = false,
+      watermark = "",
       safetyTolerance = 2,
+      enableSequential = false,
+      nsfwChecker = false,
       thinkingMode = false,
       colorPalette = [],
       bboxList = [],
@@ -4382,13 +4395,15 @@ export async function generateCreatorStudio(req, res) {
     if (!prompt || prompt.trim().length === 0) {
       return res.status(400).json({ success: false, message: "A prompt is required." });
     }
-    if (!CREATOR_STUDIO_ASPECT_RATIOS.includes(aspectRatio)) {
+    const modelName = CREATOR_STUDIO_MODELS.includes(generationModel) ? generationModel : "nano-banana-pro";
+    const requestedAspectRatio = String(aspectRatio || "").trim();
+    const resolvedAspectRatio = requestedAspectRatio || (modelName.startsWith("flux-kontext") ? "16:9" : "1:1");
+    if (!CREATOR_STUDIO_ASPECT_RATIOS.includes(resolvedAspectRatio)) {
       return res.status(400).json({ success: false, message: `Invalid aspect ratio.` });
     }
     if (!CREATOR_STUDIO_RESOLUTIONS.includes(resolution)) {
       return res.status(400).json({ success: false, message: `Invalid resolution.` });
     }
-    const modelName = CREATOR_STUDIO_MODELS.includes(generationModel) ? generationModel : "nano-banana-pro";
 
     const refs = Array.isArray(referencePhotos)
       ? referencePhotos.filter((u) => typeof u === "string" && u.length > 0).slice(0, 8)
@@ -4399,7 +4414,7 @@ export async function generateCreatorStudio(req, res) {
         return res.status(400).json({ success: false, message: refsCheck.message });
       }
     }
-    const normalizedInputImage = String(inputImageUrl || "").trim();
+    const normalizedInputImage = String(inputImageUrl || inputImage || "").trim();
     const normalizedMaskUrl = String(maskUrl || "").trim();
     if (normalizedInputImage) {
       const check = validateImageUrl(normalizedInputImage);
@@ -4420,20 +4435,19 @@ export async function generateCreatorStudio(req, res) {
     if (modelName === "ideogram-v3-remix" && !normalizedInputImage) {
       return res.status(400).json({ success: false, message: "Ideogram remix requires inputImageUrl." });
     }
-    if (modelName.startsWith("flux-kontext") && !normalizedInputImage && refs.length === 0) {
-      return res.status(400).json({ success: false, message: "Flux Kontext requires an input image." });
-    }
     if (modelName === "seedream-v4-5-edit" && !normalizedInputImage && refs.length === 0) {
       return res.status(400).json({ success: false, message: "Seedream v4.5 Edit requires at least one input image." });
     }
 
     const pricing = await getGenerationPricing();
     const clampedNumImages = Math.min(4, Math.max(1, Number.parseInt(String(numImages || 1), 10) || 1));
+    // KIE Flux Kontext endpoint produces one image per task; ignore multi-output UI values for this model.
+    const effectiveNumImages = modelName.startsWith("flux-kontext") ? 1 : clampedNumImages;
     let creditsNeeded = resolution === "4K" ? pricing.creatorStudio4K : pricing.creatorStudio1K2K;
     if (modelName === "flux-kontext-pro") {
-      creditsNeeded = (pricing.creatorStudioFluxKontextPro || 10) * clampedNumImages;
+      creditsNeeded = (pricing.creatorStudioFluxKontextPro || 10) * effectiveNumImages;
     } else if (modelName === "flux-kontext-max") {
-      creditsNeeded = (pricing.creatorStudioFluxKontextMax || 20) * clampedNumImages;
+      creditsNeeded = (pricing.creatorStudioFluxKontextMax || 20) * effectiveNumImages;
     } else if (modelName === "wan-2-7-image") {
       creditsNeeded = (pricing.creatorStudioWan27Image || 5) * clampedNumImages;
     } else if (modelName === "wan-2-7-image-pro") {
@@ -4489,13 +4503,13 @@ export async function generateCreatorStudio(req, res) {
         providerModel: modelName,
         replicateModel: modelName.startsWith("seedream") ? `wavespeed-${modelName}` : `kie-${modelName}`,
         pipelinePayload: JSON.stringify({
-          aspectRatio,
+          aspectRatio: resolvedAspectRatio,
           resolution,
           generationModel: modelName,
           refCount: refs.length,
           inputImageUrl: normalizedInputImage || null,
           maskUrl: normalizedMaskUrl || null,
-          numImages: clampedNumImages,
+          numImages: effectiveNumImages,
           renderingSpeed: String(renderingSpeed || "BALANCED").toUpperCase(),
           ideogramStyle: String(ideogramStyle || "AUTO").toUpperCase(),
           ideogramImageSize: String(ideogramImageSize || "square_hd"),
@@ -4503,7 +4517,12 @@ export async function generateCreatorStudio(req, res) {
           ideogramExpandPrompt: ideogramExpandPrompt !== false,
           outputFormat: String(outputFormat || "jpeg"),
           promptUpsampling: !!promptUpsampling,
+          enableTranslation: enableTranslation !== false,
+          uploadCn: uploadCn === true,
+          watermark: String(watermark || "").trim(),
           safetyTolerance: Number(safetyTolerance ?? 2),
+          enableSequential: enableSequential === true,
+          nsfwChecker: nsfwChecker === true,
           thinkingMode: thinkingMode === true,
           colorPalette: Array.isArray(colorPalette) ? colorPalette.slice(0, 16) : [],
           bboxList: Array.isArray(bboxList) ? bboxList.slice(0, 24) : [],
@@ -4519,7 +4538,7 @@ export async function generateCreatorStudio(req, res) {
       prompt.trim(),
       userId,
       creditsNeeded,
-      aspectRatio,
+      resolvedAspectRatio,
       resolution,
       modelName
     ).catch((err) => console.error("❌ Creator Studio background error:", err));
@@ -4585,7 +4604,7 @@ async function processCreatorStudioInBackground(
           : {});
 
     const normalizedModel = String(payload?.generationModel || modelName || "nano-banana-pro");
-    const normalizedInputImage = String(payload?.inputImageUrl || "").trim();
+    const normalizedInputImage = String(payload?.inputImageUrl || payload?.inputImage || "").trim();
     const normalizedMaskUrl = String(payload?.maskUrl || "").trim();
     const normalizedNumImages = Math.min(4, Math.max(1, Number.parseInt(String(payload?.numImages || 1), 10) || 1));
     const normalizedRenderingSpeed = String(payload?.renderingSpeed || "BALANCED").toUpperCase();
@@ -4636,6 +4655,9 @@ async function processCreatorStudioInBackground(
           aspectRatio,
           outputFormat: String(payload?.outputFormat || "jpeg"),
           promptUpsampling: payload?.promptUpsampling === true,
+          enableTranslation: payload?.enableTranslation !== false,
+          uploadCn: payload?.uploadCn === true,
+          watermark: String(payload?.watermark || "").trim() || undefined,
           safetyTolerance: Number(payload?.safetyTolerance ?? 2),
           onTaskCreated,
         }),
@@ -4652,6 +4674,8 @@ async function processCreatorStudioInBackground(
           aspectRatio,
           n: normalizedNumImages,
           resolution: String(resolution || "2K"),
+          enableSequential: payload?.enableSequential === true,
+          nsfwChecker: payload?.nsfwChecker === true,
           thinkingMode: payload?.thinkingMode === true,
           colorPalette: Array.isArray(payload?.colorPalette) ? payload.colorPalette : [],
           bboxList: Array.isArray(payload?.bboxList) ? payload.bboxList : [],
@@ -4950,10 +4974,11 @@ async function processCreatorStudioVideoInBackground({
     }
 
     if (result?.success && result?.deferred && result?.taskId) {
+      const taskTagPrefix = lowerFamily === "seedance2" ? "piapi-task:" : "kie-task:";
       await prisma.generation.update({
         where: { id: generationId },
         data: {
-          replicateModel: `kie-task:${result.taskId}`,
+          replicateModel: `${taskTagPrefix}${result.taskId}`,
           providerTaskId: result.taskId,
         },
       });
@@ -5048,7 +5073,7 @@ export async function generateCreatorStudioVideo(req, res) {
     }
     const normalizedDurationSeconds = durationValidation.duration;
 
-    if (!prompt?.trim()) {
+    if (lowerFamily !== "wan22" && !prompt?.trim()) {
       return res.status(400).json({ success: false, message: "A prompt is required." });
     }
     const normalizedImageUrl = String(imageUrl || "").trim();
@@ -5129,14 +5154,17 @@ export async function generateCreatorStudioVideo(req, res) {
       }
     }
     if (lowerFamily === "veo31") {
-      if (!["fast", "quality"].includes(String(speed || "").toLowerCase())) {
-        return res.status(400).json({ success: false, message: "Veo speed must be fast or quality." });
+      if (!["fast", "quality", "lite"].includes(String(speed || "").toLowerCase())) {
+        return res.status(400).json({ success: false, message: "Veo speed must be fast, quality, or lite." });
       }
       if (!["Auto", "16:9", "9:16"].includes(String(aspectRatio || ""))) {
         return res.status(400).json({ success: false, message: "Veo aspect ratio must be Auto, 16:9, or 9:16." });
       }
       if (normalizedMode === "ref2v" && !normalizedReferenceImageUrl && !normalizedImageUrl) {
         return res.status(400).json({ success: false, message: "Reference image is required for Veo reference mode." });
+      }
+      if (normalizedMode === "ref2v" && !["16:9", "9:16"].includes(String(aspectRatio || ""))) {
+        return res.status(400).json({ success: false, message: "Veo REFERENCE_2_VIDEO supports only 16:9 or 9:16 aspect ratio." });
       }
       if (normalizedMode === "ref2v" && String(speed || "fast").toLowerCase() !== "fast") {
         return res.status(400).json({ success: false, message: "Veo REFERENCE_2_VIDEO currently supports only fast mode (veo3_fast)." });
@@ -5146,6 +5174,12 @@ export async function generateCreatorStudioVideo(req, res) {
       }
       if (normalizedMode === "extend" && !originalTaskId) {
         return res.status(400).json({ success: false, message: "Original task id is required for Veo extend." });
+      }
+      if (veoSeeds != null && String(veoSeeds).trim() !== "") {
+        const seedNum = Number(veoSeeds);
+        if (!Number.isInteger(seedNum) || seedNum < 10000 || seedNum > 99999) {
+          return res.status(400).json({ success: false, message: "Veo seed must be an integer between 10000 and 99999." });
+        }
       }
     }
     if (lowerFamily === "wan22") {
@@ -5364,6 +5398,166 @@ export async function extendCreatorStudioVideo(req, res) {
   const payload = { ...(req.body || {}), family: "veo31", mode: "extend" };
   req.body = payload;
   return generateCreatorStudioVideo(req, res);
+}
+
+function parseProviderResponseObject(value) {
+  if (value && typeof value === "object") return value;
+  if (typeof value === "string") {
+    try { return JSON.parse(value); } catch { return {}; }
+  }
+  return {};
+}
+
+export async function getCreatorStudioVideo4k(req, res) {
+  try {
+    const userId = req.user.userId;
+    const taskId = String(req.body?.taskId || "").trim();
+    const indexRaw = Number.parseInt(String(req.body?.index ?? 0), 10);
+    const index = Number.isInteger(indexRaw) && indexRaw >= 0 ? indexRaw : 0;
+    const callBackUrl = String(req.body?.callBackUrl || "").trim() || undefined;
+
+    if (!taskId) {
+      return res.status(400).json({ success: false, message: "taskId is required." });
+    }
+
+    const ownsTask = await prisma.generation.findFirst({
+      where: {
+        userId,
+        providerFamily: "veo31",
+        providerTaskId: taskId,
+      },
+      select: { id: true, providerResponse: true },
+    });
+    if (!ownsTask) {
+      return res.status(404).json({ success: false, message: "Veo task not found for this user." });
+    }
+
+    const providerMeta = parseProviderResponseObject(ownsTask.providerResponse);
+    const alreadyCharged = providerMeta.veo4kCharged === true;
+    const pricing = await getGenerationPricing();
+    const cost = Math.max(0, Math.ceil(Number(pricing?.veo31Upscale4k ?? 120)));
+    let deducted = 0;
+    if (!alreadyCharged && cost > 0) {
+      const user = await checkAndExpireCredits(userId);
+      const totalCredits = getTotalCredits(user);
+      if (totalCredits < cost) {
+        return res.status(403).json({
+          success: false,
+          message: `Need ${cost} credits for Veo 4K, you have ${totalCredits}.`,
+          creditsNeeded: cost,
+          creditsAvailable: totalCredits,
+        });
+      }
+      await deductCredits(userId, cost);
+      deducted = cost;
+    }
+
+    const provider = await requestVeo31Video4k({
+      taskId,
+      index,
+      callBackUrl,
+    });
+    if (provider.code !== 200 && deducted > 0) {
+      await refundCredits(userId, deducted).catch(() => {});
+    }
+    if (provider.code === 200 && !alreadyCharged && cost > 0) {
+      await prisma.generation.update({
+        where: { id: ownsTask.id },
+        data: {
+          providerResponse: {
+            ...providerMeta,
+            veo4kCharged: true,
+            veo4kCreditsCost: cost,
+            veo4kChargedAt: new Date().toISOString(),
+          },
+        },
+      }).catch(() => {});
+    }
+    return res.status(200).json({
+      success: provider.code === 200,
+      code: provider.code,
+      msg: provider.msg,
+      data: provider.data,
+    });
+  } catch (error) {
+    console.error("❌ getCreatorStudioVideo4k error:", error);
+    return res.status(500).json({ success: false, message: "Server error", error: error.message });
+  }
+}
+
+export async function getCreatorStudioVideo1080p(req, res) {
+  try {
+    const userId = req.user.userId;
+    const taskId = String(req.query?.taskId || "").trim();
+    const indexRaw = Number.parseInt(String(req.query?.index ?? 0), 10);
+    const index = Number.isInteger(indexRaw) && indexRaw >= 0 ? indexRaw : 0;
+
+    if (!taskId) {
+      return res.status(400).json({ success: false, message: "taskId is required." });
+    }
+
+    const ownsTask = await prisma.generation.findFirst({
+      where: {
+        userId,
+        providerFamily: "veo31",
+        providerTaskId: taskId,
+      },
+      select: { id: true, providerResponse: true },
+    });
+    if (!ownsTask) {
+      return res.status(404).json({ success: false, message: "Veo task not found for this user." });
+    }
+
+    const providerMeta = parseProviderResponseObject(ownsTask.providerResponse);
+    const alreadyCharged = providerMeta.veo1080pCharged === true;
+    const pricing = await getGenerationPricing();
+    const cost = Math.max(0, Math.ceil(Number(pricing?.veo31Render1080p ?? 5)));
+    let deducted = 0;
+    if (!alreadyCharged && cost > 0) {
+      const user = await checkAndExpireCredits(userId);
+      const totalCredits = getTotalCredits(user);
+      if (totalCredits < cost) {
+        return res.status(403).json({
+          success: false,
+          message: `Need ${cost} credits for Veo 1080p, you have ${totalCredits}.`,
+          creditsNeeded: cost,
+          creditsAvailable: totalCredits,
+        });
+      }
+      await deductCredits(userId, cost);
+      deducted = cost;
+    }
+
+    const provider = await requestVeo31Video1080p({
+      taskId,
+      index,
+    });
+    if (provider.code !== 200 && deducted > 0) {
+      await refundCredits(userId, deducted).catch(() => {});
+    }
+    if (provider.code === 200 && !alreadyCharged && cost > 0) {
+      await prisma.generation.update({
+        where: { id: ownsTask.id },
+        data: {
+          providerResponse: {
+            ...providerMeta,
+            veo1080pCharged: true,
+            veo1080pCreditsCost: cost,
+            veo1080pChargedAt: new Date().toISOString(),
+          },
+        },
+      }).catch(() => {});
+    }
+    return res.status(200).json({
+      success: provider.code === 200,
+      code: provider.code,
+      msg: provider.msg,
+      data: provider.data,
+    });
+  } catch (error) {
+    console.error("❌ getCreatorStudioVideo1080p error:", error);
+    return res.status(500).json({ success: false, message: "Server error", error: error.message });
+  }
 }
 
 export async function uploadCreatorStudioMask(req, res) {

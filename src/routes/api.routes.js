@@ -47,6 +47,8 @@ import {
   generateCreatorStudio,
   generateCreatorStudioVideo,
   extendCreatorStudioVideo,
+  getCreatorStudioVideo4k,
+  getCreatorStudioVideo1080p,
   uploadCreatorStudioMask,
   listCreatorStudioAssets,
   createCreatorStudioAsset,
@@ -2136,6 +2138,21 @@ router.post(
   generationLimiter,
   validateGeneration,
   extendCreatorStudioVideo,
+);
+
+router.post(
+  "/generate/creator-studio/video/4k",
+  authMiddleware,
+  generationLimiter,
+  validateGeneration,
+  getCreatorStudioVideo4k,
+);
+
+router.get(
+  "/generate/creator-studio/video/1080p",
+  authMiddleware,
+  generationsLimiter,
+  getCreatorStudioVideo1080p,
 );
 
 router.post(

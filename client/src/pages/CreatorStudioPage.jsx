@@ -215,6 +215,8 @@ const ASPECT_RATIOS = [
   { value: "5:4",  label: "5:4",  hint: null },
   { value: "4:5",  label: "4:5",  hint: null },
   { value: "21:9", label: "21:9", hint: null },
+  { value: "8:1",  label: "8:1",  hint: null },
+  { value: "1:8",  label: "1:8",  hint: null },
 ];
 const RESOLUTIONS = ["1K", "2K", "4K"];
 const MAX_REFS = 8;
@@ -1551,8 +1553,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
     || isWanImageModel
     || isSeedreamImageModel;
   const singleInputRequired =
-    isFluxImageModel
-    || imageModel === "ideogram-v3-edit"
+    imageModel === "ideogram-v3-edit"
     || imageModel === "ideogram-v3-remix";
 
   const { isLoading: histLoading } = useQuery({
@@ -1681,7 +1682,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
         referencePhotos: supportsReferenceSlots ? filledRefs : [],
         inputImageUrl: primaryInputImage || undefined,
         maskUrl: imageMaskUrl.trim() || (imageModel === "ideogram-v3-edit" ? (filledRefs[1] || undefined) : undefined),
-        numImages: (isIdeogramImageModel || isWanImageModel || isFluxImageModel) ? imageNumOutputs : 1,
+        numImages: (isIdeogramImageModel || isWanImageModel) ? imageNumOutputs : 1,
         renderingSpeed: isIdeogramImageModel ? ideogramRenderingSpeed : undefined,
         promptUpsampling: isFluxImageModel ? fluxPromptUpsampling : undefined,
         safetyTolerance: isFluxImageModel ? fluxSafetyTolerance : undefined,
@@ -1710,7 +1711,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
   };
 
   const handleGenerateVideo = async () => {
-    if (!videoPrompt.trim()) {
+    if (videoFamily !== "wan22" && !videoPrompt.trim()) {
       toast.error(copy.enterPrompt);
       return;
     }
@@ -1732,6 +1733,14 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
     }
     if (videoFamily === "veo31" && videoMode === "ref2v" && !videoImageUrl.trim()) {
       toast.error("At least one reference image is required for Veo 3.1 reference mode.");
+      return;
+    }
+    if (videoFamily === "veo31" && videoMode === "ref2v" && videoSpeed !== "fast") {
+      toast.error("Veo 3.1 reference mode currently supports only Fast.");
+      return;
+    }
+    if (videoFamily === "veo31" && videoMode === "ref2v" && !["16:9", "9:16"].includes(videoAspectRatio)) {
+      toast.error("Veo 3.1 reference mode supports only 16:9 or 9:16.");
       return;
     }
     if (videoFamily === "veo31" && videoMode === "extend" && !extendSourceId.trim()) {
@@ -1829,8 +1838,8 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
 
   const COST = useMemo(() => {
     const qty = Math.min(4, Math.max(1, Number(imageNumOutputs) || 1));
-    if (imageModel === "flux-kontext-pro") return Math.ceil((generationPricing?.creatorStudioFluxKontextPro || 10) * qty);
-    if (imageModel === "flux-kontext-max") return Math.ceil((generationPricing?.creatorStudioFluxKontextMax || 20) * qty);
+    if (imageModel === "flux-kontext-pro") return Math.ceil(generationPricing?.creatorStudioFluxKontextPro || 10);
+    if (imageModel === "flux-kontext-max") return Math.ceil(generationPricing?.creatorStudioFluxKontextMax || 20);
     if (imageModel === "wan-2-7-image") return Math.ceil((generationPricing?.creatorStudioWan27Image || 5) * qty);
     if (imageModel === "wan-2-7-image-pro") return Math.ceil((generationPricing?.creatorStudioWan27ImagePro || 10) * qty);
     if (imageModel === "seedream-v4-5-edit") return Math.ceil(generationPricing?.creatorStudioSeedream45Edit || 10);
@@ -1930,13 +1939,17 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
       if (videoMode === "extend") {
         const cost = videoSpeed === "quality"
           ? toPrice(generationPricing, "veo31ExtendQuality")
-          : toPrice(generationPricing, "veo31ExtendFast");
+          : videoSpeed === "lite"
+            ? (toPrice(generationPricing, "veo31ExtendLite") || toPrice(generationPricing, "veo31ExtendFast"))
+            : toPrice(generationPricing, "veo31ExtendFast");
         const perSec = Math.round((cost / 8) * 10) / 10;
         return { cost, details: `Per extension (~${perSec}/sec @8s)` };
       }
       const cost = videoSpeed === "quality"
         ? toPrice(generationPricing, "veo31GenerateQuality1080p8s")
-        : toPrice(generationPricing, "veo31GenerateFast1080p8s");
+        : videoSpeed === "lite"
+          ? (toPrice(generationPricing, "veo31GenerateLite1080p8s") || toPrice(generationPricing, "veo31GenerateFast1080p8s"))
+          : toPrice(generationPricing, "veo31GenerateFast1080p8s");
       const renderCost = toPrice(generationPricing, "veo31Render1080p");
       const perSec = Math.round((cost / 8) * 10) / 10;
       return { cost, details: `Per generation (~${perSec}/sec @8s) · 1080p render ${renderCost}` };
@@ -2137,7 +2150,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                     ))}
                   </div>
                 </div>
-                {(isIdeogramImageModel || isWanImageModel || isFluxImageModel) && (
+                {(isIdeogramImageModel || isWanImageModel) && (
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Outputs</span>
                     <div className="flex items-center gap-1.5">
@@ -2901,12 +2914,15 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                     <div className="flex items-center gap-1.5">
                       <Chip active={videoSpeed === "fast"} onClick={() => setVideoSpeed("fast")}>Fast</Chip>
                       <Chip active={videoSpeed === "quality"} onClick={() => setVideoSpeed("quality")}>Quality</Chip>
+                      <Chip active={videoSpeed === "lite"} onClick={() => setVideoSpeed("lite")}>Lite</Chip>
                     </div>
                     {(videoMode === "ref2v" || videoMode === "i2v") && (
                       <>
                         <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Aspect</span>
                         <div className="flex items-center gap-1.5">
-                          <Chip active={videoAspectRatio === "Auto"} onClick={() => setVideoAspectRatio("Auto")}>Auto</Chip>
+                          {videoMode !== "ref2v" && (
+                            <Chip active={videoAspectRatio === "Auto"} onClick={() => setVideoAspectRatio("Auto")}>Auto</Chip>
+                          )}
                           <Chip active={videoAspectRatio === "16:9"} onClick={() => setVideoAspectRatio("16:9")}>16:9</Chip>
                           <Chip active={videoAspectRatio === "9:16"} onClick={() => setVideoAspectRatio("9:16")}>9:16</Chip>
                         </div>
@@ -3286,13 +3302,16 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                       <div className="flex gap-1.5">
                         <Chip active={videoSpeed === "fast"} onClick={() => setVideoSpeed("fast")}><span className="whitespace-nowrap">Fast</span></Chip>
                         <Chip active={videoSpeed === "quality"} onClick={() => setVideoSpeed("quality")}><span className="whitespace-nowrap">Quality</span></Chip>
+                        <Chip active={videoSpeed === "lite"} onClick={() => setVideoSpeed("lite")}><span className="whitespace-nowrap">Lite</span></Chip>
                       </div>
                     </div>
                     {(videoMode === "ref2v" || videoMode === "i2v") && (
                       <div>
                         <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Aspect</span>
                         <div className="flex gap-1.5">
-                          <Chip active={videoAspectRatio === "Auto"} onClick={() => setVideoAspectRatio("Auto")}><span className="whitespace-nowrap">Auto</span></Chip>
+                          {videoMode !== "ref2v" && (
+                            <Chip active={videoAspectRatio === "Auto"} onClick={() => setVideoAspectRatio("Auto")}><span className="whitespace-nowrap">Auto</span></Chip>
+                          )}
                           <Chip active={videoAspectRatio === "16:9"} onClick={() => setVideoAspectRatio("16:9")}><span className="whitespace-nowrap">16:9</span></Chip>
                           <Chip active={videoAspectRatio === "9:16"} onClick={() => setVideoAspectRatio("9:16")}><span className="whitespace-nowrap">9:16</span></Chip>
                         </div>

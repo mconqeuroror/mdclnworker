@@ -965,6 +965,15 @@ async function generateVideoWithWanAnimateReplaceKieInternal(imageUrl, videoUrl,
   const vid = typeof videoUrl === "string" ? videoUrl.trim() : String(videoUrl || "");
   const resolution = normalizeWanResolution(options.resolution);
 
+  try {
+    await verifyUrlReachable(img, "WAN animate replace input image");
+    await verifyUrlReachable(vid, "WAN animate replace input video");
+  } catch (e) {
+    throw new Error(
+      `Wan animate replace media URL is not reachable (KIE must download it). Re-upload your image/video and try again. ${e?.message || ""}`,
+    );
+  }
+
   const callbackUrl = getKieCallbackUrl();
   if (!callbackUrl) {
     throw new Error("[KIE/wan-animate-replace] Callback URL is required (set KIE_CALLBACK_URL / CALLBACK_BASE_URL)");
@@ -981,11 +990,44 @@ async function generateVideoWithWanAnimateReplaceKieInternal(imageUrl, videoUrl,
     },
   };
 
-  const taskId = await kieCreateTask(requestBody, "wan-animate-replace");
-  if (typeof options.onTaskSubmitted === "function") {
-    try { await options.onTaskSubmitted(taskId); } catch {}
+  const MAX_ATTEMPTS = 3;
+  let lastErr;
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    if (attempt > 1) {
+      const backoff = attempt * 30_000;
+      console.log(`[KIE/wan-animate-replace] Retrying (attempt ${attempt}/${MAX_ATTEMPTS}) after ${backoff / 1000}s`);
+      await new Promise((r) => setTimeout(r, backoff));
+    }
+    try {
+      console.log(
+        `[KIE/wan-animate-replace] Submitting resolution=${resolution} attempt ${attempt}:`,
+        JSON.stringify(requestBody.input),
+      );
+      const taskId = await kieCreateTask(requestBody, "wan-animate-replace");
+      if (typeof options.onTaskSubmitted === "function") {
+        try { await options.onTaskSubmitted(taskId); } catch (_) {}
+      }
+      console.log(`[KIE/wan-animate-replace] Deferred: result will arrive via callback for task ${taskId}`);
+      return { success: true, deferred: true, taskId };
+    } catch (err) {
+      lastErr = err;
+      const msg = (err?.message || "").toLowerCase();
+      const isTransient =
+        msg.includes("busy") || msg.includes("server issue") || msg.includes("overload") ||
+        msg.includes("capacity") || msg.includes("timeout") || msg.includes("timed out") ||
+        msg.includes("internal") || msg.includes("unavailable") || msg.includes("http 5") ||
+        msg.includes("http 429") || msg.includes("rate limit") || msg.includes("fetch failed") ||
+        msg.includes("network") || msg.includes("econnreset") || err?.name === "TypeError";
+      if (isTransient && attempt < MAX_ATTEMPTS) {
+        console.warn(`[KIE/wan-animate-replace] Transient failure (attempt ${attempt}): ${err.message}`);
+        continue;
+      }
+      throw err;
+    }
   }
-  return { success: true, deferred: true, taskId };
+
+  throw lastErr;
 }
 
 /**
@@ -1350,28 +1392,41 @@ async function generateVideoWithVeo31KieInternal(options = {}) {
     throw new Error("[KIE/veo31] Callback URL is required (set KIE_CALLBACK_URL / CALLBACK_BASE_URL)");
   }
   const endpoint = KIE_VIDEO_MODEL_CATALOG.veo31.generate.endpoint;
-  const model = options.speed === "quality" ? "veo3" : "veo3_fast";
-  const generationType = options.mode === "FIRST_AND_LAST_FRAMES_2_VIDEO"
-    ? "FIRST_AND_LAST_FRAMES_2_VIDEO"
-    : options.mode === "TEXT_2_VIDEO"
-      ? "TEXT_2_VIDEO"
-      : "REFERENCE_2_VIDEO";
-  const aspectRatio = (options.aspectRatio === "9:16" || options.aspectRatio === "Auto") ? options.aspectRatio : "16:9";
+  const speed = String(options.speed || "fast").toLowerCase();
+  const model = speed === "quality" ? "veo3" : speed === "lite" ? "veo3_lite" : "veo3_fast";
+  const explicitMode = String(options.mode || "").toUpperCase();
+  const generationType =
+    explicitMode === "FIRST_AND_LAST_FRAMES_2_VIDEO"
+      ? "FIRST_AND_LAST_FRAMES_2_VIDEO"
+      : explicitMode === "TEXT_2_VIDEO"
+        ? "TEXT_2_VIDEO"
+        : explicitMode === "REFERENCE_2_VIDEO"
+          ? "REFERENCE_2_VIDEO"
+          : (String(options.imageUrl || "").trim() || String(options.referenceImageUrl || "").trim() || String(options.endFrameUrl || "").trim() || String(options.thirdImageUrl || "").trim())
+            ? "FIRST_AND_LAST_FRAMES_2_VIDEO"
+            : "TEXT_2_VIDEO";
+  const rawAspect = String(options.aspectRatio || "").trim();
+  const normalizedAspect = ["16:9", "9:16", "Auto"].includes(rawAspect) ? rawAspect : "16:9";
+  const aspectRatio = generationType === "REFERENCE_2_VIDEO" && normalizedAspect === "Auto" ? "16:9" : normalizedAspect;
 
-  const candidates = [
+  const firstLastCandidates = [
+    options.imageUrl,
+    options.endFrameUrl,
+  ]
+    .map((v) => String(v || "").trim())
+    .filter(Boolean);
+  const referenceCandidates = [
     options.imageUrl,
     options.referenceImageUrl,
-    options.endFrameUrl,
     options.thirdImageUrl,
   ]
     .map((v) => String(v || "").trim())
     .filter(Boolean);
-  const dedupedImageUrls = [...new Set(candidates)];
   let imageUrls = [];
   if (generationType === "FIRST_AND_LAST_FRAMES_2_VIDEO") {
-    imageUrls = dedupedImageUrls.slice(0, 2);
+    imageUrls = [...new Set(firstLastCandidates)].slice(0, 2);
   } else if (generationType === "REFERENCE_2_VIDEO") {
-    imageUrls = dedupedImageUrls.slice(0, 3);
+    imageUrls = [...new Set(referenceCandidates)].slice(0, 3);
   }
 
   if (generationType === "REFERENCE_2_VIDEO" && model !== "veo3_fast") {
@@ -1407,14 +1462,17 @@ async function extendVideoWithVeo31KieInternal(options = {}) {
     throw new Error("[KIE/veo31-extend] Callback URL is required (set KIE_CALLBACK_URL / CALLBACK_BASE_URL)");
   }
   const endpoint = KIE_VIDEO_MODEL_CATALOG.veo31.extend.endpoint;
-  const model = options.speed === "quality" ? "quality" : "fast";
+  const speed = String(options.speed || "fast").toLowerCase();
+  const model = speed === "quality" ? "quality" : speed === "lite" ? "lite" : "fast";
   const requestBody = {
     model,
     callBackUrl: callbackUrl,
     taskId: String(options.originalTaskId || ""),
     prompt: String(options.prompt || ""),
-    duration: String(options.duration || "8"),
   };
+  const seed = Number(options.seeds);
+  if (Number.isInteger(seed) && seed >= 10000 && seed <= 99999) requestBody.seeds = seed;
+  if (options.watermark) requestBody.watermark = String(options.watermark);
   if (!requestBody.taskId) {
     throw new Error("Veo extend requires original task id.");
   }
@@ -1423,6 +1481,85 @@ async function extendVideoWithVeo31KieInternal(options = {}) {
     try { await options.onTaskSubmitted(taskId); } catch {}
   }
   return { success: true, deferred: true, taskId };
+}
+
+async function requestVeo31Video4kInternal(options = {}) {
+  const taskId = String(options.taskId || "").trim();
+  if (!taskId) {
+    throw new Error("Veo 4K request requires taskId.");
+  }
+  const indexRaw = Number.parseInt(String(options.index ?? 0), 10);
+  const index = Number.isInteger(indexRaw) && indexRaw >= 0 ? indexRaw : 0;
+  const callbackUrl = String(options.callBackUrl || getKieCallbackUrl() || "").trim();
+  const requestBody = {
+    taskId,
+    index,
+    ...(callbackUrl ? { callBackUrl: callbackUrl } : {}),
+  };
+
+  await waitForRateSlot("veo31-get-4k");
+  const res = await fetch(buildKieUrl("/veo/get-4k-video"), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${KIE_API_KEY}`,
+    },
+    body: JSON.stringify(requestBody),
+    signal: AbortSignal.timeout(30_000),
+  });
+
+  const text = await res.text();
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    if (!res.ok) throw new Error(kieHttpErrorMessage(res.status, text));
+    throw new Error(`AI service invalid response: ${text.slice(0, 200)}`);
+  }
+
+  return {
+    httpStatus: res.status,
+    code: Number(data?.code ?? (res.ok ? 200 : res.status)),
+    msg: String(data?.msg || data?.message || ""),
+    data: data?.data ?? null,
+    raw: data,
+  };
+}
+
+async function requestVeo31Video1080pInternal(options = {}) {
+  const taskId = String(options.taskId || "").trim();
+  if (!taskId) {
+    throw new Error("Veo 1080p request requires taskId.");
+  }
+  const indexRaw = Number.parseInt(String(options.index ?? 0), 10);
+  const index = Number.isInteger(indexRaw) && indexRaw >= 0 ? indexRaw : 0;
+  const endpoint = buildKieUrl(`/veo/get-1080p-video?taskId=${encodeURIComponent(taskId)}&index=${encodeURIComponent(String(index))}`);
+
+  await waitForRateSlot("veo31-get-1080p");
+  const res = await fetch(endpoint, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${KIE_API_KEY}`,
+    },
+    signal: AbortSignal.timeout(30_000),
+  });
+
+  const text = await res.text();
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    if (!res.ok) throw new Error(kieHttpErrorMessage(res.status, text));
+    throw new Error(`AI service invalid response: ${text.slice(0, 200)}`);
+  }
+
+  return {
+    httpStatus: res.status,
+    code: Number(data?.code ?? (res.ok ? 200 : res.status)),
+    msg: String(data?.msg || data?.message || ""),
+    data: data?.data ?? null,
+    raw: data,
+  };
 }
 
 function parseKieAssetIdFromRecord(record) {
@@ -1546,113 +1683,111 @@ async function generateFluxKontextKieInternal(payload = {}) {
   const {
     prompt,
     inputImage = null,
-    aspectRatio = "16:9",
+    aspectRatio = null,
     outputFormat = "jpeg",
     promptUpsampling = false,
     model = "flux-kontext-pro",
     enableTranslation = true,
+    uploadCn = false,
+    watermark = "",
     safetyTolerance = 2,
     callBackUrl = null,
   } = payload;
-  const hasInputImage = Boolean(String(inputImage ?? "").trim());
-  // KIE OpenAPI: image *editing* (inputImage) only allows safetyTolerance 0–2; generation allows 0–6.
+  const normalizedPrompt = String(prompt || "").trim();
+  if (!normalizedPrompt) {
+    throw new Error("Prompt is required for Flux Kontext.");
+  }
+
+  const normalizedInputImage = String(inputImage ?? "").trim();
+  const hasInputImage = Boolean(normalizedInputImage);
+  const ratioRaw = String(aspectRatio ?? "").trim();
+  const ratioAllowed = new Set(["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"]);
+  const normalizedAspectRatio = ratioAllowed.has(ratioRaw) ? ratioRaw : "16:9";
+  const normalizedOutputFormat = String(outputFormat || "jpeg").toLowerCase() === "png" ? "png" : "jpeg";
+  const normalizedModelRaw = String(model || "flux-kontext-pro").toLowerCase();
+  const preferMax =
+    normalizedModelRaw === "flux-kontext-max"
+    || normalizedModelRaw.includes("flux-kontext-max")
+    || normalizedModelRaw.includes("black-forest-labs/flux-kontext-max");
+  const modelCandidates = preferMax
+    ? ["flux-kontext-max", "flux-kontext-pro"]
+    : ["flux-kontext-pro", "flux-kontext-max"];
+
+  // KIE OpenAPI: image editing (inputImage) allows 0–2; generation allows 0–6.
   const rawTol = Number.isFinite(Number(safetyTolerance)) ? Number(safetyTolerance) : 2;
   const safetyToleranceClamped = hasInputImage
     ? Math.min(2, Math.max(0, Math.round(rawTol)))
     : Math.min(6, Math.max(0, Math.round(rawTol)));
-  const baseInput = {
-    prompt: String(prompt || "").trim(),
-    ...(hasInputImage ? { inputImage: String(inputImage).trim() } : {}),
-    aspectRatio: String(aspectRatio || "16:9"),
-    outputFormat: String(outputFormat || "jpeg"),
-    promptUpsampling: !!promptUpsampling,
-    enableTranslation: enableTranslation !== false,
-    safetyTolerance: safetyToleranceClamped,
-  };
-  const fallbackMap = {
-    "flux-kontext-pro": "black-forest-labs/flux-kontext-pro",
-    "flux-kontext-max": "black-forest-labs/flux-kontext-max",
-  };
-  const primaryModel = String(model || "flux-kontext-pro");
-  const candidates = [primaryModel];
-  if (fallbackMap[primaryModel]) candidates.push(fallbackMap[primaryModel]);
-  let sawUnsupportedModelError = false;
-  for (const candidate of candidates) {
-    const reqBody = { model: candidate, input: baseInput };
-    if (callBackUrl) reqBody.callBackUrl = callBackUrl;
+
+  const callbackUrl = callBackUrl || getKieCallbackUrl();
+  if (!callBackUrl && !callbackUrl) {
+    throw new Error("[KIE] Callback URL is required for flux-kontext (set KIE_CALLBACK_URL / CALLBACK_BASE_URL)");
+  }
+
+  for (const modelId of modelCandidates) {
+    const requestBody = {
+      model: modelId,
+      prompt: normalizedPrompt,
+      ...(hasInputImage ? { inputImage: normalizedInputImage } : {}),
+      ...(ratioRaw ? { aspectRatio: normalizedAspectRatio } : {}),
+      outputFormat: normalizedOutputFormat,
+      promptUpsampling: promptUpsampling === true,
+      enableTranslation: enableTranslation !== false,
+      uploadCn: uploadCn === true,
+      safetyTolerance: safetyToleranceClamped,
+    };
+    const watermarkText = String(watermark || "").trim();
+    if (watermarkText) requestBody.watermark = watermarkText;
+    if (callbackUrl) requestBody.callBackUrl = callbackUrl;
+
     try {
-      return await kieRun(reqBody, "flux-kontext", KIE_POLL_TIMEOUT_IMAGE_MS, {
-        onTaskCreated: payload.onTaskCreated,
+      const res = await fetch(buildKieUrl("/flux/kontext/generate"), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${KIE_API_KEY}`,
+        },
+        body: JSON.stringify(requestBody),
+        signal: AbortSignal.timeout(30_000),
       });
+      const text = await res.text();
+      if (!res.ok) throw new Error(kieHttpErrorMessage(res.status, text));
+
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error(`AI service invalid response: ${text.slice(0, 200)}`);
+      }
+      if (data.code !== 200) {
+        throw new Error(`AI service error (code ${data.code}): ${data.message || data.msg || "unknown"}`);
+      }
+
+      const taskId = data.data?.taskId || data.data?.task_id;
+      if (!taskId) {
+        throw new Error(`AI service invalid response: ${text.slice(0, 200)}`);
+      }
+
+      if (typeof payload.onTaskCreated === "function") {
+        try { await payload.onTaskCreated(taskId); } catch (e) {
+          console.warn("[KIE] Flux onTaskCreated failed:", e?.message);
+        }
+      }
+
+      if (callbackUrl) {
+        return { success: true, deferred: true, taskId };
+      }
+      const rawUrl = await kiePollTask(taskId, KIE_POLL_TIMEOUT_IMAGE_MS, "flux-kontext");
+      const outputUrl = await archiveToR2(rawUrl);
+      return { success: true, outputUrl, taskId };
     } catch (error) {
       const msg = String(error?.message || "");
-      const unsupported = msg.includes("code 422") && msg.toLowerCase().includes("model");
-      if (unsupported) sawUnsupportedModelError = true;
-      const hasNext = candidate !== candidates[candidates.length - 1];
-      if (!unsupported || !hasNext) throw error;
+      const unsupportedModel = msg.includes("code 422") && msg.toLowerCase().includes("model");
+      const hasNext = modelId !== modelCandidates[modelCandidates.length - 1];
+      if (!unsupportedModel || !hasNext) throw error;
     }
   }
-  // Dedicated OpenAPI path only accepts model: "flux-kontext-pro" | "flux-kontext-max" (not Replicate-style slugs).
-  if (sawUnsupportedModelError) {
-    const wantMax =
-      primaryModel === "flux-kontext-max"
-      || primaryModel.includes("flux-kontext-max")
-      || primaryModel.includes("black-forest-labs/flux-kontext-max");
-    const dedicatedModels = wantMax
-      ? ["flux-kontext-max", "flux-kontext-pro"]
-      : ["flux-kontext-pro", "flux-kontext-max"];
-    for (const modelId of dedicatedModels) {
-      const requestBody = {
-        model: modelId,
-        prompt: baseInput.prompt,
-        ...(baseInput.inputImage ? { inputImage: baseInput.inputImage } : {}),
-        aspectRatio: baseInput.aspectRatio,
-        outputFormat: baseInput.outputFormat,
-        promptUpsampling: baseInput.promptUpsampling,
-        enableTranslation: baseInput.enableTranslation,
-        safetyTolerance: baseInput.safetyTolerance,
-      };
-      const callbackUrl = callBackUrl || getKieCallbackUrl();
-      if (callbackUrl) requestBody.callBackUrl = callbackUrl;
-      try {
-        const res = await fetch(buildKieUrl("/flux/kontext/generate"), {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${KIE_API_KEY}`,
-          },
-          body: JSON.stringify(requestBody),
-          signal: AbortSignal.timeout(30_000),
-        });
-        const text = await res.text();
-        if (!res.ok) throw new Error(kieHttpErrorMessage(res.status, text));
-        const data = JSON.parse(text);
-        if (data.code !== 200) {
-          throw new Error(`AI service error (code ${data.code}): ${data.message || data.msg || "unknown"}`);
-        }
-        const taskId = data.data?.taskId || data.data?.task_id;
-        if (!taskId) {
-          throw new Error(`AI service invalid response: ${text.slice(0, 200)}`);
-        }
-        if (typeof payload.onTaskCreated === "function") {
-          try { await payload.onTaskCreated(taskId); } catch (e) {
-            console.warn("[KIE] Flux onTaskCreated failed:", e?.message);
-          }
-        }
-        if (callbackUrl) {
-          return { success: true, deferred: true, taskId };
-        }
-        const rawUrl = await kiePollTask(taskId, KIE_POLL_TIMEOUT_IMAGE_MS, "flux-kontext");
-        const outputUrl = await archiveToR2(rawUrl);
-        return { success: true, outputUrl, taskId };
-      } catch (error) {
-        const msg = String(error?.message || "");
-        const unsupported = msg.includes("code 422") && msg.toLowerCase().includes("model");
-        const hasNext = modelId !== dedicatedModels[dedicatedModels.length - 1];
-        if (!unsupported || !hasNext) throw error;
-      }
-    }
-  }
+
   throw new Error("Flux Kontext request failed without a retryable candidate model.");
 }
 
@@ -1669,9 +1804,18 @@ async function generateWan27ImageKieInternal(payload = {}) {
     bboxList = null,
     watermark = false,
     seed = 0,
+    nsfwChecker = false,
   } = payload;
+  const hasInputUrls = Array.isArray(inputUrls) && inputUrls.length > 0;
+  const isSequential = enableSequential === true;
+  const normalizedAspectRatio = (() => {
+    const raw = String(aspectRatio || "1:1").replace(/\s+/g, "");
+    const allowed = new Set(["1:1", "16:9", "4:3", "21:9", "3:4", "9:16", "8:1", "1:8"]);
+    return allowed.has(raw) ? raw : "1:1";
+  })();
 
   const normalizedColorPalette = (() => {
+    if (isSequential) return [];
     if (!Array.isArray(colorPalette)) return [];
     const mapped = colorPalette
       .map((entry) => {
@@ -1687,7 +1831,8 @@ async function generateWan27ImageKieInternal(payload = {}) {
       })
       .filter((entry) => entry && /^#[0-9a-fA-F]{6}$/.test(entry.hex))
       .slice(0, 10);
-    if (!mapped.length) return [];
+    // KIE expects 3-10 entries when color_palette is present.
+    if (mapped.length < 3) return [];
     const hasMissingRatio = mapped.some((entry) => !entry.ratio);
     if (!hasMissingRatio) return mapped;
     const share = (100 / mapped.length).toFixed(2);
@@ -1698,35 +1843,48 @@ async function generateWan27ImageKieInternal(payload = {}) {
   })();
 
   const normalizedBboxList = (() => {
+    if (!hasInputUrls) return [];
     if (!Array.isArray(bboxList)) return [];
+    if (bboxList.length === 0) return [];
     const isBox = (row) =>
       Array.isArray(row) && row.length === 4 && row.every((n) => Number.isFinite(Number(n)));
     const toBox = (row) => row.map((n) => Number(n));
     // [ [x1,y1,x2,y2], ... ] => wrap for one input image
     if (bboxList.every((row) => isBox(row))) {
-      return [bboxList.map(toBox)];
+      return [bboxList.map(toBox).slice(0, 2)];
     }
     // [ [ [x1,y1,x2,y2], ... ], ... ] => already grouped per image
     if (bboxList.every((row) => Array.isArray(row) && row.every((box) => isBox(box)))) {
-      return bboxList.map((row) => row.map(toBox));
+      return bboxList.map((row) => row.map(toBox).slice(0, 2));
     }
     return [];
   })();
+
+  const normalizedInputUrls = hasInputUrls ? inputUrls.slice(0, 9) : [];
+  const normalizedN = isSequential
+    ? Math.min(12, Math.max(1, Number.parseInt(String(n || 12), 10) || 12))
+    : Math.min(4, Math.max(1, Number.parseInt(String(n || 4), 10) || 4));
+  const normalizedThinkingMode = !isSequential && !hasInputUrls && thinkingMode === true;
 
   const reqBody = {
     model: String(payload.model || "wan/2-7-image-pro"),
     input: {
       prompt: String(prompt || "").trim(),
-      ...(Array.isArray(inputUrls) && inputUrls.length ? { input_urls: inputUrls.slice(0, 9) } : {}),
-      ...(!inputUrls?.length ? { aspect_ratio: String(aspectRatio || "1:1") } : {}),
-      enable_sequential: !!enableSequential,
-      n: Math.max(1, Number.parseInt(String(n || 1), 10) || 1),
+      ...(normalizedInputUrls.length ? { input_urls: normalizedInputUrls } : {}),
+      ...(!normalizedInputUrls.length ? { aspect_ratio: normalizedAspectRatio } : {}),
+      enable_sequential: isSequential,
+      n: normalizedN,
       resolution: String(resolution || "2K"),
-      thinking_mode: !!thinkingMode,
+      thinking_mode: normalizedThinkingMode,
       ...(normalizedColorPalette.length ? { color_palette: normalizedColorPalette } : {}),
-      ...(normalizedBboxList.length ? { bbox_list: normalizedBboxList } : {}),
+      ...(normalizedInputUrls.length
+        && normalizedBboxList.length
+        && normalizedBboxList.length === normalizedInputUrls.length
+        ? { bbox_list: normalizedBboxList }
+        : {}),
       watermark: !!watermark,
       seed: Math.max(0, Number.parseInt(String(seed || 0), 10) || 0),
+      nsfw_checker: nsfwChecker === true,
     },
   };
 
@@ -1925,6 +2083,12 @@ export function generateVideoWithVeo31Kie(...args) {
 }
 export function extendVideoWithVeo31Kie(...args) {
   return enqueueKieJob(() => extendVideoWithVeo31KieInternal(...args));
+}
+export function requestVeo31Video4k(...args) {
+  return enqueueKieJob(() => requestVeo31Video4kInternal(...args));
+}
+export function requestVeo31Video1080p(...args) {
+  return enqueueKieJob(() => requestVeo31Video1080pInternal(...args));
 }
 export function createVolcanicAssetKie(...args) {
   return enqueueKieJob(() => createVolcanicAssetKieInternal(...args));

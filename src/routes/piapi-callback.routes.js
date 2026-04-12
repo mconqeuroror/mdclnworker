@@ -40,11 +40,18 @@ router.post("/", async (req, res) => {
   let taskId = null;
   try {
     const payload = req.body || {};
-    const data = payload.data || {};
-    taskId = String(data.task_id || "").trim();
+    // PiAPI webhook payloads may arrive in two shapes:
+    // 1) Envelope: { code, data: { task_id, status, output, error } }
+    // 2) Raw task object: { task_id, status, output, error, ... }
+    const data = payload?.data && typeof payload.data === "object" ? payload.data : payload;
+    taskId = String(data.task_id || data.taskId || "").trim();
     const status = String(data.status || "").toLowerCase();
-    const outputVideo = data.output?.video || null;
-    const errorMsg = data.error?.message || null;
+    const outputVideo =
+      data.output?.video ||
+      data.output?.url ||
+      (Array.isArray(data.output?.videos) ? data.output.videos[0] : null) ||
+      null;
+    const errorMsg = data.error?.message || data.message || null;
 
     if (!taskId) {
       console.warn("[PiAPI Callback] No task_id in payload:", JSON.stringify(payload).slice(0, 200));
@@ -53,8 +60,11 @@ router.post("/", async (req, res) => {
 
     console.log(`[PiAPI Callback] task_id=${taskId} status=${status} hasVideo=${!!outputVideo}`);
 
+    const isCompleted = ["completed", "success", "succeeded", "finished", "done"].includes(status);
+    const isFailed = ["failed", "fail", "error", "cancelled", "canceled"].includes(status);
+
     // Ignore intermediate states — only act on terminal states
-    if (status !== "completed" && status !== "failed") {
+    if (!isCompleted && !isFailed) {
       return ack(res, "intermediate state");
     }
 
@@ -79,7 +89,7 @@ router.post("/", async (req, res) => {
       return ack(res, "already completed");
     }
 
-    if (status === "completed" && outputVideo) {
+    if (isCompleted && outputVideo) {
       const finalUrl = await mirrorProviderOutputUrl(outputVideo, "video/mp4");
       await prisma.generation.update({
         where: { id: gen.id },
@@ -87,7 +97,11 @@ router.post("/", async (req, res) => {
       });
       console.log(`[PiAPI Callback] Completed gen ${gen.id.slice(0, 8)} → ${finalUrl.slice(0, 80)}`);
     } else {
-      const errText = getErrorMessageForDb(errorMsg || `PiAPI task ${status}`);
+      const errText = getErrorMessageForDb(
+        isCompleted
+          ? "PiAPI task completed but returned no output video URL"
+          : (errorMsg || `PiAPI task ${status}`),
+      );
       await prisma.generation.update({
         where: { id: gen.id },
         data: { status: "failed", errorMessage: errText, completedAt: new Date(), pipelinePayload: null },

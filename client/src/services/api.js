@@ -940,6 +940,14 @@ export const creatorStudioAPI = {
     const response = await api.post("/generate/creator-studio/video/extend", payload);
     return response.data;
   },
+  getVideo4k: async (payload) => {
+    const response = await api.post("/generate/creator-studio/video/4k", payload);
+    return response.data;
+  },
+  getVideo1080p: async ({ taskId, index = 0 } = {}) => {
+    const response = await api.get(`/generate/creator-studio/video/1080p?taskId=${encodeURIComponent(taskId || "")}&index=${encodeURIComponent(String(index))}`);
+    return response.data;
+  },
   uploadMask: async ({ maskDataUrl }) => {
     const response = await api.post("/generate/creator-studio/mask-upload", { maskDataUrl });
     return response.data;
