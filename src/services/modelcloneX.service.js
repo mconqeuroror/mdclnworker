@@ -14,11 +14,6 @@ const __dirname = path.dirname(__filename);
 const RUNPOD_API_KEY = process.env.RUNPOD_API_KEY;
 const RUNPOD_MODELCLONE_X_ENDPOINT_ID =
   String(process.env.RUNPOD_MODELCLONE_X_ENDPOINT_ID || process.env.RUNPOD_SOULX_ENDPOINT_ID || "").trim() || null;
-const RUNPOD_NSFW_ENDPOINT_ID = process.env.RUNPOD_ENDPOINT_ID;
-const RUNPOD_UPSCALER_ENDPOINT_ID = process.env.RUNPOD_UPSCALER_ENDPOINT_ID;
-const ALLOW_SHARED =
-  String(process.env.MODELCLONE_X_ALLOW_SHARED_ENDPOINT || process.env.SOULX_ALLOW_SHARED_ENDPOINT || "")
-    .trim() === "1";
 
 if (!RUNPOD_MODELCLONE_X_ENDPOINT_ID) {
   console.warn("⚠️  RUNPOD_MODELCLONE_X_ENDPOINT_ID (or RUNPOD_SOULX_ENDPOINT_ID) not set — ModelClone-X will not work");
@@ -141,21 +136,6 @@ export async function submitModelCloneXJob(opts, webhookUrl = null) {
   if (!RUNPOD_API_KEY || !RUNPOD_MODELCLONE_X_ENDPOINT_ID) {
     throw new Error(
       "ModelClone-X service not configured (missing RUNPOD_API_KEY or RUNPOD_MODELCLONE_X_ENDPOINT_ID / RUNPOD_SOULX_ENDPOINT_ID)",
-    );
-  }
-  const overlapsNsfw = RUNPOD_NSFW_ENDPOINT_ID && RUNPOD_MODELCLONE_X_ENDPOINT_ID === RUNPOD_NSFW_ENDPOINT_ID;
-  const overlapsUpscaler =
-    RUNPOD_UPSCALER_ENDPOINT_ID && RUNPOD_MODELCLONE_X_ENDPOINT_ID === RUNPOD_UPSCALER_ENDPOINT_ID;
-  if (overlapsNsfw || overlapsUpscaler) {
-    if (!ALLOW_SHARED) {
-      throw new Error(
-        "ModelClone-X endpoint misconfigured: endpoint id overlaps another RunPod endpoint. " +
-          "Set a dedicated endpoint, or set MODELCLONE_X_ALLOW_SHARED_ENDPOINT=1 (or SOULX_ALLOW_SHARED_ENDPOINT=1) to override.",
-      );
-    }
-    console.warn(
-      "[ModelCloneX] WARNING: shared endpoint override enabled. " +
-        "ModelClone-X jobs may compete with NSFW/upscaler capacity.",
     );
   }
 
