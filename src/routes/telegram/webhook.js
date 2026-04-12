@@ -1,6 +1,8 @@
 import { Router } from "express";
+import bcrypt from "bcryptjs";
 import {
   answerCallbackQuery,
+  deleteMessage,
   sendMessage,
   setMyCommands,
 } from "../../services/telegramBot.js";
@@ -10,7 +12,9 @@ const router = Router();
 const miniAppBaseUrl = (process.env.TELEGRAM_MINI_APP_URL || "https://modelclone.app").replace(/\/$/, "");
 let commandsInitialized = false;
 const chatModeMap = new Map();
-const pendingLegacyAction = new Map();
+const legacySessionMap = new Map();
+const legacyFlowMap = new Map();
+const lastBotMessagesMap = new Map();
 const MODE_MINI = "mini";
 const MODE_LEGACY = "legacy";
 
@@ -18,15 +22,15 @@ const COMMANDS = [
   { command: "start", description: "Open ModelClone bot menu" },
   { command: "menu", description: "Show command menu" },
   { command: "mode", description: "Switch Mini App / Legacy bot mode" },
-  { command: "app", description: "Open ModelClone studio" },
-  { command: "dashboard", description: "Open dashboard" },
-  { command: "models", description: "Open my avatars" },
-  { command: "generate", description: "Open create with avatar" },
-  { command: "creator", description: "Open Creator Studio" },
-  { command: "history", description: "Open history" },
-  { command: "settings", description: "Open settings" },
-  { command: "pricing", description: "View pricing" },
+  { command: "login", description: "Login with email/password in chat" },
+  { command: "logout", description: "Logout from legacy mode" },
+  { command: "models", description: "List and manage your models" },
+  { command: "dashboard", description: "Show account stats" },
+  { command: "history", description: "Show recent generations" },
+  { command: "generate", description: "Start legacy prompt flow" },
+  { command: "pricing", description: "Show pricing info" },
   { command: "help", description: "Get support links" },
+  { command: "app", description: "Open ModelClone Mini App" },
 ];
 
 const sectionTabs = {
@@ -71,6 +75,52 @@ function buildSectionUrl(sectionKey) {
   return `${miniAppBaseUrl}/dashboard?tab=${encodeURIComponent(tab)}`;
 }
 
+function setSession(chatId, session) {
+  legacySessionMap.set(String(chatId), session);
+}
+
+function getSession(chatId) {
+  return legacySessionMap.get(String(chatId)) || null;
+}
+
+function clearSession(chatId) {
+  legacySessionMap.delete(String(chatId));
+}
+
+function setFlow(chatId, flow) {
+  legacyFlowMap.set(String(chatId), flow);
+}
+
+function getFlow(chatId) {
+  return legacyFlowMap.get(String(chatId)) || null;
+}
+
+function clearFlow(chatId) {
+  legacyFlowMap.delete(String(chatId));
+}
+
+async function clearTrackedBotMessages(chatId) {
+  const key = String(chatId);
+  const tracked = lastBotMessagesMap.get(key) || [];
+  for (const messageId of tracked) {
+    try {
+      await deleteMessage(chatId, messageId);
+    } catch {
+      // Ignore cleanup errors; some messages can no longer be deleted.
+    }
+  }
+  lastBotMessagesMap.set(key, []);
+}
+
+async function sendTrackedMessage(chatId, text, replyMarkup) {
+  await clearTrackedBotMessages(chatId);
+  const sent = await sendMessage(chatId, text, replyMarkup);
+  if (sent?.message_id) {
+    lastBotMessagesMap.set(String(chatId), [sent.message_id]);
+  }
+  return sent;
+}
+
 function modeChooserKeyboard() {
   return {
     inline_keyboard: [
@@ -106,9 +156,9 @@ function mainMenuKeyboard() {
 function legacyReplyKeyboard() {
   return {
     keyboard: [
-      ["Generate", "Models", "Dashboard"],
-      ["History", "Settings", "Pricing"],
-      ["Help", "Open Mini App", "Switch Mode"],
+      ["Login", "Models", "Dashboard"],
+      ["History", "Pricing", "Help"],
+      ["Generate", "Logout", "Switch Mode"],
     ],
     resize_keyboard: true,
     is_persistent: true,
@@ -119,20 +169,20 @@ function legacyMainKeyboard() {
   return {
     inline_keyboard: [
       [
-        { text: "Generate", callback_data: "legacy:generate" },
+        { text: "Login", callback_data: "legacy:login" },
+        { text: "Logout", callback_data: "legacy:logout" },
+      ],
+      [
         { text: "Models", callback_data: "legacy:models" },
+        { text: "Generate", callback_data: "legacy:generate" },
       ],
       [
         { text: "Dashboard", callback_data: "legacy:dashboard" },
         { text: "History", callback_data: "legacy:history" },
       ],
       [
-        { text: "Settings", callback_data: "legacy:settings" },
         { text: "Pricing", callback_data: "legacy:pricing" },
-      ],
-      [
         { text: "Help", callback_data: "legacy:help" },
-        { text: "Open Mini App", web_app: { url: miniAppBaseUrl } },
       ],
       [{ text: "Switch to Mini App mode", callback_data: "mode:set:mini" }],
     ],
@@ -143,9 +193,8 @@ function submenuKeyboard(type) {
   if (type === "create") {
     return {
       inline_keyboard: [
-        [{ text: "Create with Avatar", web_app: { url: buildSectionUrl("generate") } }],
-        [{ text: "Creator Studio", web_app: { url: buildSectionUrl("creator") } }],
-        [{ text: "My Avatars", web_app: { url: buildSectionUrl("models") } }],
+        [{ text: "Start Prompt Flow", callback_data: "legacy:generate" }],
+        [{ text: "List Models", callback_data: "legacy:models" }],
         [{ text: "Back", callback_data: "menu:main" }],
       ],
     };
@@ -153,10 +202,9 @@ function submenuKeyboard(type) {
   if (type === "account") {
     return {
       inline_keyboard: [
-        [{ text: "Dashboard", web_app: { url: buildSectionUrl("dashboard") } }],
-        [{ text: "History", web_app: { url: buildSectionUrl("history") } }],
-        [{ text: "Settings", web_app: { url: buildSectionUrl("settings") } }],
-        [{ text: "Referral Program", web_app: { url: buildSectionUrl("referral") } }],
+        [{ text: "Dashboard", callback_data: "legacy:dashboard" }],
+        [{ text: "History", callback_data: "legacy:history" }],
+        [{ text: "Login", callback_data: "legacy:login" }],
         [{ text: "Back", callback_data: "menu:main" }],
       ],
     };
@@ -164,10 +212,8 @@ function submenuKeyboard(type) {
   if (type === "tools") {
     return {
       inline_keyboard: [
-        [{ text: "Reformatter", web_app: { url: buildSectionUrl("reformatter") } }],
-        [{ text: "First Frame Extractor", web_app: { url: buildSectionUrl("frame") } }],
-        [{ text: "Upscaler", web_app: { url: buildSectionUrl("upscaler") } }],
-        [{ text: "ModelClone-X", web_app: { url: buildSectionUrl("modelclonex") } }],
+        [{ text: "Models", callback_data: "legacy:models" }],
+        [{ text: "Pricing", callback_data: "legacy:pricing" }],
         [{ text: "Back", callback_data: "menu:main" }],
       ],
     };
@@ -175,9 +221,8 @@ function submenuKeyboard(type) {
   if (type === "monetize") {
     return {
       inline_keyboard: [
-        [{ text: "Repurposer", web_app: { url: buildSectionUrl("repurposer") } }],
-        [{ text: "Reel Finder", web_app: { url: buildSectionUrl("reelfinder") } }],
-        [{ text: "NSFW Studio", web_app: { url: buildSectionUrl("nsfw") } }],
+        [{ text: "Pricing", callback_data: "legacy:pricing" }],
+        [{ text: "Help", callback_data: "legacy:help" }],
         [{ text: "Back", callback_data: "menu:main" }],
       ],
     };
@@ -185,77 +230,130 @@ function submenuKeyboard(type) {
   return mainMenuKeyboard();
 }
 
-async function getTelegramUserSnapshot(telegramUserId) {
-  const telegramId = String(telegramUserId || "");
-  if (!telegramId) return null;
-  return prisma.user.findFirst({
-    where: { telegram_id: telegramId },
-    select: {
-      id: true,
-      email: true,
-      name: true,
-      credits: true,
-      subscriptionCredits: true,
-      purchasedCredits: true,
-      subscriptionStatus: true,
-      createdAt: true,
-    },
-  });
-}
-
 async function sendMainMenu(chatId, firstName = "") {
   const greeting = firstName ? `Hi ${firstName}!` : "Hi!";
   const text =
     `${greeting} Use commands or buttons to navigate ModelClone.\n\n` +
     "You can access every app section directly from this bot menu.";
-  await sendMessage(chatId, text, mainMenuKeyboard());
+  await sendTrackedMessage(chatId, text, mainMenuKeyboard());
 }
 
 async function sendLegacyMenu(chatId, firstName = "") {
   const greeting = firstName ? `Hi ${firstName}!` : "Hi!";
   const text =
     `${greeting} Legacy Bot mode is active.\n\n` +
-    "Use the classic keyboard or tap buttons below to use ModelClone directly in chat.";
-  await sendMessage(chatId, text, legacyReplyKeyboard());
-  await sendMessage(chatId, "Legacy actions:", legacyMainKeyboard());
+    "This mode is fully chat-based (no Mini App links).";
+  await sendTrackedMessage(chatId, text, legacyReplyKeyboard());
+  await sendTrackedMessage(chatId, "Legacy actions:", legacyMainKeyboard());
+}
+
+async function ensureLegacyAuth(chatId) {
+  const session = getSession(chatId);
+  if (session?.userId) return session;
+  await sendTrackedMessage(
+    chatId,
+    "Legacy mode requires chat login. Press Login to continue.",
+    legacyMainKeyboard(),
+  );
+  return null;
+}
+
+async function sendModelsList(chatId, userId) {
+  const models = await prisma.savedModel.findMany({
+    where: { userId },
+    select: { id: true, name: true, status: true },
+    orderBy: { createdAt: "desc" },
+    take: 20,
+  });
+  if (!models.length) {
+    await sendTrackedMessage(chatId, "No models found yet.", legacyMainKeyboard());
+    return;
+  }
+  const rows = models.map((model) => [
+    {
+      text: `${model.name} (${model.status || "ready"})`,
+      callback_data: `legacy:model:open:${model.id}`,
+    },
+  ]);
+  rows.push([{ text: "Back", callback_data: "menu:main" }]);
+  await sendTrackedMessage(chatId, "Your models:", { inline_keyboard: rows });
 }
 
 async function handleLegacyAction(chatId, action, telegramUserId) {
-  if (action === "generate") {
-    pendingLegacyAction.set(String(chatId), "await_generate_prompt");
-    await sendMessage(
+  if (action === "login") {
+    setFlow(chatId, { step: "await_email" });
+    await sendTrackedMessage(chatId, "Enter your email:", {
+      keyboard: [["Cancel"]],
+      resize_keyboard: true,
+      one_time_keyboard: true,
+    });
+    return;
+  }
+
+  if (action === "logout") {
+    clearSession(chatId);
+    clearFlow(chatId);
+    await sendTrackedMessage(chatId, "Logged out from legacy chat mode.", legacyMainKeyboard());
+    return;
+  }
+
+  if (action === "help") {
+    await sendTrackedMessage(
       chatId,
-      "Send me your generation prompt now. I will prepare it and route it into your generation flow.",
+      "Support:\n- Telegram: https://t.me/modelclonechat\n- Discord: https://discord.gg/vpwGygjEaB",
       legacyMainKeyboard(),
     );
     return;
   }
-  if (action === "models") {
-    await sendMessage(
+
+  if (action === "pricing") {
+    await sendTrackedMessage(
       chatId,
-      "Manage avatars from chat:\n- Use /models to open the avatar list\n- Use /generate after selecting your avatar",
-      {
-        inline_keyboard: [[{ text: "Open My Avatars", web_app: { url: buildSectionUrl("models") } }]],
-      },
+      "Pricing overview:\n- Free trial available\n- Credit packs for one-time usage\n- Subscription plans for recurring credits",
+      legacyMainKeyboard(),
     );
     return;
   }
+
+  const session = await ensureLegacyAuth(chatId);
+  if (!session) return;
+
+  if (action === "generate") {
+    setFlow(chatId, { step: "await_generate_prompt" });
+    await sendTrackedMessage(
+      chatId,
+      "Send your generation prompt now.",
+      legacyMainKeyboard(),
+    );
+    return;
+  }
+
+  if (action === "models") {
+    await sendModelsList(chatId, session.userId);
+    return;
+  }
+
   if (action === "dashboard") {
-    const user = await getTelegramUserSnapshot(telegramUserId);
+    const user = await prisma.user.findUnique({
+      where: { id: session.userId },
+      select: {
+        name: true,
+        email: true,
+        credits: true,
+        subscriptionCredits: true,
+        purchasedCredits: true,
+        subscriptionStatus: true,
+      },
+    });
     if (!user) {
-      await sendMessage(
-        chatId,
-        "Your Telegram account is not linked yet. Open Mini App once and sign in to sync account data.",
-        {
-          inline_keyboard: [[{ text: "Open Studio", web_app: { url: miniAppBaseUrl } }]],
-        },
-      );
+      clearSession(chatId);
+      await sendTrackedMessage(chatId, "Session expired. Please login again.", legacyMainKeyboard());
       return;
     }
     const totalCredits = Number(user.credits ?? 0) || 0;
     const subCredits = Number(user.subscriptionCredits ?? 0) || 0;
     const purchased = Number(user.purchasedCredits ?? 0) || 0;
-    await sendMessage(
+    await sendTrackedMessage(
       chatId,
       `Account: ${user.name || user.email || "User"}\n` +
         `Credits: ${totalCredits}\nSubscription credits: ${subCredits}\nPurchased credits: ${purchased}\n` +
@@ -264,67 +362,50 @@ async function handleLegacyAction(chatId, action, telegramUserId) {
     );
     return;
   }
+
   if (action === "history") {
-    await sendMessage(
-      chatId,
-      "History is available in app view. Tap below to open directly.",
-      {
-        inline_keyboard: [[{ text: "Open History", web_app: { url: buildSectionUrl("history") } }]],
-      },
+    const rows = await prisma.generation.findMany({
+      where: { userId: session.userId },
+      orderBy: { createdAt: "desc" },
+      take: 8,
+      select: { type: true, status: true, createdAt: true },
+    });
+    if (!rows.length) {
+      await sendTrackedMessage(chatId, "No generation history yet.", legacyMainKeyboard());
+      return;
+    }
+    const lines = rows.map(
+      (item, index) =>
+        `${index + 1}. ${item.type} • ${item.status} • ${new Date(item.createdAt).toLocaleString()}`,
     );
-    return;
-  }
-  if (action === "settings") {
-    await sendMessage(
-      chatId,
-      "Settings and account security controls are available in app settings.",
-      {
-        inline_keyboard: [[{ text: "Open Settings", web_app: { url: buildSectionUrl("settings") } }]],
-      },
-    );
-    return;
-  }
-  if (action === "pricing") {
-    await sendMessage(
-      chatId,
-      "Pricing and plans are available in the credits screen.",
-      {
-        inline_keyboard: [[{ text: "Open Pricing", web_app: { url: `${miniAppBaseUrl}/dashboard?openCredits=true` } }]],
-      },
-    );
-    return;
-  }
-  if (action === "help") {
-    await sendMessage(
-      chatId,
-      "Support:\n- Telegram: https://t.me/modelclonechat\n- Discord: https://discord.gg/vpwGygjEaB",
-      legacyMainKeyboard(),
-    );
+    await sendTrackedMessage(chatId, `Recent generations:\n${lines.join("\n")}`, legacyMainKeyboard());
     return;
   }
 
-  // Fallback: route any remaining section action to app deep-link.
-  await sendMessage(
+  await sendTrackedMessage(
     chatId,
-    `Open ${action} in the app:`,
-    {
-      inline_keyboard: [[{ text: `Open ${action}`, web_app: { url: buildSectionUrl(action) } }]],
-    },
+    `Action "${action}" is not available yet in pure legacy mode.`,
+    legacyMainKeyboard(),
   );
+
+  if (telegramUserId) {
+    await prisma.user
+      .update({
+        where: { id: session.userId },
+        data: { telegram_id: String(telegramUserId), is_telegram: true },
+      })
+      .catch(() => {});
+  }
 }
 
 async function handleCommand(chatId, command, firstName = "", telegramUserId = null) {
   if (command === "start") {
-    await sendMessage(
-      chatId,
-      "Choose how you want to use ModelClone:",
-      modeChooserKeyboard(),
-    );
+    await sendTrackedMessage(chatId, "Choose how you want to use ModelClone:", modeChooserKeyboard());
     return;
   }
 
   if (command === "mode") {
-    await sendMessage(chatId, "Choose your preferred interaction mode:", modeChooserKeyboard());
+    await sendTrackedMessage(chatId, "Choose your preferred interaction mode:", modeChooserKeyboard());
     return;
   }
 
@@ -335,18 +416,13 @@ async function handleCommand(chatId, command, firstName = "", telegramUserId = n
     return;
   }
 
-  if (mode === MODE_LEGACY && command === "help") {
-    await handleLegacyAction(chatId, "help", telegramUserId);
-    return;
-  }
-
-  if (mode === MODE_LEGACY && command === "pricing") {
-    await handleLegacyAction(chatId, "pricing", telegramUserId);
-    return;
-  }
-
-  if (mode === MODE_LEGACY && sectionTabs[command]) {
+  if (mode === MODE_LEGACY && ["login", "logout", "help", "pricing", "models", "dashboard", "generate", "history"].includes(command)) {
     await handleLegacyAction(chatId, command, telegramUserId);
+    return;
+  }
+
+  if (mode === MODE_LEGACY && command === "app") {
+    await sendTrackedMessage(chatId, "Legacy mode is chat-only. Use /mode to switch to Mini App mode.");
     return;
   }
 
@@ -356,18 +432,16 @@ async function handleCommand(chatId, command, firstName = "", telegramUserId = n
   }
 
   if (command === "help") {
-    await sendMessage(
+    await sendTrackedMessage(
       chatId,
       "Support:\n- Telegram: https://t.me/modelclonechat\n- Discord: https://discord.gg/vpwGygjEaB",
-      {
-        inline_keyboard: [[{ text: "Open Menu", callback_data: "menu:main" }]],
-      },
+      { inline_keyboard: [[{ text: "Open Menu", callback_data: "menu:main" }]] },
     );
     return;
   }
 
   if (command === "pricing") {
-    await sendMessage(
+    await sendTrackedMessage(
       chatId,
       "Pricing and plans are available inside the app. Tap below to open plans instantly.",
       {
@@ -378,20 +452,20 @@ async function handleCommand(chatId, command, firstName = "", telegramUserId = n
   }
 
   if (command === "app") {
-    await sendMessage(chatId, "Open ModelClone Studio:", {
+    await sendTrackedMessage(chatId, "Open ModelClone Studio:", {
       inline_keyboard: [[{ text: "Open Studio", web_app: { url: miniAppBaseUrl } }]],
     });
     return;
   }
 
   if (sectionTabs[command]) {
-    await sendMessage(chatId, `Open ${command} in ModelClone:`, {
+    await sendTrackedMessage(chatId, `Open ${command} in ModelClone:`, {
       inline_keyboard: [[{ text: `Open ${command}`, web_app: { url: buildSectionUrl(command) } }]],
     });
     return;
   }
 
-  await sendMessage(
+  await sendTrackedMessage(
     chatId,
     "Unknown command. Use /menu to open navigation.",
     { inline_keyboard: [[{ text: "Open Menu", callback_data: "menu:main" }]] },
@@ -400,14 +474,15 @@ async function handleCommand(chatId, command, firstName = "", telegramUserId = n
 
 function normalizeLegacyTextAction(rawText = "") {
   const text = String(rawText || "").trim().toLowerCase();
+  if (text === "cancel") return "cancel";
+  if (text === "login") return "login";
+  if (text === "logout") return "logout";
   if (text === "generate") return "generate";
   if (text === "models") return "models";
   if (text === "dashboard") return "dashboard";
   if (text === "history") return "history";
-  if (text === "settings") return "settings";
   if (text === "pricing") return "pricing";
   if (text === "help") return "help";
-  if (text === "open mini app") return "open_mini_app";
   if (text === "switch mode") return "switch_mode";
   return null;
 }
@@ -417,33 +492,117 @@ async function handleLegacyPlainMessage(message) {
   const text = String(message?.text || "").trim();
   const telegramUserId = message?.from?.id;
   if (!chatId || !text) return false;
-  const pending = pendingLegacyAction.get(String(chatId));
-  if (pending === "await_generate_prompt") {
-    pendingLegacyAction.delete(String(chatId));
-    await sendMessage(
-      chatId,
-      `Prompt received:\n"${text}"\n\n` +
-        "Generation execution is routed through the app engine. Tap below to generate with this prompt.",
-      {
-        inline_keyboard: [
-          [{ text: "Open Generate", web_app: { url: `${buildSectionUrl("generate")}&prefillPrompt=${encodeURIComponent(text)}` } }],
-          [{ text: "Generate another prompt", callback_data: "legacy:generate" }],
-        ],
+
+  const flow = getFlow(chatId);
+  if (flow?.step === "await_email") {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text)) {
+      await sendTrackedMessage(chatId, "Invalid email format. Enter a valid email:", {
+        keyboard: [["Cancel"]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      });
+      return true;
+    }
+    setFlow(chatId, { step: "await_password", email: text.toLowerCase() });
+    await sendTrackedMessage(chatId, "Enter your password:", {
+      keyboard: [["Cancel"]],
+      resize_keyboard: true,
+      one_time_keyboard: true,
+    });
+    return true;
+  }
+
+  if (flow?.step === "await_password") {
+    const user = await prisma.user.findUnique({
+      where: { email: String(flow.email || "").toLowerCase() },
+      select: {
+        id: true,
+        email: true,
+        password: true,
+        authProvider: true,
+        isVerified: true,
+        banLocked: true,
       },
+    });
+    if (!user || user.authProvider !== "email" || !user.password) {
+      clearFlow(chatId);
+      await sendTrackedMessage(chatId, "No email/password account found for this email.", legacyMainKeyboard());
+      return true;
+    }
+    if (user.banLocked) {
+      clearFlow(chatId);
+      await sendTrackedMessage(chatId, "This account is suspended.", legacyMainKeyboard());
+      return true;
+    }
+    if (!user.isVerified) {
+      clearFlow(chatId);
+      await sendTrackedMessage(chatId, "Please verify your email before logging in.", legacyMainKeyboard());
+      return true;
+    }
+    const valid = await bcrypt.compare(text, user.password);
+    if (!valid) {
+      await sendTrackedMessage(chatId, "Incorrect password. Try again or press Cancel.", {
+        keyboard: [["Cancel"]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      });
+      return true;
+    }
+    clearFlow(chatId);
+    setSession(chatId, { userId: user.id, email: user.email });
+    if (telegramUserId) {
+      await prisma.user
+        .update({
+          where: { id: user.id },
+          data: { telegram_id: String(telegramUserId), is_telegram: true },
+        })
+        .catch(() => {});
+    }
+    await sendTrackedMessage(chatId, "Login successful. Legacy session is active.", legacyMainKeyboard());
+    return true;
+  }
+
+  if (flow?.step === "await_model_rename") {
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return true;
+    const newName = text.trim();
+    if (newName.length < 2 || newName.length > 80) {
+      await sendTrackedMessage(chatId, "Name must be 2-80 chars. Enter a new model name:", {
+        keyboard: [["Cancel"]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      });
+      return true;
+    }
+    await prisma.savedModel.updateMany({
+      where: { id: flow.modelId, userId: session.userId },
+      data: { name: newName },
+    });
+    clearFlow(chatId);
+    await sendTrackedMessage(chatId, `Model renamed to "${newName}".`, legacyMainKeyboard());
+    return true;
+  }
+
+  if (flow?.step === "await_generate_prompt") {
+    clearFlow(chatId);
+    await sendTrackedMessage(
+      chatId,
+      `Prompt received:\n"${text}"\n\nPure chat generation execution can now be wired to your generator endpoints.`,
+      legacyMainKeyboard(),
     );
     return true;
   }
 
   const action = normalizeLegacyTextAction(text);
   if (!action) return false;
-  if (action === "open_mini_app") {
-    await sendMessage(chatId, "Open ModelClone Mini App:", {
-      inline_keyboard: [[{ text: "Open Studio", web_app: { url: miniAppBaseUrl } }]],
-    });
+  if (action === "cancel") {
+    clearFlow(chatId);
+    await sendTrackedMessage(chatId, "Cancelled.", legacyMainKeyboard());
     return true;
   }
   if (action === "switch_mode") {
-    await sendMessage(chatId, "Choose interaction mode:", modeChooserKeyboard());
+    clearFlow(chatId);
+    await sendTrackedMessage(chatId, "Choose interaction mode:", modeChooserKeyboard());
     return true;
   }
   await handleLegacyAction(chatId, action, telegramUserId);
@@ -457,10 +616,14 @@ async function handleCallback(callbackQuery) {
   const telegramUserId = callbackQuery?.from?.id;
   if (!chatId || !callbackId) return;
 
+  if (callbackQuery?.message?.message_id) {
+    await deleteMessage(chatId, callbackQuery.message.message_id).catch(() => {});
+  }
+
   if (data.startsWith("mode:set:")) {
     const mode = data.endsWith(":legacy") ? MODE_LEGACY : MODE_MINI;
     setChatMode(chatId, mode);
-    pendingLegacyAction.delete(String(chatId));
+    clearFlow(chatId);
     await answerCallbackQuery(callbackId, mode === MODE_LEGACY ? "Legacy mode enabled" : "Mini App mode enabled");
     if (mode === MODE_LEGACY) {
       await sendLegacyMenu(chatId, callbackQuery?.from?.first_name || "");
@@ -471,6 +634,48 @@ async function handleCallback(callbackQuery) {
   }
 
   await answerCallbackQuery(callbackId, "");
+
+  if (data.startsWith("legacy:model:open:")) {
+    const modelId = data.replace("legacy:model:open:", "");
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    const model = await prisma.savedModel.findFirst({
+      where: { id: modelId, userId: session.userId },
+      select: {
+        id: true,
+        name: true,
+        status: true,
+        loraStatus: true,
+        createdAt: true,
+      },
+    });
+    if (!model) {
+      await sendTrackedMessage(chatId, "Model not found.", legacyMainKeyboard());
+      return;
+    }
+    await sendTrackedMessage(
+      chatId,
+      `Model: ${model.name}\nStatus: ${model.status || "ready"}\nLoRA: ${model.loraStatus || "n/a"}\nCreated: ${new Date(model.createdAt).toLocaleString()}`,
+      {
+        inline_keyboard: [
+          [{ text: "Rename", callback_data: `legacy:model:rename:${model.id}` }],
+          [{ text: "Back to models", callback_data: "legacy:models" }],
+        ],
+      },
+    );
+    return;
+  }
+
+  if (data.startsWith("legacy:model:rename:")) {
+    const modelId = data.replace("legacy:model:rename:", "");
+    setFlow(chatId, { step: "await_model_rename", modelId });
+    await sendTrackedMessage(chatId, "Enter the new model name:", {
+      keyboard: [["Cancel"]],
+      resize_keyboard: true,
+      one_time_keyboard: true,
+    });
+    return;
+  }
 
   if (data.startsWith("legacy:")) {
     const action = data.replace("legacy:", "");
@@ -483,28 +688,28 @@ async function handleCallback(callbackQuery) {
     if (mode === MODE_LEGACY) {
       await sendLegacyMenu(chatId, callbackQuery?.from?.first_name || "");
     } else {
-      await sendMessage(chatId, "Main menu:", mainMenuKeyboard());
+      await sendTrackedMessage(chatId, "Main menu:", mainMenuKeyboard());
     }
     return;
   }
   if (data === "menu:create") {
-    await sendMessage(chatId, "Create menu:", submenuKeyboard("create"));
+    await sendTrackedMessage(chatId, "Create menu:", submenuKeyboard("create"));
     return;
   }
   if (data === "menu:account") {
-    await sendMessage(chatId, "Account menu:", submenuKeyboard("account"));
+    await sendTrackedMessage(chatId, "Account menu:", submenuKeyboard("account"));
     return;
   }
   if (data === "menu:tools") {
-    await sendMessage(chatId, "Tools menu:", submenuKeyboard("tools"));
+    await sendTrackedMessage(chatId, "Tools menu:", submenuKeyboard("tools"));
     return;
   }
   if (data === "menu:monetize") {
-    await sendMessage(chatId, "Monetize menu:", submenuKeyboard("monetize"));
+    await sendTrackedMessage(chatId, "Monetize menu:", submenuKeyboard("monetize"));
     return;
   }
   if (data === "menu:pricing") {
-    await sendMessage(
+    await sendTrackedMessage(
       chatId,
       "Open the app to view pricing and buy credits.",
       {
@@ -517,7 +722,7 @@ async function handleCallback(callbackQuery) {
     return;
   }
   if (data === "menu:help") {
-    await sendMessage(
+    await sendTrackedMessage(
       chatId,
       "Need help? Reach us here:\nTelegram: https://t.me/modelclonechat\nDiscord: https://discord.gg/vpwGygjEaB",
       {
@@ -555,7 +760,7 @@ router.post("/webhook", async (req, res) => {
       if (!message.text.trim().startsWith("/") && currentMode === MODE_LEGACY) {
         const handledLegacyMessage = await handleLegacyPlainMessage(message);
         if (!handledLegacyMessage) {
-          await sendMessage(
+          await sendTrackedMessage(
             message.chat.id,
             "Legacy mode: use the buttons, or type /menu for full options.",
             legacyMainKeyboard(),

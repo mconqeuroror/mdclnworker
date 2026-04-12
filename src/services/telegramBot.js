@@ -62,3 +62,10 @@ export function setMyCommands(commands = []) {
     commands,
   });
 }
+
+export function deleteMessage(chatId, messageId) {
+  return callTelegramApi("deleteMessage", {
+    chat_id: chatId,
+    message_id: messageId,
+  });
+}
