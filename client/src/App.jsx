@@ -14,6 +14,9 @@ import SplashScreen from './components/SplashScreen';
 import { useBranding } from './hooks/useBranding';
 import { sound } from './utils/sounds';
 import { ThemeProvider } from './hooks/useTheme.jsx';
+import { isTelegram } from './lib/telegram.js';
+import { useTelegramBackButton } from './hooks/useTelegramBackButton.js';
+import TelegramSafeArea from './components/TelegramSafeArea.jsx';
 
 // Hook to check if Zustand has hydrated
 function useHasHydrated() {
@@ -322,6 +325,19 @@ function ForceLogoutListener() {
   return null;
 }
 
+function TelegramNavigationBridge() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const isRootPath = location.pathname === "/" || location.pathname === "/dashboard";
+
+  useTelegramBackButton({
+    isVisible: isTelegram() && !isRootPath,
+    onClick: () => navigate(-1),
+  });
+
+  return null;
+}
+
 // When user returns from Stripe 3DS redirect, refresh credits and clean URL
 function Stripe3DSReturnHandler() {
   const copy = APP_COPY[resolveLocale()] || APP_COPY.en;
@@ -555,19 +571,21 @@ function App() {
 
   return (
     <ThemeProvider>
-    <QueryClientProvider client={queryClient}>
-      <ErrorBoundary>
-        <AnimatePresence mode="wait">
-          {showSplash && <SplashScreen logoUrl={branding?.logoUrl} appName={branding?.appName || "ModelClone"} />}
-        </AnimatePresence>
-        <ErrorDisplay />
-        <LoraPromoBanner />
-        <BrowserRouter>
-          <SeoRobotsMeta />
-          <ForceLogoutListener />
-          <Stripe3DSReturnHandler />
-          <GlobalGenerationNotifier />
-          <Toaster
+    <TelegramSafeArea>
+      <QueryClientProvider client={queryClient}>
+        <ErrorBoundary>
+          <AnimatePresence mode="wait">
+            {showSplash && <SplashScreen logoUrl={branding?.logoUrl} appName={branding?.appName || "ModelClone"} />}
+          </AnimatePresence>
+          <ErrorDisplay />
+          <LoraPromoBanner />
+          <BrowserRouter>
+            <SeoRobotsMeta />
+            <ForceLogoutListener />
+            <TelegramNavigationBridge />
+            <Stripe3DSReturnHandler />
+            <GlobalGenerationNotifier />
+            <Toaster
           position="top-right"
           toastOptions={{
             duration: 4000,
@@ -587,8 +605,8 @@ function App() {
           }}
         />
         
-        <Routes>
-          <Route path="/" element={<LanderNewPage />} />
+            <Routes>
+              <Route path="/" element={<LanderNewPage />} />
           <Route path="/landing" element={<Navigate to="/" replace />} />
           <Route path="/admin-login" element={<AdminLoginPage />} />
           <Route path="/login" element={<LoginPage />} />
@@ -718,11 +736,12 @@ function App() {
             <Route path="generation" element={<ProGenerationPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-        <SupportChatButton />
-      </BrowserRouter>
-    </ErrorBoundary>
-    </QueryClientProvider>
+            </Routes>
+            {!isTelegram() && <SupportChatButton />}
+          </BrowserRouter>
+        </ErrorBoundary>
+      </QueryClientProvider>
+    </TelegramSafeArea>
     </ThemeProvider>
   );
 }

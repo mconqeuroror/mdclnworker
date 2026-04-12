@@ -35,16 +35,23 @@ export const useAuthStore = create(
   persist(
     (set, get) => ({
       user: null,
+      token: null,
+      telegramUser: null,
       isAuthenticated: false,
 
-      setAuth: (user) => {
+      setAuth: (user, token = null) => {
         set({
           user: enrichUserWithTotalCredits(user),
+          token: token || null,
           isAuthenticated: true,
         });
         // Ensure models and generations refetch for this user (fixes empty load for some users)
         queryClient.invalidateQueries({ queryKey: ["/api/models"] });
         queryClient.invalidateQueries({ queryKey: ["/api/generations"] });
+      },
+
+      setTelegramUser: (telegramUser) => {
+        set({ telegramUser: telegramUser || null });
       },
 
       logout: async () => {
@@ -56,6 +63,8 @@ export const useAuthStore = create(
         }
         set({
           user: null,
+          token: null,
+          telegramUser: null,
           isAuthenticated: false,
         });
         // Clear cached models/generations so next user doesn't see stale data
@@ -138,6 +147,8 @@ export const useAuthStore = create(
       name: "auth-storage",
       partialize: (state) => ({
         user: state.user,
+        token: state.token,
+        telegramUser: state.telegramUser,
         isAuthenticated: state.isAuthenticated,
       }),
       // Persisted shape: { user, isAuthenticated }. Do not remove fields or credits can appear as 0.

@@ -331,6 +331,11 @@ export const authAPI = {
     return response.data;
   },
 
+  telegramAuth: async (initData) => {
+    const response = await api.post("/auth/telegram", { initData });
+    return response.data;
+  },
+
   googleAuth: async (
     idToken,
     email,
@@ -1146,48 +1151,12 @@ export const reformatterAPI = {
   extractFirstFrame: async (file, onUploadProgress) => {
     const name = file?.name || "video";
     const baseName = String(name).replace(/\.[^/.]+$/, "") || "video";
-    const {
-      isFfmpegWasmSupported,
-      runReformatInBrowser,
-    } = await import("../utils/repurposeFfmpegWasm.js");
 
-    // Preferred path: ffmpeg.wasm in browser.
-    if (isFfmpegWasmSupported()) {
-      try {
-        if (onUploadProgress) onUploadProgress(10);
-        const outBlob = await runReformatInBrowser(file, "image", (pct) => {
-          if (typeof pct === "number") {
-            onUploadProgress?.(Math.max(10, Math.min(80, Math.round(pct * 0.7))));
-          }
-        });
-        if (!(outBlob instanceof Blob) || outBlob.size <= 0) {
-          throw new Error("Browser extractor returned empty output");
-        }
-        if (onUploadProgress) onUploadProgress(82);
-        const jpegFile = new File([outBlob], `${baseName}_first_frame.jpg`, {
-          type: "image/jpeg",
-        });
-        const outputUrl = await uploadFile(jpegFile, (p) =>
-          onUploadProgress?.(Math.max(82, Math.min(100, 82 + Math.round((p || 0) * 0.18)))),
-        );
-        if (!outputUrl) throw new Error("Could not upload extracted frame");
-        if (onUploadProgress) onUploadProgress(100);
-        return {
-          success: true,
-          outputUrl,
-          outputExt: "jpg",
-          message: "First frame extracted in browser.",
-        };
-      } catch (err) {
-        console.warn("[first-frame] ffmpeg.wasm path failed; trying canvas fallback:", err?.message || err);
-      }
-    }
-
-    // Secondary browser fallback: HTMLVideoElement + canvas snapshot.
+    // Preferred path: HTMLVideoElement + canvas snapshot (multi-seek, non-black frame detection).
     if (onUploadProgress) onUploadProgress(20);
     const canvasBlob = await extractFirstFrameWithCanvas(file);
     if (!(canvasBlob instanceof Blob) || canvasBlob.size <= 0) {
-      throw new Error("Could not extract first frame in browser");
+      throw new Error("Could not extract first visible frame in browser");
     }
     if (onUploadProgress) onUploadProgress(82);
     const jpegFile = new File([canvasBlob], `${baseName}_first_frame.jpg`, {
@@ -1227,7 +1196,7 @@ async function extractFirstFrameWithCanvas(file) {
     await new Promise((resolve, reject) => {
       const onLoaded = () => resolve();
       const onError = () => reject(new Error("Could not decode video in browser"));
-      video.addEventListener("loadeddata", onLoaded, { once: true });
+      video.addEventListener("loadedmetadata", onLoaded, { once: true });
       video.addEventListener("error", onError, { once: true });
       video.load();
     });
@@ -1239,7 +1208,54 @@ async function extractFirstFrameWithCanvas(file) {
     canvas.height = height;
     const ctx = canvas.getContext("2d", { alpha: false });
     if (!ctx) throw new Error("Could not initialize canvas context");
-    ctx.drawImage(video, 0, 0, width, height);
+
+    const seekTo = (seconds) =>
+      new Promise((resolve, reject) => {
+        const onSeeked = () => resolve();
+        const onError = () => reject(new Error("Could not seek video frame"));
+        video.addEventListener("seeked", onSeeked, { once: true });
+        video.addEventListener("error", onError, { once: true });
+        video.currentTime = Math.max(0, Number(seconds) || 0);
+      });
+
+    const isNearlyBlack = () => {
+      // Sample a tiny downscaled version for speed.
+      const sampleW = 32;
+      const sampleH = 18;
+      const sampleCanvas = document.createElement("canvas");
+      sampleCanvas.width = sampleW;
+      sampleCanvas.height = sampleH;
+      const sampleCtx = sampleCanvas.getContext("2d", { alpha: false });
+      if (!sampleCtx) return false;
+      sampleCtx.drawImage(canvas, 0, 0, sampleW, sampleH);
+      const data = sampleCtx.getImageData(0, 0, sampleW, sampleH).data;
+      let sum = 0;
+      const px = sampleW * sampleH;
+      for (let i = 0; i < data.length; i += 4) {
+        sum += 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
+      }
+      const avgLuma = sum / px;
+      return avgLuma < 8;
+    };
+
+    const duration = Number.isFinite(video.duration) ? video.duration : 0;
+    const probeTimes = [0, 0.08, 0.2, 0.35, 0.6, 1.0, 1.5].map((t) =>
+      duration > 0 ? Math.min(t, Math.max(0, duration - 0.02)) : t,
+    );
+
+    let gotFrame = false;
+    for (const t of probeTimes) {
+      await seekTo(t);
+      ctx.drawImage(video, 0, 0, width, height);
+      if (!isNearlyBlack()) {
+        gotFrame = true;
+        break;
+      }
+    }
+    if (!gotFrame) {
+      // Keep the last sampled frame even if dark.
+      ctx.drawImage(video, 0, 0, width, height);
+    }
 
     const blob = await new Promise((resolve, reject) => {
       canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Failed to encode JPEG"))), "image/jpeg", 0.92);

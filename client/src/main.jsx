@@ -4,6 +4,7 @@ import { HelmetProvider } from 'react-helmet-async';
 import { Analytics } from '@vercel/analytics/react';
 import App from './App';
 import './index.css';
+import TelegramAuthGate from './components/TelegramAuthGate.jsx';
 
 // Top-level error boundary: catch errors so Vite does not show overlay/reload (endless refresh loop locally)
 class RootErrorClass extends React.Component {
@@ -31,7 +32,9 @@ class RootErrorClass extends React.Component {
 ReactDOM.createRoot(document.getElementById('root')).render(
   <RootErrorClass>
     <HelmetProvider>
-      <App />
+      <TelegramAuthGate>
+        <App />
+      </TelegramAuthGate>
       <Analytics />
     </HelmetProvider>
   </RootErrorClass>

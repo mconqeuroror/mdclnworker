@@ -9,6 +9,7 @@ import api, { stripeAPI, cryptoAPI } from '../services/api';
 import { useAuthStore } from '../store';
 import { sound } from '../utils/sounds';
 import { pollModelUntilReady } from '../utils/modelStatusPolling';
+import { isTelegram } from '../lib/telegram.js';
 
 const stripePublicKey = import.meta.env.MODE === 'production'
   ? import.meta.env.VITE_STRIPE_PUBLIC_KEY
@@ -95,6 +96,7 @@ function CheckoutForm({ item, itemType, onSuccess, onClose, paymentMethod, onSwi
   
   // Check if crypto is available (only for credit purchases, not subscriptions or special offer)
   const canUseCrypto = itemType === 'credits';
+  const inTelegram = isTelegram();
 
   // Helper to safely reset all payment states — declared before the useEffect that uses it
   const resetPaymentState = useCallback(() => {
@@ -1143,6 +1145,12 @@ function CheckoutForm({ item, itemType, onSuccess, onClose, paymentMethod, onSwi
             {paymentMethod === 'crypto' ? 'No KYC required' : paymentMethod === 'wallet' ? 'Apple Pay · Google Pay' : '256-bit encryption'}
           </span>
         </div>
+      )}
+
+      {inTelegram && paymentMethod !== 'crypto' && (
+        <p className="text-[11px] text-amber-300/90 text-center">
+          Payment will open in your browser.
+        </p>
       )}
     </form>
   );

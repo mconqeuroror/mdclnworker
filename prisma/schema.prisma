@@ -43,6 +43,9 @@ model User {
   specialOfferLockedAt          DateTime?
   authProvider                  String                  @default("email")
   googleId                      String?                 @unique
+  telegram_id                   String?                 @unique
+  telegram_username             String?
+  is_telegram                   Boolean                 @default(false)
   freeVideosCompleted           Int                     @default(0)
   affiliateBlocked              Boolean                 @default(false)
   referralAdvanced              Boolean                 @default(false)

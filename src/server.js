@@ -184,6 +184,8 @@ import viralReelsRoutes from './routes/viral-reels.routes.js';
 import supportRoutes from './routes/support.routes.js';
 import runpodCallbackRoutes from './routes/runpod-callback.routes.js';
 import falCallbackRoutes from './routes/fal-callback.routes.js';
+import telegramAuthRoutes from './routes/auth/telegram.js';
+import telegramWebhookRoutes from './routes/telegram/webhook.js';
 app.use('/api/stripe/webhook', stripeWebhookRouter);
 app.use('/api/crypto/webhook', cryptoWebhookRouter);
 app.use('/api/kie/callback', kieCallbackRoutes);
@@ -269,6 +271,8 @@ app.use('/api/viral-reels', viralReelsRoutes);
 app.use('/api/video-repurpose', videoRepurposeRoutes);
 app.use('/api/img2img', img2imgRoutes);
 app.use('/api/support', supportRoutes);
+app.use('/api/auth', telegramAuthRoutes);
+app.use('/api/telegram', telegramWebhookRoutes);
 app.use('/api', apiRoutes);
 
 // ── Public unsubscribe endpoint (no auth required — email links click here) ──
