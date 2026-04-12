@@ -6,13 +6,30 @@ function getBotToken() {
   return token;
 }
 
-async function callTelegramApi(method, payload = {}) {
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function callTelegramApi(method, payload = {}, _retryCount = 0) {
   const token = getBotToken();
   const response = await fetch(`${TELEGRAM_API_BASE}/bot${token}/${method}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
+
+  // Handle rate limiting with exponential backoff (max 3 retries).
+  if (response.status === 429 && _retryCount < 3) {
+    let retryAfter = 1;
+    try {
+      const errBody = await response.clone().json();
+      retryAfter = Number(errBody?.parameters?.retry_after) || 1;
+    } catch {
+      retryAfter = Math.pow(2, _retryCount + 1);
+    }
+    await sleep(retryAfter * 1000);
+    return callTelegramApi(method, payload, _retryCount + 1);
+  }
 
   if (!response.ok) {
     const text = await response.text();
@@ -30,6 +47,17 @@ export function sendMessage(chatId, text, replyMarkup) {
   return callTelegramApi("sendMessage", {
     chat_id: chatId,
     text,
+    ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+  });
+}
+
+export function sendPhoto(chatId, photoUrl, options = {}) {
+  const caption = options?.caption ? String(options.caption) : undefined;
+  const replyMarkup = options?.replyMarkup;
+  return callTelegramApi("sendPhoto", {
+    chat_id: chatId,
+    photo: photoUrl,
+    ...(caption ? { caption } : {}),
     ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
   });
 }
@@ -68,4 +96,30 @@ export function deleteMessage(chatId, messageId) {
     chat_id: chatId,
     message_id: messageId,
   });
+}
+
+export async function downloadTelegramFile(fileId) {
+  const file = await callTelegramApi("getFile", {
+    file_id: fileId,
+  });
+  const token = getBotToken();
+  const filePath = String(file?.file_path || "");
+  if (!filePath) {
+    throw new Error("Telegram getFile returned no file_path");
+  }
+
+  const response = await fetch(`${TELEGRAM_API_BASE}/file/bot${token}/${filePath}`, {
+    method: "GET",
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Telegram file download failed: ${response.status} ${text}`);
+  }
+
+  return {
+    buffer: Buffer.from(await response.arrayBuffer()),
+    contentType: response.headers.get("content-type") || "application/octet-stream",
+    filePath,
+  };
 }
