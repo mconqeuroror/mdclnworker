@@ -228,16 +228,48 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
 
     const code = body.code;
     const data = body.data || {};
-    const taskId = data.taskId ?? body.taskId ?? data.task_id ?? body.task_id;
-    const state = data.state; // "success" | "fail"
-    const resultJson = data.resultJson; // JSON string
-    const failCode = data.failCode ?? null;
-    const failMsg = data.failMsg ?? null;
+    const info = data?.info && typeof data.info === "object" ? data.info : {};
+    const taskId =
+      data.taskId
+      ?? body.taskId
+      ?? data.task_id
+      ?? body.task_id
+      ?? info.taskId
+      ?? info.task_id;
+    const state =
+      data.state
+      ?? body.state
+      ?? info.state
+      ?? info.status
+      ?? info.taskState
+      ?? info.task_state; // "success" | "fail"
+    const resultJson =
+      data.resultJson
+      ?? body.resultJson
+      ?? info.resultJson
+      ?? info.result_json
+      ?? info.result; // JSON string/object
+    const failCode =
+      data.failCode
+      ?? info.failCode
+      ?? info.fail_code
+      ?? null;
+    const failMsg =
+      data.failMsg
+      ?? info.failMsg
+      ?? info.fail_msg
+      ?? info.error
+      ?? info.message
+      ?? null;
     const msg = body.msg || "";
 
     let resultUrls = [];
     if (Array.isArray(data.resultUrls) && data.resultUrls.length) {
       resultUrls = data.resultUrls;
+    } else if (Array.isArray(info.resultUrls) && info.resultUrls.length) {
+      resultUrls = info.resultUrls;
+    } else if (Array.isArray(info.result_urls) && info.result_urls.length) {
+      resultUrls = info.result_urls;
     } else if (Array.isArray(body.resultUrls) && body.resultUrls.length) {
       resultUrls = body.resultUrls;
     } else if (resultJson != null) {
