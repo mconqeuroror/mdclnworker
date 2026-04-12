@@ -126,6 +126,9 @@ function getLegacyStateSnapshot(chatId) {
 async function persistLegacyStateNow(chatId) {
   const snapshot = getLegacyStateSnapshot(chatId);
   if (!snapshot) return;
+  // Guard: Prisma client may not include this model if prisma generate wasn't
+  // re-run after the schema was updated on the live server.  Skip silently.
+  if (!prisma.telegramLegacyState) return;
   try {
     await prisma.telegramLegacyState.upsert({
       where: { chatId: snapshot.chatId },
@@ -176,49 +179,52 @@ async function hydrateLegacyState(chatId, telegramUserId = null) {
   // but session lost) still triggers a full DB re-load.
   if (hydratedChats.has(key)) return;
   hydratedChats.add(key);
-  try {
-    const state = await prisma.telegramLegacyState.findUnique({
-      where: { chatId: key },
-      select: {
-        mode: true,
-        sessionUserId: true,
-        sessionEmail: true,
-        flow: true,
-        flowUpdatedAt: true,
-        lastBotMessageIds: true,
-        expiresAt: true,
-      },
-    });
-    if (state) {
-      if (!state.expiresAt || new Date(state.expiresAt).getTime() >= Date.now()) {
-        const mode = String(state.mode || MODE_MINI) === MODE_LEGACY ? MODE_LEGACY : MODE_MINI;
-        chatModeMap.set(key, mode);
-        if (state.sessionUserId) {
-          legacySessionMap.set(key, {
-            userId: String(state.sessionUserId),
-            email: state.sessionEmail ? String(state.sessionEmail) : null,
-          });
-        }
-        if (state.flow && typeof state.flow === "object" && !Array.isArray(state.flow)) {
-          const flow = {
-            ...state.flow,
-            _updatedAt: state.flowUpdatedAt
-              ? new Date(state.flowUpdatedAt).toISOString()
-              : new Date().toISOString(),
-          };
-          if (!isFlowExpired(flow)) {
-            legacyFlowMap.set(key, flow);
+
+  // Guard: only query TelegramLegacyState if Prisma client knows about it
+  if (prisma.telegramLegacyState) {
+    try {
+      const state = await prisma.telegramLegacyState.findUnique({
+        where: { chatId: key },
+        select: {
+          mode: true,
+          sessionUserId: true,
+          sessionEmail: true,
+          flow: true,
+          flowUpdatedAt: true,
+          lastBotMessageIds: true,
+          expiresAt: true,
+        },
+      });
+      if (state) {
+        if (!state.expiresAt || new Date(state.expiresAt).getTime() >= Date.now()) {
+          const mode = String(state.mode || MODE_MINI) === MODE_LEGACY ? MODE_LEGACY : MODE_MINI;
+          chatModeMap.set(key, mode);
+          if (state.sessionUserId) {
+            legacySessionMap.set(key, {
+              userId: String(state.sessionUserId),
+              email: state.sessionEmail ? String(state.sessionEmail) : null,
+            });
+          }
+          if (state.flow && typeof state.flow === "object" && !Array.isArray(state.flow)) {
+            const flow = {
+              ...state.flow,
+              _updatedAt: state.flowUpdatedAt
+                ? new Date(state.flowUpdatedAt).toISOString()
+                : new Date().toISOString(),
+            };
+            if (!isFlowExpired(flow)) {
+              legacyFlowMap.set(key, flow);
+            }
+          }
+          const ids = parseMessageIds(state.lastBotMessageIds);
+          if (ids.length) {
+            lastBotMessagesMap.set(key, ids);
           }
         }
-        const ids = parseMessageIds(state.lastBotMessageIds);
-        if (ids.length) {
-          lastBotMessagesMap.set(key, ids);
-        }
       }
+    } catch (error) {
+      console.warn("hydrateLegacyState DB warning:", error?.message || error);
     }
-  } catch (error) {
-    // TelegramLegacyState table may not exist yet — swallow gracefully
-    console.warn("hydrateLegacyState DB warning:", error?.message || error);
   }
 
   // Auto-restore session from telegram_id if no session was found in DB.
@@ -226,17 +232,17 @@ async function hydrateLegacyState(chatId, telegramUserId = null) {
   // or the row has expired, as long as the user has linked their Telegram account.
   if (!legacySessionMap.has(key) && telegramUserId) {
     try {
+      // Check if telegram_id column exists on User (it may not if the migration
+      // was not applied yet to production).
       const linkedUser = await prisma.user.findFirst({
         where: { telegram_id: String(telegramUserId) },
         select: { id: true, email: true, banLocked: true },
       });
       if (linkedUser && !linkedUser.banLocked) {
         legacySessionMap.set(key, { userId: linkedUser.id, email: linkedUser.email ?? null });
-        // Keep the mode that was already set (or leave as mini default).
-        // The user will naturally trigger legacy handlers via the keyboard.
       }
     } catch (autoErr) {
-      console.warn("hydrateLegacyState auto-restore warning:", autoErr?.message);
+      // Column may not exist — ignore, user will need to log in manually
     }
   }
 }
@@ -1362,7 +1368,16 @@ async function renderModelsList(chatId, userId, page = 0) {
     prisma.savedModel.count({ where: { userId } }),
   ]);
   if (!models.length) {
-    await sendTrackedMessage(chatId, "No models found yet.", legacyMainKeyboard());
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { name: true, email: true },
+    }).catch(() => null);
+    const accountLabel = user?.email || user?.name || userId;
+    await sendTrackedMessage(
+      chatId,
+      `No models found for account: ${accountLabel}\n\nTap ➕ Create Model to add your first model.`,
+      legacyMainKeyboard(),
+    );
     return;
   }
   const totalPages = Math.max(1, Math.ceil(total / LEGACY_PAGE_SIZE));
