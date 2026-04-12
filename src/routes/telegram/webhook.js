@@ -600,6 +600,62 @@ async function fetchLegacyLoraTrainingStatus(userId, loraId) {
   return { ok: true, lora: data?.lora, status: data?.status };
 }
 
+async function submitLegacyRegisterTrainingImage(userId, modelId, loraId, imageUrl) {
+  let response;
+  let data;
+  try {
+    ({ response, data } = await callLegacyApi(
+      userId,
+      "/api/nsfw/register-training-images",
+      "POST",
+      { modelId, loraId, imageUrls: [imageUrl] },
+    ));
+  } catch (error) {
+    return { ok: false, message: error?.message || "Failed to register training image." };
+  }
+  if (!response.ok || !data?.success) {
+    return { ok: false, message: data?.message || `Register failed (${response.status}).` };
+  }
+  return { ok: true, count: data?.count ?? 1 };
+}
+
+async function submitLegacyDeleteMCXCharacter(userId, loraId) {
+  let response;
+  let data;
+  try {
+    ({ response, data } = await callLegacyApi(
+      userId,
+      `/api/modelclone-x/character/${encodeURIComponent(loraId)}`,
+      "DELETE",
+    ));
+  } catch (error) {
+    return { ok: false, message: error?.message || "Failed to delete character." };
+  }
+  if (!response.ok || !data?.success) {
+    return { ok: false, message: data?.message || `Delete failed (${response.status}).` };
+  }
+  return { ok: true };
+}
+
+async function submitLegacyImageFaceSwap(userId, sourceImageUrl, targetImageUrl) {
+  let response;
+  let data;
+  try {
+    ({ response, data } = await callLegacyApi(
+      userId,
+      "/api/generate/image-faceswap",
+      "POST",
+      { sourceImageUrl, targetImageUrl },
+    ));
+  } catch (error) {
+    return { ok: false, message: error?.message || "Failed to start image face swap." };
+  }
+  if (!response.ok || !data?.success) {
+    return { ok: false, message: data?.message || `Image face swap failed (${response.status}).` };
+  }
+  return { ok: true, generation: data?.generation || null, creditsUsed: data?.creditsUsed ?? null };
+}
+
 async function submitLegacySelectVoice(userId, modelId, voiceId) {
   let response;
   let data;
@@ -2628,14 +2684,15 @@ async function handleLegacyAction(chatId, action, telegramUserId) {
       );
       return;
     }
-    setFlow(chatId, { step: "await_faceswap_video" });
     await sendTrackedMessage(
       chatId,
-      "🎭 Face Swap\n\nSend the source video URL or upload a video file. Your face will be swapped into it using your model.",
+      "🎭 Face Swap\n\nChoose swap type:",
       {
-        keyboard: [["Cancel"]],
-        resize_keyboard: true,
-        one_time_keyboard: true,
+        inline_keyboard: [
+          [{ text: "🎬 Video face swap", callback_data: "legacy:faceswap:type:video" }],
+          [{ text: "🖼 Image face swap", callback_data: "legacy:faceswap:type:image" }],
+          [{ text: "⬅️ Back", callback_data: "legacy:home" }],
+        ],
       },
     );
     return;
@@ -3657,6 +3714,144 @@ async function handleLegacyPlainMessage(message) {
     return true;
   }
 
+  if (flow?.step === "await_lora_training_photos") {
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return true;
+    const doneWords = ["done", "finish", "start training", "enough"];
+    if (text && doneWords.some((w) => text.toLowerCase().includes(w))) {
+      const count = Number(flow.count || 0);
+      if (count < 15) {
+        await sendTrackedMessage(
+          chatId,
+          `You need at least 15 photos to start training. You've uploaded ${count} so far. Send more photos or tap Cancel.`,
+          {
+            inline_keyboard: [[{ text: "Cancel", callback_data: "legacy:home" }]],
+          },
+        );
+      } else {
+        clearFlow(chatId);
+        await sendTrackedMessage(
+          chatId,
+          `✅ ${count} training photos uploaded.\n\nYou can now start training from the character status page.`,
+          {
+            inline_keyboard: [
+              [{ text: "🔄 View character & start training", callback_data: `legacy:lora:status:${flow.loraId}` }],
+              [{ text: "⬅️ Back to model", callback_data: `legacy:model:open:${flow.modelId}:0` }],
+            ],
+          },
+        );
+      }
+      return true;
+    }
+    let photoUrl = null;
+    try {
+      photoUrl = await resolveLegacyImageInputUrl(message, text);
+    } catch {
+      photoUrl = null;
+    }
+    if (!photoUrl || !isHttpUrl(photoUrl)) {
+      await sendTrackedMessage(
+        chatId,
+        `Send a photo to add as training image. (${flow.count || 0} uploaded so far)\n\nWhen you have 15+, type "done" to finish.`,
+        {
+          inline_keyboard: [
+            [{ text: "✅ Done uploading", callback_data: `legacy:lora:training_done:${flow.loraId}` }],
+            [{ text: "Cancel", callback_data: "legacy:home" }],
+          ],
+        },
+      );
+      return true;
+    }
+    const reg = await submitLegacyRegisterTrainingImage(session.userId, flow.modelId, flow.loraId, photoUrl);
+    if (!reg.ok) {
+      await sendTrackedMessage(
+        chatId,
+        `❌ Failed to register photo: ${reg.message}\n\nTry again or send another photo.`,
+        { inline_keyboard: [[{ text: "Cancel", callback_data: "legacy:home" }]] },
+      );
+      return true;
+    }
+    const newCount = (Number(flow.count) || 0) + 1;
+    setFlow(chatId, { ...flow, count: newCount });
+    const needMore = newCount < 15;
+    await sendTrackedMessage(
+      chatId,
+      `📸 Photo ${newCount} uploaded.${needMore ? ` Need ${15 - newCount} more to start training.` : " You have enough to start training!"}\n\nSend another photo or type "done" when finished.`,
+      {
+        inline_keyboard: [
+          ...(newCount >= 15 ? [[{ text: "✅ Done — show training options", callback_data: `legacy:lora:training_done:${flow.loraId}` }]] : []),
+          [{ text: "Cancel & keep photos", callback_data: "legacy:home" }],
+        ],
+      },
+    );
+    return true;
+  }
+
+  if (flow?.step === "await_imgfaceswap_source") {
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return true;
+    let sourceUrl = null;
+    try {
+      sourceUrl = await resolveLegacyImageInputUrl(message, text);
+    } catch {
+      sourceUrl = null;
+    }
+    if (!sourceUrl || !isHttpUrl(sourceUrl)) {
+      await sendTrackedMessage(chatId, "Send a valid image URL or upload your source photo (the face to use).", {
+        keyboard: [["Cancel"]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      });
+      return true;
+    }
+    setFlow(chatId, { step: "await_imgfaceswap_target", sourceImageUrl: sourceUrl });
+    await sendTrackedMessage(chatId, "✅ Source image received.\n\nStep 2: Now send the target image URL or upload the image you want the face swapped into.", {
+      keyboard: [["Cancel"]],
+      resize_keyboard: true,
+      one_time_keyboard: true,
+    });
+    return true;
+  }
+
+  if (flow?.step === "await_imgfaceswap_target") {
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return true;
+    let targetUrl = null;
+    try {
+      targetUrl = await resolveLegacyImageInputUrl(message, text);
+    } catch {
+      targetUrl = null;
+    }
+    if (!targetUrl || !isHttpUrl(targetUrl)) {
+      await sendTrackedMessage(chatId, "Send a valid image URL or upload the target image (the face will be swapped into this).", {
+        keyboard: [["Cancel"]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      });
+      return true;
+    }
+    clearFlow(chatId);
+    await sendTrackedMessage(chatId, "⏳ Running image face swap...", null);
+    const result = await submitLegacyImageFaceSwap(session.userId, flow.sourceImageUrl, targetUrl);
+    if (!result.ok) {
+      await sendTrackedMessage(chatId, `❌ Image face swap failed: ${result.message}`, legacyMainKeyboard());
+      return true;
+    }
+    const genId = result.generation?.id || "unknown";
+    await sendTrackedMessage(
+      chatId,
+      `✅ Image face swap started!\nID: ${genId}\nCredits used: ${result.creditsUsed ?? "n/a"}`,
+      {
+        inline_keyboard: [
+          ...(genId !== "unknown" ? [[{ text: "🔄 Refresh status", callback_data: `legacy:generation:refresh:${genId}:0` }]] : []),
+          [{ text: "🕘 View history", callback_data: "legacy:history" }],
+          [{ text: "🎭 Another face swap", callback_data: "legacy:faceswap" }],
+        ],
+      },
+    );
+    return true;
+  }
+
   if (flow?.step === "await_generate_source_image") {
     const session = await ensureLegacyAuth(chatId);
     if (!session) return true;
@@ -4526,36 +4721,6 @@ async function handleCallback(callbackQuery) {
     return;
   }
 
-  if (data.startsWith("legacy:generate:duration:")) {
-    const duration = Number(data.split(":").pop());
-    const flow = getFlow(chatId);
-    if (!flow || flow.step !== "await_generate_duration") {
-      await sendTrackedMessage(chatId, "No pending generation draft found. Use /generate first.", legacyMainKeyboard());
-      return;
-    }
-    if (![5, 10].includes(duration)) {
-      await sendTrackedMessage(chatId, "Invalid duration.", legacyMainKeyboard());
-      return;
-    }
-    setFlow(chatId, {
-      step: "await_generate_source_image",
-      modelId: flow.modelId,
-      modelName: flow.modelName,
-      prompt: flow.prompt,
-      duration,
-    });
-    await sendTrackedMessage(
-      chatId,
-      `Duration set to ${duration}s.\nNow send source image URL or upload image for prompt:\n"${String(flow.prompt || "").slice(0, 220)}"`,
-      {
-        keyboard: [["Cancel"]],
-        resize_keyboard: true,
-        one_time_keyboard: true,
-      },
-    );
-    return;
-  }
-
   // ── Face Swap callbacks ────────────────────────────────────────────────────
 
   if (data.startsWith("legacy:faceswap:model:")) {
@@ -4718,11 +4883,13 @@ async function handleCallback(callbackQuery) {
     }
     const lora = result.lora;
     const imgCount = lora?.trainingImages?.length || 0;
-    const statusText = `🔬 Character: ${lora?.name || loraId}\nStatus: ${lora?.status || "unknown"}\nMode: ${lora?.trainingMode || "standard"}\nTraining images: ${imgCount}`;
+    const statusText = `🔬 Character: ${lora?.name || loraId}\nStatus: ${lora?.status || "unknown"}\nMode: ${lora?.trainingMode || "standard"}\nTraining images: ${imgCount}/15 min`;
     const inlineButtons = [[{ text: "🔄 Refresh status", callback_data: `legacy:lora:status:${loraId}` }]];
-    if (lora?.status === "awaiting_images" || lora?.status === "failed") {
+    inlineButtons.push([{ text: "📸 Upload training photos", callback_data: `legacy:lora:upload:${lora?.modelId}:${loraId}` }]);
+    if ((lora?.status === "awaiting_images" || lora?.status === "failed") && imgCount >= 15) {
       inlineButtons.push([{ text: "🚀 Start training", callback_data: `legacy:lora:train:${lora.modelId}:${loraId}` }]);
     }
+    inlineButtons.push([{ text: "🗑 Delete character", callback_data: `legacy:lora:delete:confirm:${loraId}` }]);
     inlineButtons.push([{ text: "⬅️ Back", callback_data: `legacy:lora:characters:${lora?.modelId}` }]);
     await sendTrackedMessage(chatId, statusText, { inline_keyboard: inlineButtons });
     return;
@@ -4778,7 +4945,95 @@ async function handleCallback(callbackQuery) {
     return;
   }
 
+  if (data.startsWith("legacy:lora:upload:")) {
+    // legacy:lora:upload:${modelId}:${loraId}
+    const parts = data.split(":");
+    const modelId = parts[3];
+    const loraId = parts[4];
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    // Check current count
+    const statusResult = await fetchLegacyLoraTrainingStatus(session.userId, loraId);
+    const currentCount = statusResult?.lora?.trainingImages?.length || 0;
+    setFlow(chatId, { step: "await_lora_training_photos", loraId, modelId, count: currentCount });
+    await sendTrackedMessage(
+      chatId,
+      `📸 Training photo upload for AI Character\n\nCurrent photos: ${currentCount}/15 minimum\n\nSend photos one by one. Each clear face photo from a different angle counts. Send at least 15 (30 is better for Pro mode).\n\nType "done" or tap the button when finished.`,
+      {
+        inline_keyboard: [[{ text: "✅ Done uploading", callback_data: `legacy:lora:training_done:${loraId}` }]],
+      },
+    );
+    return;
+  }
 
+  if (data.startsWith("legacy:lora:training_done:")) {
+    const loraId = data.split(":").pop();
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    clearFlow(chatId);
+    await sendTrackedMessage(
+      chatId,
+      "✅ Photo upload complete. Check the character status to see your image count and start training.",
+      {
+        inline_keyboard: [
+          [{ text: "🔄 View character status", callback_data: `legacy:lora:status:${loraId}` }],
+        ],
+      },
+    );
+    return;
+  }
+
+  if (data.startsWith("legacy:lora:delete:confirm:")) {
+    const loraId = data.split(":").pop();
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    await sendTrackedMessage(chatId, "Are you sure you want to delete this AI character? This cannot be undone.", {
+      inline_keyboard: [
+        [{ text: "🗑 Yes, delete", callback_data: `legacy:lora:delete:run:${loraId}` }],
+        [{ text: "Cancel", callback_data: `legacy:lora:status:${loraId}` }],
+      ],
+    });
+    return;
+  }
+
+  if (data.startsWith("legacy:lora:delete:run:")) {
+    const loraId = data.split(":").pop();
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    const result = await submitLegacyDeleteMCXCharacter(session.userId, loraId);
+    if (!result.ok) {
+      await sendTrackedMessage(chatId, `❌ Delete failed: ${result.message}`, legacyMainKeyboard());
+      return;
+    }
+    await sendTrackedMessage(chatId, "✅ AI character deleted.", legacyMainKeyboard());
+    return;
+  }
+
+  // ── Face swap type chooser ────────────────────────────────────────────────
+
+  if (data === "legacy:faceswap:type:video") {
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    setFlow(chatId, { step: "await_faceswap_video" });
+    await sendTrackedMessage(
+      chatId,
+      "🎬 Video Face Swap\n\nSend the source video URL or upload a video. Your face will be swapped into it.",
+      { keyboard: [["Cancel"]], resize_keyboard: true, one_time_keyboard: true },
+    );
+    return;
+  }
+
+  if (data === "legacy:faceswap:type:image") {
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    setFlow(chatId, { step: "await_imgfaceswap_source" });
+    await sendTrackedMessage(
+      chatId,
+      "🖼 Image Face Swap\n\nStep 1: Send your face/source image URL or upload your photo.",
+      { keyboard: [["Cancel"]], resize_keyboard: true, one_time_keyboard: true },
+    );
+    return;
+  }
 
   if (data.startsWith("lg:mpv:")) {
     // lg:mpv:${modelId}:${page}:${slot}
