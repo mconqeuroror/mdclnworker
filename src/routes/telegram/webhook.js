@@ -656,6 +656,126 @@ async function submitLegacyImageFaceSwap(userId, sourceImageUrl, targetImageUrl)
   return { ok: true, generation: data?.generation || null, creditsUsed: data?.creditsUsed ?? null };
 }
 
+// ── NSFW API helpers ──────────────────────────────────────────────────────
+
+async function fetchLegacyNsfwLoras(userId, modelId) {
+  let response, data;
+  try {
+    ({ response, data } = await callLegacyApi(userId, `/api/nsfw/loras/${encodeURIComponent(modelId)}`, "GET"));
+  } catch (e) { return { ok: false, loras: [], activeLoraId: null }; }
+  if (!response.ok) return { ok: false, loras: [], activeLoraId: null };
+  return { ok: true, loras: data?.loras || [], activeLoraId: data?.activeLoraId || null };
+}
+
+async function submitLegacyNsfwGenerate(userId, modelId, prompt, options = {}) {
+  const body = { modelId, prompt, quantity: options.quantity || 1, skipFaceSwap: options.skipFaceSwap !== false };
+  if (options.faceSwapImageUrl) { body.faceSwapImageUrl = options.faceSwapImageUrl; body.skipFaceSwap = false; }
+  if (options.attributesDetail) body.attributesDetail = options.attributesDetail;
+  let response, data;
+  try {
+    ({ response, data } = await callLegacyApi(userId, "/api/nsfw/generate", "POST", body));
+  } catch (e) { return { ok: false, message: e?.message || "Failed to start NSFW generation." }; }
+  if (!response.ok || !data?.success) return { ok: false, message: data?.message || `NSFW generate failed (${response.status}).` };
+  return { ok: true, generations: data?.generations || [], creditsUsed: data?.creditsUsed ?? null };
+}
+
+async function submitLegacyNsfwVideo(userId, modelId, imageUrl, prompt = "", duration = 5) {
+  let response, data;
+  try {
+    ({ response, data } = await callLegacyApi(userId, "/api/nsfw/generate-video", "POST", { modelId, imageUrl, prompt, duration }));
+  } catch (e) { return { ok: false, message: e?.message || "Failed to start NSFW video." }; }
+  if (!response.ok || !data?.success) return { ok: false, message: data?.message || `NSFW video failed (${response.status}).` };
+  return { ok: true, generationId: data?.generationId || null, creditsUsed: data?.creditsUsed ?? null, duration: data?.duration };
+}
+
+async function submitLegacyNsfwAdvanced(userId, modelId, prompt, modelType = "nano-banana") {
+  let response, data;
+  try {
+    ({ response, data } = await callLegacyApi(userId, "/api/nsfw/generate-advanced", "POST", { modelId, prompt, model: modelType }));
+  } catch (e) { return { ok: false, message: e?.message || "Failed to start advanced NSFW." }; }
+  if (!response.ok || !data?.success) return { ok: false, message: data?.error || data?.message || `Advanced NSFW failed (${response.status}).` };
+  return { ok: true, generationId: data?.generationId || null, generation: data?.generation || null, creditsUsed: data?.creditsUsed ?? null };
+}
+
+async function submitLegacyNsfwPrompt(userId, modelId, userRequest) {
+  let response, data;
+  try {
+    ({ response, data } = await callLegacyApi(userId, "/api/nsfw/generate-prompt", "POST", { modelId, userRequest }));
+  } catch (e) { return { ok: false, message: e?.message || "Failed to generate prompt." }; }
+  if (!response.ok || !data?.success) return { ok: false, message: data?.message || `Prompt gen failed (${response.status}).` };
+  return { ok: true, prompt: data?.prompt || "" };
+}
+
+async function fetchLegacyNsfwPoses(userId) {
+  let response, data;
+  try {
+    ({ response, data } = await callLegacyApi(userId, "/api/nsfw/nudes-pack-poses", "GET"));
+  } catch (e) { return { ok: false, poses: [] }; }
+  if (!response.ok) return { ok: false, poses: [] };
+  return { ok: true, poses: data?.poses || [] };
+}
+
+async function submitLegacyNudesPack(userId, modelId, poseIds, options = {}) {
+  const body = { modelId, poseIds, skipFaceSwap: options.skipFaceSwap !== false };
+  if (options.faceSwapImageUrl) { body.faceSwapImageUrl = options.faceSwapImageUrl; body.skipFaceSwap = false; }
+  if (options.sceneDescription) body.sceneDescription = options.sceneDescription;
+  let response, data;
+  try {
+    ({ response, data } = await callLegacyApi(userId, "/api/nsfw/nudes-pack", "POST", body));
+  } catch (e) { return { ok: false, message: e?.message || "Failed to start nudes pack." }; }
+  if (!response.ok || !data?.success) return { ok: false, message: data?.message || `Nudes pack failed (${response.status}).` };
+  return { ok: true, generations: data?.generations || [], creditsUsed: data?.creditsUsed ?? null, poseCount: data?.poseCount };
+}
+
+async function submitLegacyNsfwCreateLora(userId, modelId) {
+  let response, data;
+  try {
+    ({ response, data } = await callLegacyApi(userId, "/api/nsfw/lora/create", "POST", { modelId }));
+  } catch (e) { return { ok: false, message: e?.message || "Failed to create LoRA." }; }
+  if (!response.ok || !data?.success) return { ok: false, message: data?.message || `Create LoRA failed (${response.status}).` };
+  return { ok: true, lora: data?.lora };
+}
+
+async function submitLegacyNsfwStartTraining(userId, modelId) {
+  let response, data;
+  try {
+    ({ response, data } = await callLegacyApi(userId, "/api/nsfw/start-training-session", "POST", { modelId }));
+  } catch (e) { return { ok: false, message: e?.message || "Failed to start training session." }; }
+  if (!response.ok || !data?.success) return { ok: false, message: data?.message || `Start training failed (${response.status}).` };
+  return { ok: true, creditsUsed: data?.creditsUsed ?? null, message: data?.message };
+}
+
+async function submitLegacyNsfwTrainLora(userId, modelId, loraId = null) {
+  const body = { modelId };
+  if (loraId) body.loraId = loraId;
+  let response, data;
+  try {
+    ({ response, data } = await callLegacyApi(userId, "/api/nsfw/train-lora", "POST", body));
+  } catch (e) { return { ok: false, message: e?.message || "Failed to train LoRA." }; }
+  if (!response.ok || !data?.success) return { ok: false, message: data?.message || `Train LoRA failed (${response.status}).` };
+  return { ok: true, triggerWord: data?.triggerWord, creditsUsed: data?.creditsUsed ?? null };
+}
+
+async function fetchLegacyNsfwTrainingStatus(userId, modelId) {
+  let response, data;
+  try {
+    ({ response, data } = await callLegacyApi(userId, `/api/nsfw/training-status/${encodeURIComponent(modelId)}`, "GET"));
+  } catch (e) { return { ok: false, status: "error", message: e?.message }; }
+  if (!response.ok) return { ok: false, status: "error", message: data?.message };
+  return { ok: true, status: data?.status, loraUrl: data?.loraUrl, triggerWord: data?.triggerWord, nsfwUnlocked: data?.nsfwUnlocked, loraId: data?.loraId };
+}
+
+async function submitLegacyNsfwInitTraining(userId, modelId) {
+  let response, data;
+  try {
+    ({ response, data } = await callLegacyApi(userId, "/api/nsfw/initialize-training", "POST", { modelId }));
+  } catch (e) { return { ok: false, message: e?.message || "Failed to initialize training." }; }
+  if (!response.ok || !data?.success) return { ok: false, message: data?.message || `Init training failed (${response.status}).` };
+  return { ok: true, creditsUsed: data?.creditsUsed ?? null, message: data?.message };
+}
+
+// ── NSFW helpers end ──────────────────────────────────────────────────────
+
 async function submitLegacySelectVoice(userId, modelId, voiceId) {
   let response;
   let data;
@@ -1150,9 +1270,9 @@ function legacyReplyKeyboard() {
       ["➕ Create Model", "🖼 My Photos", "✏️ Edit Model"],
       ["🎤 Voice", "🧍 Avatars", "⚙️ Settings"],
       ["🎬 Generate", "🎭 Face Swap", "🎨 AI Images"],
-      ["🕘 History", "📥 Queue", "💳 Pricing"],
-      ["🧰 Tools", "🎞 Reformatter", "🔍 Upscaler"],
-      ["♻️ Repurposer"],
+      ["🔞 NSFW", "🕘 History", "📥 Queue"],
+      ["💳 Pricing", "🧰 Tools", "🎞 Reformatter"],
+      ["🔍 Upscaler", "♻️ Repurposer"],
       ["🚪 Logout", "🔁 Switch Mode"],
     ],
     resize_keyboard: true,
@@ -1177,6 +1297,7 @@ function legacyMainKeyboard() {
         { text: "🎭 Face Swap", callback_data: "legacy:faceswap" },
         { text: "🎨 AI Images", callback_data: "legacy:mcxgenerate" },
       ],
+      [{ text: "🔞 NSFW Studio", callback_data: "legacy:nsfw" }],
       [
         { text: "📊 Dashboard", callback_data: "legacy:dashboard" },
         { text: "🕘 History", callback_data: "legacy:history" },
@@ -2767,7 +2888,26 @@ async function handleLegacyAction(chatId, action, telegramUserId) {
     return;
   }
 
-  await sendHybridFallback(chatId, action);
+  if (action === "nsfw") {
+    await sendTrackedMessage(
+      chatId,
+      "🔞 NSFW Studio\n\nChoose what to create:",
+      {
+        inline_keyboard: [
+          [{ text: "🖼 Generate Image", callback_data: "legacy:nsfw:menu:generate" }],
+          [{ text: "🎬 Generate Video", callback_data: "legacy:nsfw:menu:video" }],
+          [{ text: "✨ Advanced (AI-powered)", callback_data: "legacy:nsfw:menu:advanced" }],
+          [{ text: "💄 Nudes Pack", callback_data: "legacy:nsfw:menu:nudespack" }],
+          [{ text: "🤖 AI Prompt Helper", callback_data: "legacy:nsfw:menu:prompt" }],
+          [{ text: "🧬 Training", callback_data: "legacy:nsfw:menu:training" }],
+          [{ text: "⬅️ Back", callback_data: "legacy:home" }],
+        ],
+      },
+    );
+    return;
+  }
+
+
 
   if (telegramUserId) {
     await prisma.user
@@ -2877,6 +3017,7 @@ function normalizeLegacyTextAction(rawText = "") {
   if (text === "generate" || text === "🎬 generate") return "generate";
   if (text === "face swap" || text === "🎭 face swap") return "faceswap";
   if (text === "ai images" || text === "🎨 ai images") return "mcxgenerate";
+  if (text === "nsfw" || text === "🔞 nsfw" || text === "nsfw studio" || text === "🔞 nsfw studio") return "nsfw";
   if (text === "models" || text === "🧬 models") return "models";
   if (text === "dashboard" || text === "📊 dashboard") return "dashboard";
   if (text === "history" || text === "🕘 history") return "history";
@@ -3925,6 +4066,100 @@ async function handleLegacyPlainMessage(message) {
       keyboard: [["Cancel"]],
       resize_keyboard: true,
       one_time_keyboard: true,
+    });
+    return true;
+  }
+
+  if (flow?.step === "await_nsfw_prompt") {
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return true;
+    const prompt = text.trim();
+    if (prompt.length < 3) {
+      await sendTrackedMessage(chatId, "Prompt too short. Describe what you want to generate.", { keyboard: [["Cancel"]], resize_keyboard: true, one_time_keyboard: true });
+      return true;
+    }
+    setFlow(chatId, { ...flow, step: "await_nsfw_qty", prompt });
+    await sendTrackedMessage(chatId, `Prompt saved. How many images?`, {
+      inline_keyboard: [
+        [{ text: "1 image", callback_data: "legacy:nsfw:gen:qty:1" }, { text: "2 images", callback_data: "legacy:nsfw:gen:qty:2" }],
+        [{ text: "Cancel", callback_data: "legacy:home" }],
+      ],
+    });
+    return true;
+  }
+
+  if (flow?.step === "await_nsfw_advanced_prompt") {
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return true;
+    const prompt = text.trim();
+    if (prompt.length < 3) {
+      await sendTrackedMessage(chatId, "Prompt too short.", { keyboard: [["Cancel"]], resize_keyboard: true, one_time_keyboard: true });
+      return true;
+    }
+    setFlow(chatId, { ...flow, step: "await_nsfw_adv_style", prompt });
+    await sendTrackedMessage(chatId, "Choose AI model for advanced generation:", {
+      inline_keyboard: [
+        [{ text: "🔥 Standard (30 cr)", callback_data: "legacy:nsfw:adv:style:nano-banana" }],
+        [{ text: "✨ Seedream (20 cr)", callback_data: "legacy:nsfw:adv:style:seedream" }],
+        [{ text: "Cancel", callback_data: "legacy:home" }],
+      ],
+    });
+    return true;
+  }
+
+  if (flow?.step === "await_nsfw_video_image") {
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return true;
+    let imageUrl = null;
+    try { imageUrl = await resolveLegacyImageInputUrl(message, text); } catch {}
+    if (!imageUrl || !isHttpUrl(imageUrl)) {
+      await sendTrackedMessage(chatId, "Send a valid image URL or upload an image.", { keyboard: [["Cancel"]], resize_keyboard: true, one_time_keyboard: true });
+      return true;
+    }
+    setFlow(chatId, { ...flow, step: "await_nsfw_video_prompt", imageUrl });
+    await sendTrackedMessage(chatId, "Image received. Add an optional prompt, or tap Skip:", {
+      keyboard: [["Skip", "Cancel"]],
+      resize_keyboard: true,
+      one_time_keyboard: true,
+    });
+    return true;
+  }
+
+  if (flow?.step === "await_nsfw_video_prompt") {
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return true;
+    const prompt = text.toLowerCase() === "skip" ? "" : text.trim();
+    setFlow(chatId, { ...flow, step: "await_nsfw_video_duration", videoPrompt: prompt });
+    await sendTrackedMessage(chatId, "Choose video duration:", {
+      inline_keyboard: [
+        [{ text: "5s — 50 credits", callback_data: "legacy:nsfw:video:dur:5" }, { text: "8s — 80 credits", callback_data: "legacy:nsfw:video:dur:8" }],
+        [{ text: "Cancel", callback_data: "legacy:home" }],
+      ],
+    });
+    return true;
+  }
+
+  if (flow?.step === "await_nsfw_prompt_request") {
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return true;
+    const userRequest = text.trim();
+    if (userRequest.length < 3) {
+      await sendTrackedMessage(chatId, "Describe what kind of scene you want (e.g. 'sexy beach pose in bikini'):", { keyboard: [["Cancel"]], resize_keyboard: true, one_time_keyboard: true });
+      return true;
+    }
+    clearFlow(chatId);
+    await sendTrackedMessage(chatId, "⏳ Generating NSFW prompt...", null);
+    const result = await submitLegacyNsfwPrompt(session.userId, flow.modelId, userRequest);
+    if (!result.ok) {
+      await sendTrackedMessage(chatId, `❌ Prompt generation failed: ${result.message}`, legacyMainKeyboard());
+      return true;
+    }
+    await sendTrackedMessage(chatId, `🤖 Generated prompt:\n\n${result.prompt}`, {
+      inline_keyboard: [
+        [{ text: "🖼 Use for image generation", callback_data: `legacy:nsfw:useprompt:gen:${encodeURIComponent(result.prompt.slice(0, 200))}` }],
+        [{ text: "✨ Use for advanced gen", callback_data: `legacy:nsfw:useprompt:adv:${encodeURIComponent(result.prompt.slice(0, 200))}` }],
+        [{ text: "⬅️ Back to NSFW", callback_data: "legacy:nsfw" }],
+      ],
     });
     return true;
   }
@@ -5034,6 +5269,441 @@ async function handleCallback(callbackQuery) {
     );
     return;
   }
+
+  if (data === "legacy:faceswap:type:image") {
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    setFlow(chatId, { step: "await_imgfaceswap_source" });
+    await sendTrackedMessage(
+      chatId,
+      "🖼 Image Face Swap\n\nStep 1: Send your face/source image URL or upload your photo.",
+      { keyboard: [["Cancel"]], resize_keyboard: true, one_time_keyboard: true },
+    );
+    return;
+  }
+
+  // ── NSFW callbacks ────────────────────────────────────────────────────────
+
+  if (data.startsWith("legacy:nsfw:menu:")) {
+    const sub = data.split(":").pop();
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    const nsfwModels = await prisma.savedModel.findMany({
+      where: { userId: session.userId, OR: [{ isAIGenerated: true }, { nsfwOverride: true }] },
+      select: { id: true, name: true, nsfwUnlocked: true },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+    });
+    if (!nsfwModels.length && sub !== "training") {
+      await sendTrackedMessage(chatId, "⚠️ No NSFW-eligible models found.\n\nNSFW generation requires an AI-generated model or a model unlocked by admin. Check your models or contact support.", {
+        inline_keyboard: [
+          [{ text: "🧬 View models", callback_data: "legacy:models" }],
+          [{ text: "⬅️ Back to NSFW", callback_data: "legacy:nsfw" }],
+        ],
+      });
+      return;
+    }
+    if (sub === "generate") {
+      const rows = nsfwModels.map((m) => [{ text: `${m.name}${m.nsfwUnlocked ? " ✅" : " ⏳"}`, callback_data: `legacy:nsfw:gen:model:${m.id}` }]);
+      rows.push([{ text: "Cancel", callback_data: "legacy:home" }]);
+      await sendTrackedMessage(chatId, "🖼 NSFW Image Generation\n\n✅ = NSFW unlocked  ⏳ = pending unlock\n\nSelect model:", { inline_keyboard: rows });
+    } else if (sub === "video") {
+      const rows = nsfwModels.map((m) => [{ text: `${m.name}${m.nsfwUnlocked ? " ✅" : " ⏳"}`, callback_data: `legacy:nsfw:video:model:${m.id}` }]);
+      rows.push([{ text: "Cancel", callback_data: "legacy:home" }]);
+      await sendTrackedMessage(chatId, "🎬 NSFW Video Generation\n\nSelect model:", { inline_keyboard: rows });
+    } else if (sub === "advanced") {
+      const rows = nsfwModels.map((m) => [{ text: m.name, callback_data: `legacy:nsfw:adv:model:${m.id}` }]);
+      rows.push([{ text: "Cancel", callback_data: "legacy:home" }]);
+      await sendTrackedMessage(chatId, "✨ Advanced NSFW Generation\n\nSelect model:", { inline_keyboard: rows });
+    } else if (sub === "nudespack") {
+      const rows = nsfwModels.map((m) => [{ text: `${m.name}${m.nsfwUnlocked ? " ✅" : " ⏳"}`, callback_data: `legacy:nsfw:np:model:${m.id}` }]);
+      rows.push([{ text: "Cancel", callback_data: "legacy:home" }]);
+      await sendTrackedMessage(chatId, "💄 Nudes Pack\n\nSelect model:", { inline_keyboard: rows });
+    } else if (sub === "prompt") {
+      const rows = nsfwModels.map((m) => [{ text: m.name, callback_data: `legacy:nsfw:prompt:model:${m.id}` }]);
+      rows.push([{ text: "Cancel", callback_data: "legacy:home" }]);
+      await sendTrackedMessage(chatId, "🤖 AI Prompt Helper\n\nSelect model to generate a prompt for:", { inline_keyboard: rows });
+    } else if (sub === "training") {
+      const allModels = await prisma.savedModel.findMany({
+        where: { userId: session.userId, OR: [{ isAIGenerated: true }, { nsfwOverride: true }] },
+        select: { id: true, name: true, loraStatus: true },
+        orderBy: { createdAt: "desc" },
+        take: 20,
+      });
+      if (!allModels.length) {
+        await sendTrackedMessage(chatId, "No AI-generated models found. NSFW training requires an AI-generated model.", {
+          inline_keyboard: [[{ text: "⬅️ Back", callback_data: "legacy:nsfw" }]],
+        });
+        return;
+      }
+      const rows = allModels.map((m) => [{ text: `${m.name} [LoRA: ${m.loraStatus || "none"}]`, callback_data: `legacy:nsfw:train:model:${m.id}` }]);
+      rows.push([{ text: "Cancel", callback_data: "legacy:home" }]);
+      await sendTrackedMessage(chatId, "🧬 NSFW Training\n\nSelect model to train:", { inline_keyboard: rows });
+    }
+    return;
+  }
+
+  if (data.startsWith("legacy:nsfw:gen:model:")) {
+    const modelId = data.split(":").pop();
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    setFlow(chatId, { step: "await_nsfw_prompt", modelId, operation: "generate" });
+    await sendTrackedMessage(chatId, "🖼 NSFW Image\n\nEnter your prompt (describe the scene, pose, outfit, etc.):", {
+      keyboard: [["Cancel"]],
+      resize_keyboard: true,
+      one_time_keyboard: true,
+    });
+    return;
+  }
+
+  if (data.startsWith("legacy:nsfw:gen:qty:")) {
+    const qty = Number(data.split(":").pop()) === 2 ? 2 : 1;
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    const flow = getFlow(chatId);
+    if (!flow || flow.step !== "await_nsfw_qty") {
+      await sendTrackedMessage(chatId, "Session expired. Start over.", legacyMainKeyboard());
+      return;
+    }
+    clearFlow(chatId);
+    await sendTrackedMessage(chatId, `⏳ Generating ${qty} NSFW image(s)...`, null);
+    const result = await submitLegacyNsfwGenerate(session.userId, flow.modelId, flow.prompt, { quantity: qty, skipFaceSwap: true });
+    if (!result.ok) {
+      await sendTrackedMessage(chatId, `❌ NSFW generation failed: ${result.message}`, legacyMainKeyboard());
+      return;
+    }
+    const ids = (result.generations || []).map((g) => g.id).filter(Boolean);
+    const statusBtns = ids.map((id) => [{ text: `🔄 Refresh (${id.slice(-8)})`, callback_data: `legacy:generation:refresh:${id}:0` }]);
+    await sendTrackedMessage(
+      chatId,
+      `✅ NSFW generation started!\n${qty} image(s) queued.\nCredits used: ${result.creditsUsed ?? "n/a"}`,
+      {
+        inline_keyboard: [
+          ...statusBtns,
+          [{ text: "🕘 View history", callback_data: "legacy:history" }],
+          [{ text: "🖼 Generate another", callback_data: "legacy:nsfw:menu:generate" }],
+        ],
+      },
+    );
+    return;
+  }
+
+  if (data.startsWith("legacy:nsfw:video:model:")) {
+    const modelId = data.split(":").pop();
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    setFlow(chatId, { step: "await_nsfw_video_image", modelId });
+    await sendTrackedMessage(chatId, "🎬 NSFW Video\n\nSend a source image URL or upload an image to animate:", {
+      keyboard: [["Cancel"]],
+      resize_keyboard: true,
+      one_time_keyboard: true,
+    });
+    return;
+  }
+
+  if (data.startsWith("legacy:nsfw:video:dur:")) {
+    const duration = Number(data.split(":").pop());
+    if (![5, 8].includes(duration)) return;
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    const flow = getFlow(chatId);
+    if (!flow || !flow.imageUrl) {
+      await sendTrackedMessage(chatId, "Session expired. Start over.", legacyMainKeyboard());
+      return;
+    }
+    clearFlow(chatId);
+    await sendTrackedMessage(chatId, `⏳ Starting NSFW video (${duration}s)...`, null);
+    const result = await submitLegacyNsfwVideo(session.userId, flow.modelId, flow.imageUrl, flow.videoPrompt || "", duration);
+    if (!result.ok) {
+      await sendTrackedMessage(chatId, `❌ NSFW video failed: ${result.message}`, legacyMainKeyboard());
+      return;
+    }
+    const genId = result.generationId || "unknown";
+    await sendTrackedMessage(
+      chatId,
+      `✅ NSFW video generation started!\nID: ${genId}\nDuration: ${result.duration ?? duration}s\nCredits used: ${result.creditsUsed ?? "n/a"}`,
+      {
+        inline_keyboard: [
+          ...(genId !== "unknown" ? [[{ text: "🔄 Refresh status", callback_data: `legacy:generation:refresh:${genId}:0` }]] : []),
+          [{ text: "🕘 View history", callback_data: "legacy:history" }],
+        ],
+      },
+    );
+    return;
+  }
+
+  if (data.startsWith("legacy:nsfw:adv:model:")) {
+    const modelId = data.split(":").pop();
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    setFlow(chatId, { step: "await_nsfw_advanced_prompt", modelId });
+    await sendTrackedMessage(chatId, "✨ Advanced NSFW\n\nEnter your detailed prompt:", {
+      keyboard: [["Cancel"]],
+      resize_keyboard: true,
+      one_time_keyboard: true,
+    });
+    return;
+  }
+
+  if (data.startsWith("legacy:nsfw:adv:style:")) {
+    const modelType = data.split(":").pop();
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    const flow = getFlow(chatId);
+    if (!flow || flow.step !== "await_nsfw_adv_style") {
+      await sendTrackedMessage(chatId, "Session expired. Start over.", legacyMainKeyboard());
+      return;
+    }
+    clearFlow(chatId);
+    await sendTrackedMessage(chatId, "⏳ Running advanced NSFW generation...", null);
+    const result = await submitLegacyNsfwAdvanced(session.userId, flow.modelId, flow.prompt, modelType);
+    if (!result.ok) {
+      await sendTrackedMessage(chatId, `❌ Advanced NSFW failed: ${result.message}`, legacyMainKeyboard());
+      return;
+    }
+    const genId = result.generationId || result.generation?.id || "unknown";
+    await sendTrackedMessage(
+      chatId,
+      `✅ Advanced NSFW generation started!\nID: ${genId}\nCredits used: ${result.creditsUsed ?? "n/a"}`,
+      {
+        inline_keyboard: [
+          ...(genId !== "unknown" ? [[{ text: "🔄 Refresh status", callback_data: `legacy:generation:refresh:${genId}:0` }]] : []),
+          [{ text: "🕘 View history", callback_data: "legacy:history" }],
+          [{ text: "✨ Generate another", callback_data: "legacy:nsfw:menu:advanced" }],
+        ],
+      },
+    );
+    return;
+  }
+
+  if (data.startsWith("legacy:nsfw:np:model:")) {
+    const modelId = data.split(":").pop();
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    const posesResult = await fetchLegacyNsfwPoses(session.userId);
+    if (!posesResult.ok || !posesResult.poses.length) {
+      await sendTrackedMessage(chatId, "❌ Could not load poses. Please try again later.", legacyMainKeyboard());
+      return;
+    }
+    const poses = posesResult.poses.slice(0, 20);
+    setFlow(chatId, { step: "await_nsfw_poses", modelId, selectedPoses: [] });
+    const rows = poses.map((p) => [{ text: p.label || p.id, callback_data: `legacy:nsfw:np:pose:${modelId}:${p.id}` }]);
+    rows.push([{ text: "✅ Generate now", callback_data: `legacy:nsfw:np:submit:${modelId}` }]);
+    rows.push([{ text: "Cancel", callback_data: "legacy:home" }]);
+    await sendTrackedMessage(chatId, "💄 Nudes Pack\n\nTap poses to select them (can select multiple), then tap Generate:", { inline_keyboard: rows });
+    return;
+  }
+
+  if (data.startsWith("legacy:nsfw:np:pose:")) {
+    const parts = data.split(":");
+    const modelId = parts[4];
+    const poseId = parts[5];
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    const flow = getFlow(chatId);
+    const currentPoses = Array.isArray(flow?.selectedPoses) ? [...flow.selectedPoses] : [];
+    const idx = currentPoses.indexOf(poseId);
+    if (idx >= 0) { currentPoses.splice(idx, 1); } else { currentPoses.push(poseId); }
+    setFlow(chatId, { ...flow, modelId, selectedPoses: currentPoses });
+    await sendTrackedMessage(chatId, `💄 Poses selected: ${currentPoses.length}\n${currentPoses.join(", ")}\n\nTap more poses or generate:`, {
+      inline_keyboard: [
+        [{ text: `✅ Generate (${currentPoses.length} poses)`, callback_data: `legacy:nsfw:np:submit:${modelId}` }],
+        [{ text: "Back to pose list", callback_data: `legacy:nsfw:np:model:${modelId}` }],
+        [{ text: "Cancel", callback_data: "legacy:home" }],
+      ],
+    });
+    return;
+  }
+
+  if (data.startsWith("legacy:nsfw:np:submit:")) {
+    const modelId = data.split(":").pop();
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    const flow = getFlow(chatId);
+    const poseIds = Array.isArray(flow?.selectedPoses) ? flow.selectedPoses : [];
+    if (!poseIds.length) {
+      await sendTrackedMessage(chatId, "Select at least one pose before generating.", {
+        inline_keyboard: [[{ text: "⬅️ Back to poses", callback_data: `legacy:nsfw:np:model:${modelId}` }]],
+      });
+      return;
+    }
+    clearFlow(chatId);
+    await sendTrackedMessage(chatId, `⏳ Starting nudes pack (${poseIds.length} pose(s))...`, null);
+    const result = await submitLegacyNudesPack(session.userId, modelId, poseIds, { skipFaceSwap: true });
+    if (!result.ok) {
+      await sendTrackedMessage(chatId, `❌ Nudes pack failed: ${result.message}`, legacyMainKeyboard());
+      return;
+    }
+    const ids = (result.generations || []).map((g) => g.id).filter(Boolean);
+    await sendTrackedMessage(
+      chatId,
+      `✅ Nudes pack started!\n${result.poseCount ?? poseIds.length} pose(s) queued.\nCredits used: ${result.creditsUsed ?? "n/a"}`,
+      {
+        inline_keyboard: [
+          ...ids.slice(0, 3).map((id) => [{ text: `🔄 Refresh (${id.slice(-8)})`, callback_data: `legacy:generation:refresh:${id}:0` }]),
+          [{ text: "🕘 View history", callback_data: "legacy:history" }],
+          [{ text: "💄 New pack", callback_data: "legacy:nsfw:menu:nudespack" }],
+        ],
+      },
+    );
+    return;
+  }
+
+  if (data.startsWith("legacy:nsfw:prompt:model:")) {
+    const modelId = data.split(":").pop();
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    setFlow(chatId, { step: "await_nsfw_prompt_request", modelId });
+    await sendTrackedMessage(chatId, "🤖 AI Prompt Helper\n\nDescribe what kind of scene you want (e.g. 'sexy beach pose in bikini'):", {
+      keyboard: [["Cancel"]],
+      resize_keyboard: true,
+      one_time_keyboard: true,
+    });
+    return;
+  }
+
+  if (data.startsWith("legacy:nsfw:useprompt:")) {
+    const parts = data.split(":");
+    const useFor = parts[3]; // "gen" or "adv"
+    const encodedPrompt = parts.slice(4).join(":");
+    const prompt = decodeURIComponent(encodedPrompt);
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    const models = await prisma.savedModel.findMany({
+      where: { userId: session.userId, OR: [{ isAIGenerated: true }, { nsfwOverride: true }] },
+      select: { id: true, name: true },
+      orderBy: { createdAt: "desc" },
+      take: 15,
+    });
+    if (!models.length) {
+      await sendTrackedMessage(chatId, "No NSFW-eligible models found.", legacyMainKeyboard());
+      return;
+    }
+    const cbPrefix = useFor === "adv" ? "legacy:nsfw:useprompt:adv:model" : "legacy:nsfw:useprompt:gen:model";
+    const rows = models.map((m) => [{ text: m.name, callback_data: `${cbPrefix}:${m.id}` }]);
+    setFlow(chatId, { step: `await_nsfw_useprompt_${useFor}`, prompt });
+    rows.push([{ text: "Cancel", callback_data: "legacy:home" }]);
+    await sendTrackedMessage(chatId, `Prompt: "${prompt.slice(0, 180)}"\n\nSelect model:`, { inline_keyboard: rows });
+    return;
+  }
+
+  if (data.startsWith("legacy:nsfw:useprompt:gen:model:") || data.startsWith("legacy:nsfw:useprompt:adv:model:")) {
+    const isAdv = data.startsWith("legacy:nsfw:useprompt:adv:model:");
+    const modelId = data.split(":").pop();
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    const flow = getFlow(chatId);
+    const prompt = flow?.prompt || "";
+    clearFlow(chatId);
+    if (!prompt) {
+      await sendTrackedMessage(chatId, "Session expired. Start over.", legacyMainKeyboard());
+      return;
+    }
+    await sendTrackedMessage(chatId, `⏳ Starting ${isAdv ? "advanced NSFW" : "NSFW image"} generation...`, null);
+    const result = isAdv
+      ? await submitLegacyNsfwAdvanced(session.userId, modelId, prompt, "nano-banana")
+      : await submitLegacyNsfwGenerate(session.userId, modelId, prompt, { quantity: 1, skipFaceSwap: true });
+    if (!result.ok) {
+      await sendTrackedMessage(chatId, `❌ Generation failed: ${result.message}`, legacyMainKeyboard());
+      return;
+    }
+    const ids = isAdv
+      ? ([result.generationId || result.generation?.id].filter(Boolean))
+      : (result.generations || []).map((g) => g.id).filter(Boolean);
+    await sendTrackedMessage(
+      chatId,
+      `✅ Generation started! Credits used: ${result.creditsUsed ?? "n/a"}`,
+      {
+        inline_keyboard: [
+          ...ids.slice(0, 2).map((id) => [{ text: `🔄 Refresh (${id.slice(-8)})`, callback_data: `legacy:generation:refresh:${id}:0` }]),
+          [{ text: "🕘 View history", callback_data: "legacy:history" }],
+        ],
+      },
+    );
+    return;
+  }
+
+  if (data.startsWith("legacy:nsfw:train:model:")) {
+    const modelId = data.split(":").pop();
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    const [model, statusResult] = await Promise.all([
+      prisma.savedModel.findFirst({ where: { id: modelId, userId: session.userId }, select: { id: true, name: true, loraStatus: true, nsfwUnlocked: true } }),
+      fetchLegacyNsfwTrainingStatus(session.userId, modelId),
+    ]);
+    if (!model) {
+      await sendTrackedMessage(chatId, "Model not found.", legacyMainKeyboard());
+      return;
+    }
+    const status = statusResult.status || model.loraStatus || "none";
+    const info = `🧬 NSFW Training: ${model.name}\nLoRA status: ${status}\nNSFW unlocked: ${model.nsfwUnlocked ? "yes" : "no"}${statusResult.triggerWord ? `\nTrigger word: ${statusResult.triggerWord}` : ""}`;
+    const btns = [[{ text: "🔄 Refresh status", callback_data: `legacy:nsfw:train:status:${modelId}` }]];
+    if (status === "none" || status === "awaiting_images") {
+      btns.push([{ text: "🚀 Start training session (750 cr)", callback_data: `legacy:nsfw:train:start:${modelId}` }]);
+    }
+    if (status === "awaiting_images" || status === "failed") {
+      btns.push([{ text: "🎯 Train LoRA now", callback_data: `legacy:nsfw:train:lora:${modelId}` }]);
+    }
+    btns.push([{ text: "⬅️ Back", callback_data: "legacy:nsfw:menu:training" }]);
+    await sendTrackedMessage(chatId, info, { inline_keyboard: btns });
+    return;
+  }
+
+  if (data.startsWith("legacy:nsfw:train:status:")) {
+    const modelId = data.split(":").pop();
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    const result = await fetchLegacyNsfwTrainingStatus(session.userId, modelId);
+    await sendTrackedMessage(chatId, `LoRA status: ${result.status || "unknown"}${result.triggerWord ? `\nTrigger word: ${result.triggerWord}` : ""}`, {
+      inline_keyboard: [
+        [{ text: "🔄 Refresh again", callback_data: `legacy:nsfw:train:status:${modelId}` }],
+        [{ text: "⬅️ Back", callback_data: `legacy:nsfw:train:model:${modelId}` }],
+      ],
+    });
+    return;
+  }
+
+  if (data.startsWith("legacy:nsfw:train:start:")) {
+    const modelId = data.split(":").pop();
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    await sendTrackedMessage(chatId, "⏳ Starting NSFW training session (750 credits)...", null);
+    const result = await submitLegacyNsfwStartTraining(session.userId, modelId);
+    if (!result.ok) {
+      await sendTrackedMessage(chatId, `❌ Failed to start training: ${result.message}`, {
+        inline_keyboard: [[{ text: "⬅️ Back", callback_data: `legacy:nsfw:train:model:${modelId}` }]],
+      });
+      return;
+    }
+    await sendTrackedMessage(chatId, `✅ ${result.message || "Training session started."}\nCredits used: ${result.creditsUsed ?? "750"}`, {
+      inline_keyboard: [
+        [{ text: "🔄 Check training status", callback_data: `legacy:nsfw:train:status:${modelId}` }],
+        [{ text: "⬅️ Back", callback_data: `legacy:nsfw:train:model:${modelId}` }],
+      ],
+    });
+    return;
+  }
+
+  if (data.startsWith("legacy:nsfw:train:lora:")) {
+    const modelId = data.split(":").pop();
+    const session = await ensureLegacyAuth(chatId);
+    if (!session) return;
+    await sendTrackedMessage(chatId, "⏳ Starting LoRA training (750–1500 credits)...", null);
+    const result = await submitLegacyNsfwTrainLora(session.userId, modelId);
+    if (!result.ok) {
+      await sendTrackedMessage(chatId, `❌ LoRA training failed: ${result.message}`, {
+        inline_keyboard: [[{ text: "⬅️ Back", callback_data: `legacy:nsfw:train:model:${modelId}` }]],
+      });
+      return;
+    }
+    await sendTrackedMessage(chatId, `✅ LoRA training started! This takes 20-40 minutes.\nTrigger word: ${result.triggerWord || "TBD"}\nCredits used: ${result.creditsUsed ?? "n/a"}`, {
+      inline_keyboard: [
+        [{ text: "🔄 Check training status", callback_data: `legacy:nsfw:train:status:${modelId}` }],
+      ],
+    });
+    return;
+  }
+
 
   if (data.startsWith("lg:mpv:")) {
     // lg:mpv:${modelId}:${page}:${slot}
