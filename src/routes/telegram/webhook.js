@@ -294,15 +294,14 @@ function clearFlow(chatId) {
 async function clearTrackedBotMessages(chatId) {
   const key = String(chatId);
   const tracked = lastBotMessagesMap.get(key) || [];
-  for (const messageId of tracked) {
-    try {
-      await deleteMessage(chatId, messageId);
-    } catch {
-      // Ignore cleanup errors; some messages can no longer be deleted.
-    }
-  }
+  // Clear the tracked list FIRST before any async work, so that
+  // trackBotMessage() calls made concurrently don't get wiped out.
   lastBotMessagesMap.set(key, []);
   queuePersistLegacyState(key);
+  // Delete old messages fire-and-forget — failures are expected (messages expire).
+  for (const messageId of tracked) {
+    deleteMessage(chatId, messageId).catch(() => {});
+  }
 }
 
 function trackBotMessage(chatId, messageId) {
@@ -4561,6 +4560,14 @@ router.post("/webhook", async (req, res) => {
         fromId: message.from?.id,
         payload: message.web_app_data.data,
       });
+    }
+
+    // Flush in-memory state to DB at the end of every request.
+    // This is critical on serverless (Vercel) where the Lambda can freeze
+    // immediately after res.json(), before any queued setTimeout fires.
+    const syncChatId = message?.chat?.id || callbackQuery?.message?.chat?.id;
+    if (syncChatId) {
+      await persistLegacyStateNow(String(syncChatId));
     }
 
     return res.json({ ok: true });
