@@ -35,3 +35,22 @@ Set these in production:
 - [ ] `TELEGRAM_MINI_APP_URL=https://modelclone.app` is set
 - [ ] Prisma migration for Telegram fields is applied
 - [ ] Telegram webhook is registered after deploy
+
+## 5) Legacy commands (classic bot buttons + commands)
+
+The webhook supports a command-driven menu so users can navigate the full app from chat:
+
+- `/start` or `/menu` — main menu
+- `/app` — open Mini App home
+- `/dashboard`, `/models`, `/generate`, `/creator`, `/history`, `/settings`
+- `/pricing` — open plans/credits
+- `/help` — support links
+
+The command menu uses classic inline callbacks and deep-links each action into the Mini App.
+
+Users can switch anytime between:
+
+- **Mini App mode**: full SPA in Telegram WebApp
+- **Legacy Bot mode**: classic bot keyboard/buttons + chat responses
+
+Use `/mode` to toggle.

@@ -336,6 +336,11 @@ export const authAPI = {
     return response.data;
   },
 
+  linkTelegram: async (initData) => {
+    const response = await api.post("/auth/telegram/link", { initData });
+    return response.data;
+  },
+
   googleAuth: async (
     idToken,
     email,

@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { authAPI } from "../services/api";
 import { useAuthStore } from "../store";
 import { getRawInitData, getTelegramUser, isTelegram, tg } from "../lib/telegram.js";
+
+const TELEGRAM_BYPASS_KEY = "telegram_auth_bypass";
 
 function applyTelegramThemeVariables() {
   if (!tg?.themeParams) return;
@@ -16,13 +18,32 @@ function applyTelegramThemeVariables() {
 export default function TelegramAuthGate({ children }) {
   const setAuth = useAuthStore((state) => state.setAuth);
   const setTelegramUser = useAuthStore((state) => state.setTelegramUser);
-  const [status, setStatus] = useState(isTelegram() ? "loading" : "done");
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const [status, setStatus] = useState(() => {
+    if (!isTelegram()) return "done";
+    try {
+      const bypass = localStorage.getItem(TELEGRAM_BYPASS_KEY) === "true";
+      return bypass ? "done" : "loading";
+    } catch {
+      return "loading";
+    }
+  });
   const [error, setError] = useState("");
+  const [linking, setLinking] = useState(false);
+  const linkAttemptedRef = useRef(false);
 
   const runAuth = useCallback(async () => {
     if (!isTelegram()) {
       setStatus("done");
       return;
+    }
+    try {
+      if (localStorage.getItem(TELEGRAM_BYPASS_KEY) === "true") {
+        setStatus("done");
+        return;
+      }
+    } catch {
+      // Ignore localStorage access issues.
     }
 
     setStatus("loading");
@@ -41,6 +62,11 @@ export default function TelegramAuthGate({ children }) {
       if (!response?.success || !response?.user || !response?.token) {
         throw new Error(response?.message || "Telegram authentication failed.");
       }
+      try {
+        localStorage.removeItem(TELEGRAM_BYPASS_KEY);
+      } catch {
+        // Ignore localStorage access issues.
+      }
       setAuth(response.user, response.token);
       setTelegramUser(getTelegramUser());
       setStatus("done");
@@ -55,6 +81,47 @@ export default function TelegramAuthGate({ children }) {
   useEffect(() => {
     void runAuth();
   }, [runAuth]);
+
+  useEffect(() => {
+    if (!isTelegram() || !isAuthenticated || linking || linkAttemptedRef.current) return;
+    const initData = getRawInitData();
+    if (!initData) return;
+    linkAttemptedRef.current = true;
+
+    let cancelled = false;
+    const tryLink = async () => {
+      try {
+        setLinking(true);
+        const response = await authAPI.linkTelegram(initData);
+        if (!cancelled && response?.success) {
+          setTelegramUser(getTelegramUser());
+          try {
+            localStorage.removeItem(TELEGRAM_BYPASS_KEY);
+          } catch {
+            // Ignore localStorage access issues.
+          }
+        }
+      } catch {
+        // Linking is best-effort for existing-account login path.
+      } finally {
+        if (!cancelled) setLinking(false);
+      }
+    };
+
+    void tryLink();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, linking, setTelegramUser]);
+
+  const continueWithExistingAccount = () => {
+    try {
+      localStorage.setItem(TELEGRAM_BYPASS_KEY, "true");
+    } catch {
+      // Ignore localStorage access issues.
+    }
+    setStatus("done");
+  };
 
   if (status === "loading") {
     return (
@@ -79,6 +146,13 @@ export default function TelegramAuthGate({ children }) {
             className="px-4 py-2 rounded-lg bg-white text-black font-medium hover:bg-slate-100 transition-colors"
           >
             Retry
+          </button>
+          <button
+            type="button"
+            onClick={continueWithExistingAccount}
+            className="ml-3 px-4 py-2 rounded-lg border border-white/20 text-white font-medium hover:bg-white/10 transition-colors"
+          >
+            Use existing account
           </button>
         </div>
       </div>

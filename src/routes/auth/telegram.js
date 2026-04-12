@@ -2,7 +2,11 @@ import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import { Router } from "express";
 import prisma from "../../lib/prisma.js";
-import { setAuthCookie, setRefreshCookie } from "../../middleware/auth.middleware.js";
+import {
+  authMiddleware,
+  setAuthCookie,
+  setRefreshCookie,
+} from "../../middleware/auth.middleware.js";
 
 const router = Router();
 const DAY_SECONDS = 24 * 60 * 60;
@@ -52,6 +56,22 @@ function parseTelegramPayload(initData) {
   return { authDate, user };
 }
 
+function validateAndParse(initData, botToken) {
+  const isValid = validateTelegramInitData(initData, botToken);
+  if (!isValid) {
+    return { ok: false, status: 401, message: "Invalid Telegram authorization payload." };
+  }
+  const parsed = parseTelegramPayload(initData);
+  if (!parsed) {
+    return { ok: false, status: 400, message: "Malformed Telegram user payload." };
+  }
+  const authAgeSeconds = Math.floor(Date.now() / 1000) - parsed.authDate;
+  if (authAgeSeconds < 0 || authAgeSeconds > DAY_SECONDS) {
+    return { ok: false, status: 401, message: "Telegram authorization payload expired." };
+  }
+  return { ok: true, parsed };
+}
+
 router.post("/telegram", async (req, res) => {
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   const initData = String(req.body?.initData || "").trim();
@@ -70,29 +90,11 @@ router.post("/telegram", async (req, res) => {
     });
   }
 
-  const isValid = validateTelegramInitData(initData, botToken);
-  if (!isValid) {
-    return res.status(401).json({
-      success: false,
-      message: "Invalid Telegram authorization payload.",
-    });
+  const checked = validateAndParse(initData, botToken);
+  if (!checked.ok) {
+    return res.status(checked.status).json({ success: false, message: checked.message });
   }
-
-  const parsed = parseTelegramPayload(initData);
-  if (!parsed) {
-    return res.status(400).json({
-      success: false,
-      message: "Malformed Telegram user payload.",
-    });
-  }
-
-  const authAgeSeconds = Math.floor(Date.now() / 1000) - parsed.authDate;
-  if (authAgeSeconds < 0 || authAgeSeconds > DAY_SECONDS) {
-    return res.status(401).json({
-      success: false,
-      message: "Telegram authorization payload expired.",
-    });
-  }
+  const { parsed } = checked;
 
   const telegramId = String(parsed.user.id);
   const telegramUsername = parsed.user.username ? String(parsed.user.username) : null;
@@ -137,7 +139,7 @@ router.post("/telegram", async (req, res) => {
           subscriptionStatus: "trial",
           subscriptionCredits: 0,
           purchasedCredits: 0,
-          credits: 25,
+          credits: 250,
           maxModels: 999,
           specialOfferEligible: true,
         },
@@ -200,6 +202,79 @@ router.post("/telegram", async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Telegram authentication failed.",
+    });
+  }
+});
+
+router.post("/telegram/link", authMiddleware, async (req, res) => {
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  const initData = String(req.body?.initData || "").trim();
+  if (!botToken) {
+    return res.status(500).json({
+      success: false,
+      message: "Telegram auth is not configured.",
+    });
+  }
+  if (!initData) {
+    return res.status(400).json({
+      success: false,
+      message: "Missing Telegram initData.",
+    });
+  }
+
+  const checked = validateAndParse(initData, botToken);
+  if (!checked.ok) {
+    return res.status(checked.status).json({ success: false, message: checked.message });
+  }
+  const { parsed } = checked;
+
+  const telegramId = String(parsed.user.id);
+  const telegramUsername = parsed.user.username ? String(parsed.user.username) : null;
+  const displayName = [parsed.user.first_name, parsed.user.last_name]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  const currentUserId = req.user?.userId;
+
+  try {
+    const existingTelegramUser = await prisma.user.findFirst({
+      where: { telegram_id: telegramId },
+      select: { id: true },
+    });
+    if (existingTelegramUser && existingTelegramUser.id !== currentUserId) {
+      return res.status(409).json({
+        success: false,
+        message: "This Telegram account is already linked to another user.",
+      });
+    }
+
+    await prisma.user.update({
+      where: { id: currentUserId },
+      data: {
+        telegram_id: telegramId,
+        telegram_username: telegramUsername,
+        is_telegram: true,
+        ...(displayName ? { name: displayName } : {}),
+      },
+    });
+
+    return res.json({
+      success: true,
+      linked: true,
+      telegramUser: {
+        id: parsed.user.id,
+        first_name: parsed.user.first_name || null,
+        last_name: parsed.user.last_name || null,
+        username: parsed.user.username || null,
+        photo_url: parsed.user.photo_url || null,
+        language_code: parsed.user.language_code || null,
+      },
+    });
+  } catch (error) {
+    console.error("Telegram link error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to link Telegram account.",
     });
   }
 });

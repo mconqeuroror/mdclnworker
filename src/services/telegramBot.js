@@ -49,3 +49,16 @@ export function answerWebAppQuery(queryId, result) {
     result,
   });
 }
+
+export function answerCallbackQuery(callbackQueryId, text = "") {
+  return callTelegramApi("answerCallbackQuery", {
+    callback_query_id: callbackQueryId,
+    ...(text ? { text } : {}),
+  });
+}
+
+export function setMyCommands(commands = []) {
+  return callTelegramApi("setMyCommands", {
+    commands,
+  });
+}

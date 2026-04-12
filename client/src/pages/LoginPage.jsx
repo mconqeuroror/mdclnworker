@@ -2,12 +2,13 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { Mail, Lock, ArrowRight, Zap, ShieldCheck } from 'lucide-react';
-import { SiGoogle } from 'react-icons/si';
+import { SiGoogle, SiTelegram } from 'react-icons/si';
 import toast from 'react-hot-toast';
 import { authAPI, referralAPI } from '../services/api';
 import { useAuthStore } from '../store';
 import { signInWithGoogle } from '../lib/firebase';
 import { generateFingerprint } from '../utils/fingerprint';
+import { getRawInitData, getTelegramUser, isTelegram } from '../lib/telegram.js';
 const LOCALE_STORAGE_KEY = 'app_locale';
 
 function safeLocalStorageGet(key) {
@@ -111,11 +112,14 @@ export default function LoginPage() {
   const [requires2FA, setRequires2FA] = useState(false);
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [telegramLoading, setTelegramLoading] = useState(false);
   const [locale] = useState(resolveLocale);
   const copy = COPY[locale] || COPY.en;
   const navigate = useNavigate();
   const location = useLocation();
   const setAuth = useAuthStore((state) => state.setAuth);
+  const setTelegramUser = useAuthStore((state) => state.setTelegramUser);
+  const inTelegramMiniApp = isTelegram();
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -186,6 +190,35 @@ export default function LoginPage() {
       toast.error(errorData?.message || copy.googleFailed);
     } finally {
       setGoogleLoading(false);
+    }
+  };
+
+  const handleTelegramLogin = async () => {
+    if (!inTelegramMiniApp) return;
+
+    setTelegramLoading(true);
+    try {
+      const initData = getRawInitData();
+      if (!initData) {
+        toast.error('Telegram session payload is missing.');
+        return;
+      }
+
+      const data = await authAPI.telegramAuth(initData);
+      if (!data?.success || !data?.user || !data?.token) {
+        toast.error(data?.message || 'Telegram sign-in failed');
+        return;
+      }
+
+      setAuth(data.user, data.token);
+      setTelegramUser(getTelegramUser());
+      toast.success(copy.welcomeBackToast);
+      navigate('/dashboard');
+    } catch (error) {
+      const errorData = error.response?.data;
+      toast.error(errorData?.message || 'Telegram sign-in failed');
+    } finally {
+      setTelegramLoading(false);
     }
   };
 
@@ -368,7 +401,7 @@ export default function LoginPage() {
             {/* Submit */}
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || googleLoading || telegramLoading}
               className="w-full py-4 rounded-xl bg-white text-black hover:bg-slate-100 btn-magnetic btn-ripple font-bold flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed group text-lg"
               data-testid="button-submit"
             >
@@ -386,6 +419,28 @@ export default function LoginPage() {
             </button>
           </form>
 
+          {inTelegramMiniApp && (
+            <button
+              type="button"
+              onClick={handleTelegramLogin}
+              disabled={loading || googleLoading || telegramLoading}
+              className="w-full py-4 rounded-xl bg-[#26A5E4] text-white font-bold flex items-center justify-center gap-3 hover:bg-[#1f95cf] transition disabled:opacity-50 disabled:cursor-not-allowed mt-6"
+              data-testid="button-telegram-login"
+            >
+              {telegramLoading ? (
+                <div className="flex items-center gap-3">
+                  <div className="w-5 h-5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                  <span>Signing in...</span>
+                </div>
+              ) : (
+                <>
+                  <SiTelegram className="w-5 h-5" />
+                  Continue with Telegram
+                </>
+              )}
+            </button>
+          )}
+
           {/* Or divider */}
           <div className="relative my-6">
             <div className="absolute inset-0 flex items-center">
@@ -400,7 +455,7 @@ export default function LoginPage() {
           <button
             type="button"
             onClick={handleGoogleLogin}
-            disabled={loading || googleLoading}
+            disabled={loading || googleLoading || telegramLoading}
             className="w-full py-4 rounded-xl bg-white text-gray-900 font-bold flex items-center justify-center gap-3 hover:bg-gray-100 transition disabled:opacity-50 disabled:cursor-not-allowed"
             data-testid="button-google-login"
           >
