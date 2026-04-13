@@ -1,7 +1,7 @@
 import sgMail from '@sendgrid/mail';
 import { BRAND } from "../utils/brand.js";
 import { getAppBranding } from "./branding.service.js";
-import { getPromptTemplateValue } from "./prompt-template-config.service.js";
+import { getWinbackEmailTemplate } from "./winback-email-template.service.js";
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -349,31 +349,11 @@ export async function sendFirstMembershipDiscountEmail({
         return Object.prototype.hasOwnProperty.call(templateVars, k) ? templateVars[k] : "";
       });
     };
-    const defaultSubjectTemplate = "{{DISCOUNT_PERCENT}}% off your first membership is waiting";
-    const defaultTitleTemplate = "{{DISCOUNT_PERCENT}}% Off Your First Membership";
-    const defaultIntroTemplate = "Hey {{NAME}}, thanks for signing up. We saved a private first-membership discount for you.";
-    const defaultContentTemplate = `
-          <div style="background:#f7f7f5;border:1px solid #e2e2de;border-radius:4px;padding:20px 22px;margin-bottom:16px;">
-            <p style="font-size:13px;color:#9b9b93;margin-bottom:8px;">Discount code</p>
-            <p style="font-size:30px;line-height:1.1;font-weight:600;color:#111;font-family:'DM Mono', monospace;">{{DISCOUNT_CODE}}</p>
-          </div>
-          <table style="width:100%;border-collapse:collapse;font-size:13px;color:#555550;margin:0 0 18px;">
-            <tr><td style="padding:8px 0;border-bottom:1px solid #e8e8e4;">Discount</td><td style="padding:8px 0;text-align:right;border-bottom:1px solid #e8e8e4;"><strong>{{DISCOUNT_PERCENT}}%</strong></td></tr>
-            <tr><td style="padding:8px 0;border-bottom:1px solid #e8e8e4;">Applies to</td><td style="padding:8px 0;text-align:right;border-bottom:1px solid #e8e8e4;">First membership checkout</td></tr>
-            <tr><td style="padding:8px 0;">Expires</td><td style="padding:8px 0;text-align:right;">{{EXPIRES_AT}}</td></tr>
-          </table>
-          <p style="margin:0 0 16px;"><a href="{{DASHBOARD_URL}}" class="cta-btn">Claim membership offer</a></p>
-          <p class="note">Code is single-use and tied to your first membership purchase.</p>
-          <p class="note">If you've already joined, you can ignore this email.</p>
-        `;
-    const subjectTemplate = await getPromptTemplateValue("winbackFirstMembershipEmailSubject", defaultSubjectTemplate);
-    const titleTemplate = await getPromptTemplateValue("winbackFirstMembershipEmailTitle", defaultTitleTemplate);
-    const introTemplate = await getPromptTemplateValue("winbackFirstMembershipEmailIntro", defaultIntroTemplate);
-    const contentTemplate = await getPromptTemplateValue("winbackFirstMembershipEmailContent", defaultContentTemplate);
-    const subject = renderTemplate(subjectTemplate);
-    const title = renderTemplate(titleTemplate);
-    const intro = renderTemplate(introTemplate);
-    const content = renderTemplate(contentTemplate);
+    const template = await getWinbackEmailTemplate();
+    const subject = renderTemplate(template.subject);
+    const title = renderTemplate(template.title);
+    const intro = renderTemplate(template.intro);
+    const content = renderTemplate(template.content);
 
     const msg = {
       to: email,
@@ -497,6 +477,159 @@ export async function sendSpecialOfferConfirmationEmail({ to, name, modelName, c
   } catch (error) {
     console.error('❌ Failed to send special offer confirmation email:', error.message);
     return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Notify user that their card was automatically charged to cover a voice hosting fee.
+ */
+export async function sendVoiceAutoChargeSuccessEmail(email, {
+  voiceName,
+  credits,
+  amountUsd,
+  dashboardUrl,
+}) {
+  try {
+    const branding = await getAppBranding();
+    const brandName = branding.appName || BRAND.name;
+    const baseUrl = (branding.baseUrl || BRAND.defaultBaseUrl).replace(/\/$/, "");
+    const fromEmail = process.env.SENDGRID_FROM_EMAIL || process.env.ADMIN_EMAIL;
+    if (!fromEmail) {
+      console.warn("sendVoiceAutoChargeSuccessEmail: SENDGRID_FROM_EMAIL not set, skipping");
+      return { success: false };
+    }
+
+    const safeVoice = escapeHtml(voiceName || "your custom voice");
+    const safeCredits = escapeHtml(String(credits || 1000));
+    const safeAmount = escapeHtml(amountUsd ? `$${Number(amountUsd).toFixed(2)}` : "");
+    const ctaUrl = escapeHtml(dashboardUrl || `${baseUrl}/voice-studio`);
+
+    const html = await renderBaseEmailShell({
+      subject: "Voice hosting — card charged",
+      sectionLabel: "Voice Studio",
+      title: "Your voice hosting was renewed",
+      preheader: `We charged your card ${safeAmount} to keep "${safeVoice}" active.`,
+      introHtml: `<p class="greeting-text">Your saved payment method was automatically charged to cover the monthly hosting fee for <strong>${safeVoice}</strong>.</p>`,
+      contentHtml: `
+        <table style="width:100%;border-collapse:collapse;margin-bottom:24px;">
+          <tr><td style="padding:8px 0;font-size:14px;color:#555550;font-weight:300;">Voice</td><td style="padding:8px 0;font-size:14px;color:#111;font-weight:500;text-align:right;">${safeVoice}</td></tr>
+          <tr style="border-top:1px solid #e8e8e4;"><td style="padding:8px 0;font-size:14px;color:#555550;font-weight:300;">Credits added</td><td style="padding:8px 0;font-size:14px;color:#111;font-weight:500;text-align:right;">${safeCredits} credits</td></tr>
+          ${safeAmount ? `<tr style="border-top:1px solid #e8e8e4;"><td style="padding:8px 0;font-size:14px;color:#555550;font-weight:300;">Amount charged</td><td style="padding:8px 0;font-size:14px;color:#111;font-weight:500;text-align:right;">${safeAmount}</td></tr>` : ""}
+        </table>
+        <a href="${ctaUrl}" class="cta-btn">Go to Voice Studio</a>
+        <p class="note" style="margin-top:20px;">To avoid future auto-charges, top up your credit balance before your voice hosting renews each month.</p>
+      `,
+    });
+
+    await sgMail.send({
+      to: email,
+      from: { name: brandName, email: fromEmail },
+      subject: `Voice hosting renewed — card charged ${safeAmount}`,
+      html,
+    });
+    return { success: true };
+  } catch (err) {
+    console.error("sendVoiceAutoChargeSuccessEmail error:", err?.message);
+    return { success: false };
+  }
+}
+
+/**
+ * Warn user that auto-charge failed and their voice will be deleted in 3 days
+ * unless they top up their credit balance.
+ */
+export async function sendVoiceGracePeriodEmail(email, {
+  voiceName,
+  graceEndsAt,
+  credits,
+  topupUrl,
+}) {
+  try {
+    const branding = await getAppBranding();
+    const brandName = branding.appName || BRAND.name;
+    const baseUrl = (branding.baseUrl || BRAND.defaultBaseUrl).replace(/\/$/, "");
+    const fromEmail = process.env.SENDGRID_FROM_EMAIL || process.env.ADMIN_EMAIL;
+    if (!fromEmail) {
+      console.warn("sendVoiceGracePeriodEmail: SENDGRID_FROM_EMAIL not set, skipping");
+      return { success: false };
+    }
+
+    const safeVoice = escapeHtml(voiceName || "your custom voice");
+    const safeCredits = escapeHtml(String(credits || 1000));
+    const deadlineStr = graceEndsAt
+      ? escapeHtml(new Date(graceEndsAt).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }))
+      : "3 days from now";
+    const ctaUrl = escapeHtml(topupUrl || `${baseUrl}/credits`);
+
+    const html = await renderBaseEmailShell({
+      subject: "Action required: top up to keep your voice",
+      sectionLabel: "Voice Studio · Billing",
+      title: `"${safeVoice}" will be deleted on ${deadlineStr}`,
+      preheader: `Add ${safeCredits} credits by ${deadlineStr} to keep your voice active.`,
+      introHtml: `<p class="greeting-text">We attempted to charge your saved payment method for the monthly hosting fee of <strong>${safeCredits} credits</strong> for <strong>${safeVoice}</strong>, but the payment did not go through.</p>`,
+      contentHtml: `
+        <p style="font-size:14px;color:#111;font-weight:500;margin-bottom:16px;">⚠️ Your voice will be <strong>permanently deleted</strong> on <strong>${deadlineStr}</strong> if the balance is not resolved.</p>
+        <a href="${ctaUrl}" class="cta-btn" style="margin-bottom:20px;display:inline-block;">Add credits now</a>
+        <p class="note" style="margin-top:20px;">Once you have enough credits in your account, the hosting fee will be collected automatically the next time you open Voice Studio, or at the next billing cycle.</p>
+        <p class="note">If you no longer need this voice, you can delete it from Voice Studio to stop future billing.</p>
+      `,
+    });
+
+    await sgMail.send({
+      to: email,
+      from: { name: brandName, email: fromEmail },
+      subject: `⚠️ Add credits by ${deadlineStr} or "${safeVoice}" will be deleted`,
+      html,
+    });
+    return { success: true };
+  } catch (err) {
+    console.error("sendVoiceGracePeriodEmail error:", err?.message);
+    return { success: false };
+  }
+}
+
+/**
+ * Notify user that their voice has been deleted due to unpaid hosting.
+ */
+export async function sendVoiceDeletedDueToNonPaymentEmail(email, {
+  voiceName,
+  topupUrl,
+}) {
+  try {
+    const branding = await getAppBranding();
+    const brandName = branding.appName || BRAND.name;
+    const baseUrl = (branding.baseUrl || BRAND.defaultBaseUrl).replace(/\/$/, "");
+    const fromEmail = process.env.SENDGRID_FROM_EMAIL || process.env.ADMIN_EMAIL;
+    if (!fromEmail) {
+      console.warn("sendVoiceDeletedDueToNonPaymentEmail: SENDGRID_FROM_EMAIL not set, skipping");
+      return { success: false };
+    }
+
+    const safeVoice = escapeHtml(voiceName || "your custom voice");
+    const ctaUrl = escapeHtml(topupUrl || `${baseUrl}/credits`);
+
+    const html = await renderBaseEmailShell({
+      subject: "Your voice has been deleted",
+      sectionLabel: "Voice Studio · Billing",
+      title: `"${safeVoice}" has been deleted`,
+      preheader: `The grace period expired and "${safeVoice}" was removed.`,
+      introHtml: `<p class="greeting-text">The 3-day grace period for <strong>${safeVoice}</strong> has ended and the voice has been permanently deleted from your account because the monthly hosting fee could not be collected.</p>`,
+      contentHtml: `
+        <p style="font-size:14px;color:#555550;margin-bottom:20px;">You can create a new voice at any time by adding credits to your account and visiting Voice Studio.</p>
+        <a href="${ctaUrl}" class="cta-btn">Add credits</a>
+      `,
+    });
+
+    await sgMail.send({
+      to: email,
+      from: { name: brandName, email: fromEmail },
+      subject: `Your voice "${safeVoice}" has been deleted`,
+      html,
+    });
+    return { success: true };
+  } catch (err) {
+    console.error("sendVoiceDeletedDueToNonPaymentEmail error:", err?.message);
+    return { success: false };
   }
 }
 
