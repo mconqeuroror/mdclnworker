@@ -189,7 +189,8 @@ import telegramWebhookRoutes from './routes/telegram/webhook.js';
 app.use('/api/stripe/webhook', stripeWebhookRouter);
 app.use('/api/crypto/webhook', cryptoWebhookRouter);
 app.use('/api/kie/callback', kieCallbackRoutes);
-app.use('/api/piapi/callback', piapiCallbackRoutes);
+// PiAPI does not require raw body (no HMAC sig), so parse JSON before the handler
+app.use('/api/piapi/callback', express.json({ limit: "2mb" }), piapiCallbackRoutes);
 app.use('/api/wavespeed/callback', wavespeedCallbackRoutes);
 app.use('/api/fal/webhook', falCallbackRoutes);
 app.use('/api/runpod', runpodCallbackRoutes);
