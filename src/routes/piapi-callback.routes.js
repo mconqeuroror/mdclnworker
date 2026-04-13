@@ -57,16 +57,18 @@ router.post("/", async (req, res) => {
         }
         return null;
       };
-      return (
-        asUrl(out.video)
-        || asUrl(out.url)
-        || asUrl(out.video_url)
-        || asUrl(out.result_url)
-        || asUrl(out.result_video_url)
-        || (Array.isArray(out.videos) ? asUrl(out.videos[0]) : null)
-        || (Array.isArray(out.video_urls) ? asUrl(out.video_urls[0]) : null)
-        || null
-      );
+      const candidates = [
+        ["output.video", asUrl(out.video)],
+        ["output.url", asUrl(out.url)],
+        ["output.video_url", asUrl(out.video_url)],
+        ["output.result_url", asUrl(out.result_url)],
+        ["output.result_video_url", asUrl(out.result_video_url)],
+        ["output.videos[0]", Array.isArray(out.videos) ? asUrl(out.videos[0]) : null],
+        ["output.video_urls[0]", Array.isArray(out.video_urls) ? asUrl(out.video_urls[0]) : null],
+      ];
+      const match = candidates.find(([, v]) => v != null);
+      if (match) console.log(`[PiAPI Callback] outputUrl matched field: ${match[0]}`);
+      return match ? match[1] : null;
     })();
     const errorMsg = data.error?.message || data.message || null;
 
@@ -85,7 +87,7 @@ router.post("/", async (req, res) => {
       return ack(res, "intermediate state");
     }
 
-    const gen = await prisma.generation.findFirst({
+    let gen = await prisma.generation.findFirst({
       where: { providerTaskId: taskId },
       select: {
         id: true,
@@ -95,6 +97,25 @@ router.post("/", async (req, res) => {
         providerTaskId: true,
       },
     });
+
+    // Fallback: some generation records are tagged via replicateModel before providerTaskId is written
+    if (!gen) {
+      gen = await prisma.generation.findFirst({
+        where: { replicateModel: `piapi-task:${taskId}` },
+        select: {
+          id: true,
+          userId: true,
+          status: true,
+          type: true,
+          providerTaskId: true,
+        },
+      });
+      if (gen) {
+        console.log(`[PiAPI Callback] Found gen ${gen.id.slice(0, 8)} via replicateModel fallback`);
+        // Backfill providerTaskId so future lookups are direct
+        await prisma.generation.update({ where: { id: gen.id }, data: { providerTaskId: taskId } });
+      }
+    }
 
     if (!gen) {
       console.warn(`[PiAPI Callback] No generation found for task_id=${taskId.slice(0, 16)}`);

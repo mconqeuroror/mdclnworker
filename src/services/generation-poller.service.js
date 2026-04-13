@@ -83,6 +83,7 @@ class GenerationPollerService {
     // Some KIE generation types are intentionally excluded from WaveSpeed polling, and if
     // their callback is missed they would otherwise stay stuck in "processing" forever.
     await this.reconcileStaleKieGenerations();
+    await this.reconcileStalePiapiGenerations();
     await this.reconcileStaleRunpodGenerations();
 
     // Find all processing generations
@@ -608,6 +609,127 @@ class GenerationPollerService {
         }
       } catch (e) {
         console.warn(`[KIE Watchdog] Error checking ${gen.id.slice(0, 8)}: ${e.message}`);
+      }
+    }
+  }
+
+  /**
+   * Reconcile PiAPI (Seedance) generations whose webhook was never delivered.
+   * Primary path is the PiAPI callback; this is the recovery path.
+   *
+   * Polls GET https://api.piapi.ai/api/v1/task/{taskId} for each stuck gen.
+   */
+  async reconcileStalePiapiGenerations() {
+    const PIAPI_API_KEY = process.env.PIAPI_API_KEY;
+    if (!PIAPI_API_KEY) return;
+
+    const MIN_AGE_MS = 2 * 60 * 1000;   // 2 min grace before checking
+    const HARD_TIMEOUT_MS = 75 * 60 * 1000; // 75 min max for video
+    const now = Date.now();
+
+    const stale = await prisma.generation.findMany({
+      where: {
+        status: "processing",
+        replicateModel: { startsWith: "piapi-task:" },
+        createdAt: { lt: new Date(now - MIN_AGE_MS) },
+      },
+      select: { id: true, replicateModel: true, createdAt: true, creditsCost: true },
+      take: 30,
+      orderBy: { createdAt: "asc" },
+    });
+
+    if (stale.length === 0) return;
+    console.log(`[PiAPI Watchdog] Checking ${stale.length} stuck PiAPI task(s)…`);
+
+    for (const gen of stale) {
+      const ageMs = now - new Date(gen.createdAt).getTime();
+      const taskId = gen.replicateModel.replace(/^piapi-task:/, "").trim();
+      if (!taskId) continue;
+
+      try {
+        const res = await this.fetchWithTimeout(
+          `https://api.piapi.ai/api/v1/task/${encodeURIComponent(taskId)}`,
+          { headers: { "X-API-Key": PIAPI_API_KEY, "Content-Type": "application/json" } },
+          20_000,
+        );
+
+        if (!res.ok) {
+          if (ageMs > HARD_TIMEOUT_MS) {
+            await prisma.generation.update({
+              where: { id: gen.id },
+              data: { status: "failed", errorMessage: getErrorMessageForDb(`PiAPI task timed out after ${Math.round(ageMs / 60000)} min (HTTP ${res.status})`), completedAt: new Date() },
+            });
+            try { await refundGeneration(gen.id); } catch { /**/ }
+            console.log(`[PiAPI Watchdog] ⏱ Timeout ${gen.id.slice(0, 8)} (HTTP ${res.status})`);
+          } else {
+            console.warn(`[PiAPI Watchdog] ${gen.id.slice(0, 8)} HTTP ${res.status} — skipping`);
+          }
+          continue;
+        }
+
+        const json = await res.json();
+        // PiAPI response: { code, data: { task_id, status, output, error } }
+        const data = json?.data && typeof json.data === "object" ? json.data : json;
+        const status = String(data?.status || "").toLowerCase();
+        const isCompleted = ["completed", "success", "succeeded", "finished", "done"].includes(status);
+        const isFailed = ["failed", "fail", "error", "cancelled", "canceled"].includes(status);
+
+        if (isCompleted) {
+          const out = data?.output || {};
+          const asUrl = (v) => {
+            if (!v) return null;
+            if (typeof v === "string") return v.startsWith("http") ? v : null;
+            if (typeof v === "object") {
+              const c = v.url || v.video || v.video_url || v.result_url || null;
+              return typeof c === "string" && c.startsWith("http") ? c : null;
+            }
+            return null;
+          };
+          const videoUrl = asUrl(out.video) || asUrl(out.url) || asUrl(out.video_url)
+            || asUrl(out.result_url) || asUrl(out.result_video_url)
+            || (Array.isArray(out.videos) ? asUrl(out.videos[0]) : null)
+            || null;
+
+          if (videoUrl) {
+            let finalUrl = videoUrl;
+            try {
+              const { mirrorProviderOutputUrl } = await import("../utils/kieUpload.js");
+              finalUrl = await mirrorProviderOutputUrl(videoUrl, "video/mp4");
+            } catch (e) {
+              console.warn(`[PiAPI Watchdog] Mirror failed for ${gen.id.slice(0, 8)}: ${e.message}`);
+            }
+            await prisma.generation.update({
+              where: { id: gen.id },
+              data: { status: "completed", outputUrl: finalUrl, completedAt: new Date(), pipelinePayload: null },
+            });
+            console.log(`[PiAPI Watchdog] ✅ Recovered ${gen.id.slice(0, 8)} → ${finalUrl.slice(0, 80)}`);
+          } else {
+            await prisma.generation.update({
+              where: { id: gen.id },
+              data: { status: "failed", errorMessage: getErrorMessageForDb("PiAPI task completed but returned no output URL"), completedAt: new Date() },
+            });
+            try { await refundGeneration(gen.id); } catch { /**/ }
+            console.warn(`[PiAPI Watchdog] ⚠ Completed but no URL ${gen.id.slice(0, 8)}`);
+          }
+        } else if (isFailed) {
+          const errMsg = data?.error?.message || data?.error?.raw_message || `PiAPI task ${status}`;
+          await prisma.generation.update({
+            where: { id: gen.id },
+            data: { status: "failed", errorMessage: getErrorMessageForDb(errMsg), completedAt: new Date() },
+          });
+          try { await refundGeneration(gen.id); } catch { /**/ }
+          console.log(`[PiAPI Watchdog] ❌ Marked failed ${gen.id.slice(0, 8)}: ${errMsg}`);
+        } else if (ageMs > HARD_TIMEOUT_MS) {
+          await prisma.generation.update({
+            where: { id: gen.id },
+            data: { status: "failed", errorMessage: getErrorMessageForDb(`PiAPI task timed out after ${Math.round(ageMs / 60000)} min (state: ${status})`), completedAt: new Date() },
+          });
+          try { await refundGeneration(gen.id); } catch { /**/ }
+          console.log(`[PiAPI Watchdog] ⏱ Timeout ${gen.id.slice(0, 8)} state=${status}`);
+        }
+        // still running → no-op
+      } catch (e) {
+        console.warn(`[PiAPI Watchdog] Error checking ${gen.id.slice(0, 8)}: ${e.message}`);
       }
     }
   }

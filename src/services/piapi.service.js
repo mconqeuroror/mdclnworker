@@ -17,7 +17,11 @@ const PIAPI_BASE_URL = "https://api.piapi.ai";
 function getPiapiCallbackUrl() {
   const base = process.env.PIAPI_CALLBACK_URL || process.env.CALLBACK_BASE_URL || process.env.KIE_CALLBACK_URL || "";
   if (!base) return null;
-  const clean = base.replace(/\/api\/kie\/callback\/?$/, "").replace(/\/$/, "");
+  let clean = base.replace(/\/api\/kie\/callback\/?$/, "").replace(/\/$/, "");
+  // Ensure absolute URL so PiAPI can deliver the webhook
+  if (!clean.startsWith("http://") && !clean.startsWith("https://")) {
+    clean = `https://${clean}`;
+  }
   return `${clean}/api/piapi/callback`;
 }
 
