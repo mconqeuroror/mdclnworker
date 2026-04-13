@@ -1,14 +1,36 @@
 import bcrypt from "bcryptjs";
 import prisma from "../../../lib/prisma.js";
-import { getSession, setSession, clearSession, clearFlow, setFlow, getFlow } from "./state.js";
+import { getSession, setSession, clearSession, clearFlow, setFlow, getFlow, persistNow } from "./state.js";
 import { send, answerCb, cancelKbd as cancelHelper, inlineKbd, removeKbd } from "./helpers.js";
 import { loginKbd, mainKbd, dashboardKbd } from "./keyboards.js";
 import { renderDashboard } from "./dashboard.js";
 
 // ── Ensure auth — returns session or sends login prompt ───────
+// Falls back to DB on cold starts (serverless: in-memory Map may be empty)
 export async function ensureAuth(chatId) {
-  const session = getSession(chatId);
+  let session = getSession(chatId);
   if (session?.userId) return session;
+
+  // In-memory miss — query DB directly so cold-start instances don't lose sessions
+  try {
+    if (prisma.telegramLegacyState) {
+      const row = await prisma.telegramLegacyState.findUnique({
+        where: { chatId: String(chatId) },
+        select: { sessionUserId: true, sessionEmail: true, expiresAt: true },
+      });
+      if (
+        row?.sessionUserId &&
+        (!row.expiresAt || new Date(row.expiresAt).getTime() > Date.now())
+      ) {
+        setSession(chatId, { userId: row.sessionUserId, email: row.sessionEmail || null });
+        session = getSession(chatId);
+        if (session?.userId) return session;
+      }
+    }
+  } catch (e) {
+    console.warn("[ensureAuth] DB fallback failed:", e?.message);
+  }
+
   await sendLoginPrompt(chatId);
   return null;
 }
@@ -174,6 +196,8 @@ async function verify2FA(chatId, userId, code) {
 async function completeLogin(chatId, user) {
   setSession(chatId, { userId: user.id, email: user.email });
   clearFlow(chatId);
+  // Persist immediately after login so cold-start instances can restore the session
+  await persistNow(String(chatId)).catch(() => {});
   await send(chatId, `✅ Logged in as ${user.name || user.email}.`, removeKbd());
   await renderDashboard(chatId, user.id);
 }
