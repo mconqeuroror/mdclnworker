@@ -337,6 +337,11 @@ export default function LanderNewRenderer({
           <span className="pricing-perk-chip">Bonus credits never expire</span>
           <span className="pricing-perk-chip">Full commercial rights</span>
         </div>
+        <p className="pricing-credits-note">
+          Subscription credits are valid for 30 days and refresh automatically on each successful rebill.
+          Any unused subscription credits are saved to your permanent balance before the reset — they are never lost.
+          One-time credit purchases never expire.
+        </p>
       </section>
     </div>
   );
