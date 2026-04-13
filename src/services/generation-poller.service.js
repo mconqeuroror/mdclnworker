@@ -123,6 +123,8 @@ class GenerationPollerService {
 
     const wavespeedOnly = pendingGenerations.filter((gen) => {
       if (gen.replicateModel && gen.replicateModel.startsWith("kie-")) return false;
+      if (gen.replicateModel && gen.replicateModel.startsWith("piapi-")) return false; // handled via PiAPI callback
+      if (gen.replicateModel && gen.replicateModel.startsWith("piapi-task:")) return false; // handled via PiAPI callback
       if (gen.replicateModel && gen.replicateModel.startsWith("wavespeed-seedream:")) return false; // completed via WaveSpeed webhook
       return true;
     });

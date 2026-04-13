@@ -46,11 +46,28 @@ router.post("/", async (req, res) => {
     const data = payload?.data && typeof payload.data === "object" ? payload.data : payload;
     taskId = String(data.task_id || data.taskId || "").trim();
     const status = String(data.status || "").toLowerCase();
-    const outputVideo =
-      data.output?.video ||
-      data.output?.url ||
-      (Array.isArray(data.output?.videos) ? data.output.videos[0] : null) ||
-      null;
+    const outputVideo = (() => {
+      const out = data.output || {};
+      const asUrl = (v) => {
+        if (!v) return null;
+        if (typeof v === "string") return v.startsWith("http") ? v : null;
+        if (typeof v === "object") {
+          const candidate = v.url || v.video || v.video_url || v.result_url || v.result_video_url || null;
+          return typeof candidate === "string" && candidate.startsWith("http") ? candidate : null;
+        }
+        return null;
+      };
+      return (
+        asUrl(out.video)
+        || asUrl(out.url)
+        || asUrl(out.video_url)
+        || asUrl(out.result_url)
+        || asUrl(out.result_video_url)
+        || (Array.isArray(out.videos) ? asUrl(out.videos[0]) : null)
+        || (Array.isArray(out.video_urls) ? asUrl(out.video_urls[0]) : null)
+        || null
+      );
+    })();
     const errorMsg = data.error?.message || data.message || null;
 
     if (!taskId) {
