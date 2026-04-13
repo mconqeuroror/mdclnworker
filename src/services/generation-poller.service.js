@@ -84,6 +84,7 @@ class GenerationPollerService {
     // their callback is missed they would otherwise stay stuck in "processing" forever.
     await this.reconcileStaleKieGenerations();
     await this.reconcileStalePiapiGenerations();
+    await this.reconcileStaleWavespeedSeedreamGenerations();
     await this.reconcileStaleRunpodGenerations();
 
     // Find all processing generations
@@ -609,6 +610,118 @@ class GenerationPollerService {
         }
       } catch (e) {
         console.warn(`[KIE Watchdog] Error checking ${gen.id.slice(0, 8)}: ${e.message}`);
+      }
+    }
+  }
+
+  /**
+   * Reconcile WaveSpeed Seedream generations whose webhook was never delivered.
+   * Rows with replicateModel "wavespeed-seedream:*" are excluded from the main
+   * WaveSpeed poll loop (they rely on the webhook), so this is the only fallback.
+   *
+   * Polls GET /api/v3/predictions/{requestId}/result for each stuck gen.
+   */
+  async reconcileStaleWavespeedSeedreamGenerations() {
+    const WAVESPEED_API_KEY = process.env.WAVESPEED_API_KEY;
+    if (!WAVESPEED_API_KEY) return;
+
+    const MIN_AGE_MS = 3 * 60 * 1000;   // 3 min grace for webhook delivery
+    const HARD_TIMEOUT_MS = 25 * 60 * 1000; // 25 min max for image tasks
+    const now = Date.now();
+
+    const stale = await prisma.generation.findMany({
+      where: {
+        status: "processing",
+        replicateModel: { startsWith: "wavespeed-seedream:" },
+        createdAt: { lt: new Date(now - MIN_AGE_MS) },
+      },
+      select: { id: true, replicateModel: true, createdAt: true, userId: true },
+      take: 30,
+      orderBy: { createdAt: "asc" },
+    });
+
+    if (stale.length === 0) return;
+    console.log(`[WaveSpeed Seedream Watchdog] Checking ${stale.length} stuck task(s)…`);
+
+    for (const gen of stale) {
+      const ageMs = now - new Date(gen.createdAt).getTime();
+      const taskId = gen.replicateModel.replace(/^wavespeed-seedream:/, "").trim();
+      if (!taskId) continue;
+
+      try {
+        const res = await this.fetchWithTimeout(
+          `https://api.wavespeed.ai/api/v3/predictions/${encodeURIComponent(taskId)}/result`,
+          { headers: { Authorization: `Bearer ${WAVESPEED_API_KEY}` } },
+          20_000,
+        );
+
+        if (!res.ok) {
+          if (ageMs > HARD_TIMEOUT_MS) {
+            await prisma.generation.update({
+              where: { id: gen.id },
+              data: { status: "failed", errorMessage: getErrorMessageForDb(`WaveSpeed task timed out after ${Math.round(ageMs / 60000)} min (HTTP ${res.status})`), completedAt: new Date() },
+            });
+            try { await refundGeneration(gen.id); } catch { /**/ }
+            console.log(`[WaveSpeed Seedream Watchdog] ⏱ Timeout ${gen.id.slice(0, 8)} (HTTP ${res.status})`);
+          } else {
+            console.warn(`[WaveSpeed Seedream Watchdog] ${gen.id.slice(0, 8)} HTTP ${res.status} — skipping`);
+          }
+          continue;
+        }
+
+        const json = await res.json();
+        const data = json?.data ?? json;
+        const status = String(data?.status || "").toLowerCase();
+        const isCompleted = ["completed", "succeeded", "success", "finished"].includes(status);
+        const isFailed = ["failed", "error", "cancelled", "canceled"].includes(status);
+
+        if (isCompleted) {
+          const outputs = data?.outputs;
+          const rawUrl = Array.isArray(outputs) && outputs.length > 0
+            ? (typeof outputs[0] === "string" ? outputs[0] : outputs[0]?.url)
+            : null;
+          const outputUrl = rawUrl && String(rawUrl).startsWith("http") ? String(rawUrl) : null;
+
+          if (outputUrl) {
+            let finalUrl = outputUrl;
+            try {
+              const { mirrorProviderOutputUrl } = await import("../utils/kieUpload.js");
+              finalUrl = await mirrorProviderOutputUrl(outputUrl, "image/png");
+            } catch (e) {
+              console.warn(`[WaveSpeed Seedream Watchdog] Mirror failed ${gen.id.slice(0, 8)}: ${e.message}`);
+            }
+            await prisma.generation.update({
+              where: { id: gen.id },
+              data: { status: "completed", outputUrl: finalUrl, completedAt: new Date() },
+            });
+            console.log(`[WaveSpeed Seedream Watchdog] ✅ Recovered ${gen.id.slice(0, 8)} → ${finalUrl.slice(0, 80)}`);
+          } else {
+            await prisma.generation.update({
+              where: { id: gen.id },
+              data: { status: "failed", errorMessage: getErrorMessageForDb("WaveSpeed task completed but returned no output URL"), completedAt: new Date() },
+            });
+            try { await refundGeneration(gen.id); } catch { /**/ }
+            console.warn(`[WaveSpeed Seedream Watchdog] ⚠ Completed but no URL ${gen.id.slice(0, 8)}`);
+          }
+        } else if (isFailed) {
+          const errMsg = data?.error || `WaveSpeed task ${status}`;
+          await prisma.generation.update({
+            where: { id: gen.id },
+            data: { status: "failed", errorMessage: getErrorMessageForDb(String(errMsg)), completedAt: new Date() },
+          });
+          try { await refundGeneration(gen.id); } catch { /**/ }
+          console.log(`[WaveSpeed Seedream Watchdog] ❌ Marked failed ${gen.id.slice(0, 8)}: ${errMsg}`);
+        } else if (ageMs > HARD_TIMEOUT_MS) {
+          await prisma.generation.update({
+            where: { id: gen.id },
+            data: { status: "failed", errorMessage: getErrorMessageForDb(`WaveSpeed task timed out after ${Math.round(ageMs / 60000)} min (state: ${status})`), completedAt: new Date() },
+          });
+          try { await refundGeneration(gen.id); } catch { /**/ }
+          console.log(`[WaveSpeed Seedream Watchdog] ⏱ Timeout ${gen.id.slice(0, 8)} state=${status}`);
+        }
+        // still running → no-op
+      } catch (e) {
+        console.warn(`[WaveSpeed Seedream Watchdog] Error checking ${gen.id.slice(0, 8)}: ${e.message}`);
       }
     }
   }

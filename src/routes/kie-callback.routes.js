@@ -654,6 +654,14 @@ router.post("/", express.raw({ type: () => true, limit: "1mb" }), async (req, re
           select: genSelect,
         });
       }
+      if (!gen) {
+        // Last-resort: providerTaskId is set by the deferred update in the controller
+        gen = await prisma.generation.findFirst({
+          where: { providerTaskId: taskId },
+          select: genSelect,
+        });
+        if (gen) console.log(`[KIE Callback] Found gen ${gen.id.slice(0, 8)} via providerTaskId fallback`);
+      }
     }
 
     if (!gen) {
