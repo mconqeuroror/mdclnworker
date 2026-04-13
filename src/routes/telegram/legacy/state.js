@@ -61,6 +61,44 @@ export function getTrackedMessages(chatId) {
   return msgTrack.get(String(chatId)) || [];
 }
 
+// ── Raw SQL helpers (bypass Prisma client generation requirement) ─
+// Using $queryRaw / $executeRaw so the table works even if
+// `prisma generate` hasn't been re-run after schema changes.
+
+async function dbUpsertState(key, sessionUserId, sessionEmail, mode, flow, flowUpdatedAt, lastBotMessageIds, expiresAt) {
+  const flowJson = flow ? JSON.stringify(flow) : null;
+  const idsJson = JSON.stringify(lastBotMessageIds || []);
+  await prisma.$executeRaw`
+    INSERT INTO "TelegramLegacyState"
+      ("id", "chatId", "mode", "sessionUserId", "sessionEmail", "flow",
+       "flowUpdatedAt", "lastBotMessageIds", "createdAt", "updatedAt", "expiresAt")
+    VALUES
+      (gen_random_uuid(), ${key}, ${mode}, ${sessionUserId}, ${sessionEmail},
+       ${flowJson}::jsonb, ${flowUpdatedAt}, ${idsJson}::jsonb,
+       NOW(), NOW(), ${expiresAt})
+    ON CONFLICT ("chatId") DO UPDATE SET
+      "mode"              = EXCLUDED."mode",
+      "sessionUserId"     = EXCLUDED."sessionUserId",
+      "sessionEmail"      = EXCLUDED."sessionEmail",
+      "flow"              = EXCLUDED."flow",
+      "flowUpdatedAt"     = EXCLUDED."flowUpdatedAt",
+      "lastBotMessageIds" = EXCLUDED."lastBotMessageIds",
+      "updatedAt"         = NOW(),
+      "expiresAt"         = EXCLUDED."expiresAt"
+  `;
+}
+
+async function dbLoadState(key) {
+  const rows = await prisma.$queryRaw`
+    SELECT "mode", "sessionUserId", "sessionEmail", "flow",
+           "flowUpdatedAt", "lastBotMessageIds", "expiresAt"
+    FROM   "TelegramLegacyState"
+    WHERE  "chatId" = ${key}
+    LIMIT  1
+  `;
+  return rows[0] || null;
+}
+
 // ── DB persistence ────────────────────────────────────────────
 function schedulePersist(chatId) {
   const key = String(chatId);
@@ -74,27 +112,22 @@ function schedulePersist(chatId) {
 
 export async function persistNow(chatId) {
   const key = String(chatId);
-  if (!prisma.telegramLegacyState) return;
   const session = sessionMap.get(key) || null;
-  const flow = flowMap.get(key) || null;
-  const mode = modeMap.get(key) || MODE_MINI;
-  const lastBotMessageIds = msgTrack.get(key) || [];
-  const snapshot = {
-    chatId: key,
-    mode,
-    sessionUserId: session?.userId ? String(session.userId) : null,
-    sessionEmail: session?.email ? String(session.email).toLowerCase() : null,
-    flow: flow || null,
-    flowUpdatedAt: flow?._ts ? new Date(flow._ts) : null,
-    lastBotMessageIds,
-    expiresAt: new Date(Date.now() + STATE_MAX_AGE_MS),
-  };
+  const flow    = flowMap.get(key) || null;
+  const mode    = modeMap.get(key) || MODE_MINI;
+  const ids     = msgTrack.get(key) || [];
+
   try {
-    await prisma.telegramLegacyState.upsert({
-      where: { chatId: key },
-      create: snapshot,
-      update: snapshot,
-    });
+    await dbUpsertState(
+      key,
+      session?.userId ? String(session.userId) : null,
+      session?.email  ? String(session.email).toLowerCase() : null,
+      mode,
+      flow,
+      flow?._ts ? new Date(flow._ts) : null,
+      ids,
+      new Date(Date.now() + STATE_MAX_AGE_MS),
+    );
   } catch (e) {
     console.warn("[state] persist warning:", e?.message);
   }
@@ -104,27 +137,44 @@ export async function hydrateState(chatId) {
   const key = String(chatId);
   if (hydrated.has(key)) return;
   hydrated.add(key);
-  if (!prisma.telegramLegacyState) return;
   try {
-    const row = await prisma.telegramLegacyState.findUnique({ where: { chatId: key } });
+    const row = await dbLoadState(key);
     if (!row) return;
     if (row.expiresAt && new Date(row.expiresAt).getTime() < Date.now()) return;
     const mode = row.mode === MODE_LEGACY ? MODE_LEGACY : MODE_MINI;
     modeMap.set(key, mode);
     if (row.sessionUserId) {
-      sessionMap.set(key, { userId: row.sessionUserId, email: row.sessionEmail || null });
+      sessionMap.set(key, { userId: String(row.sessionUserId), email: row.sessionEmail || null });
     }
-    if (row.flow && typeof row.flow === "object" && !Array.isArray(row.flow)) {
+    // flow may come back as object (Prisma JSONB) or string (raw driver)
+    const rawFlow = typeof row.flow === "string" ? JSON.parse(row.flow) : row.flow;
+    if (rawFlow && typeof rawFlow === "object" && !Array.isArray(rawFlow)) {
       const ts = row.flowUpdatedAt ? new Date(row.flowUpdatedAt).toISOString() : new Date().toISOString();
-      const flow = { ...row.flow, _ts: ts };
-      const age = Date.now() - new Date(ts).getTime();
-      if (age < FLOW_TTL_MS) flowMap.set(key, flow);
+      const flowObj = { ...rawFlow, _ts: ts };
+      if (Date.now() - new Date(ts).getTime() < FLOW_TTL_MS) {
+        flowMap.set(key, flowObj);
+      }
     }
-    const ids = Array.isArray(row.lastBotMessageIds)
-      ? row.lastBotMessageIds.map(Number).filter((n) => Number.isInteger(n) && n > 0).slice(-20)
+    const rawIds = typeof row.lastBotMessageIds === "string"
+      ? JSON.parse(row.lastBotMessageIds)
+      : (row.lastBotMessageIds || []);
+    const ids = Array.isArray(rawIds)
+      ? rawIds.map(Number).filter((n) => Number.isInteger(n) && n > 0).slice(-20)
       : [];
     if (ids.length) msgTrack.set(key, ids);
   } catch (e) {
     console.warn("[state] hydrate warning:", e?.message);
+  }
+}
+
+// ── Direct session load (used by ensureAuth cold-start fallback) ─
+export async function loadSessionFromDB(chatId) {
+  try {
+    const row = await dbLoadState(String(chatId));
+    if (!row?.sessionUserId) return null;
+    if (row.expiresAt && new Date(row.expiresAt).getTime() < Date.now()) return null;
+    return { userId: String(row.sessionUserId), email: row.sessionEmail || null };
+  } catch {
+    return null;
   }
 }

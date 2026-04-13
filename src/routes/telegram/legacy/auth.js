@@ -1,6 +1,6 @@
 import bcrypt from "bcryptjs";
 import prisma from "../../../lib/prisma.js";
-import { getSession, setSession, clearSession, clearFlow, setFlow, getFlow, persistNow } from "./state.js";
+import { getSession, setSession, clearSession, clearFlow, setFlow, getFlow, persistNow, loadSessionFromDB } from "./state.js";
 import { send, answerCb, cancelKbd as cancelHelper, inlineKbd, removeKbd } from "./helpers.js";
 import { loginKbd, mainKbd, dashboardKbd } from "./keyboards.js";
 import { renderDashboard } from "./dashboard.js";
@@ -11,24 +11,12 @@ export async function ensureAuth(chatId) {
   let session = getSession(chatId);
   if (session?.userId) return session;
 
-  // In-memory miss — query DB directly so cold-start instances don't lose sessions
-  try {
-    if (prisma.telegramLegacyState) {
-      const row = await prisma.telegramLegacyState.findUnique({
-        where: { chatId: String(chatId) },
-        select: { sessionUserId: true, sessionEmail: true, expiresAt: true },
-      });
-      if (
-        row?.sessionUserId &&
-        (!row.expiresAt || new Date(row.expiresAt).getTime() > Date.now())
-      ) {
-        setSession(chatId, { userId: row.sessionUserId, email: row.sessionEmail || null });
-        session = getSession(chatId);
-        if (session?.userId) return session;
-      }
-    }
-  } catch (e) {
-    console.warn("[ensureAuth] DB fallback failed:", e?.message);
+  // In-memory miss — query DB directly via raw SQL (works even if Prisma client
+  // hasn't been regenerated since TelegramLegacyState was added to the schema)
+  const dbSession = await loadSessionFromDB(chatId);
+  if (dbSession?.userId) {
+    setSession(chatId, dbSession);
+    return dbSession;
   }
 
   await sendLoginPrompt(chatId);
