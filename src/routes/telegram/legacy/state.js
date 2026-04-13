@@ -117,16 +117,36 @@ export async function persistNow(chatId) {
   const mode    = modeMap.get(key) || MODE_MINI;
   const ids     = msgTrack.get(key) || [];
 
+  const snapshot = {
+    chatId: key, mode,
+    sessionUserId: session?.userId ? String(session.userId) : null,
+    sessionEmail:  session?.email  ? String(session.email).toLowerCase() : null,
+    flow: flow || null,
+    flowUpdatedAt: flow?._ts ? new Date(flow._ts) : null,
+    lastBotMessageIds: ids,
+    expiresAt: new Date(Date.now() + STATE_MAX_AGE_MS),
+  };
+
   try {
+    // Try ORM first — works if prisma generate was run during deployment build
+    if (prisma.telegramLegacyState) {
+      await prisma.telegramLegacyState.upsert({
+        where: { chatId: key },
+        create: snapshot,
+        update: snapshot,
+      });
+      return;
+    }
+    // Fallback: raw SQL — works regardless of prisma generate
     await dbUpsertState(
       key,
-      session?.userId ? String(session.userId) : null,
-      session?.email  ? String(session.email).toLowerCase() : null,
+      snapshot.sessionUserId,
+      snapshot.sessionEmail,
       mode,
       flow,
-      flow?._ts ? new Date(flow._ts) : null,
+      snapshot.flowUpdatedAt,
       ids,
-      new Date(Date.now() + STATE_MAX_AGE_MS),
+      snapshot.expiresAt,
     );
   } catch (e) {
     console.warn("[state] persist warning:", e?.message);
@@ -138,7 +158,13 @@ export async function hydrateState(chatId) {
   if (hydrated.has(key)) return;
   hydrated.add(key);
   try {
-    const row = await dbLoadState(key);
+    // Try ORM first
+    let row = null;
+    if (prisma.telegramLegacyState) {
+      row = await prisma.telegramLegacyState.findUnique({ where: { chatId: key } });
+    } else {
+      row = await dbLoadState(key);
+    }
     if (!row) return;
     if (row.expiresAt && new Date(row.expiresAt).getTime() < Date.now()) return;
     const mode = row.mode === MODE_LEGACY ? MODE_LEGACY : MODE_MINI;

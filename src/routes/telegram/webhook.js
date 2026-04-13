@@ -235,8 +235,19 @@ router.post("/webhook", async (req, res) => {
 
   if (!chatId) return;
 
+  // ── Answer callback query IMMEDIATELY — before any DB/async work ──────────
+  // This dismisses the button spinner right away regardless of how long
+  // hydrateState takes. Without this, slow DB calls keep the spinner stuck.
+  if (callbackQuery?.id) {
+    await answerCb(callbackQuery.id).catch(() => {});
+  }
+
   // Hydrate state from DB (once per process per chatId)
-  await hydrateState(chatId).catch(() => {});
+  // Use a 5s timeout so a slow/hanging DB connection never blocks the bot
+  await Promise.race([
+    hydrateState(chatId),
+    new Promise((_, rej) => setTimeout(() => rej(new Error("hydrateState timeout")), 5000)),
+  ]).catch(() => {});
 
   // Init bot commands once
   if (!commandsReady) {
