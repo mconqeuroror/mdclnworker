@@ -26,11 +26,17 @@ export async function sendLoginPrompt(chatId, greeting = "") {
 export async function handleAuthCallback(chatId, data, firstName = "", callbackId = "") {
   if (data === "auth:telegram") {
     await answerCb(callbackId);
+    // Don't restart if already mid-login
+    const existingFlow = getFlow(chatId);
+    if (existingFlow?.step?.startsWith("auth_")) return true;
     await attemptTelegramAuth(chatId);
     return true;
   }
   if (data === "auth:email") {
     await answerCb(callbackId);
+    // Don't restart if already mid-login (prevents double-tap race condition)
+    const existingFlow = getFlow(chatId);
+    if (existingFlow?.step?.startsWith("auth_")) return true;
     setFlow(chatId, { step: "auth_email" });
     await send(chatId, "Enter your email address:", { keyboard: [["Cancel"]], resize_keyboard: true, one_time_keyboard: true });
     return true;
