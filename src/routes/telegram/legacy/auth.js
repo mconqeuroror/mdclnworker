@@ -117,18 +117,21 @@ async function verifyEmailPassword(chatId, email, password) {
   try {
     const user = await prisma.user.findFirst({
       where: { email: email.toLowerCase() },
-      select: { id: true, name: true, email: true, passwordHash: true, authProvider: true, twoFactorEnabled: true, twoFactorSecret: true },
+      // Field is "password" in schema, NOT "passwordHash"
+      select: { id: true, name: true, email: true, password: true, authProvider: true, twoFactorEnabled: true, twoFactorSecret: true },
     });
     if (!user) {
       await send(chatId, "No account found with this email.", { keyboard: [["Cancel"]], resize_keyboard: true, one_time_keyboard: true });
       return;
     }
-    if (!user.passwordHash || user.authProvider === "google") {
-      await send(chatId, "This account uses Google login. Open the Mini App to sign in with Google.", loginKbd());
+    // authProvider defaults to "email"; any other value (google, firebase, etc.) = not password login
+    const provider = user.authProvider ?? "email";
+    if (provider !== "email" || !user.password) {
+      await send(chatId, "This account uses Google / social login.\n\nUse the button below to sign in:", loginKbd());
       clearFlow(chatId);
       return;
     }
-    const match = await bcrypt.compare(password, user.passwordHash);
+    const match = await bcrypt.compare(password, user.password);
     if (!match) {
       await send(chatId, "Incorrect password. Try again:", { keyboard: [["Cancel"]], resize_keyboard: true, one_time_keyboard: true });
       return;

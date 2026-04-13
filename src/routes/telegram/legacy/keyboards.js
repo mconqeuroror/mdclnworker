@@ -180,6 +180,7 @@ export function loginKbd() {
   return inlineKbd([
     [{ text: "Telegram Login", callback_data: "auth:telegram" }],
     [{ text: "Email + Password", callback_data: "auth:email" }],
+    [{ text: "🔵 Google Login", web_app: { url: `${MINI_APP_BASE}/login?method=google` } }],
     [{ text: "📱 Open Mini App", web_app: { url: MINI_APP_BASE } }],
   ]);
 }
