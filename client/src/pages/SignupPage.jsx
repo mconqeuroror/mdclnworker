@@ -6,7 +6,7 @@ import { SiGoogle } from 'react-icons/si';
 import toast from 'react-hot-toast';
 import { authAPI, referralAPI } from '../services/api';
 import { useAuthStore } from '../store';
-import { signInWithGoogle } from '../lib/firebase';
+import { signInWithGoogle, handleGoogleRedirectResult } from '../lib/firebase';
 import { generateFingerprint } from '../utils/fingerprint';
 
 const LOCALE_STORAGE_KEY = 'app_locale';
@@ -146,8 +146,53 @@ export default function SignupPage() {
     }
   }, [location.search]);
 
+  // Handle Google redirect result after signInWithRedirect in Telegram WebView
+  useEffect(() => {
+    (async () => {
+      try {
+        const googleResult = await handleGoogleRedirectResult();
+        if (!googleResult?.success) return;
+        setGoogleLoading(true);
+        await processGoogleAuth(googleResult, 'signup');
+      } catch {
+        // No redirect result — normal page load.
+      } finally {
+        setGoogleLoading(false);
+      }
+    })();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const getPendingReferralCode = () =>
     localStorage.getItem("pendingReferralCode") || null;
+
+  const processGoogleAuth = async (googleResult, mode = 'signup') => {
+    let fingerprintValue = "no-fingerprint-available";
+    try {
+      const fp = await generateFingerprint();
+      fingerprintValue = fp?.visitorId || fingerprintValue;
+    } catch {
+      // Keep fallback fingerprint value.
+    }
+    const data = await authAPI.googleAuth(
+      googleResult.idToken,
+      googleResult.user.email,
+      googleResult.user.displayName,
+      googleResult.user.uid,
+      mode,
+      getPendingReferralCode(),
+      fingerprintValue,
+      navigator.userAgent || "Unknown",
+      mode === 'signup',
+    );
+    if (data.success) {
+      if (data.isNewUser) localStorage.removeItem("pendingReferralCode");
+      setAuth(data.user, data.token);
+      toast.success(data.isNewUser ? copy.toastAccountCreated : copy.toastWelcomeBack);
+      navigate(data.isNewUser ? '/onboarding' : '/dashboard');
+    } else {
+      toast.error(data.message || copy.toastGoogleFailed);
+    }
+  };
 
   const handleGoogleSignup = async () => {
     if (!acceptedPolicies) {
@@ -157,49 +202,12 @@ export default function SignupPage() {
     setGoogleLoading(true);
     try {
       const googleResult = await signInWithGoogle();
+      if (googleResult.redirecting) return; // signInWithRedirect navigating away
       if (!googleResult.success) {
         toast.error(googleResult.error || copy.toastGoogleFailed);
         return;
       }
-
-      let fingerprintValue = "no-fingerprint-available";
-      try {
-        const fp = await generateFingerprint();
-        fingerprintValue = fp?.visitorId || fingerprintValue;
-      } catch {
-        // Keep fallback fingerprint value.
-      }
-
-      const data = await authAPI.googleAuth(
-        googleResult.idToken,
-        googleResult.user.email,
-        googleResult.user.displayName,
-        googleResult.user.uid,
-        'signup',
-        getPendingReferralCode(),
-        fingerprintValue,
-        navigator.userAgent || "Unknown",
-        true,
-      );
-
-      if (data.success) {
-        if (data.isNewUser) {
-          localStorage.removeItem("pendingReferralCode");
-        }
-        setAuth(data.user, data.token);
-        toast.success(data.isNewUser ? copy.toastAccountCreated : copy.toastWelcomeBack);
-        const redirectTo = localStorage.getItem("redirectAfterLogin");
-        if (redirectTo) {
-          localStorage.removeItem("redirectAfterLogin");
-          navigate(redirectTo);
-        } else if (data.isNewUser || !data.user.onboardingCompleted) {
-          navigate('/onboarding');
-        } else {
-          navigate('/dashboard');
-        }
-      } else {
-        toast.error(data.message || copy.toastSignupFailed);
-      }
+      await processGoogleAuth(googleResult, 'signup');
     } catch (error) {
       console.error('Google signup error:', error);
       toast.error(error.response?.data?.message || copy.toastGoogleFailed);
@@ -207,6 +215,7 @@ export default function SignupPage() {
       setGoogleLoading(false);
     }
   };
+
 
   const handleEmailSignup = async (e) => {
     e.preventDefault();

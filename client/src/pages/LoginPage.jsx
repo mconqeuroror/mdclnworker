@@ -6,7 +6,7 @@ import { SiGoogle, SiTelegram } from 'react-icons/si';
 import toast from 'react-hot-toast';
 import { authAPI, referralAPI } from '../services/api';
 import { useAuthStore } from '../store';
-import { signInWithGoogle } from '../lib/firebase';
+import { signInWithGoogle, handleGoogleRedirectResult } from '../lib/firebase';
 import { generateFingerprint } from '../utils/fingerprint';
 import { getRawInitData, getTelegramUser, isTelegram } from '../lib/telegram.js';
 const LOCALE_STORAGE_KEY = 'app_locale';
@@ -141,49 +141,67 @@ export default function LoginPage() {
     }
   }, [location.search]);
 
+  // Handle Google redirect result (fires after signInWithRedirect in Telegram WebView)
+  useEffect(() => {
+    (async () => {
+      try {
+        const googleResult = await handleGoogleRedirectResult();
+        if (!googleResult?.success) return;
+        setGoogleLoading(true);
+        await processGoogleResult(googleResult);
+      } catch {
+        // No redirect result — normal page load.
+      } finally {
+        setGoogleLoading(false);
+      }
+    })();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Shared Google auth processing (used by both popup and redirect flows)
+  const processGoogleResult = async (googleResult) => {
+    let fingerprintValue = "no-fingerprint-available";
+    try {
+      const fp = await generateFingerprint();
+      fingerprintValue = fp?.visitorId || fingerprintValue;
+    } catch {
+      // Keep fallback fingerprint value.
+    }
+    const data = await authAPI.googleAuth(
+      googleResult.idToken,
+      googleResult.user.email,
+      googleResult.user.displayName,
+      googleResult.user.uid,
+      'login',
+      safeLocalStorageGet('pendingReferralCode'),
+      fingerprintValue,
+      navigator.userAgent || "Unknown",
+    );
+    if (data.success) {
+      setAuth(data.user, data.token);
+      toast.success(copy.welcome);
+      const redirectTo = safeLocalStorageGet("redirectAfterLogin");
+      if (redirectTo) {
+        safeLocalStorageRemove("redirectAfterLogin");
+        navigate(redirectTo);
+      } else {
+        navigate(data.isNewUser ? '/onboarding' : '/dashboard');
+      }
+    } else {
+      toast.error(data.message || copy.googleFailed);
+    }
+  };
+
   const handleGoogleLogin = async () => {
     setGoogleLoading(true);
     try {
       const googleResult = await signInWithGoogle();
+      if (googleResult.redirecting) return; // signInWithRedirect navigating away
       if (!googleResult.success) {
         toast.error(googleResult.error || copy.googleFailed);
         return;
       }
 
-      let fingerprintValue = "no-fingerprint-available";
-      try {
-        const fp = await generateFingerprint();
-        fingerprintValue = fp?.visitorId || fingerprintValue;
-      } catch {
-        // Keep fallback fingerprint value.
-      }
-
-      const data = await authAPI.googleAuth(
-        googleResult.idToken,
-        googleResult.user.email,
-        googleResult.user.displayName,
-        googleResult.user.uid,
-        'login',
-        safeLocalStorageGet('pendingReferralCode'),
-        fingerprintValue,
-        navigator.userAgent || "Unknown",
-      );
-
-      if (data.success) {
-        setAuth(data.user, data.token);
-        toast.success(copy.welcome);
-        const redirectTo = safeLocalStorageGet("redirectAfterLogin");
-        if (redirectTo) {
-          safeLocalStorageRemove("redirectAfterLogin");
-          navigate(redirectTo);
-        } else if (data.isNewUser) {
-          navigate('/onboarding');
-        } else {
-          navigate('/dashboard');
-        }
-      } else {
-        toast.error(data.message || 'Login failed');
-      }
+      await processGoogleResult(googleResult);
     } catch (error) {
       console.error('Google login error:', error);
       const errorData = error.response?.data;

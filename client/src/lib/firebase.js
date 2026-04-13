@@ -3,6 +3,8 @@ import {
   getAuth, 
   GoogleAuthProvider, 
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   sendEmailVerification,
@@ -21,28 +23,61 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const googleProvider = new GoogleAuthProvider();
 
+// Telegram WebView blocks popups — detect it and use redirect instead
+function isTelegramWebView() {
+  if (typeof window === 'undefined') return false;
+  return Boolean(
+    window.Telegram?.WebApp?.initData ||
+    window.TelegramWebviewProxy ||
+    /TelegramWebView/i.test(navigator.userAgent)
+  );
+}
+
+function buildGoogleResult(user, idToken) {
+  return {
+    success: true,
+    idToken,
+    user: {
+      email: user.email,
+      displayName: user.displayName,
+      photoURL: user.photoURL,
+      uid: user.uid,
+    },
+  };
+}
+
 export async function signInWithGoogle() {
   try {
+    if (isTelegramWebView()) {
+      // Telegram blocks signInWithPopup — use redirect flow instead
+      // The result is picked up by handleGoogleRedirectResult() on page load
+      await signInWithRedirect(auth, googleProvider);
+      return { success: false, redirecting: true };
+    }
     const result = await signInWithPopup(auth, googleProvider);
     const idToken = await result.user.getIdToken();
-    return {
-      success: true,
-      idToken,
-      user: {
-        email: result.user.email,
-        displayName: result.user.displayName,
-        photoURL: result.user.photoURL,
-        uid: result.user.uid,
-      },
-    };
+    return buildGoogleResult(result.user, idToken);
   } catch (error) {
     console.error("Google sign-in error:", error);
     return {
       success: false,
-      error: error.code === 'auth/popup-closed-by-user' 
-        ? 'Sign-in cancelled' 
+      error: error.code === 'auth/popup-closed-by-user'
+        ? 'Sign-in cancelled'
         : error.message,
     };
+  }
+}
+
+// Call this on page mount to handle the result of signInWithRedirect
+export async function handleGoogleRedirectResult() {
+  try {
+    const result = await getRedirectResult(auth);
+    if (!result) return null; // No pending redirect
+    const idToken = await result.user.getIdToken();
+    return buildGoogleResult(result.user, idToken);
+  } catch (error) {
+    console.error("Google redirect result error:", error);
+    return { success: false, error: error.message };
   }
 }
 
