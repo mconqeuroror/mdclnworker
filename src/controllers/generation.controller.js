@@ -4202,8 +4202,9 @@ function validateCreatorStudioVideoDuration(family, mode, value) {
   }
   if (family === "wan27") {
     if (mode === "replace" || mode === "edit") {
-      if (duration < 2 || duration > 10) {
-        return { valid: false, message: "WAN 2.7 replace/edit duration must be between 2 and 10 seconds." };
+      // 0 = use full input video duration (valid per API spec); otherwise must be 2–10
+      if (duration !== 0 && (duration < 2 || duration > 10)) {
+        return { valid: false, message: "WAN 2.7 replace/edit duration must be 0 (full video) or between 2 and 10 seconds." };
       }
       return { valid: true, duration };
     }
@@ -4767,6 +4768,7 @@ async function processCreatorStudioVideoInBackground({
   seedanceReturnLastFrame,
   seedanceReferenceAudioUrls,
   wanResolution,
+  audioSetting = "auto",
   originalTaskId = null,
   originalGenerationId = null,
   veoSeeds = null,
@@ -4932,18 +4934,35 @@ async function processCreatorStudioVideoInBackground({
       );
     } else if (lowerFamily === "wan27") {
       const wan27Resolution = String(wanResolution || "") === "720p" ? "720p" : "1080p";
+      // Ensure all media URLs are publicly reachable by KIE (mirrors R2/private URLs to Blob)
+      const wan27ImageUrl = normalizedImageUrl
+        ? await ensureKieAccessibleUrl(normalizedImageUrl, "wan27-ref-image").catch(() => normalizedImageUrl)
+        : normalizedImageUrl;
+      const wan27RefImageUrl = normalizedReferenceImageUrl
+        ? await ensureKieAccessibleUrl(normalizedReferenceImageUrl, "wan27-ref-image2").catch(() => normalizedReferenceImageUrl)
+        : normalizedReferenceImageUrl;
+      const wan27InputVideoUrl = normalizedMode === "edit" && normalizedInputVideoUrl
+        ? await ensureKieAccessibleUrl(normalizedInputVideoUrl, "wan27-input-video").catch(() => normalizedInputVideoUrl)
+        : normalizedInputVideoUrl;
+      // Preserve duration=0 (full video length for edit mode); only default when missing
+      const wan27Duration = durationSeconds != null ? Number(durationSeconds) : 5;
+      // For edit mode, don't force an aspect ratio — let KIE use the input video's native ratio
+      const wan27AspectRatio = normalizedMode === "edit"
+        ? (aspectRatio && aspectRatio !== "16:9" ? String(aspectRatio) : null)
+        : String(aspectRatio || "16:9");
       result = await requestQueue.enqueue(() =>
         generateVideoWithWan27Kie({
           mode: normalizedMode,
           prompt: String(finalPrompt || ""),
-          imageUrl: normalizedImageUrl,
-          referenceImageUrl: normalizedReferenceImageUrl,
+          imageUrl: wan27ImageUrl,
+          referenceImageUrl: wan27RefImageUrl,
           thirdImageUrl: normalizedThirdImageUrl,
           endFrameUrl: normalizedEndFrameUrl,
-          inputVideoUrl: normalizedInputVideoUrl,
-          duration: Number(durationSeconds) || 5,
+          inputVideoUrl: wan27InputVideoUrl,
+          duration: wan27Duration,
           resolution: wan27Resolution,
-          aspectRatio: String(aspectRatio || "16:9"),
+          aspectRatio: wan27AspectRatio,
+          audioSetting: String(audioSetting || "auto"),
           onTaskSubmitted,
         }),
       );
@@ -5041,6 +5060,7 @@ export async function generateCreatorStudioVideo(req, res) {
       seedanceReturnLastFrame = false,
       seedanceReferenceAudioUrls = [],
       wanResolution = "580p",
+      audioSetting = "auto",
       originalTaskId = null,
       originalGenerationId = null,
       veoSeeds = null,
@@ -5073,7 +5093,9 @@ export async function generateCreatorStudioVideo(req, res) {
     }
     const normalizedDurationSeconds = durationValidation.duration;
 
-    if (lowerFamily !== "wan22" && !prompt?.trim()) {
+    // wan27 edit has optional prompt per API spec (reference_image can drive the edit alone)
+    const promptOptional = lowerFamily === "wan27" && normalizedMode === "edit";
+    if (!promptOptional && lowerFamily !== "wan22" && !prompt?.trim()) {
       return res.status(400).json({ success: false, message: "A prompt is required." });
     }
     const normalizedImageUrl = String(imageUrl || "").trim();
@@ -5317,6 +5339,7 @@ export async function generateCreatorStudioVideo(req, res) {
           seedanceReturnLastFrame,
           seedanceReferenceAudioUrls,
           wanResolution: normalizedWanResolution,
+          audioSetting: String(audioSetting || "auto"),
           originalTaskId,
           veoSeeds,
           veoEnableTranslation,
@@ -5355,6 +5378,7 @@ export async function generateCreatorStudioVideo(req, res) {
       seedanceReturnLastFrame,
       seedanceReferenceAudioUrls,
       wanResolution: normalizedWanResolution,
+      audioSetting: String(audioSetting || "auto"),
       originalTaskId,
       originalGenerationId,
       veoSeeds,

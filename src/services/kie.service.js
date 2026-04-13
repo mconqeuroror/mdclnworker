@@ -1215,7 +1215,11 @@ async function generateVideoWithWan27KieInternal(options = {}) {
       input.reference_image = refImage;
     }
     input.resolution = resolution;
-    input.aspect_ratio = ratio;
+    // aspect_ratio is optional for videoedit; omit it so the API preserves the input video's ratio
+    if (options.aspectRatio && ["16:9", "9:16", "1:1", "4:3", "3:4"].includes(String(options.aspectRatio))) {
+      input.aspect_ratio = String(options.aspectRatio);
+    }
+    // 0 = full video length (API default), otherwise valid range is 2–10
     input.duration = options.duration == null ? 0 : clampInt(options.duration, 0, 10, 0);
     input.audio_setting = options.audioSetting === "origin" ? "origin" : "auto";
     input.prompt_extend = boolOrDefault(options.promptExtend, true);
