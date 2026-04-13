@@ -30,11 +30,7 @@ async function handleCommand(chatId, command, firstName = "", telegramUserId = n
 
   if (command === "start" || command === "menu") {
     if (!session?.userId) {
-      await send(chatId, `👋 Welcome${firstName ? " " + firstName : ""} to ModelClone!\n\nCreate AI model content — photos, videos, voice clones, avatars and more.\n\n📱 Full studio in the Mini App\n🤖 Chat bot for quick access`, inlineKbd([
-        [{ text: "📱 Open Mini App", web_app: { url: MINI_APP_BASE } }],
-        [{ text: "🔐 Log in to bot", callback_data: "auth:email" }],
-        [{ text: "Telegram Login", callback_data: "auth:telegram" }],
-      ]));
+      await send(chatId, `👋 Welcome${firstName ? " " + firstName : ""} to ModelClone!\n\nCreate AI model content — photos, videos, voice clones, avatars and more.\n\n📱 Full studio in the Mini App\n🤖 Chat bot for quick access`, loginKbd());
     } else {
       await renderDashboard(chatId, session.userId);
     }
