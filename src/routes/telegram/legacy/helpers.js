@@ -1,5 +1,15 @@
-import { sendMessage, sendPhoto, answerCallbackQuery as tgAnswer, deleteMessage as tgDelete } from "../../../services/telegramBot.js";
+import { sendMessage, sendPhoto, sendVideo, sendAnimation, answerCallbackQuery as tgAnswer, deleteMessage as tgDelete } from "../../../services/telegramBot.js";
 import { trackBotMessage, getTrackedMessages } from "./state.js";
+
+// ── Video generation types — send as video, not photo ─────────
+const VIDEO_TYPES = new Set([
+  "prompt-video", "video", "face-swap", "talking-head",
+  "creator-studio-video", "nsfw-video", "nsfw-video-extend",
+]);
+function looksLikeVideo(url = "") {
+  const u = url.toLowerCase().split("?")[0];
+  return u.endsWith(".mp4") || u.endsWith(".mov") || u.endsWith(".webm") || u.endsWith(".mkv");
+}
 
 // ── Messaging ─────────────────────────────────────────────────
 export async function send(chatId, text, markup = null) {
@@ -12,6 +22,22 @@ export async function sendImg(chatId, photoUrl, opts = {}) {
   const msg = await sendPhoto(chatId, photoUrl, opts).catch(() => null);
   if (msg?.message_id) trackBotMessage(chatId, msg.message_id);
   return msg;
+}
+
+// ── sendMedia: auto-detects image vs video and sends correctly ─
+// type = generation type string (e.g. "prompt-video", "nsfw")
+// Falls back to text + URL button if Telegram can't handle the file
+export async function sendMedia(chatId, url, type = "", opts = {}) {
+  if (!url) return null;
+  const isVideo = VIDEO_TYPES.has(String(type).toLowerCase()) || looksLikeVideo(url);
+  if (isVideo) {
+    const msg = await sendVideo(chatId, url, opts).catch(() => null);
+    if (msg?.message_id) { trackBotMessage(chatId, msg.message_id); return msg; }
+    // sendVideo failed (too large / wrong format) — fall through to photo
+  }
+  const msg = await sendPhoto(chatId, url, opts).catch(() => null);
+  if (msg?.message_id) { trackBotMessage(chatId, msg.message_id); return msg; }
+  return null; // caller handles fallback
 }
 
 export async function answerCb(callbackId, text = "") {

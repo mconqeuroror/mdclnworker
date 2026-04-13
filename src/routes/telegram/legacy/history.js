@@ -1,5 +1,5 @@
 import prisma from "../../../lib/prisma.js";
-import { send, sendImg, inlineKbd, formatDate, isHttpUrl } from "./helpers.js";
+import { send, sendImg, sendMedia, inlineKbd, formatDate, isHttpUrl } from "./helpers.js";
 import { refreshGeneration, retryGeneration } from "./generate.js";
 import { ensureAuth } from "./auth.js";
 import { apiDeleteGenerations } from "./api.js";
@@ -105,7 +105,8 @@ async function renderHistoryItem(chatId, userId, genId, fromPage = 0) {
   rows.push([{ text: "⬅️ Back to history", callback_data: `hist:page:${fromPage}:all:all` }]);
 
   if (gen.outputUrl && isHttpUrl(gen.outputUrl) && gen.status === "completed") {
-    await sendImg(chatId, gen.outputUrl, { caption: text, replyMarkup: inlineKbd(rows) }).catch(() => send(chatId, text, inlineKbd(rows)));
+    const sent = await sendMedia(chatId, gen.outputUrl, gen.type, { caption: text, replyMarkup: inlineKbd(rows) });
+    if (!sent) await send(chatId, text, inlineKbd(rows));
   } else {
     await send(chatId, text, inlineKbd(rows));
   }

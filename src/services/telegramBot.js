@@ -62,6 +62,29 @@ export function sendPhoto(chatId, photoUrl, options = {}) {
   });
 }
 
+export function sendVideo(chatId, videoUrl, options = {}) {
+  const caption = options?.caption ? String(options.caption) : undefined;
+  const replyMarkup = options?.replyMarkup;
+  return callTelegramApi("sendVideo", {
+    chat_id: chatId,
+    video: videoUrl,
+    supports_streaming: true,
+    ...(caption ? { caption } : {}),
+    ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+  });
+}
+
+export function sendAnimation(chatId, gifUrl, options = {}) {
+  const caption = options?.caption ? String(options.caption) : undefined;
+  const replyMarkup = options?.replyMarkup;
+  return callTelegramApi("sendAnimation", {
+    chat_id: chatId,
+    animation: gifUrl,
+    ...(caption ? { caption } : {}),
+    ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+  });
+}
+
 export function setWebhook(url) {
   return callTelegramApi("setWebhook", {
     url,

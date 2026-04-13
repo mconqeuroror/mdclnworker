@@ -1,6 +1,6 @@
 import prisma from "../../../lib/prisma.js";
 import { getFlow, setFlow, clearFlow } from "./state.js";
-import { send, sendImg, inlineKbd, isHttpUrl, formatDate, toJsonObj, pickUrl } from "./helpers.js";
+import { send, sendImg, sendMedia, inlineKbd, isHttpUrl, formatDate, toJsonObj, pickUrl } from "./helpers.js";
 import { resolveImage, resolveVideo } from "./media.js";
 import { cancelKbd, generateMenuKbd, generationResultKbd, durationKbd5_10, modelPickerKbd } from "./keyboards.js";
 import { ensureAuth } from "./auth.js";
@@ -214,11 +214,43 @@ export async function renderGenerateMenu(chatId, preselectedModelId = null) {
 }
 
 // ── Shared: send generation result ───────────────────────────
+// When completed: sends the actual image/video. When processing: shows clean status.
 export async function sendGenerationResult(chatId, genId, status, outputUrl, type, creditsUsed, fromPage = 0) {
-  const icon = status === "completed" ? "✅" : status === "failed" ? "❌" : "⏳";
-  const creditLine = creditsUsed != null ? `Credits used: ${creditsUsed}` : "";
-  const text = `${icon} ${String(type || "Generation").replace(/-/g, " ")}\nID: ${genId}\nStatus: ${status}\n${creditLine}`;
-  await send(chatId, text, generationResultKbd(genId, status, outputUrl, type, fromPage));
+  const kbd = generationResultKbd(genId, status, outputUrl, type, fromPage);
+  const typeLabel = String(type || "Generation").replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  const creditNote = creditsUsed != null ? ` · ${creditsUsed} cr` : "";
+
+  if (status === "completed" && outputUrl && isHttpUrl(outputUrl)) {
+    // Send the actual media file — image or video
+    const sent = await sendMedia(chatId, outputUrl, type, {
+      caption: `✅ ${typeLabel}${creditNote}`,
+      replyMarkup: inlineKbd([
+        [{ text: "🔄 Generate again", callback_data: "nav:generate" }, { text: "🕘 History", callback_data: "nav:history" }],
+      ]),
+    });
+    if (sent) return; // media sent successfully
+    // Fallback: media send failed — show text with link button
+    await send(chatId, `✅ ${typeLabel} complete!${creditNote}`, inlineKbd([
+      [{ text: "📥 View output", url: outputUrl }],
+      [{ text: "🔄 Generate again", callback_data: "nav:generate" }, { text: "🕘 History", callback_data: "nav:history" }],
+    ]));
+    return;
+  }
+
+  if (status === "failed") {
+    const canRetry = RETRYABLE_TYPES.has(String(type || "").toLowerCase());
+    await send(chatId, `❌ ${typeLabel} failed.`, inlineKbd([
+      ...(canRetry ? [[{ text: "♻️ Retry", callback_data: `gen:retry:${genId}:${fromPage}` }]] : []),
+      [{ text: "🕘 History", callback_data: "nav:history" }],
+    ]));
+    return;
+  }
+
+  // Processing / pending
+  await send(chatId, `⏳ ${typeLabel} is generating…${creditNote}\n\nTap Refresh to check status.`, inlineKbd([
+    [{ text: "🔄 Refresh", callback_data: `gen:refresh:${genId}:${fromPage}` }],
+    [{ text: "🕘 History", callback_data: "nav:history" }],
+  ]));
 }
 
 // ── Shared: refresh generation status ─────────────────────────
@@ -228,13 +260,8 @@ export async function refreshGeneration(chatId, userId, genId, fromPage = 0) {
     select: { id: true, type: true, status: true, outputUrl: true, creditsCost: true, errorMessage: true, createdAt: true, completedAt: true, prompt: true },
   });
   if (!gen) { await send(chatId, "Generation not found.", inlineKbd([[{ text: "🕘 History", callback_data: "nav:history" }]])); return; }
-  const status = gen.status;
-  const icon = status === "completed" ? "✅" : status === "failed" ? "❌" : "⏳";
-  const hint = status === "failed"
-    ? (RETRYABLE_TYPES.has(gen.type) ? "You can retry this generation." : "")
-    : status !== "completed" ? "Still processing — refresh to check." : "";
-  const text = `${icon} Generation\nID: ${gen.id}\nType: ${gen.type}\nStatus: ${status}\nCredits: ${gen.creditsCost ?? 0}\nCreated: ${formatDate(gen.createdAt)}\nCompleted: ${formatDate(gen.completedAt)}\nPrompt: ${(gen.prompt || "").slice(0, 200) || "n/a"}\n${gen.errorMessage ? `Error: ${gen.errorMessage.slice(0, 200)}\n` : ""}${hint}`;
-  await send(chatId, text, generationResultKbd(gen.id, status, gen.outputUrl, gen.type, fromPage));
+  // Delegate to sendGenerationResult which handles media sending + clean UX
+  await sendGenerationResult(chatId, gen.id, gen.status, gen.outputUrl, gen.type, gen.creditsCost, fromPage);
 }
 
 // ── Shared: retry generation ──────────────────────────────────
