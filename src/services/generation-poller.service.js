@@ -967,3 +967,12 @@ const generationPoller = new GenerationPollerService();
 
 export default generationPoller;
 
+/** Standalone export for use in cron/admin routes that can't import the full class instance */
+export async function runPiapiWatchdog() {
+  return generationPoller.reconcileStalePiapiGenerations();
+}
+
+export async function runWavespeedSeedreamWatchdog() {
+  return generationPoller.reconcileStaleWavespeedSeedreamGenerations();
+}
+

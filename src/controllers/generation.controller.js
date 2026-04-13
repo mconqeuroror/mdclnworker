@@ -2760,7 +2760,8 @@ export async function cleanupStuckGenerations(req, res) {
       },
     });
 
-    const videoLikeTypes = new Set(["video", "prompt-video", "talking-head-video", "complete-recreation-video"]);
+    // creator-studio-video is a long-running task (KIE/PiAPI); give it the video timeout
+    const videoLikeTypes = new Set(["video", "prompt-video", "talking-head-video", "complete-recreation-video", "creator-studio-video"]);
     const stuckGenerations = processingGenerations.filter((gen) => {
       const createdMs = new Date(gen.createdAt).getTime();
       const t = String(gen.type || "");
