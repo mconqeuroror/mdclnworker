@@ -111,27 +111,29 @@ export function nsfwModelPickerKbd(models, callbackPrefix, backCb = "nav:nsfw") 
   return inlineKbd(rows);
 }
 
-// ── Generate menu ─────────────────────────────────────────────
+// ── Generate menu — simplified (8 core + More) ───────────────
 export function generateMenuKbd() {
   return inlineKbd([
-    // ── Most-used: quick access ──────────────────────────────
     [{ text: "🖼 AI Photo", callback_data: "gen:aiphoto" }, { text: "🎬 AI Video", callback_data: "gen:aivideo" }],
-    [{ text: "🌟 Advanced AI (SFW)", callback_data: "gen:advanced" }, { text: "🎨 ModelClone-X", callback_data: "nav:mcx" }],
-    // ── Identity & face ──────────────────────────────────────
     [{ text: "🪪 Identity Recreation", callback_data: "gen:identity" }],
     [{ text: "🎭 Face Swap (Video)", callback_data: "gen:faceswapvid" }, { text: "🪞 Face Swap (Image)", callback_data: "gen:faceswapimg" }],
-    // ── Voice & motion ───────────────────────────────────────
-    [{ text: "🗣 Talking Head", callback_data: "gen:talkinghead" }, { text: "🎞 Motion Transfer", callback_data: "gen:motion" }],
-    [{ text: "⚡ Quick Video", callback_data: "gen:quickvid" }],
-    // ── Creator Studio ───────────────────────────────────────
+    [{ text: "🗣 Talking Head", callback_data: "gen:talkinghead" }],
+    [{ text: "🎨 ModelClone-X", callback_data: "nav:mcx" }, { text: "🌟 Advanced AI", callback_data: "gen:advanced" }],
+    [{ text: "⚙️ More tools…", callback_data: "gen:more" }],
+    [{ text: "⬅️ Back", callback_data: "nav:home" }],
+  ]);
+}
+
+// ── Generate "More" submenu — advanced / niche tools ─────────
+export function generateMoreKbd() {
+  return inlineKbd([
     [{ text: "🎨 CS Image", callback_data: "gen:csimg" }, { text: "🎬 CS Video", callback_data: "gen:csvid" }],
-    // ── Pipeline ─────────────────────────────────────────────
+    [{ text: "⚡ Quick Video", callback_data: "gen:quickvid" }, { text: "🎞 Motion Transfer", callback_data: "gen:motion" }],
     [{ text: "🔁 Full Recreation", callback_data: "gen:fullrec" }, { text: "🎞 Pipeline Prep", callback_data: "gen:pipeline" }],
     [{ text: "🎞 Frame Extractor", callback_data: "gen:extract" }],
-    // ── Utilities ────────────────────────────────────────────
     [{ text: "✨ Enhance Prompt", callback_data: "gen:enhance" }, { text: "📝 Describe Scene", callback_data: "gen:describe" }],
     [{ text: "📎 CS Assets", callback_data: "gen:assets" }],
-    [{ text: "⬅️ Back", callback_data: "nav:home" }],
+    [{ text: "⬅️ Back", callback_data: "nav:generate" }],
   ]);
 }
 
