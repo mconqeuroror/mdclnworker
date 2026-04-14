@@ -10,10 +10,21 @@ on:
 
 jobs:
   build-and-push:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-8core
+    timeout-minutes: 240
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Free disk space for baked model layers
+        run: |
+          df -h
+          sudo rm -rf /usr/local/lib/android || true
+          sudo rm -rf /usr/share/dotnet || true
+          sudo rm -rf /opt/ghc || true
+          sudo rm -rf /usr/local/.ghcup || true
+          docker system prune -af || true
+          df -h
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -25,10 +36,12 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: ./runpod-mdcln
           push: true
+          platforms: linux/amd64
+          provenance: false
           tags: |
             mconwf/modelclone-worker:latest
             mconwf/modelclone-worker:${{ github.sha }}
