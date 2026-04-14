@@ -60,7 +60,12 @@ export function toUserError(rawMessage) {
   }
 
   // Content policy / moderation
-  if (/nsfw|explicit|moderation|content policy|not allowed|blocked|rejected|inappropriate/i.test(lower)) {
+  // IMPORTANT: do not match bare "nsfw"/"explicit" terms, because NSFW endpoints
+  // and prompt echoes may contain those words in non-moderation errors.
+  if (
+    /moderation|content policy|policy violation|violates policy|safety (?:filter|system)|blocked by|rejected by|disallowed|not allowed|inappropriate content/i
+      .test(lower)
+  ) {
     return {
       message: "Your content was flagged and cannot be processed.",
       solution: "Please use different images or a different description and try again.",
