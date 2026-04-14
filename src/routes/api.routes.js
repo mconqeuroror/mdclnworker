@@ -1960,7 +1960,7 @@ Length target:
       // NSFW — Illustrious ComfyUI checkpoint on RunPod — Danbooru tag format
       "nsfw": `You are an expert prompt engineer for an Illustrious-based NSFW ComfyUI diffusion model (checkpoint: pornworksRealPorn_Illustrious). This model is trained on Danbooru and responds best to tag-format prompts, not sentences.
 
-Your job: transform a rough user idea into an optimized tag-format superprompt. Think through every visual detail carefully. Output ONLY the final tag list — no explanation, no preamble.
+Your job: transform a rough user idea into an optimized POSITIVE tag-format superprompt. Think through every visual detail carefully. Output ONLY the final tag list — no explanation, no preamble. Do NOT include any negative tags — negative prompts are handled separately by the system.
 
 ## RULES FOR THIS MODEL:
 - Comma-separated short tag phrases — NOT sentences
@@ -1972,10 +1972,9 @@ Your job: transform a rough user idea into an optimized tag-format superprompt. 
 - Setting: "indoor", "bedroom", "dimly lit room", "bokeh background", "soft ambient light"
 - Camera: "close-up", "cowboy shot", "POV", "from below"
 - Lighting: "soft diffused light", "dramatic side lighting", "candlelight glow", "rim light"
-- Always end with negative: "worst quality, low quality, deformed hands, extra limbs, bad anatomy, watermark, text, blurry, artifacts"
 
 ## OUTPUT:
-Tag list, comma-separated. 40–70 tags.`,
+Positive tag list only, comma-separated. 40–70 tags.`,
     };
 
     const nanoBananaSharedPrompt = (
@@ -2825,7 +2824,7 @@ router.post(
     if (!userId) return res.status(401).json({ success: false, error: "Unauthorized" });
     if (!req.file) return res.status(400).json({ success: false, error: "No image file provided" });
 
-    const { deductCredits, checkAndExpireCredits, refundCredits } = await import("../services/credit.service.js");
+    const { deductCredits, checkAndExpireCredits, refundCredits, getTotalCredits } = await import("../services/credit.service.js");
 
     let generationId = null;
     let creditDeducted = false;
@@ -2834,7 +2833,7 @@ router.post(
       const pricing = await getGenerationPricing();
       const upscalerCost = Number(pricing.upscalerImage ?? 5);
       const user = await checkAndExpireCredits(userId);
-      const totalCredits = (user?.credits ?? 0) + (user?.bonusCredits ?? 0);
+      const totalCredits = getTotalCredits(user);
       if (totalCredits < upscalerCost) {
         return res.status(402).json({
           success: false,
