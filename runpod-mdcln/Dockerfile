@@ -76,12 +76,12 @@ RUN mkdir -p /workspace/ComfyUI/models/checkpoints \
              /workspace/ComfyUI/models/upscale_models \
              /workspace/ComfyUI/models/seedvr2
 
-# Models are NOT baked into the image — they are downloaded at container start
-# by start.sh into the RunPod network volume and symlinked into ComfyUI.
-# This keeps the image build under the 30-minute CI limit.
-# First boot on a fresh volume downloads ~26 GB; every subsequent boot is instant.
+# Bake all models into image at build time — eliminates 30-min cold start download.
+# Pass CIVITAI_API_KEY as a build arg to include the NSFW UNet.
+# All models baked: VAE + CLIP + UNet + upscaler + SeedVR2 VAE + SeedVR2 DiT + JoyCaption
 COPY setup_models.sh /workspace/setup_models.sh
 RUN chmod +x /workspace/setup_models.sh
+RUN /workspace/setup_models.sh
 
 # -----------------------------------------------
 # 6. Custom nodes  [changes occasionally — cached independently of models above]

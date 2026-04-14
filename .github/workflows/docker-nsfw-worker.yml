@@ -32,5 +32,7 @@ jobs:
           tags: |
             mconwf/modelclone-worker:latest
             mconwf/modelclone-worker:${{ github.sha }}
+          build-args: |
+            CIVITAI_API_KEY=${{ secrets.CIVITAI_API_KEY }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
