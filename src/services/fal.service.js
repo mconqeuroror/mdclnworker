@@ -2579,23 +2579,52 @@ export async function submitNsfwGeneration(params) {
     console.log(`📣 RunPod webhook: ${runpodWebhook.slice(0, 80)}${runpodWebhook.length > 80 ? "…" : ""}`);
   }
 
-  try {
-    const response = await fetch(`${RUNPOD_BASE_URL}/run`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${RUNPOD_API_KEY}`,
-      },
-      body: JSON.stringify(runPayload),
-    });
+  // Submit with timeout + 2 retries on transient failures (network errors or 5xx)
+  let result;
+  let lastSubmitErr;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 30_000);
+    try {
+      const response = await fetch(`${RUNPOD_BASE_URL}/run`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${RUNPOD_API_KEY}`,
+        },
+        body: JSON.stringify(runPayload),
+        signal: ctrl.signal,
+      });
+      clearTimeout(timer);
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`❌ RunPod submission failed: ${response.status}`, errorText);
-      throw new Error(`Generation service error: ${response.status} - ${errorText}`);
+      if (!response.ok) {
+        const errorText = await response.text();
+        // 4xx = permanent error, don't retry
+        if (response.status >= 400 && response.status < 500) {
+          console.error(`❌ RunPod submission failed: ${response.status}`, errorText);
+          throw new Error(`Generation service error: ${response.status} - ${errorText}`);
+        }
+        throw new Error(`RunPod ${response.status}: ${errorText.slice(0, 200)}`);
+      }
+
+      result = await response.json();
+      break; // success
+    } catch (err) {
+      clearTimeout(timer);
+      lastSubmitErr = err;
+      // Rethrow permanent errors immediately
+      if (err.message.startsWith("Generation service error:")) throw err;
+      console.warn(`[RunPod NSFW] Submit attempt ${attempt}/3 failed: ${err.message}`);
+      if (attempt < 3) await new Promise((r) => setTimeout(r, 3_000 * attempt));
     }
+  }
 
-    const result = await response.json();
+  if (!result) {
+    console.error("❌ RunPod NSFW submission error:", lastSubmitErr?.message);
+    return { success: false, error: lastSubmitErr?.message || "RunPod submission failed after 3 attempts" };
+  }
+
+  try {
     const runpodJobId = result.id;
 
     if (!runpodJobId) {
@@ -2649,6 +2678,7 @@ export async function submitNsfwGeneration(params) {
     };
   }
 }
+
 
 /**
  * Generate a face reference image for face swap
