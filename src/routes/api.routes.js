@@ -603,11 +603,21 @@ router.get("/nsfw/nudes-pack-poses", authMiddleware, async (_req, res) => {
   try {
     const poses = await getEffectiveNudesPackPoses();
     const p = await getGenerationPricing();
+    const rawJson = JSON.stringify(
+      {
+        poses,
+        nudesPackCreditsMin: Number(p.nudesPackCreditsMin ?? 15),
+        nudesPackCreditsMax: Number(p.nudesPackCreditsMax ?? 30),
+      },
+      null,
+      2,
+    );
     return res.json({
       success: true,
       poses,
       nudesPackCreditsMin: Number(p.nudesPackCreditsMin ?? 15),
       nudesPackCreditsMax: Number(p.nudesPackCreditsMax ?? 30),
+      rawJson,
     });
   } catch (error) {
     console.error("Failed to load nudes-pack poses:", error);
