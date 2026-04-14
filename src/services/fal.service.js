@@ -1324,11 +1324,11 @@ function loadNsfwProWorkflow() {
 
 /**
  * Build a ComfyUI API workflow using the new Pro pipeline:
- *   UNet → LoRA chain → KSampler (20 steps, β scheduler) → VAEDecode
- *   → SeedVR2 upscale → Film Grain → Blur → SaveImage (node 289)
+ *   UNet → LoRA chain → KSampler (20 steps, beta scheduler) → VAEDecode
+ *   → Film Grain → Blur → SaveImage (node 289)
  *
- * Set NSFW_COMFY_BYPASS_SEEDVR2=1 to skip SeedVR2 and route VAEDecode
- * output directly to Film Grain (useful when SeedVR2 models are absent).
+ * NOTE: NSFW now always bypasses SeedVR2 upscaling so generations return
+ * directly from the base decode + post-processing chain.
  */
 function buildComfyWorkflowPro(params) {
   const {
@@ -1416,15 +1416,13 @@ function buildComfyWorkflowPro(params) {
     }
   }
 
-  // ── Bypass SeedVR2 (NSFW_COMFY_BYPASS_SEEDVR2=1) ───────────────────────────
-  if (process.env.NSFW_COMFY_BYPASS_SEEDVR2 === "1") {
-    console.log("[Pro workflow] Bypassing SeedVR2 — routing VAEDecode → Film Grain directly");
-    if (wf["284"]) wf["284"].inputs.image = ["25", 0];
-    delete wf["359"];
-    delete wf["360"];
-    delete wf["361"];
-    delete wf["362"];
-  }
+  // Always bypass SeedVR2 for NSFW output path.
+  console.log("[Pro workflow] Upscale disabled — routing VAEDecode -> Film Grain directly");
+  if (wf["284"]) wf["284"].inputs.image = ["25", 0];
+  delete wf["359"];
+  delete wf["360"];
+  delete wf["361"];
+  delete wf["362"];
 
   return wf;
 }
@@ -2236,9 +2234,8 @@ function buildComfyWorkflow(params) {
     );
 
     patchUltimateSdUpscaleApiNodes(apiWorkflow);
-    if (process.env.NSFW_COMFY_BYPASS_UPSCALE === "1") {
-      bypassUpscaleChainInNsfwCoreApi(apiWorkflow);
-    }
+    // Always bypass UltimateSDUpscale for NSFW output path.
+    bypassUpscaleChainInNsfwCoreApi(apiWorkflow);
 
     // LoadLoraFromUrlOrPath (250): set lora_1..N + num_loras on the API object (matches img2img path).
     if (apiWorkflow["250"]?.inputs) {
