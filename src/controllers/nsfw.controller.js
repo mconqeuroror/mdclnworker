@@ -26,8 +26,6 @@ import {
   getNsfwGenerationResult,
   archiveNsfwImageToR2,
   buildNsfwPrompt,
-  faceSwapWithFal,
-  submitFaceSwapJob,
   getFalCallbackUrl,
   isFalConfigured,
 } from "../services/fal.service.js";
@@ -50,6 +48,7 @@ import { enqueueCleanupOldGenerations } from "./generation.controller.js";
 import { resolveNsfwResolution } from "../utils/nsfwResolution.js";
 import { enforceGeneratedContentDeletionBlock } from "../utils/generated-content-deletion-guard.js";
 import { resolveRunpodWebhookUrl } from "../lib/runpodWebhookUrl.js";
+import { pollModelCloneXJob } from "../services/modelcloneX.service.js";
 
 // Models with age < 18 cannot use NSFW or LoRA (policy)
 function isMinorModel(model) {
@@ -2740,8 +2739,6 @@ export async function generateNsfwImage(req, res) {
       prompt,
       attributes = "",
       options = {},
-      skipFaceSwap = false,
-      faceSwapImageUrl = null,
       sceneDescription = "",
     } = req.body;
     userId = req.user.userId;
@@ -2792,7 +2789,6 @@ export async function generateNsfwImage(req, res) {
 
     let loraUrl = model.loraUrl;
     let loraTriggerWord = model.loraTriggerWord;
-    let activeFaceReferenceUrl = model.faceReferenceUrl;
     let activeLoraName = model.name;
 
     if (model.activeLoraId) {
@@ -2802,7 +2798,6 @@ export async function generateNsfwImage(req, res) {
       if (activeLora && activeLora.status === "ready") {
         loraUrl = activeLora.loraUrl;
         loraTriggerWord = activeLora.triggerWord;
-        activeFaceReferenceUrl = activeLora.faceReferenceUrl || activeFaceReferenceUrl;
         activeLoraName = activeLora.name || model.name;
       }
     }
@@ -2814,56 +2809,21 @@ export async function generateNsfwImage(req, res) {
       });
     }
 
-    let faceReferenceUrl = null;
-    if (!skipFaceSwap) {
-      if (faceSwapImageUrl) {
-        const validGalleryImage = await prisma.generation.findFirst({
-          where: {
-            userId: userId,
-            modelId: modelId,
-            outputUrl: faceSwapImageUrl,
-            status: "completed",
-            type: { in: ["prompt-image", "image", "face-swap-image", "nsfw"] },
-          },
-        });
-
-        if (!validGalleryImage) {
-          console.log("❌ SECURITY: Face swap image not from user's model gallery");
-          return res.status(403).json({
-            success: false,
-            message: "Face swap image must be from your gallery (generated for this model)",
-          });
-        }
-
-        console.log("✅ SECURITY: Face swap image validated - from user's gallery for model", modelId);
-        faceReferenceUrl = faceSwapImageUrl;
-      } else {
-        faceReferenceUrl = activeFaceReferenceUrl || null;
-      }
-    }
-
-    if (skipFaceSwap) {
-      console.log("⏭️ Face swap skipped by user request");
-    } else if (faceSwapImageUrl) {
-      console.log("🔄 Using custom face swap image from gallery");
-    }
-
-    const faceSwapExtra = skipFaceSwap ? 0 : 10;
     const baseCredits = imageQuantity === 2 ? CREDITS_PER_NSFW_DOUBLE : CREDITS_PER_NSFW_IMAGE;
-    const creditsNeeded = baseCredits + (imageQuantity * faceSwapExtra);
+    const creditsNeeded = baseCredits;
     const user = await checkAndExpireCredits(userId);
     const totalCredits = getTotalCredits(user);
 
     if (totalCredits < creditsNeeded) {
       return res.status(403).json({
         success: false,
-        message: `Need ${creditsNeeded} credits for ${imageQuantity} image(s)${skipFaceSwap ? "" : " with face swap"}. You have ${totalCredits} credits.`,
+        message: `Need ${creditsNeeded} credits for ${imageQuantity} image(s). You have ${totalCredits} credits.`,
       });
     }
 
     await deductCredits(userId, creditsNeeded);
     creditsDeducted = creditsNeeded;
-    console.log(`💳 Deducted ${creditsNeeded} credits for ${imageQuantity} NSFW image(s) (base: ${baseCredits}, face swap: ${!skipFaceSwap})`);
+    console.log(`💳 Deducted ${creditsNeeded} credits for ${imageQuantity} NSFW image(s)`);
 
     const userOverrideStrength = options.loraStrength || null;
     const adminSamplerOpts = getAdminNsfwSamplerOptions(req, options);
@@ -2884,9 +2844,9 @@ export async function generateNsfwImage(req, res) {
     };
     let firstGeneration = null;
 
-    const perImageCredits = imageQuantity === 2 
-      ? [30 + faceSwapExtra, 20 + faceSwapExtra] 
-      : [CREDITS_PER_NSFW_IMAGE + faceSwapExtra];
+    const perImageCredits = imageQuantity === 2
+      ? [Math.ceil(baseCredits / 2), Math.floor(baseCredits / 2)]
+      : [baseCredits];
 
     for (let i = 0; i < imageQuantity; i++) {
       const thisCost = perImageCredits[i];
@@ -2955,7 +2915,6 @@ export async function generateNsfwImage(req, res) {
             loraUrl,
             triggerWord: loraTriggerWord,
             loraName: activeLoraName || "Unknown",
-            faceReferenceUrl: faceReferenceUrl || null,
             girlLoraStrength: rp.girlLoraStrength ?? 0.70,
             activePose: rp.activePose || null,
             activePoseStrength: rp.activePoseStrength ?? 0,
@@ -3487,78 +3446,14 @@ export async function finalizeNsfwRunpodGeneration(generationId, requestId, runp
     return { ok: true, skipped: true, reason: "already_finalized" };
   }
 
-  let inputData = {};
-  try {
-    inputData = typeof gen.inputImageUrl === "string" ? JSON.parse(gen.inputImageUrl) : gen.inputImageUrl || {};
-  } catch {
-    inputData = {};
-  }
-  const faceReferenceUrl = inputData?.faceReferenceUrl || null;
-
   const result = await getNsfwGenerationResult(requestId, runpodOutput);
   if (!result.outputUrls?.length) {
     throw new Error("No output URLs in result");
   }
 
-  let permanentUrls = result.outputUrls;
-  if (faceReferenceUrl) {
-    const faceswapWebhookUrl = getFalCallbackUrl("faceswap");
-    if (faceswapWebhookUrl) {
-      // Async path: submit all faceswaps with webhook, store state, return early
-      console.log(`🔄 [finalize] Submitting ${permanentUrls.length} async faceswap(s) via webhook…`);
-      const faceSwapJobs = [];
-      for (let i = 0; i < permanentUrls.length; i++) {
-        try {
-          const reqId = await submitFaceSwapJob(permanentUrls[i], faceReferenceUrl, faceswapWebhookUrl);
-          faceSwapJobs.push({ requestId: reqId, imageIndex: i, originalUrl: permanentUrls[i] });
-          console.log(`  ↗ Faceswap job ${i}: ${reqId}`);
-        } catch (e) {
-          console.warn(`⚠️ [finalize] Faceswap job ${i} submit failed: ${e?.message} — using original`);
-          faceSwapJobs.push({ requestId: null, imageIndex: i, originalUrl: permanentUrls[i] });
-        }
-      }
-      // Jobs that failed submission resolve immediately with their original URL
-      const resolvedUrls = {};
-      for (const j of faceSwapJobs) {
-        if (!j.requestId) resolvedUrls[String(j.imageIndex)] = j.originalUrl;
-      }
-      const pending = faceSwapJobs.filter((j) => j.requestId);
-      if (pending.length === 0) {
-        // All failed — fall through to immediate completion with original URLs
-        permanentUrls = faceSwapJobs.map((j) => j.originalUrl);
-      } else {
-        await prisma.generation.update({
-          where: { id: generationId },
-          data: {
-            pipelinePayload: {
-              faceSwapJobs,
-              faceReferenceUrl,
-              totalImages: permanentUrls.length,
-              resolvedUrls,
-              originalUrls: permanentUrls,
-            },
-          },
-        });
-        console.log(`🔄 [finalize] ${generationId.slice(0, 8)} waiting for ${pending.length} faceswap webhook(s)`);
-        return { ok: true, pending: true, reason: "faceswap_pending" };
-      }
-    } else {
-      // Sync fallback: poll inline (original behaviour)
-      console.log(`🔄 [finalize] Face-swapping ${permanentUrls.length} images (sync fallback)…`);
-      const swappedUrls = [];
-      for (let i = 0; i < permanentUrls.length; i++) {
-        try {
-          const swapResult = await faceSwapWithFal(permanentUrls[i], faceReferenceUrl);
-          swappedUrls.push(swapResult.success && swapResult.outputUrl ? swapResult.outputUrl : permanentUrls[i]);
-        } catch {
-          swappedUrls.push(permanentUrls[i]);
-        }
-      }
-      permanentUrls = swappedUrls;
-    }
-  }
+  const outputUrls = result.outputUrls;
+  const outputUrlValue = outputUrls.length === 1 ? outputUrls[0] : JSON.stringify(outputUrls);
 
-  const outputUrlValue = permanentUrls.length === 1 ? permanentUrls[0] : JSON.stringify(permanentUrls);
   const allowedFinalizeStatuses = failedNeedsRecovery
     ? ["processing", "pending", "failed"]
     : ["processing", "pending"];
@@ -3569,7 +3464,6 @@ export async function finalizeNsfwRunpodGeneration(generationId, requestId, runp
       outputUrl: outputUrlValue,
       completedAt: new Date(),
       errorMessage: null,
-      // Reset refund flag so re-charge below is properly tracked
       ...(failedNeedsRecovery ? { creditsRefunded: false } : {}),
     },
   });
@@ -3577,8 +3471,6 @@ export async function finalizeNsfwRunpodGeneration(generationId, requestId, runp
     return { ok: true, skipped: true, reason: "race_lost" };
   }
 
-  // Re-deduct credits for recovered generations — they were refunded when the job
-  // was wrongly marked as failed, so re-charge now that we know it actually succeeded.
   if (failedNeedsRecovery && gen.creditsCost > 0 && gen.userId) {
     try {
       await deductCredits(gen.userId, gen.creditsCost);
@@ -3588,7 +3480,7 @@ export async function finalizeNsfwRunpodGeneration(generationId, requestId, runp
     }
   }
 
-  console.log(`✅ [finalize] ${generationId.slice(0, 8)} completed (${permanentUrls.length} imgs)`);
+  console.log(`✅ [finalize] ${generationId.slice(0, 8)} completed (${outputUrls.length} img(s))`);
   if (gen.userId && gen.modelId) {
     enqueueCleanupOldGenerations(gen.userId, gen.modelId);
   }
@@ -5521,22 +5413,56 @@ async function pollSingleNsfwGeneration(gen) {
     return;
   }
 
-  // Has a RunPod job ID — webhook will (or already did) deliver the result.
-  // Only enforce the hard wall-clock timeout so truly stuck jobs don't sit forever.
+  // Has a RunPod job ID — poll RunPod directly (same as ModelClone-X watchdog).
+  // Webhook is still the primary completion path, but this ensures we never get stuck
+  // when the webhook is missed or delayed.
   const stuckMaxSec = Number(process.env.NSFW_STUCK_MAX_AGE_SEC) || 200 * 60;
-  if (age > stuckMaxSec) {
-    console.log(`  ⏰ ${gen.id.substring(0,8)} TIMED OUT after ${age}s (no webhook received), refunding`);
-    try {
-      await refundGeneration(gen.id);
-    } catch (e) {
-      console.error(`  ⏰ ${gen.id.substring(0,8)} refund error on TIMEOUT:`, e.message);
+  try {
+    const rp = await pollModelCloneXJob(requestId);
+    const rpStatus = String(rp?.status || "").toUpperCase();
+
+    if (rpStatus === "COMPLETED") {
+      const out = normalizeRunpodNsfwOutput(rp?.output ?? rp);
+      if (out?.images?.length) {
+        console.log(`  ✅ ${gen.id.substring(0,8)} COMPLETED on RunPod (watchdog poll), finalizing`);
+        await finalizeNsfwRunpodGeneration(gen.id, requestId, out);
+      } else {
+        console.warn(`  ⚠️ ${gen.id.substring(0,8)} COMPLETED but no images in output — refunding`);
+        await refundGeneration(gen.id).catch(() => {});
+        await prisma.generation.update({
+          where: { id: gen.id },
+          data: { status: "failed", errorMessage: getErrorMessageForDb("RunPod completed but returned no images"), completedAt: new Date() },
+        }).catch(() => {});
+      }
+    } else if (["FAILED", "CANCELLED", "TIMED_OUT"].includes(rpStatus)) {
+      const msg = rp?.output?.error || rp?.error || `RunPod ${rpStatus.toLowerCase()}`;
+      console.log(`  ❌ ${gen.id.substring(0,8)} FAILED on RunPod (${msg}), refunding`);
+      await refundGeneration(gen.id).catch(() => {});
+      await prisma.generation.update({
+        where: { id: gen.id },
+        data: { status: "failed", errorMessage: getErrorMessageForDb(String(msg)), completedAt: new Date() },
+      }).catch(() => {});
+    } else if (age > stuckMaxSec) {
+      console.log(`  ⏰ ${gen.id.substring(0,8)} TIMED OUT after ${age}s (RunPod status: ${rpStatus || "unknown"}), refunding`);
+      await refundGeneration(gen.id).catch(() => {});
+      await prisma.generation.update({
+        where: { id: gen.id },
+        data: { status: "failed", errorMessage: getErrorMessageForDb(`Generation timed out (${Math.round(stuckMaxSec / 60)} min)`), completedAt: new Date() },
+      }).catch(() => {});
+    } else {
+      console.log(`  ⏳ ${gen.id.substring(0,8)} still running on RunPod (status: ${rpStatus || "unknown"}, ${age}s old)`);
     }
-    await prisma.generation.update({
-      where: { id: gen.id },
-      data: { status: 'failed', errorMessage: getErrorMessageForDb(`Generation timed out (${Math.round(stuckMaxSec / 60)} min)`), completedAt: new Date() },
-    }).catch(() => {});
-  } else {
-    console.log(`  ⏳ ${gen.id.substring(0,8)} waiting for webhook (${age}s old, job ${requestId.slice(0, 16)}…)`);
+  } catch (pollErr) {
+    if (age > stuckMaxSec) {
+      console.log(`  ⏰ ${gen.id.substring(0,8)} TIMED OUT after ${age}s (poll error: ${pollErr.message}), refunding`);
+      await refundGeneration(gen.id).catch(() => {});
+      await prisma.generation.update({
+        where: { id: gen.id },
+        data: { status: "failed", errorMessage: getErrorMessageForDb(`Generation timed out (${Math.round(stuckMaxSec / 60)} min)`), completedAt: new Date() },
+      }).catch(() => {});
+    } else {
+      console.warn(`  ⚠️ ${gen.id.substring(0,8)} poll error (will retry): ${pollErr.message}`);
+    }
   }
 }
 
