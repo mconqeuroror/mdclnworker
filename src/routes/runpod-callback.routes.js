@@ -8,7 +8,6 @@
 import express from "express";
 import prisma from "../lib/prisma.js";
 import { normalizeRunpodNsfwOutput } from "../services/fal.service.js";
-import { finalizeNsfwRunpodGeneration } from "../controllers/nsfw.controller.js";
 import { refundCredits, refundGeneration } from "../services/credit.service.js";
 import { getErrorMessageForDb } from "../lib/userError.js";
 import {
@@ -60,101 +59,6 @@ function verifyWebhook(req) {
   const bearer = typeof auth === "string" && auth.startsWith("Bearer ") ? auth.slice(7).trim() : null;
   const header = req.headers["x-runpod-secret"];
   return q === SECRET || header === SECRET || bearer === SECRET;
-}
-
-async function findNsfwGenerationByRunpodJobId(jobId) {
-  const jobIdVariants = buildRunpodJobIdVariants(jobId);
-  if (jobIdVariants.length === 0) return null;
-
-  const containsFilters = jobIdVariants.flatMap((id) => ([
-    { inputImageUrl: { contains: `"runpodJobId":"${id}"` } },
-    { inputImageUrl: { contains: `"comfyuiPromptId":"${id}"` } },
-  ]));
-
-  // Primary: fast indexed lookup — no status filter so we recover any status
-  // (mirrors ModelClone-X's findGenerationForWebhook which has no status gate).
-  const direct = await prisma.generation.findFirst({
-    where: {
-      type: "nsfw",
-      createdAt: { gt: new Date(Date.now() - 48 * 60 * 60 * 1000) },
-      OR: [
-        { providerTaskId: { in: jobIdVariants } },
-        ...containsFilters,
-      ],
-    },
-    orderBy: { createdAt: "desc" },
-  });
-  if (direct) return direct;
-
-  // Fallback: scan recent NSFW rows and match in-process (covers JSON variants)
-  const rows = await prisma.generation.findMany({
-    where: {
-      type: "nsfw",
-      createdAt: { gt: new Date(Date.now() - 48 * 60 * 60 * 1000) },
-    },
-    take: 200,
-    orderBy: { createdAt: "desc" },
-  });
-  return rows.find((g) => {
-    try {
-      const j = typeof g.inputImageUrl === "string" ? JSON.parse(g.inputImageUrl) : g.inputImageUrl;
-      return (
-        matchesRunpodJobId(g?.providerTaskId, jobIdVariants) ||
-        matchesRunpodJobId(j?.comfyuiPromptId, jobIdVariants) ||
-        matchesRunpodJobId(j?.runpodJobId, jobIdVariants)
-      );
-    } catch {
-      return false;
-    }
-  }) || null;
-}
-
-async function findNsfwGenerationForWebhook(jobId, generationId) {
-  const explicitGenerationId = String(generationId || "").trim();
-  if (explicitGenerationId) {
-    const direct = await prisma.generation.findFirst({
-      where: {
-        id: explicitGenerationId,
-        type: "nsfw",
-        createdAt: { gt: new Date(Date.now() - 48 * 60 * 60 * 1000) },
-      },
-    });
-    if (direct) return direct;
-  }
-  return findNsfwGenerationByRunpodJobId(jobId);
-}
-
-async function backfillNsfwRunpodCorrelation(gen, jobId) {
-  if (!gen?.id || !jobId) return;
-  const jobIdVariants = buildRunpodJobIdVariants(jobId);
-  const existingProviderTaskId = String(gen.providerTaskId || "").trim();
-  if (existingProviderTaskId && matchesRunpodJobId(existingProviderTaskId, jobIdVariants)) {
-    return;
-  }
-
-  let inputData = {};
-  try {
-    inputData =
-      typeof gen.inputImageUrl === "string"
-        ? JSON.parse(gen.inputImageUrl || "{}")
-        : (gen.inputImageUrl || {});
-  } catch {
-    inputData = {};
-  }
-
-  const nextInputData = {
-    ...inputData,
-    runpodJobId: inputData?.runpodJobId || jobId,
-    comfyuiPromptId: inputData?.comfyuiPromptId || jobId,
-  };
-
-  await prisma.generation.update({
-    where: { id: gen.id },
-    data: {
-      providerTaskId: existingProviderTaskId || jobId,
-      inputImageUrl: JSON.stringify(nextInputData),
-    },
-  }).catch(() => {});
 }
 
 async function findGenerationByRunpodJobId(jobId, types) {
@@ -337,9 +241,16 @@ async function backfillDescribeRunpodCorrelation(gen, jobId) {
   }).catch(() => {});
 }
 
-function isTransientRunpodNotFoundError(raw) {
-  const msg = String(raw || "");
-  return /job not found|not found yet|may have expired|job.*expired|expired/i.test(msg);
+function extractNsfwImage(runpodOutput) {
+  const out = normalizeRunpodNsfwOutput(runpodOutput);
+  if (!out?.images?.length) return null;
+  const first = out.images[0];
+  if (typeof first === "string") return first;
+  if (first?.base64) return first.base64;
+  if (first?.data) return first.data;
+  if (first?.image) return first.image;
+  if (first?.url) return first.url;
+  return null;
 }
 
 async function handleRunpodCallback(req, res) {
@@ -491,23 +402,17 @@ async function handleRunpodCallback(req, res) {
       return res.status(200).json({ ok: true, skipped: true, type: imageGen.type, status: st });
     }
 
-    // ── NSFW generation ───────────────────────────────────────────────────────
-    const gen = await findNsfwGenerationForWebhook(jobId, generationId);
+    // ── NSFW generation (same backend callback flow as ModelClone-X) ─────────
+    const gen = await findGenerationForWebhook(jobId, generationId, ["nsfw"]);
     if (!gen) {
       console.warn(`[RunPod webhook] no processing generation for job ${jobId}`);
       return res.status(200).json({ ok: true, skipped: true, reason: "no_generation" });
     }
 
-    await backfillNsfwRunpodCorrelation(gen, jobId);
+    await backfillRunpodCorrelation(gen, jobId);
 
     if (st === "FAILED" || st === "CANCELLED") {
       const msg = rawOut?.error || body.error || "RunPod job failed";
-      // RunPod can emit transient FAILED payloads like "job not found / may have expired"
-      // while the actual job is still in-flight. Do not fail NSFW generations on that signal.
-      if (isTransientRunpodNotFoundError(msg)) {
-        console.warn(`[RunPod webhook] transient NSFW failure for ${jobId}: ${String(msg).slice(0, 200)} — ignoring`);
-        return res.status(200).json({ ok: true, skipped: true, reason: "transient_not_found" });
-      }
       try {
         await refundGeneration(gen.id);
       } catch (e) {
@@ -521,21 +426,45 @@ async function handleRunpodCallback(req, res) {
           completedAt: new Date(),
         },
       });
-      return res.status(200).json({ ok: true, failed: true });
+      console.log(`[RunPod webhook] nsfw job ${gen.id} failed: ${msg}`);
+      return res.status(200).json({ ok: true, type: "nsfw", failed: true });
     }
 
     if (st !== "COMPLETED") {
-      return res.status(200).json({ ok: true, skipped: true, status: st });
+      return res.status(200).json({ ok: true, skipped: true, type: "nsfw", status: st });
     }
 
-    const out = normalizeRunpodNsfwOutput(parseRunpodHandlerOutput(rawOut) ?? rawOut);
-    if (!out?.images?.length) {
+    const imageData = extractNsfwImage(parseRunpodHandlerOutput(rawOut) ?? rawOut);
+    if (!imageData) {
+      const msg = "RunPod completed but returned no image";
       console.warn(`[RunPod webhook] COMPLETED but no images for ${jobId}`);
-      return res.status(200).json({ ok: true, skipped: true, reason: "no_images" });
+      await refundGeneration(gen.id).catch(() => {});
+      await prisma.generation.updateMany({
+        where: { id: gen.id, status: { in: ["processing", "pending"] } },
+        data: { status: "failed", errorMessage: msg, completedAt: new Date() },
+      });
+      return res.status(200).json({ ok: true, type: "nsfw", failed: true, reason: "no_image" });
     }
 
-    await finalizeNsfwRunpodGeneration(gen.id, jobId, out);
-    return res.status(200).json({ ok: true });
+    let outputUrl;
+    try {
+      if (imageData.startsWith("http")) {
+        outputUrl = imageData;
+      } else {
+        const buf = Buffer.from(imageData, "base64");
+        outputUrl = await uploadBufferToBlobOrR2(buf, "nsfw", "png", "image/png");
+      }
+    } catch (uploadErr) {
+      console.error("[RunPod webhook] nsfw upload error:", uploadErr.message);
+      outputUrl = `data:image/png;base64,${imageData}`;
+    }
+
+    await prisma.generation.update({
+      where: { id: gen.id },
+      data: { status: "completed", outputUrl, completedAt: new Date(), errorMessage: null },
+    });
+    console.log(`✅ [RunPod webhook] nsfw job ${gen.id} completed → ${outputUrl.slice(0, 80)}`);
+    return res.status(200).json({ ok: true, type: "nsfw" });
   } catch (e) {
     console.error("[RunPod webhook]", e);
     // 200 so RunPod does not hammer retries; fix via polling / logs
