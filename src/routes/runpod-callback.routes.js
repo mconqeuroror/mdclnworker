@@ -78,7 +78,7 @@ async function findNsfwGenerationByRunpodJobId(jobId) {
   const direct = await prisma.generation.findFirst({
     where: {
       type: "nsfw",
-      status: { in: ["processing", "pending", "queued"] },
+      status: { in: ["processing", "pending", "queued", "failed"] },
       createdAt: { gt: new Date(Date.now() - 48 * 60 * 60 * 1000) },
       OR: [
         { providerTaskId: { in: jobIdVariants } },
@@ -92,7 +92,7 @@ async function findNsfwGenerationByRunpodJobId(jobId) {
   const rows = await prisma.generation.findMany({
     where: {
       type: "nsfw",
-      status: { in: ["processing", "pending", "queued"] },
+      status: { in: ["processing", "pending", "queued", "failed"] },
       createdAt: { gt: new Date(Date.now() - 48 * 60 * 60 * 1000) },
     },
     take: 200,

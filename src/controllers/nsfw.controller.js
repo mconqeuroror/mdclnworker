@@ -3494,7 +3494,11 @@ export async function finalizeNsfwRunpodGeneration(generationId, requestId, runp
     console.warn(`[NSFW finalize] generation ${generationId} not found`);
     return { ok: false, reason: "not_found" };
   }
-  if (gen.status !== "processing" && gen.status !== "pending") {
+  const failedNeedsRecovery =
+    gen.status === "failed" &&
+    !gen.outputUrl &&
+    /job not found|expired|timed out|timeout|not found yet/i.test(String(gen.errorMessage || ""));
+  if (gen.status !== "processing" && gen.status !== "pending" && !failedNeedsRecovery) {
     return { ok: true, skipped: true, reason: "already_finalized" };
   }
 
@@ -3570,8 +3574,11 @@ export async function finalizeNsfwRunpodGeneration(generationId, requestId, runp
   }
 
   const outputUrlValue = permanentUrls.length === 1 ? permanentUrls[0] : JSON.stringify(permanentUrls);
+  const allowedFinalizeStatuses = failedNeedsRecovery
+    ? ["processing", "pending", "failed"]
+    : ["processing", "pending"];
   const updated = await prisma.generation.updateMany({
-    where: { id: generationId, status: { in: ["processing", "pending"] } },
+    where: { id: generationId, status: { in: allowedFinalizeStatuses } },
     data: {
       status: "completed",
       outputUrl: outputUrlValue,

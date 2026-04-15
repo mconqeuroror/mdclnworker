@@ -2887,10 +2887,13 @@ export async function checkNsfwGenerationStatus(jobId) {
 
     if (!response.ok) {
       if (response.status === 404) {
+        // RunPod can return transient 404 shortly after /run submit before the job
+        // becomes visible on /status. Treat it as still queued/in-progress so we
+        // do not fail generations prematurely.
         console.warn(
-          `⚠️ RunPod job ${jobId} not found (404) on endpoint ${RUNPOD_ENDPOINT_ID} — job may have expired or been purged`,
+          `⚠️ RunPod job ${jobId} not found yet (404) on endpoint ${RUNPOD_ENDPOINT_ID} — treating as IN_QUEUE`,
         );
-        return { status: "FAILED", error: "Generation job not found - may have expired" };
+        return { status: "IN_QUEUE" };
       }
       const errorText = await response.text();
       throw new Error(`Generation status check failed: ${response.status} - ${errorText}`);
