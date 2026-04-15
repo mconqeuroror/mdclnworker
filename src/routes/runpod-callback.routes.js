@@ -337,6 +337,11 @@ async function backfillDescribeRunpodCorrelation(gen, jobId) {
   }).catch(() => {});
 }
 
+function isTransientRunpodNotFoundError(raw) {
+  const msg = String(raw || "");
+  return /job not found|not found yet|may have expired|job.*expired|expired/i.test(msg);
+}
+
 async function handleRunpodCallback(req, res) {
   if (!verifyWebhook(req)) {
     return res.status(401).json({ ok: false, error: "unauthorized" });
@@ -497,6 +502,12 @@ async function handleRunpodCallback(req, res) {
 
     if (st === "FAILED" || st === "CANCELLED") {
       const msg = rawOut?.error || body.error || "RunPod job failed";
+      // RunPod can emit transient FAILED payloads like "job not found / may have expired"
+      // while the actual job is still in-flight. Do not fail NSFW generations on that signal.
+      if (isTransientRunpodNotFoundError(msg)) {
+        console.warn(`[RunPod webhook] transient NSFW failure for ${jobId}: ${String(msg).slice(0, 200)} — ignoring`);
+        return res.status(200).json({ ok: true, skipped: true, reason: "transient_not_found" });
+      }
       try {
         await refundGeneration(gen.id);
       } catch (e) {

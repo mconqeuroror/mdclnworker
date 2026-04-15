@@ -5419,69 +5419,25 @@ async function pollSingleNsfwGeneration(gen) {
     return;
   }
 
-  // Has a RunPod job ID — poll RunPod directly via the NSFW status helper.
-  // This guarantees watchdog polling uses the exact same endpoint resolution
-  // as NSFW submission/check flows, avoiding false "not found/expired" failures.
-  // Webhook is still the primary completion path; this is the recovery safety-net.
+  // Has a RunPod job ID — webhook-only delivery.
+  // Do NOT poll RunPod status here. The callback route finalizes completion.
+  // This watchdog only enforces a hard timeout in case callbacks are missed forever.
   const stuckMaxSec = Number(process.env.NSFW_STUCK_MAX_AGE_SEC) || 200 * 60;
-  try {
-    const rp = await checkNsfwGenerationStatus(requestId);
-    const rpStatus = String(rp?.status || "").toUpperCase();
-
-    if (rpStatus === "COMPLETED") {
-      const out = normalizeRunpodNsfwOutput(rp?._runpodOutput ?? rp?.output ?? rp);
-      if (out?.images?.length) {
-        console.log(`  ✅ ${gen.id.substring(0,8)} COMPLETED on RunPod (watchdog poll), finalizing`);
-        await finalizeNsfwRunpodGeneration(gen.id, requestId, out);
-      } else {
-        console.warn(`  ⚠️ ${gen.id.substring(0,8)} COMPLETED but no images in output — refunding`);
-        await refundGeneration(gen.id).catch(() => {});
-        await prisma.generation.update({
-          where: { id: gen.id },
-          data: { status: "failed", errorMessage: getErrorMessageForDb("RunPod completed but returned no images"), completedAt: new Date() },
-        }).catch(() => {});
-      }
-    } else if (["FAILED", "CANCELLED", "TIMED_OUT"].includes(rpStatus)) {
-      const msg = rp?.error || rp?.output?.error || `RunPod ${rpStatus.toLowerCase()}`;
-      console.log(`  ❌ ${gen.id.substring(0,8)} FAILED on RunPod (${msg}), refunding`);
-      await refundGeneration(gen.id).catch(() => {});
-      await prisma.generation.update({
-        where: { id: gen.id },
-        data: { status: "failed", errorMessage: getErrorMessageForDb(String(msg)), completedAt: new Date() },
-      }).catch(() => {});
-    } else if (["IN_QUEUE", "IN_PROGRESS"].includes(rpStatus)) {
-      if (age > stuckMaxSec) {
-        console.log(`  ⏰ ${gen.id.substring(0,8)} TIMED OUT after ${age}s (RunPod status: ${rpStatus}), refunding`);
-        await refundGeneration(gen.id).catch(() => {});
-        await prisma.generation.update({
-          where: { id: gen.id },
-          data: { status: "failed", errorMessage: getErrorMessageForDb(`Generation timed out (${Math.round(stuckMaxSec / 60)} min)`), completedAt: new Date() },
-        }).catch(() => {});
-      } else {
-        console.log(`  ⏳ ${gen.id.substring(0,8)} still running on RunPod (status: ${rpStatus}, ${age}s old)`);
-      }
-    } else if (age > stuckMaxSec) {
-      console.log(`  ⏰ ${gen.id.substring(0,8)} TIMED OUT after ${age}s (RunPod status: ${rpStatus || "unknown"}), refunding`);
+  if (age > stuckMaxSec) {
+    try {
+      console.log(`  ⏰ ${gen.id.substring(0,8)} TIMED OUT after ${age}s waiting for RunPod callback, refunding`);
       await refundGeneration(gen.id).catch(() => {});
       await prisma.generation.update({
         where: { id: gen.id },
         data: { status: "failed", errorMessage: getErrorMessageForDb(`Generation timed out (${Math.round(stuckMaxSec / 60)} min)`), completedAt: new Date() },
       }).catch(() => {});
-    } else {
-      console.log(`  ⏳ ${gen.id.substring(0,8)} still running on RunPod (status: ${rpStatus || "unknown"}, ${age}s old)`);
+    } catch (timeoutErr) {
+      console.warn(`  ⚠️ ${gen.id.substring(0,8)} timeout cleanup error: ${timeoutErr.message}`);
     }
-  } catch (pollErr) {
-    if (age > stuckMaxSec) {
-      console.log(`  ⏰ ${gen.id.substring(0,8)} TIMED OUT after ${age}s (poll error: ${pollErr.message}), refunding`);
-      await refundGeneration(gen.id).catch(() => {});
-      await prisma.generation.update({
-        where: { id: gen.id },
-        data: { status: "failed", errorMessage: getErrorMessageForDb(`Generation timed out (${Math.round(stuckMaxSec / 60)} min)`), completedAt: new Date() },
-      }).catch(() => {});
-    } else {
-      console.warn(`  ⚠️ ${gen.id.substring(0,8)} poll error (will retry): ${pollErr.message}`);
-    }
+    return;
   }
+
+  console.log(`  ⏳ ${gen.id.substring(0,8)} waiting for RunPod callback (${age}s old, requestId: ${String(requestId).slice(0, 12)}...)`);
 }
 
 function startNsfwPoller() {
