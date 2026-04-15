@@ -264,6 +264,11 @@ function extractNsfwImage(runpodOutput) {
   return null;
 }
 
+function isTransientRunpodNotFoundError(raw) {
+  const msg = String(raw || "");
+  return /job not found|not found yet|may have expired|job.*expired|expired/i.test(msg);
+}
+
 async function handleRunpodCallback(req, res) {
   if (!verifyWebhook(req)) {
     return res.status(401).json({ ok: false, error: "unauthorized" });
@@ -385,6 +390,12 @@ async function handleRunpodCallback(req, res) {
       await backfillRunpodCorrelation(imageGen, jobId);
       if (st === "FAILED" || st === "CANCELLED") {
         const msg = rawOut?.error || body.error || "RunPod job failed";
+        if (isTransientRunpodNotFoundError(msg)) {
+          console.warn(
+            `[RunPod webhook] transient ${imageGen.type} failure for ${jobId}: ${String(msg).slice(0, 200)} — ignoring`,
+          );
+          return res.status(200).json({ ok: true, skipped: true, type: imageGen.type, reason: "transient_not_found" });
+        }
         await refundGeneration(imageGen.id).catch(() => {});
         await prisma.generation.updateMany({
           where: { id: imageGen.id, status: { in: ["queued", "processing", "pending"] } },
@@ -450,6 +461,12 @@ async function handleRunpodCallback(req, res) {
 
     if (st === "FAILED" || st === "CANCELLED") {
       const msg = rawOut?.error || body.error || "RunPod job failed";
+      if (isTransientRunpodNotFoundError(msg)) {
+        console.warn(
+          `[RunPod webhook] transient nsfw failure for ${jobId}: ${String(msg).slice(0, 200)} — ignoring`,
+        );
+        return res.status(200).json({ ok: true, skipped: true, type: "nsfw", reason: "transient_not_found" });
+      }
       try {
         await refundGeneration(gen.id);
       } catch (e) {
