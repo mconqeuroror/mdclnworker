@@ -48,7 +48,6 @@ import { enqueueCleanupOldGenerations } from "./generation.controller.js";
 import { resolveNsfwResolution } from "../utils/nsfwResolution.js";
 import { enforceGeneratedContentDeletionBlock } from "../utils/generated-content-deletion-guard.js";
 import { resolveRunpodWebhookUrl } from "../lib/runpodWebhookUrl.js";
-import { pollModelCloneXJob } from "../services/modelcloneX.service.js";
 
 // Models with age < 18 cannot use NSFW or LoRA (policy)
 function isMinorModel(model) {
@@ -5420,16 +5419,17 @@ async function pollSingleNsfwGeneration(gen) {
     return;
   }
 
-  // Has a RunPod job ID — poll RunPod directly (same as ModelClone-X watchdog).
-  // Webhook is still the primary completion path, but this ensures we never get stuck
-  // when the webhook is missed or delayed.
+  // Has a RunPod job ID — poll RunPod directly via the NSFW status helper.
+  // This guarantees watchdog polling uses the exact same endpoint resolution
+  // as NSFW submission/check flows, avoiding false "not found/expired" failures.
+  // Webhook is still the primary completion path; this is the recovery safety-net.
   const stuckMaxSec = Number(process.env.NSFW_STUCK_MAX_AGE_SEC) || 200 * 60;
   try {
-    const rp = await pollModelCloneXJob(requestId);
+    const rp = await checkNsfwGenerationStatus(requestId);
     const rpStatus = String(rp?.status || "").toUpperCase();
 
     if (rpStatus === "COMPLETED") {
-      const out = normalizeRunpodNsfwOutput(rp?.output ?? rp);
+      const out = normalizeRunpodNsfwOutput(rp?._runpodOutput ?? rp?.output ?? rp);
       if (out?.images?.length) {
         console.log(`  ✅ ${gen.id.substring(0,8)} COMPLETED on RunPod (watchdog poll), finalizing`);
         await finalizeNsfwRunpodGeneration(gen.id, requestId, out);
@@ -5442,13 +5442,24 @@ async function pollSingleNsfwGeneration(gen) {
         }).catch(() => {});
       }
     } else if (["FAILED", "CANCELLED", "TIMED_OUT"].includes(rpStatus)) {
-      const msg = rp?.output?.error || rp?.error || `RunPod ${rpStatus.toLowerCase()}`;
+      const msg = rp?.error || rp?.output?.error || `RunPod ${rpStatus.toLowerCase()}`;
       console.log(`  ❌ ${gen.id.substring(0,8)} FAILED on RunPod (${msg}), refunding`);
       await refundGeneration(gen.id).catch(() => {});
       await prisma.generation.update({
         where: { id: gen.id },
         data: { status: "failed", errorMessage: getErrorMessageForDb(String(msg)), completedAt: new Date() },
       }).catch(() => {});
+    } else if (["IN_QUEUE", "IN_PROGRESS"].includes(rpStatus)) {
+      if (age > stuckMaxSec) {
+        console.log(`  ⏰ ${gen.id.substring(0,8)} TIMED OUT after ${age}s (RunPod status: ${rpStatus}), refunding`);
+        await refundGeneration(gen.id).catch(() => {});
+        await prisma.generation.update({
+          where: { id: gen.id },
+          data: { status: "failed", errorMessage: getErrorMessageForDb(`Generation timed out (${Math.round(stuckMaxSec / 60)} min)`), completedAt: new Date() },
+        }).catch(() => {});
+      } else {
+        console.log(`  ⏳ ${gen.id.substring(0,8)} still running on RunPod (status: ${rpStatus}, ${age}s old)`);
+      }
     } else if (age > stuckMaxSec) {
       console.log(`  ⏰ ${gen.id.substring(0,8)} TIMED OUT after ${age}s (RunPod status: ${rpStatus || "unknown"}), refunding`);
       await refundGeneration(gen.id).catch(() => {});
