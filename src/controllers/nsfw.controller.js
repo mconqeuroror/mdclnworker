@@ -2878,6 +2878,9 @@ export async function generateNsfwImage(req, res) {
         generationId: generation.id,
         kind: "nsfw",
       });
+
+      // Submit via the exact same code path MCX uses — submitRunpodJob.
+      // On failure: mark failed + refund immediately (MCX pattern).
       const submission = await submitNsfwGeneration({
         loraUrl,
         triggerWord: loraTriggerWord,
@@ -2894,16 +2897,6 @@ export async function generateNsfwImage(req, res) {
         },
       }, nsfwWebhookUrl, generation.id);
 
-      if (!submission.success) {
-        const submissionError = String(submission.error || "");
-        // Webhook-first mode: do not hard-fail immediately on submit errors.
-        // RunPod can still process and callback with generationId correlation.
-        console.warn(
-          `⚠️ NSFW submit returned error for ${generation.id.slice(0, 8)}: ${submissionError.slice(0, 220)} — keeping processing and waiting for callback`,
-        );
-        continue;
-      }
-
       const rp = submission.resolvedParams || {};
       await prisma.generation.update({
         where: { id: generation.id },
@@ -2911,35 +2904,10 @@ export async function generateNsfwImage(req, res) {
           providerTaskId: submission.requestId,
           inputImageUrl: JSON.stringify({
             runpodJobId: submission.requestId,
-            comfyuiPromptId: submission.requestId,
-            loraUrl,
-            triggerWord: loraTriggerWord,
-            loraName: activeLoraName || "Unknown",
-            girlLoraStrength: rp.girlLoraStrength ?? 0.70,
-            activePose: rp.activePose || null,
-            activePoseStrength: rp.activePoseStrength ?? 0,
-            runningMakeup: rp.runningMakeup ?? false,
-            runningMakeupStrength: rp.runningMakeupStrength ?? 0,
-            cumEffect: rp.cumEffect ?? false,
-            cumStrength: rp.cumStrength ?? 0,
-            seed: rp.seed ?? null,
-            steps: rp.steps ?? 50,
-            cfg: rp.cfg ?? 3,
-            width: rp.width ?? resSpec.width,
-            height: rp.height ?? resSpec.height,
-            resolutionPreset: rp.resolutionPreset ?? resSpec.presetId,
-            sampler: rp.sampler ?? "dpmpp_2m",
-            scheduler: rp.scheduler ?? "beta",
-            builtPrompt: rp.prompt || null,
-            blurEnabled: rp?.postProcessing?.blur?.enabled ?? true,
-            blurStrength: rp?.postProcessing?.blur?.strength ?? 0.3,
-            grainEnabled: rp?.postProcessing?.grain?.enabled ?? true,
-            grainStrength: rp?.postProcessing?.grain?.strength ?? 0.06,
+            provider: "runpod-nsfw",
           }),
         },
       });
-
-      // Callback-first: no immediate polling after submit.
     }
 
     generationId = generationIds[0];
@@ -2965,10 +2933,17 @@ export async function generateNsfwImage(req, res) {
   } catch (error) {
     console.error("❌ Generate NSFW error:", error);
 
+    // MCX-identical error handling: mark generation failed, refund credits, return error
+    for (const gId of generationIds) {
+      try {
+        await prisma.generation.update({
+          where: { id: gId },
+          data: { status: "failed", errorMessage: error.message, completedAt: new Date() },
+        });
+      } catch { /**/ }
+      try { await refundGeneration(gId); } catch { /**/ }
+    }
     if (creditsDeducted > 0 && userId) {
-      for (const gId of generationIds) {
-        try { await refundGeneration(gId); } catch (e) { console.error("Refund error:", e.message); }
-      }
       const unassignedCredits = creditsDeducted - creditsAssigned;
       if (unassignedCredits > 0) {
         await refundCredits(userId, unassignedCredits);
@@ -2977,7 +2952,7 @@ export async function generateNsfwImage(req, res) {
 
     res.status(500).json({
       success: false,
-      message: "Server error",
+      message: error.message,
     });
   }
 }
@@ -5324,152 +5299,12 @@ export default {
   extendNsfwVideo,
 };
 
-let nsfwPollerInterval = null;
-let nsfwPollerRunning = false;
+// NSFW poller/watchdog removed — NSFW now uses the exact same callback-only
+// flow as ModelClone-X. Stuck NSFW rows are reconciled by the shared
+// reconcileStaleRunpodGenerations watchdog in generation-poller.service.js.
+function startNsfwPoller() { /* no-op */ }
 
-const NSFW_RECOVERY_POLL_CONCURRENCY = Math.max(
-  1,
-  Math.min(20, Number(process.env.NSFW_RECOVERY_POLL_CONCURRENCY) || 8),
-);
-// 30 min grace — matches MCX's reconcile grace period (RUNPOD_WATCHDOG_MIN_AGE_MS).
-// Only the RunPod callback can fail/complete a job during its normal lifecycle.
-// This watchdog is a pure safety-net for jobs whose webhook never arrives.
-const NSFW_WATCHDOG_MIN_AGE_MS = Number(process.env.NSFW_WATCHDOG_MIN_AGE_MS) || 30 * 60 * 1000;
-
-async function pollProcessingNsfwGenerations() {
-  if (nsfwPollerRunning) return;
-  nsfwPollerRunning = true;
-
-  try {
-    const processingGens = await prisma.generation.findMany({
-      where: {
-        status: { in: ['queued', 'processing', 'pending'] },
-        type: 'nsfw',
-        AND: [
-          { createdAt: { gt: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
-          { createdAt: { lt: new Date(Date.now() - NSFW_WATCHDOG_MIN_AGE_MS) } },
-        ],
-      },
-      orderBy: { createdAt: 'asc' },
-    });
-
-    if (processingGens.length === 0) {
-      nsfwPollerRunning = false;
-      return;
-    }
-
-    console.log(
-      `\n🔄 [NSFW Poller] Checking ${processingGens.length} processing generation(s) (concurrency=${NSFW_RECOVERY_POLL_CONCURRENCY})`,
-    );
-
-    for (let i = 0; i < processingGens.length; i += NSFW_RECOVERY_POLL_CONCURRENCY) {
-      const chunk = processingGens.slice(i, i + NSFW_RECOVERY_POLL_CONCURRENCY);
-      await Promise.all(chunk.map((gen) => pollSingleNsfwGeneration(gen)));
-    }
-  } catch (error) {
-    console.error('❌ [NSFW Poller] Error:', error.message);
-  }
-
-  nsfwPollerRunning = false;
-}
-
-async function pollSingleNsfwGeneration(gen) {
-  // Webhook-only delivery: we do NOT poll RunPod status here.
-  // RunPod calls /api/runpod/callback when the job is done — same as ModelClone-X.
-  // This function only enforces hard timeouts for genuinely stuck / unsubmitted jobs.
-
-  let inputData;
-  try {
-    inputData = typeof gen.inputImageUrl === 'string' ? JSON.parse(gen.inputImageUrl) : gen.inputImageUrl;
-  } catch {
-    inputData = {};
-  }
-
-  if (inputData?.mode === 'img2img') {
-    return;
-  }
-
-  const age = Math.round((Date.now() - new Date(gen.createdAt).getTime()) / 1000);
-
-  const replicate = typeof gen.replicateModel === "string" ? gen.replicateModel.trim() : "";
-  const replicateLooksLikeTaskId =
-    replicate &&
-    !replicate.startsWith("kie-") &&
-    !replicate.startsWith("wavespeed-") &&
-    !replicate.startsWith("piapi-") &&
-    !replicate.startsWith("comfyui-");
-
-  const requestId =
-    gen.providerTaskId ||
-    inputData?.runpodJobId ||
-    inputData?.comfyuiPromptId ||
-    inputData?.runcomfyRequestId ||
-    (replicateLooksLikeTaskId ? replicate : null);
-
-  if (!requestId) {
-    // Job was never submitted to RunPod — fail only after generous timeout (matches MCX grace).
-    const queuedTimeoutMs = 30 * 60 * 1000;
-    const processingTimeoutMs = 30 * 60 * 1000;
-    const timeoutMs = gen.status === "queued" ? queuedTimeoutMs : processingTimeoutMs;
-    if (age * 1000 > timeoutMs) {
-      try {
-        await refundGeneration(gen.id);
-        await prisma.generation.update({
-          where: { id: gen.id },
-          data: {
-            status: 'failed',
-            errorMessage: getErrorMessageForDb(
-              gen.status === "queued"
-                ? "Generation queue submission stalled before provider task creation"
-                : "No provider request ID found",
-            ),
-            completedAt: new Date(),
-          },
-        });
-        console.log(`  ⚠️ ${gen.id.substring(0,8)} - no requestId after ${age}s, refunded & failed`);
-      } catch (e) {
-        console.error(`  ⚠️ ${gen.id.substring(0,8)} - no-requestId cleanup error:`, e.message);
-      }
-    }
-    return;
-  }
-
-  // Has a RunPod job ID — webhook-only delivery.
-  // Do NOT poll RunPod status here. The callback route finalizes completion.
-  // This watchdog only enforces a hard timeout in case callbacks are missed forever.
-  const stuckMaxSec = Number(process.env.NSFW_STUCK_MAX_AGE_SEC) || 200 * 60;
-  if (age > stuckMaxSec) {
-    try {
-      console.log(`  ⏰ ${gen.id.substring(0,8)} TIMED OUT after ${age}s waiting for RunPod callback, refunding`);
-      await refundGeneration(gen.id).catch(() => {});
-      await prisma.generation.update({
-        where: { id: gen.id },
-        data: { status: "failed", errorMessage: getErrorMessageForDb(`Generation timed out (${Math.round(stuckMaxSec / 60)} min)`), completedAt: new Date() },
-      }).catch(() => {});
-    } catch (timeoutErr) {
-      console.warn(`  ⚠️ ${gen.id.substring(0,8)} timeout cleanup error: ${timeoutErr.message}`);
-    }
-    return;
-  }
-
-  console.log(`  ⏳ ${gen.id.substring(0,8)} waiting for RunPod callback (${age}s old, requestId: ${String(requestId).slice(0, 12)}...)`);
-}
-
-function startNsfwPoller() {
-  if (nsfwPollerInterval) return;
-  console.log(
-    `🚀 Starting NSFW watchdog poller (every 30s, only rows older than ${Math.round(NSFW_WATCHDOG_MIN_AGE_MS / 60000)}m; up to ${NSFW_RECOVERY_POLL_CONCURRENCY} jobs in parallel)...`,
-  );
-  pollProcessingNsfwGenerations();
-  nsfwPollerInterval = setInterval(pollProcessingNsfwGenerations, 30000);
-}
-
-export async function recoverStuckNsfwGenerations({ startContinuous = true } = {}) {
-  await pollProcessingNsfwGenerations();
-  if (startContinuous) {
-    startNsfwPoller();
-  }
-}
+export async function recoverStuckNsfwGenerations() { /* no-op */ }
 
 /**
  * Admin recovery endpoint:

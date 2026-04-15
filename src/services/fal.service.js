@@ -2587,104 +2587,64 @@ export async function submitNsfwGeneration(params, webhookUrl = null, generation
   console.log(JSON.stringify({ input: { prompt: workflow } }, null, 2));
   console.log("📋 ============================================\n");
 
-  // Always preserve generationId in webhook URL — if caller didn't supply a pre-built URL, build one here.
-  // This mirrors the ModelClone-X pattern where the webhook URL is always constructed with generationId.
+  // Submit via the same generic RunPod function MCX uses — identical endpoint,
+  // identical error handling, just a different ComfyUI workflow payload.
+  const { submitRunpodJob } = await import("./modelcloneX.service.js");
+
   const runpodWebhook =
     webhookUrl ||
     (generationId
       ? resolveRunpodWebhookUrl({ generationId: String(generationId), kind: "nsfw" })
       : resolveRunpodWebhookUrl());
-  const runPayload = {
-    input: {
-      prompt: workflow,
-      output_node_id: "289",
-      meta: generationId ? { generationId: String(generationId), kind: "nsfw" } : { kind: "nsfw" },
-    },
-  };
-  if (runpodWebhook) {
-    runPayload.webhook = runpodWebhook;
-    console.log(`📣 RunPod webhook: ${runpodWebhook.slice(0, 80)}${runpodWebhook.length > 80 ? "…" : ""}`);
-  }
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 25_000);
-  try {
-    const response = await fetch(`${RUNPOD_BASE_URL}/run`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${RUNPOD_API_KEY}`,
+  const runpodJobId = await submitRunpodJob(
+    {
+      input: {
+        prompt: workflow,
+        output_node_id: "289",
+        meta: generationId ? { generationId: String(generationId), kind: "nsfw" } : { kind: "nsfw" },
       },
-      body: JSON.stringify(runPayload),
-      signal: controller.signal,
-    });
+    },
+    runpodWebhook,
+    "NSFW",
+  );
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`❌ RunPod submission failed: ${response.status}`, errorText);
-      throw new Error(`Generation service error: ${response.status} - ${errorText}`);
-    }
-
-    const result = await response.json();
-    const runpodJobId =
-      result.id ||
-      result.request_id ||
-      result.requestId ||
-      result.task_id ||
-      result.taskId;
-
-    if (!runpodJobId) {
-      throw new Error("No job ID returned from generation service");
-    }
-
-    console.log(`✅ NSFW generation submitted to RunPod! Job ID: ${runpodJobId}`);
-    console.log(`   Status: ${result.status}`);
-
-    return {
-      success: true,
-      requestId: runpodJobId,
-      resolvedParams: {
-        girlLoraStrength,
-        activePose: detectedPose ? detectedPose.id : null,
-        activePoseStrength: detectedPose
-          ? Math.min(MAX_ADDITIVE_LORA_STRENGTH, detectedPose.strength ?? MAX_ADDITIVE_LORA_STRENGTH)
-          : 0,
-        runningMakeup: hasRunningMakeup,
-        runningMakeupStrength: makeupStrength,
-        cumEffect: hasCumEffect,
-        cumStrength: cumStrength,
-        seed: seed,
-        steps: baseSteps,
-        cfg: baseCfg,
-        width: resSpec.width,
-        height: resSpec.height,
-        resolutionPreset: resSpec.presetId,
-        sampler: "dpmpp_2m",
-        scheduler: "beta",
-        refinerSteps: 8,
-        refinerDenoise: 0.09,
-        prompt: prompt,
-        postProcessing: {
-          blur: {
-            enabled: normalizedPostProcessing.blur.enabled,
-            strength: normalizedPostProcessing.blur.strength,
-          },
-          grain: {
-            enabled: normalizedPostProcessing.grain.enabled,
-            strength: normalizedPostProcessing.grain.strength,
-          },
+  return {
+    success: true,
+    requestId: runpodJobId,
+    resolvedParams: {
+      girlLoraStrength,
+      activePose: detectedPose ? detectedPose.id : null,
+      activePoseStrength: detectedPose
+        ? Math.min(MAX_ADDITIVE_LORA_STRENGTH, detectedPose.strength ?? MAX_ADDITIVE_LORA_STRENGTH)
+        : 0,
+      runningMakeup: hasRunningMakeup,
+      runningMakeupStrength: makeupStrength,
+      cumEffect: hasCumEffect,
+      cumStrength: cumStrength,
+      seed: seed,
+      steps: baseSteps,
+      cfg: baseCfg,
+      width: resSpec.width,
+      height: resSpec.height,
+      resolutionPreset: resSpec.presetId,
+      sampler: "dpmpp_2m",
+      scheduler: "beta",
+      refinerSteps: 8,
+      refinerDenoise: 0.09,
+      prompt: prompt,
+      postProcessing: {
+        blur: {
+          enabled: normalizedPostProcessing.blur.enabled,
+          strength: normalizedPostProcessing.blur.strength,
+        },
+        grain: {
+          enabled: normalizedPostProcessing.grain.enabled,
+          strength: normalizedPostProcessing.grain.strength,
         },
       },
-    };
-  } catch (error) {
-    console.error("❌ RunPod NSFW submission error:", error.message);
-    return {
-      success: false,
-      error: error.message,
-    };
-  } finally {
-    clearTimeout(timer);
-  }
+    },
+  };
 }
 
 

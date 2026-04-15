@@ -401,30 +401,19 @@ async function handleRunpodCallback(req, res) {
       ["upscale", "modelclone-x", "soulx", "nsfw"],
     );
     if (imageGen) {
-      if (imageGen.type === "nsfw") {
-        const topKeys = body && typeof body === "object" ? Object.keys(body).slice(0, 15) : [];
-        console.log(`[RunPod webhook] NSFW callback for ${imageGen.id.slice(0, 8)} | status=${st} | jobId=${jobId} | topKeys=${JSON.stringify(topKeys)}`);
-      }
       await backfillRunpodCorrelation(imageGen, jobId);
       if (st === "FAILED" || st === "CANCELLED") {
         const msg = extractRunpodErrorMessage(rawOut, body);
         const ageMs = Date.now() - new Date(imageGen.createdAt).getTime();
 
-        // NSFW uses the same RunPod worker as MCX. Only a genuine terminal failure
-        // (worker OOM, Python traceback, explicit ComfyUI error) should mark NSFW as
-        // failed. Everything else — "not found", "expired", early flaky callbacks —
-        // is ignored; the real COMPLETED callback will arrive later.
-        const isTerminalFailure =
-          /out of memory|oom|cuda|vram|killed|segfault|traceback|comfyui.*error|workflow.*error|node.*error|model.*not found on server/i.test(
-            String(msg),
-          );
+        // Identical guard for ALL RunPod types (MCX, NSFW, upscale):
+        // ignore transient "not found / expired" errors and very young failures.
         if (
           ageMs < 3 * 60 * 1000 ||
-          isTransientRunpodNotFoundPayload(msg, rawOut, body) ||
-          (imageGen.type === "nsfw" && !isTerminalFailure)
+          isTransientRunpodNotFoundPayload(msg, rawOut, body)
         ) {
           console.warn(
-            `[RunPod webhook] ignoring ${imageGen.type} fail for ${jobId} (age=${Math.round(ageMs / 1000)}s, terminal=${isTerminalFailure}): ${String(msg).slice(0, 200)}`,
+            `[RunPod webhook] ignoring ${imageGen.type} fail for ${jobId} (age=${Math.round(ageMs / 1000)}s): ${String(msg).slice(0, 200)}`,
           );
           return res.status(200).json({ ok: true, skipped: true, type: imageGen.type, reason: "transient_failed_callback" });
         }

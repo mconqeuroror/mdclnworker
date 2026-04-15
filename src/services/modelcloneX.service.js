@@ -139,24 +139,28 @@ export function buildModelCloneXPayload({
   };
 }
 
-export async function submitModelCloneXJob(opts, webhookUrl = null) {
+/**
+ * Generic RunPod serverless submit — used by MCX, NSFW, and any other ComfyUI
+ * workflow that targets the shared RunPod endpoint.
+ * @param {{ input: object }} payload  Pre-built RunPod request body (`{ input: { prompt, output_node_id, … } }`)
+ * @param {string|null} webhookUrl     Webhook URL for RunPod to call on completion
+ * @param {string} [label]            Human-readable label for logging
+ * @returns {Promise<string>}          RunPod job ID
+ */
+export async function submitRunpodJob(payload, webhookUrl = null, label = "RunPod") {
   if (!RUNPOD_API_KEY || !RUNPOD_MODELCLONE_X_ENDPOINT_ID) {
     throw new Error(
-      "ModelClone-X service not configured (missing RUNPOD_API_KEY or RUNPOD_MODELCLONE_X_ENDPOINT_ID / RUNPOD_SOULX_ENDPOINT_ID)",
+      `${label} service not configured (missing RUNPOD_API_KEY or RUNPOD_ENDPOINT_ID)`,
     );
   }
 
-  const payload = buildModelCloneXPayload(opts);
   const base = `https://api.runpod.ai/v2/${RUNPOD_MODELCLONE_X_ENDPOINT_ID}`;
-  console.log(
-    `[ModelCloneX] submit endpoint=${RUNPOD_MODELCLONE_X_ENDPOINT_ID} output_node=${payload.output_node_id} has_lora=${!!opts?.loraUrl}`,
-  );
-
-  const body = { input: payload };
+  const body = { ...payload };
   if (webhookUrl) {
     body.webhook = webhookUrl;
-    console.log(`[ModelCloneX] webhook: ${webhookUrl.slice(0, 80)}`);
   }
+
+  console.log(`[${label}] submit endpoint=${RUNPOD_MODELCLONE_X_ENDPOINT_ID}${webhookUrl ? ` webhook=${webhookUrl.slice(0, 80)}` : ""}`);
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 25_000);
@@ -173,7 +177,7 @@ export async function submitModelCloneXJob(opts, webhookUrl = null) {
 
   if (!resp.ok) {
     const text = await resp.text();
-    throw new Error(`ModelClone-X submit failed ${resp.status}: ${text.slice(0, 400)}`);
+    throw new Error(`${label} submit failed ${resp.status}: ${text.slice(0, 400)}`);
   }
 
   const data = await resp.json();
@@ -183,10 +187,19 @@ export async function submitModelCloneXJob(opts, webhookUrl = null) {
     data.requestId ||
     data.task_id ||
     data.taskId;
-  if (!jobId) throw new Error(`ModelClone-X submit returned no job id: ${JSON.stringify(data)}`);
+  if (!jobId) throw new Error(`${label} submit returned no job id: ${JSON.stringify(data)}`);
 
-  console.log(`[ModelCloneX] Job submitted: ${jobId}`);
+  console.log(`[${label}] Job submitted: ${jobId}`);
   return jobId;
+}
+
+export async function submitModelCloneXJob(opts, webhookUrl = null) {
+  const payload = buildModelCloneXPayload(opts);
+  return submitRunpodJob(
+    { input: payload },
+    webhookUrl,
+    `ModelCloneX${opts?.loraUrl ? " (lora)" : " (no-lora)"}`,
+  );
 }
 
 export async function pollModelCloneXJob(runpodJobId) {

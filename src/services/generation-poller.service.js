@@ -861,7 +861,7 @@ class GenerationPollerService {
     const safeLimit = Math.max(1, Math.min(500, Number.parseInt(limit, 10) || 30));
 
     const where = {
-      type: { in: ["upscale", "modelclone-x", "soulx"] },
+      type: { in: ["upscale", "modelclone-x", "soulx", "nsfw"] },
       OR: [
         {
           status: "processing",
@@ -977,7 +977,7 @@ class GenerationPollerService {
           const buf = Buffer.from(imageData, "base64");
           outputUrl = await uploadBufferToBlobOrR2(
             buf,
-            gen.type === "upscale" ? "upscale" : "modelclone-x",
+            gen.type === "upscale" ? "upscale" : gen.type === "nsfw" ? "nsfw" : "modelclone-x",
             "png",
             "image/png",
           );
