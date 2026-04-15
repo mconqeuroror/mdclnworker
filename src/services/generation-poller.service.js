@@ -851,38 +851,91 @@ class GenerationPollerService {
    * Reconcile RunPod-backed generations that should be completed via callback.
    * Callback remains primary path; polling here is recovery for missed callbacks.
    */
-  async reconcileStaleRunpodGenerations() {
+  async reconcileStaleRunpodGenerations({
+    limit = 30,
+    includeTimedOutFailed = false,
+  } = {}) {
     const RUNPOD_GRACE_MS = 45 * 1000;
+    const FAILED_LOOKBACK_MS = 72 * 60 * 60 * 1000;
     const now = Date.now();
+    const safeLimit = Math.max(1, Math.min(500, Number.parseInt(limit, 10) || 30));
+
+    const where = {
+      type: { in: ["upscale", "modelclone-x", "soulx"] },
+      OR: [
+        {
+          status: "processing",
+          createdAt: { lt: new Date(now - RUNPOD_GRACE_MS) },
+        },
+      ],
+    };
+
+    if (includeTimedOutFailed) {
+      where.OR.push({
+        status: "failed",
+        outputUrl: null,
+        completedAt: { gt: new Date(now - FAILED_LOOKBACK_MS) },
+      });
+    }
 
     const rows = await prisma.generation.findMany({
-      where: {
-        status: "processing",
-        type: { in: ["upscale", "modelclone-x", "soulx"] },
-        createdAt: { lt: new Date(now - RUNPOD_GRACE_MS) },
-      },
+      where,
       select: {
         id: true,
         type: true,
+        status: true,
         inputImageUrl: true,
+        outputUrl: true,
+        errorMessage: true,
         userId: true,
         modelId: true,
+        createdAt: true,
       },
-      take: 30,
+      take: safeLimit,
       orderBy: { createdAt: "asc" },
     });
 
-    if (rows.length === 0) return;
+    const stats = {
+      scanned: rows.length,
+      checkedWithRunpodJobId: 0,
+      completedRecovered: 0,
+      completedRecoveredFromFailed: 0,
+      failedMarked: 0,
+      stillRunning: 0,
+      skippedNoRunpodJobId: 0,
+      skippedFailedNotTimedOut: 0,
+      errors: 0,
+    };
+
+    if (rows.length === 0) return stats;
 
     for (const gen of rows) {
-      let runpodJobId = null;
+      // For failed rows we only retry likely timeout-style failures.
+      if (gen.status === "failed") {
+        const msg = String(gen.errorMessage || "").toLowerCase();
+        const likelyTimedOut =
+          msg.includes("timed out") ||
+          msg.includes("took too long") ||
+          msg.includes("temporary") ||
+          msg.includes("unavailable");
+        if (!includeTimedOutFailed || !likelyTimedOut) {
+          stats.skippedFailedNotTimedOut += 1;
+          continue;
+        }
+      }
+
+      let runpodJobId = typeof gen.providerTaskId === "string" ? gen.providerTaskId.trim() : null;
       try {
         const meta = JSON.parse(gen.inputImageUrl || "{}");
-        runpodJobId = typeof meta?.runpodJobId === "string" ? meta.runpodJobId.trim() : null;
+        runpodJobId = runpodJobId || (typeof meta?.runpodJobId === "string" ? meta.runpodJobId.trim() : null);
       } catch {
-        runpodJobId = null;
+        runpodJobId = runpodJobId || null;
       }
-      if (!runpodJobId) continue;
+      if (!runpodJobId) {
+        stats.skippedNoRunpodJobId += 1;
+        continue;
+      }
+      stats.checkedWithRunpodJobId += 1;
 
       try {
         const rp = gen.type === "upscale"
@@ -896,11 +949,15 @@ class GenerationPollerService {
             rp?.output?.error ||
             (typeof rp?.output === "string" ? rp.output : null) ||
             `RunPod ${status}`;
-          await this.markFailed(gen.id, msg, { refund: true });
+          await this.markFailed(gen.id, msg, { refund: gen.status === "processing" });
+          stats.failedMarked += 1;
           continue;
         }
 
-        if (status !== "completed") continue;
+        if (status !== "completed") {
+          stats.stillRunning += 1;
+          continue;
+        }
 
         let imageData = null;
         if (gen.type === "upscale") {
@@ -928,17 +985,22 @@ class GenerationPollerService {
 
         await prisma.generation.update({
           where: { id: gen.id },
-          data: { status: "completed", outputUrl, completedAt: new Date() },
+          data: { status: "completed", outputUrl, completedAt: new Date(), errorMessage: null },
         });
         if (gen.userId && gen.modelId) {
           enqueueCleanupOldGenerations(gen.userId, gen.modelId);
         }
+        stats.completedRecovered += 1;
+        if (gen.status === "failed") stats.completedRecoveredFromFailed += 1;
       } catch (err) {
+        stats.errors += 1;
         if (String(err?.message || "").trim()) {
           console.warn(`[RunPod Watchdog] ${gen.id.slice(0, 8)} ${gen.type}: ${err.message}`);
         }
       }
     }
+
+    return stats;
   }
 
   /**
@@ -974,5 +1036,9 @@ export async function runPiapiWatchdog() {
 
 export async function runWavespeedSeedreamWatchdog() {
   return generationPoller.reconcileStaleWavespeedSeedreamGenerations();
+}
+
+export async function runRunpodWatchdog(options = {}) {
+  return generationPoller.reconcileStaleRunpodGenerations(options);
 }
 

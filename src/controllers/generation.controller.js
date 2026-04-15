@@ -255,15 +255,15 @@ async function reconcileRunpodGenerationForHistory(generation, userId) {
   const ageMs = generation?.createdAt ? Date.now() - new Date(generation.createdAt).getTime() : 0;
   if (ageMs < RUNPOD_HISTORY_RECONCILE_GRACE_MS) return generation;
 
-  let runpodJobId = null;
+  let runpodJobId = typeof generation.providerTaskId === "string" ? generation.providerTaskId.trim() : null;
   try {
     const meta =
       typeof generation.inputImageUrl === "string"
         ? JSON.parse(generation.inputImageUrl || "{}")
         : (generation.inputImageUrl || {});
-    runpodJobId = typeof meta?.runpodJobId === "string" ? meta.runpodJobId.trim() : null;
+    runpodJobId = runpodJobId || (typeof meta?.runpodJobId === "string" ? meta.runpodJobId.trim() : null);
   } catch {
-    runpodJobId = null;
+    runpodJobId = runpodJobId || null;
   }
   if (!runpodJobId) return generation;
 

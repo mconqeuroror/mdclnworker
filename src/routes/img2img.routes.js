@@ -100,6 +100,7 @@ setInterval(async () => {
         userId: true,
         prompt: true,
         inputImageUrl: true,
+        providerTaskId: true,
         creditsCost: true,
         creditsRefunded: true,
       },
@@ -112,7 +113,9 @@ setInterval(async () => {
       } catch {
         continue;
       }
-      const runpodJobId = meta.runpodJobId;
+      const runpodJobId =
+        (typeof gen.providerTaskId === "string" && gen.providerTaskId.trim()) ||
+        meta.runpodJobId;
       if (!runpodJobId) continue;
 
       let rp;
@@ -241,19 +244,31 @@ router.post("/describe", LARGE_JSON, authMiddleware, async (req, res) => {
     }
   }
 
+  let gen = null;
   try {
-    const webhookUrl = resolveRunpodWebhookUrl();
-    const runpodJobId = await submitDescribeJob(inputImageBase64 || null, inputImageUrl || null, webhookUrl);
-
-    // Persist the pending job so the status endpoint can resolve it
-    const gen = await prisma.generation.create({
+    // Create the pending job first so fast RunPod webhooks always have a row to pair against.
+    gen = await prisma.generation.create({
       data: {
         userId,
         type: "img2img-describe",
         status: "processing",
         prompt: triggerWord,
-        inputImageUrl: JSON.stringify({ runpodJobId, triggerWord, lookDescription }),
+        inputImageUrl: JSON.stringify({ triggerWord, lookDescription }),
         creditsCost: DESCRIBE_CREDIT_COST,
+      },
+    });
+
+    const webhookUrl = resolveRunpodWebhookUrl({
+      generationId: gen.id,
+      kind: "img2img-describe",
+    });
+    const runpodJobId = await submitDescribeJob(inputImageBase64 || null, inputImageUrl || null, webhookUrl);
+
+    await prisma.generation.update({
+      where: { id: gen.id },
+      data: {
+        providerTaskId: runpodJobId,
+        inputImageUrl: JSON.stringify({ runpodJobId, triggerWord, lookDescription }),
       },
     });
 
@@ -261,6 +276,12 @@ router.post("/describe", LARGE_JSON, authMiddleware, async (req, res) => {
     return res.json({ describeJobId: gen.id });
   } catch (err) {
     console.error("❌ /describe submit failed:", err.message);
+    if (gen?.id) {
+      await prisma.generation.update({
+        where: { id: gen.id },
+        data: { status: "failed", errorMessage: err.message.slice(0, 500) },
+      }).catch(() => {});
+    }
     if (DESCRIBE_CREDIT_COST > 0) {
       try { await refundCredits(userId, DESCRIBE_CREDIT_COST); } catch {}
     }
@@ -305,7 +326,10 @@ router.get("/describe-status/:id", authMiddleware, async (req, res) => {
     // Still processing — check RunPod directly (self-healing fallback when no webhook)
     let meta = {};
     try { meta = JSON.parse(gen.inputImageUrl || "{}"); } catch {}
-    const { runpodJobId, triggerWord, lookDescription = "" } = meta;
+    const runpodJobId =
+      (typeof gen.providerTaskId === "string" && gen.providerTaskId.trim()) ||
+      meta.runpodJobId;
+    const { triggerWord, lookDescription = "" } = meta;
 
     const describeAgeMs = () => Math.max(0, Date.now() - new Date(gen.createdAt).getTime());
     const failDescribeStuck = async (message) => {
@@ -665,6 +689,7 @@ router.get("/status/:jobId", authMiddleware, async (req, res) => {
       outputUrl: true,
       prompt: true,
       inputImageUrl: true,
+      providerTaskId: true,
       errorMessage: true,
       creditsCost: true,
       creditsRefunded: true,
@@ -684,7 +709,9 @@ router.get("/status/:jobId", authMiddleware, async (req, res) => {
   try {
     meta = gen.inputImageUrl ? JSON.parse(gen.inputImageUrl) : {};
   } catch {}
-  const runpodJobId = meta.runpodJobId;
+  const runpodJobId =
+    (typeof gen.providerTaskId === "string" && gen.providerTaskId.trim()) ||
+    meta.runpodJobId;
 
   if (!runpodJobId) {
     return res.json({ jobId, status: gen.status || "processing" });

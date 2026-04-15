@@ -7,7 +7,7 @@
  *    If RUNPOD_WEBHOOK_SECRET is set, appends ?secret=... for verifyWebhook in runpod-callback.routes.js
  */
 
-export function resolveRunpodWebhookUrl() {
+export function resolveRunpodWebhookUrl(extraQueryParams = null) {
   const secret = process.env.RUNPOD_WEBHOOK_SECRET?.trim();
   const explicit = process.env.RUNPOD_WEBHOOK_URL?.trim();
 
@@ -40,12 +40,30 @@ export function resolveRunpodWebhookUrl() {
     console.warn("[callback] RunPod resolved to localhost — falling back to poll");
     return null;
   }
-  if (!secret) return path;
+
   try {
     const u = new URL(path);
-    u.searchParams.set("secret", secret);
+    if (secret) {
+      u.searchParams.set("secret", secret);
+    }
+    if (extraQueryParams && typeof extraQueryParams === "object") {
+      for (const [key, value] of Object.entries(extraQueryParams)) {
+        if (value == null || value === "") continue;
+        u.searchParams.set(key, String(value));
+      }
+    }
     return u.toString();
   } catch {
-    return `${path}${path.includes("?") ? "&" : "?"}secret=${encodeURIComponent(secret)}`;
+    let next = path;
+    if (secret) {
+      next += `${next.includes("?") ? "&" : "?"}secret=${encodeURIComponent(secret)}`;
+    }
+    if (extraQueryParams && typeof extraQueryParams === "object") {
+      for (const [key, value] of Object.entries(extraQueryParams)) {
+        if (value == null || value === "") continue;
+        next += `${next.includes("?") ? "&" : "?"}${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`;
+      }
+    }
+    return next;
   }
 }

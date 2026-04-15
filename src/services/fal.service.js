@@ -2424,7 +2424,7 @@ function buildComfyWorkflowLegacy(params) {
  * - LoRA 10 (node 303): Cum effect
  * LoRA 4 and 9 are empty/unused slots
  */
-export async function submitNsfwGeneration(params) {
+export async function submitNsfwGeneration(params, webhookUrl = null) {
   const {
     loraUrl,
     triggerWord,
@@ -2585,7 +2585,7 @@ export async function submitNsfwGeneration(params) {
   console.log(JSON.stringify({ input: { prompt: workflow } }, null, 2));
   console.log("📋 ============================================\n");
 
-  const runpodWebhook = resolveRunpodWebhookUrl();
+  const runpodWebhook = webhookUrl || resolveRunpodWebhookUrl();
   const runPayload = {
     input: {
       prompt: workflow,

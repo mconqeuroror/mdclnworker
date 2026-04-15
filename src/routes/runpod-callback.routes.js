@@ -78,9 +78,12 @@ async function findNsfwGenerationByRunpodJobId(jobId) {
   const direct = await prisma.generation.findFirst({
     where: {
       type: "nsfw",
-      status: { in: ["processing", "pending"] },
+      status: { in: ["processing", "pending", "queued"] },
       createdAt: { gt: new Date(Date.now() - 48 * 60 * 60 * 1000) },
-      OR: containsFilters,
+      OR: [
+        { providerTaskId: { in: jobIdVariants } },
+        ...containsFilters,
+      ],
     },
     orderBy: { createdAt: "desc" },
   });
@@ -89,7 +92,7 @@ async function findNsfwGenerationByRunpodJobId(jobId) {
   const rows = await prisma.generation.findMany({
     where: {
       type: "nsfw",
-      status: { in: ["processing", "pending"] },
+      status: { in: ["processing", "pending", "queued"] },
       createdAt: { gt: new Date(Date.now() - 48 * 60 * 60 * 1000) },
     },
     take: 200,
@@ -98,11 +101,63 @@ async function findNsfwGenerationByRunpodJobId(jobId) {
   return rows.find((g) => {
     try {
       const j = typeof g.inputImageUrl === "string" ? JSON.parse(g.inputImageUrl) : g.inputImageUrl;
-      return matchesRunpodJobId(j?.comfyuiPromptId, jobIdVariants) || matchesRunpodJobId(j?.runpodJobId, jobIdVariants);
+      return (
+        matchesRunpodJobId(g?.providerTaskId, jobIdVariants) ||
+        matchesRunpodJobId(j?.comfyuiPromptId, jobIdVariants) ||
+        matchesRunpodJobId(j?.runpodJobId, jobIdVariants)
+      );
     } catch {
       return false;
     }
   }) || null;
+}
+
+async function findNsfwGenerationForWebhook(jobId, generationId) {
+  const explicitGenerationId = String(generationId || "").trim();
+  if (explicitGenerationId) {
+    const direct = await prisma.generation.findFirst({
+      where: {
+        id: explicitGenerationId,
+        type: "nsfw",
+        createdAt: { gt: new Date(Date.now() - 48 * 60 * 60 * 1000) },
+      },
+    });
+    if (direct) return direct;
+  }
+  return findNsfwGenerationByRunpodJobId(jobId);
+}
+
+async function backfillNsfwRunpodCorrelation(gen, jobId) {
+  if (!gen?.id || !jobId) return;
+  const jobIdVariants = buildRunpodJobIdVariants(jobId);
+  const existingProviderTaskId = String(gen.providerTaskId || "").trim();
+  if (existingProviderTaskId && matchesRunpodJobId(existingProviderTaskId, jobIdVariants)) {
+    return;
+  }
+
+  let inputData = {};
+  try {
+    inputData =
+      typeof gen.inputImageUrl === "string"
+        ? JSON.parse(gen.inputImageUrl || "{}")
+        : (gen.inputImageUrl || {});
+  } catch {
+    inputData = {};
+  }
+
+  const nextInputData = {
+    ...inputData,
+    runpodJobId: inputData?.runpodJobId || jobId,
+    comfyuiPromptId: inputData?.comfyuiPromptId || jobId,
+  };
+
+  await prisma.generation.update({
+    where: { id: gen.id },
+    data: {
+      providerTaskId: existingProviderTaskId || jobId,
+      inputImageUrl: JSON.stringify(nextInputData),
+    },
+  }).catch(() => {});
 }
 
 async function findGenerationByRunpodJobId(jobId, types) {
@@ -119,7 +174,10 @@ async function findGenerationByRunpodJobId(jobId, types) {
       type: { in: types },
       status: { in: ["processing", "pending"] },
       createdAt: { gt: new Date(Date.now() - 48 * 60 * 60 * 1000) },
-      OR: containsFilters,
+      OR: [
+        { providerTaskId: { in: jobIdVariants } },
+        ...containsFilters,
+      ],
     },
     orderBy: { createdAt: "desc" },
   });
@@ -138,11 +196,57 @@ async function findGenerationByRunpodJobId(jobId, types) {
     try {
       const j = JSON.parse(g.inputImageUrl || "{}");
       return (
+        matchesRunpodJobId(g?.providerTaskId, jobIdVariants) ||
         matchesRunpodJobId(j?.runpodJobId, jobIdVariants) ||
         matchesRunpodJobId(j?.comfyuiPromptId, jobIdVariants)
       );
     } catch { return false; }
   }) || null;
+}
+
+async function findGenerationForWebhook(jobId, generationId, types) {
+  const explicitGenerationId = String(generationId || "").trim();
+  if (explicitGenerationId) {
+    const direct = await prisma.generation.findFirst({
+      where: {
+        id: explicitGenerationId,
+        type: { in: types },
+        createdAt: { gt: new Date(Date.now() - 48 * 60 * 60 * 1000) },
+      },
+    });
+    if (direct) return direct;
+  }
+  return findGenerationByRunpodJobId(jobId, types);
+}
+
+async function backfillRunpodCorrelation(gen, jobId) {
+  if (!gen?.id || !jobId) return;
+  const jobIdVariants = buildRunpodJobIdVariants(jobId);
+  const existingProviderTaskId = String(gen.providerTaskId || "").trim();
+  if (existingProviderTaskId && matchesRunpodJobId(existingProviderTaskId, jobIdVariants)) {
+    return;
+  }
+
+  let inputData = {};
+  try {
+    inputData =
+      typeof gen.inputImageUrl === "string"
+        ? JSON.parse(gen.inputImageUrl || "{}")
+        : (gen.inputImageUrl || {});
+  } catch {
+    inputData = {};
+  }
+
+  await prisma.generation.update({
+    where: { id: gen.id },
+    data: {
+      providerTaskId: existingProviderTaskId || jobId,
+      inputImageUrl: JSON.stringify({
+        ...inputData,
+        runpodJobId: inputData?.runpodJobId || jobId,
+      }),
+    },
+  }).catch(() => {});
 }
 
 async function findDescribeJobByRunpodJobId(jobId) {
@@ -159,7 +263,10 @@ async function findDescribeJobByRunpodJobId(jobId) {
       type: "img2img-describe",
       status: { in: ["processing", "pending"] },
       createdAt: { gt: new Date(Date.now() - 4 * 60 * 60 * 1000) },
-      OR: containsFilters,
+      OR: [
+        { providerTaskId: { in: jobIdVariants } },
+        ...containsFilters,
+      ],
     },
     orderBy: { createdAt: "desc" },
   });
@@ -178,6 +285,7 @@ async function findDescribeJobByRunpodJobId(jobId) {
     try {
       const j = JSON.parse(g.inputImageUrl || "{}");
       return (
+        matchesRunpodJobId(g?.providerTaskId, jobIdVariants) ||
         matchesRunpodJobId(j?.runpodJobId, jobIdVariants) ||
         matchesRunpodJobId(j?.comfyuiPromptId, jobIdVariants)
       );
@@ -185,6 +293,51 @@ async function findDescribeJobByRunpodJobId(jobId) {
       return false;
     }
   }) || null;
+}
+
+async function findDescribeGenerationForWebhook(jobId, generationId) {
+  const explicitGenerationId = String(generationId || "").trim();
+  if (explicitGenerationId) {
+    const direct = await prisma.generation.findFirst({
+      where: {
+        id: explicitGenerationId,
+        type: "img2img-describe",
+        createdAt: { gt: new Date(Date.now() - 4 * 60 * 60 * 1000) },
+      },
+    });
+    if (direct) return direct;
+  }
+  return findDescribeJobByRunpodJobId(jobId);
+}
+
+async function backfillDescribeRunpodCorrelation(gen, jobId) {
+  if (!gen?.id || !jobId) return;
+  const jobIdVariants = buildRunpodJobIdVariants(jobId);
+  const existingProviderTaskId = String(gen.providerTaskId || "").trim();
+  if (existingProviderTaskId && matchesRunpodJobId(existingProviderTaskId, jobIdVariants)) {
+    return;
+  }
+
+  let inputData = {};
+  try {
+    inputData =
+      typeof gen.inputImageUrl === "string"
+        ? JSON.parse(gen.inputImageUrl || "{}")
+        : (gen.inputImageUrl || {});
+  } catch {
+    inputData = {};
+  }
+
+  await prisma.generation.update({
+    where: { id: gen.id },
+    data: {
+      providerTaskId: existingProviderTaskId || jobId,
+      inputImageUrl: JSON.stringify({
+        ...inputData,
+        runpodJobId: inputData?.runpodJobId || jobId,
+      }),
+    },
+  }).catch(() => {});
 }
 
 async function handleRunpodCallback(req, res) {
@@ -206,6 +359,12 @@ async function handleRunpodCallback(req, res) {
       body.jobId ||
       body.task_id ||
       body.taskId;
+    const generationId =
+      body.generationId ||
+      body.generation_id ||
+      body.meta?.generationId ||
+      req.query?.generationId ||
+      req.query?.generation_id;
     const st = String(body.status || body.state || body.jobStatus || "").toUpperCase();
     const rawOut = body.output ?? body.result ?? body.data?.output ?? body.data ?? null;
 
@@ -218,8 +377,9 @@ async function handleRunpodCallback(req, res) {
     }
 
     // ── Check for img2img-describe job first ─────────────────────────────────
-    const describeGen = await findDescribeJobByRunpodJobId(jobId);
+    const describeGen = await findDescribeGenerationForWebhook(jobId, generationId);
     if (describeGen) {
+      await backfillDescribeRunpodCorrelation(describeGen, jobId);
       if (st === "FAILED" || st === "CANCELLED") {
         const msg = rawOut?.error || body.error || "RunPod describe job failed";
         await prisma.generation.updateMany({
@@ -267,8 +427,9 @@ async function handleRunpodCallback(req, res) {
     }
 
     // ── Upscaler / Soul-X generation ─────────────────────────────────────────
-    const imageGen = await findGenerationByRunpodJobId(jobId, ["upscale", "modelclone-x", "soulx"]);
+    const imageGen = await findGenerationForWebhook(jobId, generationId, ["upscale", "modelclone-x", "soulx"]);
     if (imageGen) {
+      await backfillRunpodCorrelation(imageGen, jobId);
       if (st === "FAILED" || st === "CANCELLED") {
         const msg = rawOut?.error || body.error || "RunPod job failed";
         await refundGeneration(imageGen.id).catch(() => {});
@@ -326,11 +487,13 @@ async function handleRunpodCallback(req, res) {
     }
 
     // ── NSFW generation ───────────────────────────────────────────────────────
-    const gen = await findNsfwGenerationByRunpodJobId(jobId);
+    const gen = await findNsfwGenerationForWebhook(jobId, generationId);
     if (!gen) {
       console.warn(`[RunPod webhook] no processing generation for job ${jobId}`);
       return res.status(200).json({ ok: true, skipped: true, reason: "no_generation" });
     }
+
+    await backfillNsfwRunpodCorrelation(gen, jobId);
 
     if (st === "FAILED" || st === "CANCELLED") {
       const msg = rawOut?.error || body.error || "RunPod job failed";

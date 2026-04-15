@@ -50,6 +50,7 @@ import { getErrorMessageForDb } from "../lib/userError.js";
 import { enqueueCleanupOldGenerations } from "./generation.controller.js";
 import { resolveNsfwResolution } from "../utils/nsfwResolution.js";
 import { enforceGeneratedContentDeletionBlock } from "../utils/generated-content-deletion-guard.js";
+import { resolveRunpodWebhookUrl } from "../lib/runpodWebhookUrl.js";
 
 // Models with age < 18 cannot use NSFW or LoRA (policy)
 function isMinorModel(model) {
@@ -2890,6 +2891,10 @@ export async function generateNsfwImage(req, res) {
       generationIds.push(generation.id);
       if (i === 0) firstGeneration = generation;
 
+      const nsfwWebhookUrl = resolveRunpodWebhookUrl({
+        generationId: generation.id,
+        kind: "nsfw",
+      });
       const submission = await submitNsfwGeneration({
         loraUrl,
         triggerWord: loraTriggerWord,
@@ -2904,7 +2909,7 @@ export async function generateNsfwImage(req, res) {
           resolution: resSpec.presetId,
           ...adminSamplerOpts,
         },
-      });
+      }, nsfwWebhookUrl);
 
       if (!submission.success) {
         await refundGeneration(generation.id);
@@ -2927,6 +2932,7 @@ export async function generateNsfwImage(req, res) {
       await prisma.generation.update({
         where: { id: generation.id },
         data: {
+          providerTaskId: submission.requestId,
           inputImageUrl: JSON.stringify({
             runpodJobId: submission.requestId,
             comfyuiPromptId: submission.requestId,
@@ -3301,6 +3307,10 @@ export async function generateNudesPack(req, res) {
             },
           });
 
+          const nsfwWebhookUrl = resolveRunpodWebhookUrl({
+            generationId,
+            kind: "nsfw",
+          });
           const submission = await submitNsfwGeneration({
             loraUrl,
             triggerWord: loraTriggerWord,
@@ -3317,7 +3327,7 @@ export async function generateNudesPack(req, res) {
               packAdditiveLoraHint: getNudesPackAdditiveHintForPose(pose.id),
               ...adminSamplerOpts,
             },
-          });
+          }, nsfwWebhookUrl);
 
           if (!submission.success) {
             await refundGeneration(generationId);
@@ -3333,6 +3343,7 @@ export async function generateNudesPack(req, res) {
           await prisma.generation.update({
             where: { id: generationId },
             data: {
+              providerTaskId: submission.requestId,
               inputImageUrl: JSON.stringify({
                 runpodJobId: submission.requestId,
                 comfyuiPromptId: submission.requestId,
@@ -5561,6 +5572,7 @@ async function pollSingleNsfwGeneration(gen) {
     !replicate.startsWith("comfyui-");
 
   const requestId =
+    gen.providerTaskId ||
     inputData?.runpodJobId ||
     inputData?.comfyuiPromptId ||
     inputData?.runcomfyRequestId ||

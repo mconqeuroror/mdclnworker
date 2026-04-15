@@ -2875,13 +2875,19 @@ router.post(
       creditDeducted = true;
 
       // Submit to RunPod (with webhook so results arrive even if client stops polling)
-      const webhookUrl = resolveRunpodWebhookUrl();
+      const webhookUrl = resolveRunpodWebhookUrl({
+        generationId,
+        kind: "upscale",
+      });
       const runpodJobId = await submitUpscalerJob(imageBase64, filename, webhookUrl);
 
       // Update record with job ID
       await prisma.generation.update({
         where: { id: generationId },
-        data: { inputImageUrl: JSON.stringify({ runpodJobId }) },
+        data: {
+          providerTaskId: runpodJobId,
+          inputImageUrl: JSON.stringify({ runpodJobId }),
+        },
       });
 
       return res.json({ success: true, generationId, runpodJobId });
@@ -2927,7 +2933,9 @@ router.get("/upscale/status/:generationId", authMiddleware, async (req, res) => 
     // Poll RunPod
     let meta = {};
     try { meta = JSON.parse(gen.inputImageUrl || "{}"); } catch {}
-    const { runpodJobId } = meta;
+    const runpodJobId =
+      (typeof gen.providerTaskId === "string" && gen.providerTaskId.trim()) ||
+      meta.runpodJobId;
 
     if (!runpodJobId) {
       return res.json({ success: true, status: "processing" });
@@ -3350,7 +3358,10 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
         },
       });
 
-      const modelcloneXWebhookUrl = resolveRunpodWebhookUrl();
+      const modelcloneXWebhookUrl = resolveRunpodWebhookUrl({
+        generationId: gen.id,
+        kind: "modelclone-x",
+      });
       const jobId = await submitModelCloneXJob({
         prompt: optimizedPrompt,
         aspectRatio,
@@ -3363,7 +3374,10 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
 
       await prisma.generation.update({
         where: { id: gen.id },
-        data: { inputImageUrl: JSON.stringify({ runpodJobId: jobId, provider: "runpod-modelclone-x" }) },
+        data: {
+          providerTaskId: jobId,
+          inputImageUrl: JSON.stringify({ runpodJobId: jobId, provider: "runpod-modelclone-x" }),
+        },
       });
 
       generationIds.push(gen.id);
@@ -3413,10 +3427,10 @@ router.get("/modelclone-x/status/:generationId", authMiddleware, async (req, res
     }
 
     // Parse RunPod job ID
-    let runpodJobId;
+    let runpodJobId = typeof gen.providerTaskId === "string" ? gen.providerTaskId.trim() : null;
     try {
       const meta = JSON.parse(gen.inputImageUrl || "{}");
-      runpodJobId = meta.runpodJobId;
+      runpodJobId = runpodJobId || meta.runpodJobId;
     } catch (_) { /* ignore */ }
 
     if (!runpodJobId) {
