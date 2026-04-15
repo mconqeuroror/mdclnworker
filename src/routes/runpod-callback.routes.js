@@ -7,7 +7,6 @@
  */
 import express from "express";
 import prisma from "../lib/prisma.js";
-import { normalizeRunpodNsfwOutput } from "../services/fal.service.js";
 import { refundCredits, refundGeneration } from "../services/credit.service.js";
 import { getErrorMessageForDb } from "../lib/userError.js";
 import {
@@ -252,18 +251,6 @@ async function backfillDescribeRunpodCorrelation(gen, jobId) {
   }).catch(() => {});
 }
 
-function extractNsfwImage(runpodOutput) {
-  const out = normalizeRunpodNsfwOutput(runpodOutput);
-  if (!out?.images?.length) return null;
-  const first = out.images[0];
-  if (typeof first === "string") return first;
-  if (first?.base64) return first.base64;
-  if (first?.data) return first.data;
-  if (first?.image) return first.image;
-  if (first?.url) return first.url;
-  return null;
-}
-
 function isTransientRunpodNotFoundError(raw) {
   const msg = String(raw || "");
   return /job not found|not found yet|may have expired|job.*expired|expired/i.test(msg);
@@ -392,8 +379,12 @@ async function handleRunpodCallback(req, res) {
       return res.status(200).json({ ok: true, skipped: true, type: "describe", status: st });
     }
 
-    // ── Upscaler / Soul-X generation ─────────────────────────────────────────
-    const imageGen = await findGenerationForWebhook(jobId, generationId, ["upscale", "modelclone-x", "soulx"]);
+    // ── RunPod image generations (exact same callback flow for MCX + NSFW) ──
+    const imageGen = await findGenerationForWebhook(
+      jobId,
+      generationId,
+      ["upscale", "modelclone-x", "soulx", "nsfw"],
+    );
     if (imageGen) {
       await backfillRunpodCorrelation(imageGen, jobId);
       if (st === "FAILED" || st === "CANCELLED") {
@@ -423,7 +414,8 @@ async function handleRunpodCallback(req, res) {
       }
 
       if (st === "COMPLETED") {
-        // Extract image — upscaler returns single image, soulx returns array
+        // Extract image — upscaler has dedicated format, all other RunPod image flows
+        // (modelclone-x, soulx, nsfw) use the same extraction logic.
         let imageData = null;
         if (imageGen.type === "upscale") {
           imageData = extractUpscalerImage(rawOut);
@@ -466,84 +458,6 @@ async function handleRunpodCallback(req, res) {
 
       return res.status(200).json({ ok: true, skipped: true, type: imageGen.type, status: st });
     }
-
-    // ── NSFW generation (same backend callback flow as ModelClone-X) ─────────
-    const gen = await findGenerationForWebhook(jobId, generationId, ["nsfw"]);
-    if (!gen) {
-      console.warn(`[RunPod webhook] no processing generation for job ${jobId}`);
-      return res.status(200).json({ ok: true, skipped: true, reason: "no_generation" });
-    }
-
-    await backfillRunpodCorrelation(gen, jobId);
-
-    if (st === "FAILED" || st === "CANCELLED") {
-      const msg = extractRunpodErrorMessage(rawOut, body);
-      const ageMs = Date.now() - new Date(gen.createdAt).getTime();
-      // NSFW strict webhook mode: do not hard-fail on early FAILED/CANCELLED callbacks.
-      if (ageMs < 3 * 60 * 1000 || isTransientRunpodNotFoundError(msg)) {
-        console.warn(
-          `[RunPod webhook] transient nsfw fail for ${jobId} (age=${Math.round(ageMs / 1000)}s): ${String(msg).slice(0, 200)} — ignoring`,
-        );
-        return res.status(200).json({ ok: true, skipped: true, type: "nsfw", reason: "transient_failed_callback" });
-      }
-      if (isTransientRunpodNotFoundError(msg)) {
-        console.warn(
-          `[RunPod webhook] transient nsfw failure for ${jobId}: ${String(msg).slice(0, 200)} — ignoring`,
-        );
-        return res.status(200).json({ ok: true, skipped: true, type: "nsfw", reason: "transient_not_found" });
-      }
-      try {
-        await refundGeneration(gen.id);
-      } catch (e) {
-        console.error("[RunPod webhook] refund:", e.message);
-      }
-      await prisma.generation.updateMany({
-        where: { id: gen.id, status: { in: ["queued", "processing", "pending"] } },
-        data: {
-          status: "failed",
-          errorMessage: getErrorMessageForDb(String(msg)),
-          completedAt: new Date(),
-        },
-      });
-      console.log(`[RunPod webhook] nsfw job ${gen.id} failed: ${msg}`);
-      return res.status(200).json({ ok: true, type: "nsfw", failed: true });
-    }
-
-    if (st !== "COMPLETED") {
-      return res.status(200).json({ ok: true, skipped: true, type: "nsfw", status: st });
-    }
-
-    const imageData = extractNsfwImage(parseRunpodHandlerOutput(rawOut) ?? rawOut);
-    if (!imageData) {
-      const msg = "RunPod completed but returned no image";
-      console.warn(`[RunPod webhook] COMPLETED but no images for ${jobId}`);
-      await refundGeneration(gen.id).catch(() => {});
-      await prisma.generation.updateMany({
-        where: { id: gen.id, status: { in: ["queued", "processing", "pending"] } },
-        data: { status: "failed", errorMessage: msg, completedAt: new Date() },
-      });
-      return res.status(200).json({ ok: true, type: "nsfw", failed: true, reason: "no_image" });
-    }
-
-    let outputUrl;
-    try {
-      if (imageData.startsWith("http")) {
-        outputUrl = imageData;
-      } else {
-        const buf = Buffer.from(imageData, "base64");
-        outputUrl = await uploadBufferToBlobOrR2(buf, "nsfw", "png", "image/png");
-      }
-    } catch (uploadErr) {
-      console.error("[RunPod webhook] nsfw upload error:", uploadErr.message);
-      outputUrl = `data:image/png;base64,${imageData}`;
-    }
-
-    await prisma.generation.update({
-      where: { id: gen.id },
-      data: { status: "completed", outputUrl, completedAt: new Date(), errorMessage: null },
-    });
-    console.log(`✅ [RunPod webhook] nsfw job ${gen.id} completed → ${outputUrl.slice(0, 80)}`);
-    return res.status(200).json({ ok: true, type: "nsfw" });
   } catch (e) {
     console.error("[RunPod webhook]", e);
     // 200 so RunPod does not hammer retries; fix via polling / logs
