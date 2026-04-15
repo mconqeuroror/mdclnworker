@@ -5331,10 +5331,10 @@ const NSFW_RECOVERY_POLL_CONCURRENCY = Math.max(
   1,
   Math.min(20, Number(process.env.NSFW_RECOVERY_POLL_CONCURRENCY) || 8),
 );
-// Default 3 min: acts as a fast safety-net for jobs whose webhook didn't match.
-// Without background polling, the watchdog is the only recovery for missed webhooks.
-// Env override: NSFW_WATCHDOG_MIN_AGE_MS (milliseconds).
-const NSFW_WATCHDOG_MIN_AGE_MS = Number(process.env.NSFW_WATCHDOG_MIN_AGE_MS) || 3 * 60 * 1000;
+// 30 min grace — matches MCX's reconcile grace period (RUNPOD_WATCHDOG_MIN_AGE_MS).
+// Only the RunPod callback can fail/complete a job during its normal lifecycle.
+// This watchdog is a pure safety-net for jobs whose webhook never arrives.
+const NSFW_WATCHDOG_MIN_AGE_MS = Number(process.env.NSFW_WATCHDOG_MIN_AGE_MS) || 30 * 60 * 1000;
 
 async function pollProcessingNsfwGenerations() {
   if (nsfwPollerRunning) return;
@@ -5407,9 +5407,9 @@ async function pollSingleNsfwGeneration(gen) {
     (replicateLooksLikeTaskId ? replicate : null);
 
   if (!requestId) {
-    // Job was never submitted to RunPod — fail after short timeout
-    const queuedTimeoutMs = 10 * 60 * 1000;
-    const processingTimeoutMs = 20 * 60 * 1000;
+    // Job was never submitted to RunPod — fail only after generous timeout (matches MCX grace).
+    const queuedTimeoutMs = 30 * 60 * 1000;
+    const processingTimeoutMs = 30 * 60 * 1000;
     const timeoutMs = gen.status === "queued" ? queuedTimeoutMs : processingTimeoutMs;
     if (age * 1000 > timeoutMs) {
       try {
