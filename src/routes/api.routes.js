@@ -1779,8 +1779,9 @@ Rules:
           ],
         },
       ],
-      max_tokens: 600,
+      max_tokens: 400,
       temperature: 0.1,
+      response_format: { type: "json_object" },
     };
 
     const aiResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -2018,6 +2019,7 @@ NON-NEGOTIABLE QUALITY + CONSISTENCY POLICY:
           "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
         },
         body: JSON.stringify(requestBody),
+        signal: AbortSignal.timeout(35_000),
       });
       if (!aiResponse.ok) {
         const err = await aiResponse.text();
@@ -2027,10 +2029,11 @@ NON-NEGOTIABLE QUALITY + CONSISTENCY POLICY:
       return aiData.choices?.[0]?.message?.content;
     };
 
-    let rawContent = await callOpenRouterEnhance(0.7, 400);
+    // Start conservative (0.3) for reliable quality; retry creative (0.7) if empty
+    let rawContent = await callOpenRouterEnhance(0.3, 450);
     if (!rawContent || !String(rawContent).trim()) {
-      console.warn("[enhance-prompt] Empty first response; retrying with lower temperature");
-      rawContent = await callOpenRouterEnhance(0.3, 500);
+      console.warn("[enhance-prompt] Empty first response; retrying with higher temperature");
+      rawContent = await callOpenRouterEnhance(0.7, 550);
     }
     if (!rawContent || !String(rawContent).trim()) {
       throw new Error("AI service returned empty response");

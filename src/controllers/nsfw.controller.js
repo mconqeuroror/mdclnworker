@@ -340,8 +340,10 @@ OUTPUT: Return ONLY a single decimal number between 0.55 and 0.80. Nothing else.
       body: JSON.stringify({
         model: "x-ai/grok-4.1-fast",
         max_tokens: 32,
+        temperature: 0,
         messages: [{ role: "user", content: systemPrompt }],
       }),
+      signal: AbortSignal.timeout(25_000),
     });
 
     if (!response.ok) {
@@ -1091,8 +1093,9 @@ Try to fill ALL fields. Only omit a key if it is truly impossible to determine f
             ],
           },
         ],
-        max_tokens: 600,
+        max_tokens: 400,
         temperature: 0.15,
+        response_format: { type: "json_object" },
       });
     } catch (providerError) {
       const providerMessage = providerError?.message || "";
@@ -3756,12 +3759,13 @@ If the request is logically impossible to satisfy as one coherent image, return 
       },
       body: JSON.stringify({
         model: "x-ai/grok-4.1-fast",
-        max_tokens: 2048,
+        max_tokens: 900,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userMessage },
         ],
       }),
+      signal: AbortSignal.timeout(45_000),
     });
 
     if (!response.ok) {
@@ -4233,9 +4237,12 @@ RULES:
     },
     body: JSON.stringify({
       model: "x-ai/grok-4.1-fast",
-      max_tokens: 1024,
+      max_tokens: 512,
+      temperature: 0,
+      response_format: { type: "json_object" },
       messages: [{ role: "user", content: systemPrompt }],
     }),
+    signal: AbortSignal.timeout(35_000),
   });
 
   if (!response.ok) {

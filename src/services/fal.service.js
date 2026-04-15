@@ -255,7 +255,7 @@ async function captionSingleImage(imageUrl, triggerWord, index, captionSubjectCl
             ],
           },
         ],
-      });
+      }, { signal: AbortSignal.timeout(60_000) });
 
       const caption = (completion.choices?.[0]?.message?.content || "").trim();
       if (!caption) {
@@ -1573,8 +1573,10 @@ OUTPUT: Return ONLY valid JSON on one line, no explanation:
         model: "x-ai/grok-4.1-fast",
         max_tokens: 128,
         temperature: 0,
+        response_format: { type: "json_object" },
         messages: [{ role: "user", content: systemPrompt }],
       }),
+      signal: AbortSignal.timeout(25_000),
     });
 
     if (!response.ok) {
