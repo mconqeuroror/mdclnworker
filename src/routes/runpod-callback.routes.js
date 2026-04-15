@@ -269,6 +269,14 @@ function isTransientRunpodNotFoundError(raw) {
   return /job not found|not found yet|may have expired|job.*expired|expired/i.test(msg);
 }
 
+function extractRunpodErrorMessage(rawOut, body) {
+  if (typeof body?.error === "string" && body.error.trim()) return body.error.trim();
+  if (typeof rawOut === "string" && rawOut.trim()) return rawOut.trim();
+  if (typeof rawOut?.error === "string" && rawOut.error.trim()) return rawOut.error.trim();
+  if (typeof rawOut?.message === "string" && rawOut.message.trim()) return rawOut.message.trim();
+  return "RunPod job failed";
+}
+
 async function handleRunpodCallback(req, res) {
   if (!verifyWebhook(req)) {
     return res.status(401).json({ ok: false, error: "unauthorized" });
@@ -389,7 +397,16 @@ async function handleRunpodCallback(req, res) {
     if (imageGen) {
       await backfillRunpodCorrelation(imageGen, jobId);
       if (st === "FAILED" || st === "CANCELLED") {
-        const msg = rawOut?.error || body.error || "RunPod job failed";
+        const msg = extractRunpodErrorMessage(rawOut, body);
+        const ageMs = Date.now() - new Date(imageGen.createdAt).getTime();
+        // RunPod can emit early flaky FAILED/CANCELLED callbacks before final completion payload.
+        // Mirror webhook-first behavior: never fail MCX/upscale too early.
+        if (ageMs < 3 * 60 * 1000 || isTransientRunpodNotFoundError(msg)) {
+          console.warn(
+            `[RunPod webhook] transient ${imageGen.type} fail for ${jobId} (age=${Math.round(ageMs / 1000)}s): ${String(msg).slice(0, 200)} — ignoring`,
+          );
+          return res.status(200).json({ ok: true, skipped: true, type: imageGen.type, reason: "transient_failed_callback" });
+        }
         if (isTransientRunpodNotFoundError(msg)) {
           console.warn(
             `[RunPod webhook] transient ${imageGen.type} failure for ${jobId}: ${String(msg).slice(0, 200)} — ignoring`,
@@ -460,7 +477,15 @@ async function handleRunpodCallback(req, res) {
     await backfillRunpodCorrelation(gen, jobId);
 
     if (st === "FAILED" || st === "CANCELLED") {
-      const msg = rawOut?.error || body.error || "RunPod job failed";
+      const msg = extractRunpodErrorMessage(rawOut, body);
+      const ageMs = Date.now() - new Date(gen.createdAt).getTime();
+      // NSFW strict webhook mode: do not hard-fail on early FAILED/CANCELLED callbacks.
+      if (ageMs < 3 * 60 * 1000 || isTransientRunpodNotFoundError(msg)) {
+        console.warn(
+          `[RunPod webhook] transient nsfw fail for ${jobId} (age=${Math.round(ageMs / 1000)}s): ${String(msg).slice(0, 200)} — ignoring`,
+        );
+        return res.status(200).json({ ok: true, skipped: true, type: "nsfw", reason: "transient_failed_callback" });
+      }
       if (isTransientRunpodNotFoundError(msg)) {
         console.warn(
           `[RunPod webhook] transient nsfw failure for ${jobId}: ${String(msg).slice(0, 200)} — ignoring`,
