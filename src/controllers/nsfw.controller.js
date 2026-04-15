@@ -5461,6 +5461,10 @@ async function pollProcessingNsfwGenerations() {
 }
 
 async function pollSingleNsfwGeneration(gen) {
+  // Webhook-only delivery: we do NOT poll RunPod status here.
+  // RunPod calls /api/runpod/callback when the job is done — same as ModelClone-X.
+  // This function only enforces hard timeouts for genuinely stuck / unsubmitted jobs.
+
   let inputData;
   try {
     inputData = typeof gen.inputImageUrl === 'string' ? JSON.parse(gen.inputImageUrl) : gen.inputImageUrl;
@@ -5471,6 +5475,8 @@ async function pollSingleNsfwGeneration(gen) {
   if (inputData?.mode === 'img2img') {
     return;
   }
+
+  const age = Math.round((Date.now() - new Date(gen.createdAt).getTime()) / 1000);
 
   const replicate = typeof gen.replicateModel === "string" ? gen.replicateModel.trim() : "";
   const replicateLooksLikeTaskId =
@@ -5488,12 +5494,11 @@ async function pollSingleNsfwGeneration(gen) {
     (replicateLooksLikeTaskId ? replicate : null);
 
   if (!requestId) {
-    const age = Date.now() - new Date(gen.createdAt).getTime();
-    // queued jobs are expected to be promoted quickly by background submitter; if not, fail+refund.
+    // Job was never submitted to RunPod — fail after short timeout
     const queuedTimeoutMs = 10 * 60 * 1000;
     const processingTimeoutMs = 20 * 60 * 1000;
     const timeoutMs = gen.status === "queued" ? queuedTimeoutMs : processingTimeoutMs;
-    if (age > timeoutMs) {
+    if (age * 1000 > timeoutMs) {
       try {
         await refundGeneration(gen.id);
         await prisma.generation.update({
@@ -5508,7 +5513,7 @@ async function pollSingleNsfwGeneration(gen) {
             completedAt: new Date(),
           },
         });
-        console.log(`  ⚠️ ${gen.id.substring(0,8)} - no requestId, refunded & failed`);
+        console.log(`  ⚠️ ${gen.id.substring(0,8)} - no requestId after ${age}s, refunded & failed`);
       } catch (e) {
         console.error(`  ⚠️ ${gen.id.substring(0,8)} - no-requestId cleanup error:`, e.message);
       }
@@ -5516,49 +5521,22 @@ async function pollSingleNsfwGeneration(gen) {
     return;
   }
 
-  try {
-    const status = await checkNsfwGenerationStatus(requestId);
-
-    if (status.status === 'COMPLETED') {
-      try {
-        const fin = await finalizeNsfwRunpodGeneration(gen.id, requestId, status._runpodOutput);
-        if (fin.ok && !fin.skipped) {
-          console.log(`  ✅ ${gen.id.substring(0, 8)} COMPLETED via recovery poller`);
-        }
-      } catch (e) {
-        console.error(`  ❌ finalize error for ${gen.id.substring(0, 8)}:`, e.message);
-      }
-    } else if (status.status === 'FAILED') {
-      try {
-        await refundGeneration(gen.id);
-      } catch (e) {
-        console.error(`  ❌ ${gen.id.substring(0,8)} refund error on FAILED:`, e.message);
-      }
-      await prisma.generation.update({
-        where: { id: gen.id },
-        data: { status: 'failed', errorMessage: getErrorMessageForDb(status.error || 'Generation failed on ComfyUI'), completedAt: new Date() },
-      }).catch(() => {});
-      console.log(`  ❌ ${gen.id.substring(0,8)} FAILED: ${status.error || 'ComfyUI error'}, credits refunded`);
-    } else {
-      const age = Math.round((Date.now() - new Date(gen.createdAt).getTime()) / 1000);
-      console.log(`  ⏳ ${gen.id.substring(0,8)} still ${status.status} (${age}s old)`);
-      // Must be ≥ NSFW_MAX_WALL_MS (recovery poller must not fail rows still eligible for main poll)
-      const stuckMaxSec = Number(process.env.NSFW_STUCK_MAX_AGE_SEC) || 200 * 60;
-      if (age > stuckMaxSec) {
-        try {
-          await refundGeneration(gen.id);
-        } catch (e) {
-          console.error(`  ⏰ ${gen.id.substring(0,8)} refund error on TIMEOUT:`, e.message);
-        }
-        await prisma.generation.update({
-          where: { id: gen.id },
-          data: { status: 'failed', errorMessage: getErrorMessageForDb(`Generation timed out (${Math.round(stuckMaxSec / 60)} min)`), completedAt: new Date() },
-        }).catch(() => {});
-        console.log(`  ⏰ ${gen.id.substring(0,8)} TIMED OUT after ${age}s, credits refunded`);
-      }
+  // Has a RunPod job ID — webhook will (or already did) deliver the result.
+  // Only enforce the hard wall-clock timeout so truly stuck jobs don't sit forever.
+  const stuckMaxSec = Number(process.env.NSFW_STUCK_MAX_AGE_SEC) || 200 * 60;
+  if (age > stuckMaxSec) {
+    console.log(`  ⏰ ${gen.id.substring(0,8)} TIMED OUT after ${age}s (no webhook received), refunding`);
+    try {
+      await refundGeneration(gen.id);
+    } catch (e) {
+      console.error(`  ⏰ ${gen.id.substring(0,8)} refund error on TIMEOUT:`, e.message);
     }
-  } catch (error) {
-    console.error(`  ❌ Poll error for ${gen.id.substring(0,8)}: ${error.message}`);
+    await prisma.generation.update({
+      where: { id: gen.id },
+      data: { status: 'failed', errorMessage: getErrorMessageForDb(`Generation timed out (${Math.round(stuckMaxSec / 60)} min)`), completedAt: new Date() },
+    }).catch(() => {});
+  } else {
+    console.log(`  ⏳ ${gen.id.substring(0,8)} waiting for webhook (${age}s old, job ${requestId.slice(0, 16)}…)`);
   }
 }
 
