@@ -861,11 +861,27 @@ export default {
 // ============================================
 
 const RUNPOD_API_KEY = process.env.RUNPOD_API_KEY;
-const RUNPOD_ENDPOINT_ID = process.env.RUNPOD_ENDPOINT_ID || "0uskdglppin5ey";
-const RUNPOD_BASE_URL = `https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}`;
+// Resolve NSFW endpoint — fall back to the ModelCloneX endpoint ID so both services
+// work when only RUNPOD_MODELCLONE_X_ENDPOINT_ID (or legacy RUNPOD_SOULX_ENDPOINT_ID)
+// is configured in the environment.
+const RUNPOD_ENDPOINT_ID =
+  String(
+    process.env.RUNPOD_ENDPOINT_ID ||
+    process.env.RUNPOD_MODELCLONE_X_ENDPOINT_ID ||
+    process.env.RUNPOD_SOULX_ENDPOINT_ID ||
+    "",
+  ).trim() || null;
+const RUNPOD_BASE_URL = RUNPOD_ENDPOINT_ID
+  ? `https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}`
+  : null;
 
 if (!RUNPOD_API_KEY) {
   console.warn("⚠️ RUNPOD_API_KEY not set - NSFW generation will not work");
+}
+if (!RUNPOD_ENDPOINT_ID) {
+  console.warn(
+    "⚠️ No RunPod NSFW endpoint configured (RUNPOD_ENDPOINT_ID / RUNPOD_MODELCLONE_X_ENDPOINT_ID / RUNPOD_SOULX_ENDPOINT_ID) — NSFW generation will not work",
+  );
 }
 
 /** Pose / makeup / cum / enhancement additive slots — never exceed this (girl LoRA identity is separate). */
@@ -2422,6 +2438,9 @@ export async function submitNsfwGeneration(params) {
   if (!RUNPOD_API_KEY) {
     return { success: false, error: "RUNPOD_API_KEY not configured" };
   }
+  if (!RUNPOD_BASE_URL) {
+    return { success: false, error: "NSFW RunPod endpoint not configured (set RUNPOD_ENDPOINT_ID or RUNPOD_MODELCLONE_X_ENDPOINT_ID)" };
+  }
 
   const {
     loraStrength = null,
@@ -2835,22 +2854,42 @@ export function normalizeRunpodNsfwOutput(raw) {
  * @returns {Promise<{status: string, error?: string, _runpodOutput?: object}>}
  */
 export async function checkNsfwGenerationStatus(jobId) {
-  try {
+  if (!RUNPOD_BASE_URL) {
+    return { status: "FAILED", error: "NSFW RunPod endpoint not configured" };
+  }
+
+  // Mirror the 3-attempt retry logic used by pollModelCloneXJob so both services
+  // behave identically on transient network errors (same worker endpoint).
+  let lastErr;
+  for (let attempt = 1; attempt <= 3; attempt++) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 20_000);
     let response;
     try {
       response = await fetch(`${RUNPOD_BASE_URL}/status/${jobId}`, {
-        headers: { "Authorization": `Bearer ${RUNPOD_API_KEY}` },
+        headers: { Authorization: `Bearer ${RUNPOD_API_KEY}` },
         signal: controller.signal,
       });
-    } finally {
       clearTimeout(timer);
+    } catch (fetchErr) {
+      clearTimeout(timer);
+      lastErr = fetchErr;
+      if (fetchErr.name === "TimeoutError" || fetchErr.name === "AbortError") {
+        return { status: "IN_PROGRESS" };
+      }
+      const cause = fetchErr.cause?.message || fetchErr.cause?.code || "";
+      console.warn(
+        `[NSFW poll] attempt ${attempt}/3 fetch error for ${jobId}: ${fetchErr.message}${cause ? ` (${cause})` : ""}`,
+      );
+      if (attempt < 3) await new Promise((r) => setTimeout(r, 2000 * attempt));
+      continue;
     }
 
     if (!response.ok) {
       if (response.status === 404) {
-        console.warn(`⚠️ RunPod job ${jobId} not found (404) - job may have expired or been purged`);
+        console.warn(
+          `⚠️ RunPod job ${jobId} not found (404) on endpoint ${RUNPOD_ENDPOINT_ID} — job may have expired or been purged`,
+        );
         return { status: "FAILED", error: "Generation job not found - may have expired" };
       }
       const errorText = await response.text();
@@ -2875,9 +2914,8 @@ export async function checkNsfwGenerationStatus(jobId) {
         console.error(`❌ RunPod job completed with error: ${output.error}`);
         return { status: "FAILED", error: String(output.error) };
       }
-      // Accept whenever we have images; inner `status` is optional (handler always sets it, API may strip it).
       if (output.images?.length > 0) {
-        console.log(`✅ RunPod job completed with ${output.images.length} image(s)`);
+        console.log(`✅ RunPod job ${jobId} completed with ${output.images.length} image(s)`);
         return { status: "COMPLETED", _runpodOutput: output };
       }
       console.warn(`⚠️ RunPod job completed but no images in output`, JSON.stringify(output)?.slice(0, 400));
@@ -2899,13 +2937,11 @@ export async function checkNsfwGenerationStatus(jobId) {
     }
 
     return { status: "IN_PROGRESS" };
-  } catch (error) {
-    if (error.name === "TimeoutError" || error.name === "AbortError") {
-      return { status: "IN_PROGRESS" };
-    }
-    console.error("❌ RunPod status check error:", error.message);
-    throw error;
   }
+
+  // All 3 attempts exhausted due to network errors
+  console.error(`❌ RunPod status check failed after 3 attempts for ${jobId}:`, lastErr?.message);
+  throw lastErr || new Error(`NSFW status check failed after 3 attempts`);
 }
 
 /**
@@ -2975,9 +3011,12 @@ export async function getNsfwGenerationResult(jobId, cachedOutput = null) {
     let output = cachedOutput;
 
     if (!output) {
+      if (!RUNPOD_BASE_URL) {
+        throw new Error("NSFW RunPod endpoint not configured");
+      }
       const response = await fetch(`${RUNPOD_BASE_URL}/status/${jobId}`, {
         headers: {
-          "Authorization": `Bearer ${RUNPOD_API_KEY}`,
+          Authorization: `Bearer ${RUNPOD_API_KEY}`,
         },
       });
 
