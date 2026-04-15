@@ -12,11 +12,18 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const RUNPOD_API_KEY = process.env.RUNPOD_API_KEY;
+// Single shared endpoint for all RunPod workers.
+// Precedence: RUNPOD_MODELCLONE_X_ENDPOINT_ID → RUNPOD_ENDPOINT_ID → legacy RUNPOD_SOULX_ENDPOINT_ID
 const RUNPOD_MODELCLONE_X_ENDPOINT_ID =
-  String(process.env.RUNPOD_MODELCLONE_X_ENDPOINT_ID || process.env.RUNPOD_SOULX_ENDPOINT_ID || "").trim() || null;
+  String(
+    process.env.RUNPOD_MODELCLONE_X_ENDPOINT_ID ||
+    process.env.RUNPOD_ENDPOINT_ID ||
+    process.env.RUNPOD_SOULX_ENDPOINT_ID ||
+    "",
+  ).trim() || null;
 
 if (!RUNPOD_MODELCLONE_X_ENDPOINT_ID) {
-  console.warn("⚠️  RUNPOD_MODELCLONE_X_ENDPOINT_ID (or RUNPOD_SOULX_ENDPOINT_ID) not set — ModelClone-X will not work");
+  console.warn("⚠️  No RunPod endpoint configured (RUNPOD_ENDPOINT_ID / RUNPOD_MODELCLONE_X_ENDPOINT_ID) — ModelClone-X will not work");
 }
 
 export const MODELCLONE_X_CREDITS = {
