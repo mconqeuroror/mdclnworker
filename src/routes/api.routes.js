@@ -1972,24 +1972,20 @@ Length target:
       // Advanced ultra-realism — WaveSpeed Nano Banana Pro, identical model
       "ultra-realism": NANO_BANANA_SYSTEM,
 
-      // NSFW — Illustrious ComfyUI checkpoint on RunPod — Danbooru tag format
-      "nsfw": `You are an expert prompt engineer for an Illustrious-based NSFW ComfyUI diffusion model (checkpoint: pornworksRealPorn_Illustrious). This model is trained on Danbooru and responds best to tag-format prompts, not sentences.
+      // NSFW — Z Image Turbo prose prompting style
+      "nsfw": `You are a professional AI image prompt engineer specializing in Z Image Turbo (prose-based diffusion model).
 
-Your job: transform a rough user idea into an optimized POSITIVE tag-format superprompt. Think through every visual detail carefully. Output ONLY the final tag list — no explanation, no preamble. Do NOT include any negative tags — negative prompts are handled separately by the system.
+Rewrite a rough NSFW request into one coherent descriptive paragraph that reads like a real photo caption, not tags.
 
-## RULES FOR THIS MODEL:
-- Comma-separated short tag phrases — NOT sentences
-- Always lead with quality boosters: "masterpiece, best quality, ultra-detailed, ultra-realistic, 8k uhd, RAW photo, sharp focus"
-- Subject tags: precise age, ethnicity, body type, skin tone
-- Feature tags: hair color, hair length, hair style, eye color
-- Clothing tags: explicit and specific — fabric, fit, coverage level
-- Action/pose: "arching back", "lying on satin sheets", "looking at viewer", "bedroom eyes", "parted lips"
-- Setting: "indoor", "bedroom", "dimly lit room", "bokeh background", "soft ambient light"
-- Camera: "close-up", "cowboy shot", "POV", "from below"
-- Lighting: "soft diffused light", "dramatic side lighting", "candlelight glow", "rim light"
+Hard rules:
+- No keyword chains, no comma-separated tag dumps, no quality-token spam.
+- One coherent light source only.
+- Pose must be anatomically plausible and described observationally.
+- Keep environmental grounding concise (2-3 details max).
+- Include authenticity cues (grain, slight blur, uneven light) naturally.
+- Keep the result logically consistent and physically plausible.
 
-## OUTPUT:
-Positive tag list only, comma-separated. 40–70 tags.`,
+Output only final prompt text (no explanation).`,
     };
 
     const nanoBananaSharedPrompt = (
@@ -2953,12 +2949,12 @@ router.use((req, res, next) => {
   next();
 });
 
-const MODELCLONE_X_ZIMAGE_SYSTEM_PROMPT = `You are a senior prompt director for Z-Image Turbo (Tongyi-MAI 6B S3-DiT Turbo). Your job is to transform a user's rough idea into one polished, detailed POSITIVE prompt that produces stunning, photorealistic results.
+const MODELCLONE_X_SFW_SYSTEM_PROMPT = `You are a senior prompt director for Z-Image Turbo (Tongyi-MAI 6B S3-DiT Turbo) focused on SFW portrait/lifestyle outputs. Your job is to transform a user's rough idea into one polished, detailed POSITIVE prompt that produces stunning, photorealistic results.
 
 Z-Image Turbo responds best to natural descriptive prose, not tag lists. Write one flowing paragraph that covers:
 1. Shot type + framing (close-up portrait, cowboy shot, full body, POV, etc.)
 2. Subject description — if MODEL IDENTITY CONTEXT is provided, weave those traits in naturally as the subject. Do not invent conflicting attributes.
-3. Exact clothing, state of dress, and what is or isn't covered — be precise and explicit if the scene calls for it
+3. Exact clothing and styling details — be precise and grounded
 4. Action, pose, expression, eye contact
 5. Environment and background with specific details
 6. Lighting setup (golden hour, studio softbox, candlelight, neon, etc.)
@@ -2970,7 +2966,9 @@ Rules:
 - NEVER include negative terms, quality disclaimers, or anatomy constraints — those are handled separately
 - If trigger word is provided in the identity context, do NOT include it — it is injected automatically
 - Preserve every user-specified detail; only add richness, never contradict or water down the request
-- Keep it under 200 words, one clean paragraph`;
+- Keep it under 200 words, one clean paragraph
+- STRICT SFW POLICY: no nudity, no explicit sexual acts, no exposed genitals, no explicit erotic phrasing
+- If user asks for explicit/NSFW content, rewrite to a tasteful SFW equivalent while preserving composition/mood`;
 
 function parseMaybeJsonObject(value) {
   if (!value) return {};
@@ -3052,22 +3050,36 @@ async function optimizeModelCloneXPrompt({
     process.env.MODELCLONE_X_PROMPT_MODEL || process.env.SOULX_PROMPT_MODEL || "x-ai/grok-4",
   ).trim();
   const modelCandidates = Array.from(new Set([preferredModel, "x-ai/grok-4.1-fast"])).filter(Boolean);
-  let systemPrompt = (await getPromptTemplateValue("modelcloneXZImageTurbo", "")).trim();
+  let systemPrompt = (await getPromptTemplateValue("modelcloneXPromptOptimizerSystem", "")).trim();
+  if (!systemPrompt) {
+    systemPrompt = (await getPromptTemplateValue("modelcloneXZImageTurbo", "")).trim();
+  }
   if (!systemPrompt) {
     systemPrompt = (await getPromptTemplateValue("soulxZImageTurbo", "")).trim();
   }
-  if (!systemPrompt) systemPrompt = MODELCLONE_X_ZIMAGE_SYSTEM_PROMPT;
-  const baseUserPrompt = `User request: "${userPrompt}"`;
-  const userContent = withCharacter && modelIdentityContext
-    ? `${baseUserPrompt}
+  if (!systemPrompt) systemPrompt = MODELCLONE_X_SFW_SYSTEM_PROMPT;
 
-MODEL IDENTITY CONTEXT (must be injected as core subject identity with the user request):
-${modelIdentityContext}
+  const defaultUserWrapper = `User request: "{{USER_PROMPT}}"
 
-Hard rule for character mode: integrate the model identity naturally into the prompt so outputs keep this person consistent across generations.`
-    : `${baseUserPrompt}
+{{IDENTITY_BLOCK}}
+Hard rules:
+- Final output must remain SFW (no nudity/explicit sexual content).
 
 Generate the optimized prompt now.`;
+  const userWrapperTemplate =
+    (await getPromptTemplateValue("modelcloneXPromptOptimizerUserWrapper", defaultUserWrapper)).trim() ||
+    defaultUserWrapper;
+  const wrapperFilled = userWrapperTemplate
+    .replaceAll("{{USER_PROMPT}}", String(userPrompt || "").trim())
+    .replaceAll(
+      "{{IDENTITY_BLOCK}}",
+      withCharacter && modelIdentityContext
+        ? `MODEL IDENTITY CONTEXT (must be injected as core subject identity with the user request):\n${String(modelIdentityContext || "").trim()}\n\n- Integrate model identity naturally so outputs keep this person consistent across generations.\n`
+        : "",
+    )
+    .replaceAll("{{MODEL_IDENTITY_CONTEXT}}", String(modelIdentityContext || "").trim())
+    .replaceAll("{{WITH_CHARACTER}}", withCharacter ? "true" : "false");
+  const userContent = wrapperFilled;
 
   let lastError = null;
   for (const modelName of modelCandidates) {

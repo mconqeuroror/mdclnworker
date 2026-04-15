@@ -64,6 +64,7 @@ import {
   listElevenLabsAccountVoices,
   deleteElevenLabsVoiceStrict,
 } from "../services/elevenlabs.service.js";
+import { runRunpodWatchdog } from "../services/generation-poller.service.js";
 
 const router = express.Router();
 const KIE_API_KEY = process.env.KIE_API_KEY;
@@ -76,6 +77,8 @@ const SENDGRID_MAX_EMAILS_PER_MINUTE = Math.max(
 const SENDGRID_WINDOW_MS = 60_000;
 
 const PROMPT_TEMPLATE_KNOWN_KEYS = [
+  "modelcloneXPromptOptimizerSystem",
+  "modelcloneXPromptOptimizerUserWrapper",
   "modelcloneXZImageTurbo",
   "soulxZImageTurbo",
   "nsfwPromptGenerator",
@@ -100,13 +103,42 @@ const PROMPT_TEMPLATE_KNOWN_KEYS = [
 ];
 
 const PROMPT_TEMPLATE_DEFAULTS = {
+  modelcloneXPromptOptimizerSystem:
+    `You are a senior prompt director for Z-Image Turbo (Tongyi-MAI 6B S3-DiT Turbo) focused on SFW portrait/lifestyle outputs. Your job is to transform a user's rough idea into one polished, detailed POSITIVE prompt that produces stunning, photorealistic results.
+
+Z-Image Turbo responds best to natural descriptive prose, not tag lists. Write one flowing paragraph that covers:
+1. Shot type + framing (close-up portrait, cowboy shot, full body, POV, etc.)
+2. Subject description — if MODEL IDENTITY CONTEXT is provided, weave those traits in naturally as the subject. Do not invent conflicting attributes.
+3. Exact clothing and styling details — be precise and grounded
+4. Action, pose, expression, eye contact
+5. Environment and background with specific details
+6. Lighting setup (golden hour, studio softbox, candlelight, neon, etc.)
+7. Camera feel (35mm f/1.8, telephoto compression, smartphone POV, etc.)
+8. Overall mood and color grading
+
+Rules:
+- Output ONLY the final positive prompt — no preamble, no explanation, no headings
+- NEVER include negative terms, quality disclaimers, or anatomy constraints — those are handled separately
+- If trigger word is provided in the identity context, do NOT include it — it is injected automatically
+- Preserve every user-specified detail; only add richness, never contradict or water down the request
+- Keep it under 200 words, one clean paragraph
+- STRICT SFW POLICY: no nudity, no explicit sexual acts, no exposed genitals, no explicit erotic phrasing
+- If user asks for explicit/NSFW content, rewrite to a tasteful SFW equivalent while preserving composition/mood`,
+  modelcloneXPromptOptimizerUserWrapper:
+    `User request: "{{USER_PROMPT}}"
+
+{{IDENTITY_BLOCK}}
+Hard rules:
+- Final output must remain SFW (no nudity/explicit sexual content).
+
+Generate the optimized prompt now.`,
   modelcloneXZImageTurbo:
-    `You are a senior prompt director for Z-Image Turbo (Tongyi-MAI 6B S3-DiT Turbo). Your job is to transform a user's rough idea into one polished, detailed POSITIVE prompt that produces stunning, photorealistic results.
+    `You are a senior prompt director for Z-Image Turbo (Tongyi-MAI 6B S3-DiT Turbo) focused on SFW portrait/lifestyle outputs. Your job is to transform a user's rough idea into one polished, detailed POSITIVE prompt that produces stunning, photorealistic results.
 
 Z-Image Turbo responds best to natural descriptive prose, not tag lists. Write one flowing paragraph that covers:
 1. Shot type + framing (close-up portrait, cowboy shot, full body, POV, etc.)
 2. Subject description — if MODEL IDENTITY CONTEXT is provided, weave those traits in naturally as the subject. Do not invent conflicting attributes.
-3. Exact clothing, state of dress, and what is or isn't covered — be precise and explicit if the scene calls for it
+3. Exact clothing and styling details — be precise and grounded
 4. Action, pose, expression, eye contact
 5. Environment and background with specific details
 6. Lighting setup (golden hour, studio softbox, candlelight, neon, etc.)
@@ -118,14 +150,16 @@ Rules:
 - NEVER include negative terms, quality disclaimers, or anatomy constraints — those are handled separately
 - If trigger word is provided in the identity context, do NOT include it — it is injected automatically
 - Preserve every user-specified detail; only add richness, never contradict or water down the request
-- Keep it under 200 words, one clean paragraph`,
+- Keep it under 200 words, one clean paragraph
+- STRICT SFW POLICY: no nudity, no explicit sexual acts, no exposed genitals, no explicit erotic phrasing
+- If user asks for explicit/NSFW content, rewrite to a tasteful SFW equivalent while preserving composition/mood`,
   soulxZImageTurbo:
-    `You are a senior prompt director for Z-Image Turbo (Tongyi-MAI 6B S3-DiT Turbo). Your job is to transform a user's rough idea into one polished, detailed POSITIVE prompt that produces stunning, photorealistic results.
+    `You are a senior prompt director for Z-Image Turbo (Tongyi-MAI 6B S3-DiT Turbo) focused on SFW portrait/lifestyle outputs. Your job is to transform a user's rough idea into one polished, detailed POSITIVE prompt that produces stunning, photorealistic results.
 
 Z-Image Turbo responds best to natural descriptive prose, not tag lists. Write one flowing paragraph that covers:
 1. Shot type + framing (close-up portrait, cowboy shot, full body, POV, etc.)
 2. Subject description — if MODEL IDENTITY CONTEXT is provided, weave those traits in naturally as the subject. Do not invent conflicting attributes.
-3. Exact clothing, state of dress, and what is or isn't covered — be precise and explicit if the scene calls for it
+3. Exact clothing and styling details — be precise and grounded
 4. Action, pose, expression, eye contact
 5. Environment and background with specific details
 6. Lighting setup (golden hour, studio softbox, candlelight, neon, etc.)
@@ -137,17 +171,19 @@ Rules:
 - NEVER include negative terms, quality disclaimers, or anatomy constraints — those are handled separately
 - If trigger word is provided in the identity context, do NOT include it — it is injected automatically
 - Preserve every user-specified detail; only add richness, never contradict or water down the request
-- Keep it under 200 words, one clean paragraph`,
+- Keep it under 200 words, one clean paragraph
+- STRICT SFW POLICY: no nudity, no explicit sexual acts, no exposed genitals, no explicit erotic phrasing
+- If user asks for explicit/NSFW content, rewrite to a tasteful SFW equivalent while preserving composition/mood`,
   nsfwPromptGenerator:
-    'You are an expert prompt engineer for Z-Image Turbo with private amateur smartphone realism. Keep outputs raw, imperfect, non-studio, logically consistent, and identity-locked to provided model attributes/chips. Output format must be exactly one JSON array with one prompt string.',
+    "You are a professional AI image prompt engineer specializing in Z Image Turbo (prose diffusion). Produce one 150-300 word descriptive journalistic paragraph that starts with the trigger, uses only 2-3 differentiating features, one coherent light source, anatomically plausible pose description, and only 2-3 grounding environment details. Never use keyword chains, tag lists, or quality tokens. Output only final prompt text.",
   analyzeLooksSystemPrompt:
     "You are an expert at analyzing photos of people to determine physical appearance for AI model configuration. Return one JSON object for the same person across all photos, using exact allowed option values and age as integer 1-120.",
   enhancePromptNanoBananaSystem:
     "You are a creative director prompt engineer for Nano Banana Pro. Rewrite user ideas into production-ready prompts with specific subject/action/context/composition/style, preserve user intent and modelLooks, keep results photoreal and distinctive, and enforce true selfie POV constraints when selfie is requested.",
   enhancePromptNsfwSystem:
-    "You are an expert prompt engineer for an Illustrious-based NSFW ComfyUI diffusion model (checkpoint: pornworksRealPorn_Illustrious). This model is trained on Danbooru and responds best to tag-format prompts, not sentences.\n\nYour job: transform a rough user idea into an optimized POSITIVE tag-format superprompt. Output ONLY the final tag list — no explanation, no preamble. Do NOT include any negative tags — negative prompts are handled separately by the system.\n\n## RULES FOR THIS MODEL:\n- Comma-separated short tag phrases — NOT sentences\n- Always lead with quality boosters: \"masterpiece, best quality, ultra-detailed, ultra-realistic, 8k uhd, RAW photo, sharp focus\"\n- Subject tags: precise age, ethnicity, body type, skin tone\n- Feature tags: hair color, hair length, hair style, eye color\n- Clothing tags: explicit and specific — fabric, fit, coverage level\n- Action/pose: \"arching back\", \"lying on satin sheets\", \"looking at viewer\", \"bedroom eyes\", \"parted lips\"\n- Setting: \"indoor\", \"bedroom\", \"dimly lit room\", \"bokeh background\", \"soft ambient light\"\n- Camera: \"close-up\", \"cowboy shot\", \"POV\", \"from below\"\n- Lighting: \"soft diffused light\", \"dramatic side lighting\", \"candlelight glow\", \"rim light\"\n\n## OUTPUT:\nPositive tag list only, comma-separated. 40–70 tags.",
+    "You are a professional AI image prompt engineer specializing in Z Image Turbo. Rewrite rough NSFW ideas into one grounded prose prompt (not tags): 150-300 words, one coherent light source, observational pose language, 2-3 environment details max, and candid smartphone authenticity cues (grain/slight blur/uneven light). Never use keyword chains, comma-tag dumps, or quality tokens like 8k/masterpiece/raw photo. Output only final prompt text.",
   nudesPackPromptGeneratorSystem:
-    "You are an expert prompt engineer for Z-Image Turbo NSFW generation focused on realistic private smartphone-photo feel. Respect model attributes and logical constraints, avoid contradictions, and output exactly one JSON array with one prompt.",
+    "You are a professional AI image prompt engineer specializing in Z Image Turbo (prose diffusion). Generate one 150-300 word prose prompt that starts with trigger, enforces one coherent light source, keeps pose anatomically plausible, uses only 2-3 differentiating features and 2-3 environment details, and preserves candid smartphone realism. No tag lists or quality-token chains. Output only final prompt text.",
   nudesPackPromptGeneratorUserWrapper:
     "Compose one final NSFW prompt for this nudes-pack item. Use the full request as source-of-truth.\n\n{{REQUEST}}",
   describeTargetImageSystemPrompt:
@@ -2182,6 +2218,54 @@ router.post("/lora-recovery", async (req, res) => {
     return res.status(500).json({
       success: false,
       error: error?.message || "Failed to recover LoRA",
+    });
+  }
+});
+
+/**
+ * POST /api/admin/runpod/batch-reconcile
+ * Body: { limit?: number, includeTimedOutFailed?: boolean }
+ * Manually poll RunPod jobs for stuck/timed-out generations and recover finished outputs.
+ */
+router.post("/runpod/batch-reconcile", async (req, res) => {
+  try {
+    const { limit = 200, includeTimedOutFailed = true } = req.body || {};
+    const safeLimit = Math.max(1, Math.min(500, parseInt(limit, 10) || 200));
+
+    const stats = await runRunpodWatchdog({
+      limit: safeLimit,
+      includeTimedOutFailed: includeTimedOutFailed !== false,
+    });
+
+    await prisma.adminAuditLog.create({
+      data: {
+        adminUserId: req.user.userId,
+        adminEmail: req.user.email || null,
+        action: "runpod_batch_reconcile",
+        targetType: "generation",
+        targetId: "runpod",
+        detailsJson: JSON.stringify({
+          limit: safeLimit,
+          includeTimedOutFailed: includeTimedOutFailed !== false,
+          ...(stats || {}),
+        }),
+      },
+    }).catch(() => {});
+
+    return res.json({
+      success: true,
+      message: "RunPod batch check completed.",
+      data: {
+        limit: safeLimit,
+        includeTimedOutFailed: includeTimedOutFailed !== false,
+        ...(stats || {}),
+      },
+    });
+  } catch (error) {
+    console.error("RunPod batch reconcile failed:", error);
+    return res.status(500).json({
+      success: false,
+      error: error?.message || "Failed to run RunPod batch check",
     });
   }
 });
