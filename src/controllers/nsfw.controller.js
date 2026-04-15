@@ -283,6 +283,23 @@ function summarizeAttributes(attrs = {}, fallbackString = "") {
   return lines.length ? lines.join("\n") : "- None provided";
 }
 
+function buildDifferentiatingFeatures(attrs = {}) {
+  if (!attrs || typeof attrs !== "object") return "none";
+  const candidates = [
+    attrs.skinTone,
+    attrs.hairColor,
+    attrs.hairLength,
+    attrs.hairTexture,
+    attrs.eyeColor,
+    attrs.bodyType,
+    attrs.ethnicity || attrs.heritage,
+  ]
+    .map((v) => (typeof v === "string" ? v.trim() : ""))
+    .filter(Boolean);
+  const unique = [...new Set(candidates)];
+  return unique.slice(0, 3).join(", ") || "none";
+}
+
 // ============================================
 // AI-DETERMINED LORA STRENGTH
 // Uses Grok to analyze the prompt/scene and decide
@@ -2908,7 +2925,7 @@ export async function generateNsfwImage(req, res) {
           resolution: resSpec.presetId,
           ...adminSamplerOpts,
         },
-      }, nsfwWebhookUrl);
+      }, nsfwWebhookUrl, generation.id);
 
       if (!submission.success) {
         await refundGeneration(generation.id);
@@ -3318,7 +3335,7 @@ export async function generateNudesPack(req, res) {
               packAdditiveLoraHint: getNudesPackAdditiveHintForPose(pose.id),
               ...adminSamplerOpts,
             },
-          }, nsfwWebhookUrl);
+          }, nsfwWebhookUrl, generationId);
 
           if (!submission.success) {
             await refundGeneration(generationId);
@@ -3738,114 +3755,60 @@ async function runNsfwPromptGenerationForModel(
           ? "woman"
           : "person";
 
-    let systemPrompt = `You are an expert prompt engineer for Z-Image Turbo (a fast ~6B turbo/distilled transformer). Your ONLY goal is prompts that read as REAL amateur smartphone nudes — private gallery energy: raw, imperfect, NOT studio/DSLR/cinematic/AI-art polish.
+    const differentiatingFeatures = buildDifferentiatingFeatures(attributesDetail);
+    const poseHint = [
+      context?.pose?.title,
+      attributesDetail?.poseStyle,
+      attributesDetail?.bodyPose,
+    ].find((v) => typeof v === "string" && v.trim()) || "derive from scene request";
+    const sceneHint = String(userRequest || "").trim() || "not specified";
+    const lightingHint = [
+      attributesDetail?.lighting,
+      attributesDetail?.flash,
+      attributesDetail?.timeOfDay,
+    ].find((v) => typeof v === "string" && v.trim()) || "one coherent light source only";
+    const moodHint = [
+      attributesDetail?.colorMood,
+      attributesDetail?.expression,
+    ].find((v) => typeof v === "string" && v.trim()) || "authentic candid private mood";
 
-=== HOW Z-IMAGE TURBO NSFW CHECKPOINTS WORK BEST (2026) ===
-• The model prefers LONG, DETAILED NATURAL LANGUAGE: full sentences that tell one coherent "story" of the photo (who, where, light, pose, mood, a few props).
-• It is HURT by: (1) a huge comma-separated tag dump at the END, especially duplicate quality/realism/artifact phrases; (2) repetition and redundancy; (3) stacking conflicting "realism boosters"; (4) mixing amateur/smartphone vibe with polished or explicit-porn-aesthetic language; (5) hyper-specific anatomical micromanagement (causes mutations, perspective breaks, or stylized porn look).
-• The server appends a SHORT technical tail automatically (QUALITY_SUFFIX). Your JSON output must NOT mirror that tail — do NOT paste long lists of camera/skin/JPEG/flash phrases at the end.
+    let systemPrompt = `You are a professional AI image prompt engineer specializing in Z Image Turbo (prose-based diffusion model). Your job is to take user scene/pose inputs and model metadata, then output a single optimized descriptive prose prompt.
 
-=== LENGTH & SHAPE ===
-• Target 50–120 words of FLOWING prose (one or two paragraphs of connected sentences). Stay under ~130 words total.
-• Integrate light, mood, and texture INTO the narrative early or mid-prompt — NOT as 15+ repeated clauses stacked at the tail.
-• ONE DOMINANT LIGHT SOURCE, described ONCE coherently. For dim indoor amateur nudes, prefer harsh DIRECT PHONE FLASH FROM THE FRONT (signature look). Do NOT say "harsh flash from the side" and later "frontal flash washing out skin" — that conflicts and causes bad lighting blends. Pick one: e.g. frontal phone flash with sharp shadows behind the body, OR soft window daylight for day scenes — not both fighting each other.
+## HOW Z IMAGE TURBO WORKS
+Z Image Turbo is a prose-captioning model - it reads prompts like a journalist describing a real photograph, NOT like keyword-chain models (SDXL, Pony, etc.). Do NOT use keyword chains, quality tokens (RAW photo, 8k, hyperrealistic), or comma-separated tag lists. Realism comes from specific, grounded prose.
 
-=== LoRA TRIGGER + IDENTITY (IMPORTANT) ===
-• Start with: TRIGGER_WORD + minimal class word, e.g. "lora_example woman, ..." — then scene/pose/variables.
-• Do NOT re-list every fixed trait every time (full face recipe, hair, eyes, lips, makeup) — that weakens the trigger and can cause inconsistency. The LoRA carries identity; add only LIGHT reminders if needed, then SCENE.
+## INPUT YOU WILL RECEIVE
+- trigger: ${triggerWord}
+- differentiating_features: ${differentiatingFeatures}
+- pose: ${poseHint}
+- scene: ${sceneHint}
+- lighting: ${lightingHint}
+- mood: ${moodHint}
 
-=== EXPLICIT / PARTNERED SCENES ===
-• Describe the act in SHORT NARRATIVE prose, not clinical micromanagement (avoid stacking "average-sized erect penis penetrating... labia stretched... POV scale... proportional..." in one long chain).
-• Prefer one clear CAMERA ANGLE: e.g. "low side angle" OR "three-quarter view" OR "POV from above" — do not demand simultaneous "side profile showing insertion detail" AND "missionary front-facing POV" in ways that fight each other.
-• Safer example shape: "his average erect cock deep inside her from a side angle, her labia visibly gripping the shaft, bodies pressed close" — not a paragraph of isolated anatomy specs.
+## OUTPUT FORMAT
+Write one prose paragraph (150-300 words) structured as:
+1. Camera/capture conditions — describe the photo as if it already exists. Mention capture device, focus quality, grain, blur if relevant.
+2. Lighting and atmosphere — one coherent light source described atmospherically, not technically. Contradictory lighting is forbidden.
+3. Subject — weave in the trigger word and differentiating features naturally. Describe pose in observational anatomical terms.
+4. Environment — 2-3 specific grounding details max. No prop clutter.
+5. Mood/authenticity — one closing sentence describing overall feel and imperfections that add authenticity.
 
-=== AMATEUR PHOTO IDENTITY ===
-Private phone-gallery feel: spontaneous, imperfect. For true solo framing there is only the female subject in frame. For partnered/POV sex, the prompt describes her + visible male parts as the scene requires — do not add ethics disclaimers or filler like "consensual explicit adult" (the server handles framing).
-Weave 2–4 mundane clutter items into the story (charger, bottle, clothes, rumpled sheets). Backgrounds: messy, lived-in — never a clean studio set.
+## HARD RULES
+- Never use keyword chains or comma-separated quality tags
+- One lighting source per prompt, no conflicts
+- Pose must be anatomically plausible and described observationally
+- Differentiating features only - do not output full character sheets
+- Max 2-3 environmental details
+- Describe imperfections (grain, slight blur, uneven light) as intentional authenticity signals
+- Write in present-tense descriptive journalistic prose
+- Trigger word goes at the very start of the prose, naturally embedded
+- Keep subject gender consistent with: ${genderClass}
+- Keep prompt logically consistent and physically plausible
+- Do not add elements not requested by scene/pose/context
 
-=== ANTI-CINEMATIC (keep output looking like a real phone pic, not a shoot) ===
-Avoid: professional/studio lighting, rim light, dramatic shadows, golden-hour glow, volumetric light, "editorial", "photoshoot", warm lamp as hero light.
-Indoor night default: ONE dominant light — usually harsh frontal phone flash (see above). Daytime: flat window light. Composition: slightly casual/off-center OK. Background: messy/lived-in.
-
-=== ANTI-MUTATION & CLARITY ===
-- Complex poses: say what each hand does; chain body head-to-toe in one clear flow when helpful.
-- Solo-framed scenes only: you may imply a single subject — do NOT write "one person only" or "solo girl" if the scene is partnered sex / visible penetration / oral on a penis (server fixes the tail; contradicting breaks output).
-- NEVER use "boyfriend", "partner", "someone else" — causes phantom people.
-- Blowjobs: default ONE hand on shaft (vary left/right across generations); second hand on thigh, floor, or hair — unless user asked for huge/two-hand.
-- Sex acts: short narrative beats a long clinical anatomy checklist; avoid mixing "side profile insertion detail" with incompatible "POV scale" phrases in one prompt.
-
-=== PROMPT STYLE ===
-• 50–120 words, flowing sentences. End on SCENE content — NOT a second wall of duplicate quality tags (the server adds a short QUALITY_SUFFIX).
-• BAD: stacking "shot on iPhone… smartphone… grainy… no color grading… raw…" after you already described the scene.
-• GOOD: one tight paragraph (or two short ones) + stop.
-
-=== REALISM ANCHORS (server tail — DO NOT REPEAT) ===
-A compact technical suffix is appended after your text. Do NOT re-list camera model, JPEG artifacts, flash, skin pores, grain, "unedited raw", etc. in your JSON — that dilutes Turbo and muddies the scene you wrote.
-Your job: scene + pose + expression + clutter + ONE clear light description.
-
-=== BANNED TERMS (never use) ===
-"ultra detailed", "8k", "masterpiece", "best quality", "professional photography", "DSLR", "studio lighting", "color grading", "bokeh", "cinematic", "editorial", "magazine quality", "sharp focus", "high resolution", "dramatic lighting", "rim light", "golden glow", "photoshoot", "taken by boyfriend/partner", "volumetric", "god rays", "hyperrealistic"
-
-=== FRAMING & SELFIES (short) ===
-Direct photo of the subject; no backstage/meta. Mirror selfie: iPhone visible in reflection, describe the room. Non-mirror bed/overhead: no phone in hand; no "boyfriend/partner". Avoid selfie stick/tripod mentions.
-
-=== EXPLICIT PARTNERED / POV (narrative, not a tag list) ===
-When the scene needs penetration or oral: only the visible male part (penis) may appear — no full male body. Girl stays the focus. Describe scale in plain language once if needed ("average erect cock", "realistic adult scale") — do NOT chain five separate scale/POV/labia-spec clauses.
-Blowjob: kneeling, looking up, mouth on penis, one hand on shaft (vary left/right), other hand on thigh or floor — unless user asked for huge/two-hand.
-Doggy: POV from behind; her hands on bed/sheets; no hand on penis in frame.
-Missionary: pick ONE clear angle (e.g. three-quarter or side view showing connection, OR POV from above) — avoid "side profile + missionary + full insertion detail + POV scale" all fighting each other.
-Expressions: subtle pleasure (biting lip, half-closed eyes) — no ahegao by default. "Slightly damp skin" or "light sheen" not drenched sweat.
-
-=== STRUCTURE SCAFFOLDS (expand into flowing prose — do NOT append duplicate quality tags) ===
-A) Mirror: trigger + woman, bathroom mirror selfie, iPhone in reflection, scene, mood, one light description, clutter.
-B) Bed overhead: trigger + woman, on bed, overhead angle, expression, sheets, dim room + frontal flash.
-C) Blowjob POV: trigger + kneeling, mouth on penis, one hand on shaft, eye contact, floor/bedroom, messy hair.
-D) Doggy: trigger + all fours, arched back, look back, penetration from behind, hands on mattress, POV behind.
-E) Missionary (example shape — ~85 words, single light source, narrative):
-"[trigger] woman lying on her back on rumpled white sheets in a dim bedroom at night, harsh direct phone flash from the front washing out her skin slightly and casting sharp shadows behind her. She's in missionary with bodies pressed close, one leg hooked around his waist, his average erect cock deep inside her from a side angle so her stretched labia grip the shaft visibly. She squeezes one breast and grips the sheets with the other hand, biting her lower lip with half-closed eyes, flushed cheeks, messy hair on the pillow. Charging cable by her thigh, water bottle on the nightstand, hoodie on the floor. Candid amateur smartphone photo feel."
-Adapt traits to MODEL ATTRIBUTES + user scene; do not copy verbatim unless the scenario matches.
-
-=== GOLD STANDARD (mirror — structure only) ===
-Strong mirror selfie: trigger + scene in ~75–90 words, ONE coherent light description, 2–4 clutter props, no duplicate quality tail at the end. Do NOT re-list "natural skin texture, pores, anatomically correct" in a second paragraph — the server adds a short suffix.
-
-=== LOGICAL CONSISTENCY (think step-by-step before writing) ===
-${buildConstraintRulesText()}
-- Before writing: mentally simulate the entire photo — can every element physically coexist?
-- If selections contain contradictions, drop the less important element and keep core intent.
-- Wet scenes (shower/pool/rain) → wet body, wet hair, no dry outfits
-- Lying poses → need a surface (bed/floor/couch), not standing backgrounds
-- Indoor lighting ≠ outdoor settings. Flash ≠ daylight.
-
-=== INPUT ===
-SCENE (preset or user-written): '${userRequest}'
-LOCKED LORA LOOK + MATCHED CHIPS (identity/appearance — use these, do not invent):
-${attributeSummary}
-Inline: ${combinedAttributes || "none"}
-
-MODEL ATTRIBUTES:
-- Name/Trigger: ${triggerWord}
-- Gender: ${aiParams.gender || "woman"}
-- Age: ${model.age ? model.age + " years old" : aiParams.age || "20s"}
-- Body type: ${aiParams.bodyType || "fit"}
-- Hair color: ${aiParams.hairColor || "not specified"}
-- Eye color: ${aiParams.eyeColor || "not specified"}
-- Skin tone: ${aiParams.skinTone || "not specified"}
-- Ethnicity: ${aiParams.ethnicity || "not specified"}
-
-=== FINAL RULES ===
-- Start with the model trigger + minimal class (e.g. "${triggerWord} woman"); do not paste the full attribute list again as a second portrait block — the LoRA already encodes identity; scene and pose carry the image.
-- Subject gender lock: output MUST keep the subject as "${genderClass}" consistently. Do not switch biological sex markers in anatomy words.
-- Do NOT invent traits, clothing, or accessories not requested.
-- Use ONLY provided attributes + user request. Do not add elements the user did not ask for.
-- Backgrounds must have realistic imperfections and clutter — messy, lived-in, mundane.
-- NEVER include logically impossible combinations.
-- Write as coherent descriptive phrases with natural flow, not random comma-separated tags.
-- NEVER mention another person, boyfriend, partner, or photographer in the prompt.
-- The photo must look like a REAL private nude from a smartphone — raw, imperfect, spontaneous.
-- If the scene is explicit partnered sex / POV penetration / oral on a penis, describe anatomy and position clearly; do NOT write "solo girl" or "one person only" in your JSON prompt — the server appends the correct solo vs partnered quality tail automatically. Contradicting solo + sex in the same prompt breaks the image.
-
-OUTPUT: Return ONLY a JSON array with one prompt: ["prompt text here"]. No markdown fences, no explanation.
-If the user request combined with locked attributes implies an unresolvable logical contradiction (cannot be one coherent photo even after dropping minor elements), return exactly: ["[Error: Irresolvable logical conflict in request — please clarify]"].`;
+OUTPUT: Return ONLY the final prompt text. No markdown, no JSON wrapper, no explanation.
+If the request is logically impossible to satisfy as one coherent image, return exactly:
+[Error: Irresolvable logical conflict in request - please clarify]`;
     const mode = String(context?.mode || "").trim().toLowerCase();
     const systemTemplateKey = mode === "nudes-pack" ? "nudesPackPromptGeneratorSystem" : "nsfwPromptGenerator";
     systemPrompt = await getPromptTemplateValue(systemTemplateKey, systemPrompt);
@@ -5433,7 +5396,10 @@ const NSFW_RECOVERY_POLL_CONCURRENCY = Math.max(
   1,
   Math.min(20, Number(process.env.NSFW_RECOVERY_POLL_CONCURRENCY) || 8),
 );
-const NSFW_WATCHDOG_MIN_AGE_MS = Number(process.env.NSFW_WATCHDOG_MIN_AGE_MS) || 30 * 60 * 1000;
+// Default 3 min: acts as a fast safety-net for jobs whose webhook didn't match.
+// Without background polling, the watchdog is the only recovery for missed webhooks.
+// Env override: NSFW_WATCHDOG_MIN_AGE_MS (milliseconds).
+const NSFW_WATCHDOG_MIN_AGE_MS = Number(process.env.NSFW_WATCHDOG_MIN_AGE_MS) || 3 * 60 * 1000;
 
 async function pollProcessingNsfwGenerations() {
   if (nsfwPollerRunning) return;
