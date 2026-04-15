@@ -281,8 +281,34 @@ async function handleRunpodCallback(req, res) {
       body.input?.metadata?.generationId ||
       req.query?.generationId ||
       req.query?.generation_id;
-    const st = String(body.status || body.state || body.jobStatus || "").toUpperCase();
+    const statusRaw =
+      body.status ??
+      body.state ??
+      body.jobStatus ??
+      body?.data?.status ??
+      body?.data?.state ??
+      body?.result?.status ??
+      body?.result?.state ??
+      body?.output?.status ??
+      body?.output?.state;
+    let st = String(statusRaw || "").toUpperCase();
     const rawOut = body.output ?? body.result ?? body.data?.output ?? body.data ?? null;
+
+    // Fallback inference for webhook variants that omit top-level status.
+    if (!st) {
+      const rawError = body?.error || rawOut?.error || rawOut?.message || "";
+      const inferredImgs = extractModelCloneXImages(rawOut);
+      if (inferredImgs.length > 0) {
+        st = "COMPLETED";
+      } else if (String(rawError).trim()) {
+        st = "FAILED";
+      }
+      if (!st) {
+        const topKeys = body && typeof body === "object" ? Object.keys(body).slice(0, 10) : [];
+        const outKeys = rawOut && typeof rawOut === "object" ? Object.keys(rawOut).slice(0, 10) : [];
+        console.warn(`[RunPod webhook] missing status for job ${jobId}; topKeys=${JSON.stringify(topKeys)} outKeys=${JSON.stringify(outKeys)}`);
+      }
+    }
 
     if (!jobId) {
       // Health/probe style callback with only secret in query — acknowledge.
