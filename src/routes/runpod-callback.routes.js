@@ -52,11 +52,7 @@ function matchesRunpodJobId(candidate, variants) {
 
 function verifyWebhook(req) {
   if (!SECRET) {
-    if (process.env.NODE_ENV === "production") {
-      console.error("[RunPod webhook] RUNPOD_WEBHOOK_SECRET is required in production");
-      return false;
-    }
-    console.warn("[RunPod webhook] RUNPOD_WEBHOOK_SECRET unset — allowing callback (dev only)");
+    // No secret configured — open callback endpoint, allow all RunPod calls
     return true;
   }
   const q = req.query?.secret ?? req.query?.token;
