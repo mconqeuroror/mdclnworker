@@ -21,6 +21,9 @@ import { uploadBufferToBlobOrR2 } from "../utils/kieUpload.js";
 
 const router = express.Router();
 const SECRET = process.env.RUNPOD_WEBHOOK_SECRET?.trim();
+const REQUIRE_WEBHOOK_SECRET = ["1", "true", "yes", "on"].includes(
+  String(process.env.RUNPOD_WEBHOOK_REQUIRE_SECRET || "").trim().toLowerCase(),
+);
 const RUNPOD_WEBHOOK_BODY_LIMIT = process.env.RUNPOD_WEBHOOK_BODY_LIMIT || "200mb";
 
 // RunPod can send very large callback payloads (base64 image outputs).
@@ -50,10 +53,18 @@ function matchesRunpodJobId(candidate, variants) {
 }
 
 function verifyWebhook(req) {
-  if (!SECRET) {
-    // No secret configured — open callback endpoint, allow all RunPod calls
+  // Default mode: open callbacks (RunPod sends no secret by default).
+  // Enable strict verification only when explicitly requested:
+  //   RUNPOD_WEBHOOK_REQUIRE_SECRET=1
+  if (!REQUIRE_WEBHOOK_SECRET) {
     return true;
   }
+
+  if (!SECRET) {
+    console.warn("[runpod-callback] RUNPOD_WEBHOOK_REQUIRE_SECRET=1 but RUNPOD_WEBHOOK_SECRET is empty; allowing callback");
+    return true;
+  }
+
   const q = req.query?.secret ?? req.query?.token;
   const auth = req.headers.authorization;
   const bearer = typeof auth === "string" && auth.startsWith("Bearer ") ? auth.slice(7).trim() : null;
