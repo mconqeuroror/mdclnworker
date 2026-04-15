@@ -93,7 +93,12 @@ export async function submitUpscalerJob(imageBase64, filename = "upscale_input.j
   }
 
   const data = await resp.json();
-  const jobId = data.id;
+  const jobId =
+    data.id ||
+    data.request_id ||
+    data.requestId ||
+    data.task_id ||
+    data.taskId;
   if (!jobId) throw new Error(`Upscaler submit returned no job id: ${JSON.stringify(data)}`);
 
   console.log(`[Upscaler] Job submitted: ${jobId}`);
@@ -143,14 +148,42 @@ export function extractUpscalerImage(runpodOutput) {
   const out = runpodOutput?.output ?? runpodOutput;
   if (!out) return null;
 
+  const asImageString = (img) => {
+    if (typeof img === "string") return img;
+    if (img?.base64) return img.base64;
+    if (img?.data) return img.data;
+    if (img?.image) return img.image;
+    if (img?.url) return img.url;
+    return null;
+  };
+
   const images = out.images;
   if (Array.isArray(images) && images.length > 0) {
-    const first = images[0];
-    if (typeof first === "string") return first;
-    // handler.py encodes images as { filename, node_id, base64 }
-    if (first?.base64) return first.base64;
-    if (first?.data) return first.data;
-    if (first?.url) return first.url;
+    const first = asImageString(images[0]);
+    if (first) return first;
+  }
+
+  // Compatibility fallback: outputs keyed by node id, e.g. outputs["11"].images[]
+  const nodeOutputs = out.outputs;
+  if (nodeOutputs && typeof nodeOutputs === "object") {
+    const preferred = String(UPSCALER_OUTPUT_NODE);
+    const orderedNodeIds = [preferred, ...Object.keys(nodeOutputs).filter((k) => k !== preferred)];
+    for (const nodeId of orderedNodeIds) {
+      const nodeImages = nodeOutputs?.[nodeId]?.images;
+      if (!Array.isArray(nodeImages) || nodeImages.length === 0) continue;
+      const first = asImageString(nodeImages[0]);
+      if (first) return first;
+    }
+  }
+
+  if (typeof out.base64 === "string" && out.base64.length > 100) return out.base64;
+  if (typeof out.image === "string" && out.image.length > 100) return out.image;
+  if (typeof out.data === "string" && out.data.length > 100) return out.data;
+
+  const legacy = out?.result?.output_nodes?.[UPSCALER_OUTPUT_NODE]?.images;
+  if (Array.isArray(legacy) && legacy.length > 0) {
+    const first = asImageString(legacy[0]);
+    if (first) return first;
   }
 
   // Flat base64 string

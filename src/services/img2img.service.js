@@ -401,7 +401,12 @@ async function runpodSubmitWithEndpoint(endpointId, payload, webhookUrl = null) 
   }
 
   const data = await resp.json();
-  const jobId = data.id;
+  const jobId =
+    data.id ||
+    data.request_id ||
+    data.requestId ||
+    data.task_id ||
+    data.taskId;
   if (!jobId) throw new Error(`Generation service returned no job id: ${JSON.stringify(data)}`);
   return jobId;
 }

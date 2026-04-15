@@ -2622,7 +2622,12 @@ export async function submitNsfwGeneration(params) {
   }
 
   try {
-    const runpodJobId = result.id;
+    const runpodJobId =
+      result.id ||
+      result.request_id ||
+      result.requestId ||
+      result.task_id ||
+      result.taskId;
 
     if (!runpodJobId) {
       throw new Error("No job ID returned from generation service");
@@ -2761,12 +2766,64 @@ export function normalizeRunpodNsfwOutput(raw) {
     }
   }
   if (typeof o !== "object" || o === null) return null;
-  if (!Array.isArray(o.images) || o.images.length === 0) {
-    const inner = o.output;
-    if (inner && typeof inner === "object" && Array.isArray(inner.images) && inner.images.length > 0) {
-      o = inner;
+
+  const asImageString = (img) => {
+    if (typeof img === "string") return img;
+    if (img?.base64) return img.base64;
+    if (img?.data) return img.data;
+    if (img?.image) return img.image;
+    if (img?.url) return img.url;
+    return null;
+  };
+  const hasImages = (v) => Array.isArray(v?.images) && v.images.length > 0;
+
+  if (hasImages(o)) {
+    return { ...o, images: o.images.map(asImageString).filter(Boolean) };
+  }
+
+  // Common RunPod wrapper shape: { output: { ... } }
+  const inner = o.output;
+  if (inner && typeof inner === "object") {
+    if (hasImages(inner)) {
+      return { ...inner, images: inner.images.map(asImageString).filter(Boolean) };
+    }
+    o = inner;
+  }
+
+  // Worker/Comfy shape: { outputs: { "<nodeId>": { images: [...] } } }
+  // Prefer node 289 (SaveImage in NSFW workflow), then any node with images.
+  const outputs = o?.outputs;
+  if (outputs && typeof outputs === "object") {
+    const preferredNodeIds = ["289", ...Object.keys(outputs).filter((k) => k !== "289")];
+    for (const nodeId of preferredNodeIds) {
+      const nodeOut = outputs[nodeId];
+      if (!hasImages(nodeOut)) continue;
+      const images = nodeOut.images.map(asImageString).filter(Boolean);
+      if (images.length > 0) {
+        return { ...o, images, node_id: nodeId };
+      }
     }
   }
+
+  // Legacy variant: { result: { output_nodes: { "<nodeId>": { images: [...] } } } }
+  const outputNodes = o?.result?.output_nodes;
+  if (outputNodes && typeof outputNodes === "object") {
+    const preferredNodeIds = ["289", ...Object.keys(outputNodes).filter((k) => k !== "289")];
+    for (const nodeId of preferredNodeIds) {
+      const nodeOut = outputNodes[nodeId];
+      if (!hasImages(nodeOut)) continue;
+      const images = nodeOut.images.map(asImageString).filter(Boolean);
+      if (images.length > 0) {
+        return { ...o, images, node_id: nodeId };
+      }
+    }
+  }
+
+  // Single-image shortcuts.
+  if (typeof o.base64 === "string" && o.base64.length > 100) return { ...o, images: [o.base64] };
+  if (typeof o.image === "string" && o.image.length > 100) return { ...o, images: [o.image] };
+  if (typeof o.data === "string" && o.data.length > 100) return { ...o, images: [o.data] };
+
   return o;
 }
 
@@ -2807,7 +2864,7 @@ export async function checkNsfwGenerationStatus(jobId) {
     }
 
     if (runpodStatus === "COMPLETED") {
-      const output = normalizeRunpodNsfwOutput(result.output);
+      const output = normalizeRunpodNsfwOutput(result.output ?? result);
       if (!output) {
         console.warn(`⚠️ RunPod job COMPLETED but output missing or unparsable`, String(result.output)?.slice(0, 200));
         return { status: "FAILED", error: "No valid output from RunPod" };
@@ -2931,7 +2988,7 @@ export async function getNsfwGenerationResult(jobId, cachedOutput = null) {
       if (result.status !== "COMPLETED" || result.output == null) {
         throw new Error(`Generation not completed: ${result.status}`);
       }
-      output = normalizeRunpodNsfwOutput(result.output);
+      output = normalizeRunpodNsfwOutput(result.output ?? result);
     } else {
       output = normalizeRunpodNsfwOutput(output);
     }

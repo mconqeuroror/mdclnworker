@@ -170,7 +170,12 @@ export async function submitModelCloneXJob(opts, webhookUrl = null) {
   }
 
   const data = await resp.json();
-  const jobId = data.id;
+  const jobId =
+    data.id ||
+    data.request_id ||
+    data.requestId ||
+    data.task_id ||
+    data.taskId;
   if (!jobId) throw new Error(`ModelClone-X submit returned no job id: ${JSON.stringify(data)}`);
 
   console.log(`[ModelCloneX] Job submitted: ${jobId}`);
@@ -215,15 +220,43 @@ export function extractModelCloneXImages(runpodOutput) {
   const out = runpodOutput?.output ?? runpodOutput;
   if (!out) return [];
 
+  const asImageString = (img) => {
+    if (typeof img === "string") return img;
+    if (img?.base64) return img.base64;
+    if (img?.data) return img.data;
+    if (img?.image) return img.image;
+    if (img?.url) return img.url;
+    return null;
+  };
+
   const images = out.images;
   if (Array.isArray(images) && images.length > 0) {
-    return images.map((img) => {
-      if (typeof img === "string") return img;
-      if (img?.base64) return img.base64;
-      if (img?.data) return img.data;
-      if (img?.url) return img.url;
-      return null;
-    }).filter(Boolean);
+    return images.map(asImageString).filter(Boolean);
+  }
+
+  // Compatibility fallback: some workers return ComfyUI node outputs
+  // under { outputs: { "<nodeId>": { images: [...] } } }.
+  const nodeOutputs = out.outputs;
+  if (nodeOutputs && typeof nodeOutputs === "object") {
+    const preferred = String(MODELCLONE_X_OUTPUT_NODE);
+    const orderedNodeIds = [preferred, ...Object.keys(nodeOutputs).filter((k) => k !== preferred)];
+    for (const nodeId of orderedNodeIds) {
+      const nodeImages = nodeOutputs?.[nodeId]?.images;
+      if (!Array.isArray(nodeImages) || nodeImages.length === 0) continue;
+      const extracted = nodeImages.map(asImageString).filter(Boolean);
+      if (extracted.length > 0) return extracted;
+    }
+  }
+
+  if (typeof out.base64 === "string" && out.base64.length > 100) return [out.base64];
+  if (typeof out.image === "string" && out.image.length > 100) return [out.image];
+  if (typeof out.data === "string" && out.data.length > 100) return [out.data];
+
+  // Legacy wrapper variants occasionally place output under result/output_nodes.
+  const node289 = out?.result?.output_nodes?.["289"]?.images;
+  if (Array.isArray(node289) && node289.length > 0) {
+    const extracted = node289.map(asImageString).filter(Boolean);
+    if (extracted.length > 0) return extracted;
   }
 
   if (typeof out === "string" && out.length > 100) return [out];

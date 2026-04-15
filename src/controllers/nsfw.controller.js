@@ -2928,6 +2928,7 @@ export async function generateNsfwImage(req, res) {
         where: { id: generation.id },
         data: {
           inputImageUrl: JSON.stringify({
+            runpodJobId: submission.requestId,
             comfyuiPromptId: submission.requestId,
             loraUrl,
             triggerWord: loraTriggerWord,
@@ -3333,6 +3334,7 @@ export async function generateNudesPack(req, res) {
             where: { id: generationId },
             data: {
               inputImageUrl: JSON.stringify({
+                runpodJobId: submission.requestId,
                 comfyuiPromptId: submission.requestId,
                 loraUrl,
                 triggerWord: loraTriggerWord,
@@ -5559,6 +5561,7 @@ async function pollSingleNsfwGeneration(gen) {
     !replicate.startsWith("comfyui-");
 
   const requestId =
+    inputData?.runpodJobId ||
     inputData?.comfyuiPromptId ||
     inputData?.runcomfyRequestId ||
     (replicateLooksLikeTaskId ? replicate : null);

@@ -29,6 +29,27 @@ const RUNPOD_WEBHOOK_BODY_LIMIT = process.env.RUNPOD_WEBHOOK_BODY_LIMIT || "200m
 router.use(express.json({ limit: RUNPOD_WEBHOOK_BODY_LIMIT }));
 router.use(express.urlencoded({ extended: true, limit: RUNPOD_WEBHOOK_BODY_LIMIT }));
 
+function buildRunpodJobIdVariants(jobId) {
+  const raw = String(jobId || "").trim();
+  if (!raw) return [];
+  const variants = new Set([raw]);
+  // Some webhook payloads append an execution suffix like "-u2".
+  const stripped = raw.replace(/-u\d+$/i, "");
+  if (stripped) variants.add(stripped);
+  return Array.from(variants);
+}
+
+function matchesRunpodJobId(candidate, variants) {
+  const value = String(candidate || "").trim();
+  if (!value) return false;
+  return variants.some((v) => {
+    if (value === v) return true;
+    if (value.startsWith(`${v}-u`)) return true;
+    if (v.startsWith(`${value}-u`)) return true;
+    return false;
+  });
+}
+
 function verifyWebhook(req) {
   if (!SECRET) {
     if (process.env.NODE_ENV === "production") {
@@ -46,16 +67,20 @@ function verifyWebhook(req) {
 }
 
 async function findNsfwGenerationByRunpodJobId(jobId) {
-  if (!jobId) return null;
+  const jobIdVariants = buildRunpodJobIdVariants(jobId);
+  if (jobIdVariants.length === 0) return null;
+
+  const containsFilters = jobIdVariants.flatMap((id) => ([
+    { inputImageUrl: { contains: `"runpodJobId":"${id}"` } },
+    { inputImageUrl: { contains: `"comfyuiPromptId":"${id}"` } },
+  ]));
+
   const direct = await prisma.generation.findFirst({
     where: {
       type: "nsfw",
       status: { in: ["processing", "pending"] },
       createdAt: { gt: new Date(Date.now() - 48 * 60 * 60 * 1000) },
-      OR: [
-        { inputImageUrl: { contains: `"runpodJobId":"${jobId}"` } },
-        { inputImageUrl: { contains: `"comfyuiPromptId":"${jobId}"` } },
-      ],
+      OR: containsFilters,
     },
     orderBy: { createdAt: "desc" },
   });
@@ -73,7 +98,7 @@ async function findNsfwGenerationByRunpodJobId(jobId) {
   return rows.find((g) => {
     try {
       const j = typeof g.inputImageUrl === "string" ? JSON.parse(g.inputImageUrl) : g.inputImageUrl;
-      return j?.comfyuiPromptId === jobId || j?.runpodJobId === jobId;
+      return matchesRunpodJobId(j?.comfyuiPromptId, jobIdVariants) || matchesRunpodJobId(j?.runpodJobId, jobIdVariants);
     } catch {
       return false;
     }
@@ -81,13 +106,20 @@ async function findNsfwGenerationByRunpodJobId(jobId) {
 }
 
 async function findGenerationByRunpodJobId(jobId, types) {
-  if (!jobId) return null;
+  const jobIdVariants = buildRunpodJobIdVariants(jobId);
+  if (jobIdVariants.length === 0) return null;
+
+  const containsFilters = jobIdVariants.flatMap((id) => ([
+    { inputImageUrl: { contains: `"runpodJobId":"${id}"` } },
+    { inputImageUrl: { contains: `"comfyuiPromptId":"${id}"` } },
+  ]));
+
   const direct = await prisma.generation.findFirst({
     where: {
       type: { in: types },
       status: { in: ["processing", "pending"] },
       createdAt: { gt: new Date(Date.now() - 48 * 60 * 60 * 1000) },
-      inputImageUrl: { contains: `"runpodJobId":"${jobId}"` },
+      OR: containsFilters,
     },
     orderBy: { createdAt: "desc" },
   });
@@ -105,19 +137,29 @@ async function findGenerationByRunpodJobId(jobId, types) {
   return rows.find((g) => {
     try {
       const j = JSON.parse(g.inputImageUrl || "{}");
-      return j?.runpodJobId === jobId;
+      return (
+        matchesRunpodJobId(j?.runpodJobId, jobIdVariants) ||
+        matchesRunpodJobId(j?.comfyuiPromptId, jobIdVariants)
+      );
     } catch { return false; }
   }) || null;
 }
 
 async function findDescribeJobByRunpodJobId(jobId) {
-  if (!jobId) return null;
+  const jobIdVariants = buildRunpodJobIdVariants(jobId);
+  if (jobIdVariants.length === 0) return null;
+
+  const containsFilters = jobIdVariants.flatMap((id) => ([
+    { inputImageUrl: { contains: `"runpodJobId":"${id}"` } },
+    { inputImageUrl: { contains: `"comfyuiPromptId":"${id}"` } },
+  ]));
+
   const direct = await prisma.generation.findFirst({
     where: {
       type: "img2img-describe",
       status: { in: ["processing", "pending"] },
       createdAt: { gt: new Date(Date.now() - 4 * 60 * 60 * 1000) },
-      inputImageUrl: { contains: `"runpodJobId":"${jobId}"` },
+      OR: containsFilters,
     },
     orderBy: { createdAt: "desc" },
   });
@@ -135,7 +177,10 @@ async function findDescribeJobByRunpodJobId(jobId) {
   return rows.find((g) => {
     try {
       const j = JSON.parse(g.inputImageUrl || "{}");
-      return j?.runpodJobId === jobId;
+      return (
+        matchesRunpodJobId(j?.runpodJobId, jobIdVariants) ||
+        matchesRunpodJobId(j?.comfyuiPromptId, jobIdVariants)
+      );
     } catch {
       return false;
     }
@@ -154,7 +199,13 @@ async function handleRunpodCallback(req, res) {
       req.body && typeof req.body === "object" && Object.keys(req.body).length > 0
         ? req.body
         : (req.query || {});
-    const jobId = body.id || body.requestId || body.jobId;
+    const jobId =
+      body.id ||
+      body.requestId ||
+      body.request_id ||
+      body.jobId ||
+      body.task_id ||
+      body.taskId;
     const st = String(body.status || body.state || body.jobStatus || "").toUpperCase();
     const rawOut = body.output ?? body.result ?? body.data?.output ?? body.data ?? null;
 
