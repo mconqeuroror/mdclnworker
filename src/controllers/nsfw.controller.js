@@ -2896,26 +2896,12 @@ export async function generateNsfwImage(req, res) {
 
       if (!submission.success) {
         const submissionError = String(submission.error || "");
-        if (isTransientRunpodNotFoundError(submissionError)) {
-          console.warn(
-            `⚠️ NSFW submit transient for ${generation.id.slice(0, 8)}: ${submissionError.slice(0, 200)} — keeping processing (webhook-first)`,
-          );
-          continue;
-        }
-        await refundGeneration(generation.id);
-        await prisma.generation.update({
-          where: { id: generation.id },
-          data: { status: "failed", errorMessage: getErrorMessageForDb(submissionError) },
-        });
-        const unassignedCredits = creditsNeeded - creditsAssigned;
-        if (unassignedCredits > 0) {
-          await refundCredits(userId, unassignedCredits);
-        }
-        creditsDeducted = 0;
-        return res.status(400).json({
-          success: false,
-          message: submission.error || "Failed to start generation",
-        });
+        // Webhook-first mode: do not hard-fail immediately on submit errors.
+        // RunPod can still process and callback with generationId correlation.
+        console.warn(
+          `⚠️ NSFW submit returned error for ${generation.id.slice(0, 8)}: ${submissionError.slice(0, 220)} — keeping processing and waiting for callback`,
+        );
+        continue;
       }
 
       const rp = submission.resolvedParams || {};
@@ -3312,19 +3298,11 @@ export async function generateNudesPack(req, res) {
 
           if (!submission.success) {
             const submissionError = String(submission.error || "");
-            if (isTransientRunpodNotFoundError(submissionError)) {
-              console.warn(
-                `⚠️ Nudes pack submit transient for ${generationId.slice(0, 8)}: ${submissionError.slice(0, 200)} — keeping processing`,
-              );
-              queuedCount += 1;
-              continue;
-            }
-            await refundGeneration(generationId);
-            await prisma.generation.update({
-              where: { id: generationId },
-              data: { status: "failed", errorMessage: getErrorMessageForDb(submissionError) },
-            });
-            bgFailures.push({ poseId, error: submission.error || "Submit failed" });
+            // Webhook-first mode: keep row processing even when submit returns an error.
+            // Callback correlation via generationId may still complete successfully.
+            console.warn(
+              `⚠️ Nudes pack submit returned error for ${generationId.slice(0, 8)}: ${submissionError.slice(0, 220)} — keeping processing`,
+            );
             continue;
           }
 
