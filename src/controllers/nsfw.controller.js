@@ -49,6 +49,11 @@ import { resolveNsfwResolution } from "../utils/nsfwResolution.js";
 import { enforceGeneratedContentDeletionBlock } from "../utils/generated-content-deletion-guard.js";
 import { resolveRunpodWebhookUrl } from "../lib/runpodWebhookUrl.js";
 
+function isTransientRunpodNotFoundError(raw) {
+  const msg = String(raw || "");
+  return /job not found|not found yet|may have expired|job.*expired|expired/i.test(msg);
+}
+
 // Models with age < 18 cannot use NSFW or LoRA (policy)
 function isMinorModel(model) {
   return model && typeof model.age === "number" && model.age < 18;
@@ -2890,10 +2895,17 @@ export async function generateNsfwImage(req, res) {
       }, nsfwWebhookUrl, generation.id);
 
       if (!submission.success) {
+        const submissionError = String(submission.error || "");
+        if (isTransientRunpodNotFoundError(submissionError)) {
+          console.warn(
+            `⚠️ NSFW submit transient for ${generation.id.slice(0, 8)}: ${submissionError.slice(0, 200)} — keeping processing (webhook-first)`,
+          );
+          continue;
+        }
         await refundGeneration(generation.id);
         await prisma.generation.update({
           where: { id: generation.id },
-          data: { status: "failed", errorMessage: getErrorMessageForDb(submission.error) },
+          data: { status: "failed", errorMessage: getErrorMessageForDb(submissionError) },
         });
         const unassignedCredits = creditsNeeded - creditsAssigned;
         if (unassignedCredits > 0) {
@@ -3299,10 +3311,18 @@ export async function generateNudesPack(req, res) {
           }, nsfwWebhookUrl, generationId);
 
           if (!submission.success) {
+            const submissionError = String(submission.error || "");
+            if (isTransientRunpodNotFoundError(submissionError)) {
+              console.warn(
+                `⚠️ Nudes pack submit transient for ${generationId.slice(0, 8)}: ${submissionError.slice(0, 200)} — keeping processing`,
+              );
+              queuedCount += 1;
+              continue;
+            }
             await refundGeneration(generationId);
             await prisma.generation.update({
               where: { id: generationId },
-              data: { status: "failed", errorMessage: getErrorMessageForDb(submission.error) },
+              data: { status: "failed", errorMessage: getErrorMessageForDb(submissionError) },
             });
             bgFailures.push({ poseId, error: submission.error || "Submit failed" });
             continue;
@@ -3460,7 +3480,7 @@ export async function finalizeNsfwRunpodGeneration(generationId, requestId, runp
     result = await getNsfwGenerationResult(requestId, runpodOutput);
   } catch (err) {
     const msg = String(err?.message || "");
-    if (/job not found|not found yet|may have expired|job.*expired|expired/i.test(msg)) {
+    if (isTransientRunpodNotFoundError(msg)) {
       console.warn(`[NSFW finalize] transient not-found for ${generationId.slice(0, 8)} (${requestId}) — keeping processing`);
       return { ok: true, skipped: true, reason: "transient_not_found" };
     }
