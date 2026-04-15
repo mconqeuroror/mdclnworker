@@ -3448,7 +3448,24 @@ export async function finalizeNsfwRunpodGeneration(generationId, requestId, runp
     return { ok: true, skipped: true, reason: "already_finalized" };
   }
 
-  const result = await getNsfwGenerationResult(requestId, runpodOutput);
+  // Webhook-first finalize: if callback payload is missing/ambiguous, do NOT fail early.
+  // Keep the row in processing so a later callback can finalize it.
+  if (!runpodOutput) {
+    console.warn(`[NSFW finalize] ${generationId.slice(0, 8)} missing runpod output payload for request ${requestId}; waiting for callback retry`);
+    return { ok: true, skipped: true, reason: "missing_runpod_output" };
+  }
+
+  let result;
+  try {
+    result = await getNsfwGenerationResult(requestId, runpodOutput);
+  } catch (err) {
+    const msg = String(err?.message || "");
+    if (/job not found|not found yet|may have expired|job.*expired|expired/i.test(msg)) {
+      console.warn(`[NSFW finalize] transient not-found for ${generationId.slice(0, 8)} (${requestId}) — keeping processing`);
+      return { ok: true, skipped: true, reason: "transient_not_found" };
+    }
+    throw err;
+  }
   if (!result.outputUrls?.length) {
     throw new Error("No output URLs in result");
   }
