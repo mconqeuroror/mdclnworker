@@ -2910,6 +2910,13 @@ export async function checkNsfwGenerationStatus(jobId) {
     const runpodStatus = result.status;
 
     if (result.error && !runpodStatus) {
+      const errStr = String(result.error || "");
+      // RunPod returns this when the job ID doesn't exist yet or data was cleaned up —
+      // same as a 404: treat as still queued so we don't prematurely fail the generation.
+      if (/not found|may have expired|job.*expired|expired/i.test(errStr)) {
+        console.warn(`⚠️ RunPod job ${jobId} not found / expired (error body) — treating as IN_QUEUE`);
+        return { status: "IN_QUEUE" };
+      }
       console.warn(`⚠️ RunPod job ${jobId} error response: ${result.error}`);
       return { status: "FAILED", error: `RunPod: ${result.error}` };
     }
@@ -2934,6 +2941,13 @@ export async function checkNsfwGenerationStatus(jobId) {
 
     if (runpodStatus === "FAILED") {
       const errorMsg = result.output?.error || result.error || "Generation failed";
+      // RunPod returns FAILED with "not found / may have expired" when job data is cleaned up.
+      // This is not a real generation failure — the job may have completed via webhook already.
+      // Treat the same as a 404: return IN_QUEUE so the watchdog doesn't kill the generation.
+      if (/not found|may have expired|job.*expired|expired/i.test(String(errorMsg))) {
+        console.warn(`⚠️ RunPod job ${jobId} not found / expired (FAILED status) — treating as IN_QUEUE`);
+        return { status: "IN_QUEUE" };
+      }
       console.error(`❌ RunPod job ${jobId} FAILED: ${errorMsg}`);
       return { status: "FAILED", error: errorMsg };
     }
