@@ -3785,18 +3785,26 @@ Z Image Turbo is a prose-captioning model - it reads prompts like a journalist d
 - lighting: ${lightingHint}
 - mood: ${moodHint}
 
+## CRITICAL — POSE PROMPT FRAGMENT PRESERVATION
+When a "Pose prompt fragment" is provided in the input, it is the GROUND-TRUTH anatomical blueprint. You MUST:
+- Preserve ALL explicit anatomical terms, body positions, penetration descriptions, and camera angles from the fragment VERBATIM
+- Do NOT paraphrase, soften, abstract, or reinterpret the sex act or body positioning
+- Do NOT change which direction penetration occurs, which orifice is involved, or the camera angle
+- Do NOT replace precise terms (e.g. "cock inside her from behind", "her labia gripping the shaft") with vague equivalents — vague anatomy descriptions directly cause the model to hallucinate impossible body configurations
+- Your ONLY job when a fragment is present: (1) prepend trigger word naturally, (2) weave differentiating features into the subject description, (3) add camera capture feel and lighting — leave the anatomical scene description intact
+
 ## OUTPUT FORMAT
 Write one prose paragraph (150-300 words) structured as:
 1. Camera/capture conditions — describe the photo as if it already exists. Mention capture device, focus quality, grain, blur if relevant.
 2. Lighting and atmosphere — one coherent light source described atmospherically, not technically. Contradictory lighting is forbidden.
-3. Subject — weave in the trigger word and differentiating features naturally. Describe pose in observational anatomical terms.
+3. Subject — weave in the trigger word and differentiating features naturally. Use the Pose prompt fragment as-is for body position and sex act description.
 4. Environment — 2-3 specific grounding details max. No prop clutter.
 5. Mood/authenticity — one closing sentence describing overall feel and imperfections that add authenticity.
 
 ## HARD RULES
 - Never use keyword chains or comma-separated quality tags
 - One lighting source per prompt, no conflicts
-- Pose must be anatomically plausible and described observationally
+- Pose fragment anatomical terms are sacred — copy them exactly, do not paraphrase
 - Differentiating features only - do not output full character sheets
 - Max 2-3 environmental details
 - Describe imperfections (grain, slight blur, uneven light) as intentional authenticity signals
