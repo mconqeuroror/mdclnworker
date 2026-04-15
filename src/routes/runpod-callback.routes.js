@@ -52,9 +52,8 @@ function matchesRunpodJobId(candidate, variants) {
 }
 
 function verifyWebhook(req) {
-  // Default mode: open callbacks (RunPod sends no secret by default).
-  // Enable strict verification only when explicitly requested:
-  //   RUNPOD_WEBHOOK_REQUIRE_SECRET=1
+  // Secret verification is fully disabled — RunPod callbacks are open.
+  // RUNPOD_WEBHOOK_REQUIRE_SECRET must be explicitly set to "1" / "true" to enforce.
   if (!REQUIRE_WEBHOOK_SECRET) {
     return true;
   }
@@ -68,7 +67,14 @@ function verifyWebhook(req) {
   const auth = req.headers.authorization;
   const bearer = typeof auth === "string" && auth.startsWith("Bearer ") ? auth.slice(7).trim() : null;
   const header = req.headers["x-runpod-secret"];
-  return q === SECRET || header === SECRET || bearer === SECRET;
+  const ok = q === SECRET || header === SECRET || bearer === SECRET;
+  if (!ok) {
+    console.error(
+      `[runpod-callback] 401 — secret mismatch. REQUIRE_WEBHOOK_SECRET=${REQUIRE_WEBHOOK_SECRET}, ` +
+      `SECRET set=${!!SECRET}, query.secret=${!!q}, x-runpod-secret=${!!header}, bearer=${!!bearer}`
+    );
+  }
+  return ok;
 }
 
 async function findGenerationByRunpodJobId(jobId, types) {
@@ -280,6 +286,7 @@ function extractRunpodErrorMessage(rawOut, body) {
 }
 
 async function handleRunpodCallback(req, res) {
+  console.log(`[runpod-callback] ${req.method} ${req.originalUrl} from ${req.ip}`);
   if (!verifyWebhook(req)) {
     return res.status(401).json({ ok: false, error: "unauthorized" });
   }
