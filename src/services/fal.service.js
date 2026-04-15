@@ -1301,7 +1301,7 @@ function loadNsfwCoreWorkflowGraph() {
 
 // ─── Pro workflow (SeedVR2 upscaler + film grain) ────────────────────────────
 
-let _nsfwProApiCache = null;
+let _nsfwProApiCache = null; // Reset whenever nsfw_pro_api.json is updated on disk.
 function loadNsfwProWorkflow() {
   if (_nsfwProApiCache) return JSON.parse(JSON.stringify(_nsfwProApiCache));
   const candidates = [
@@ -1352,14 +1352,15 @@ function buildComfyWorkflowPro(params) {
     return null;
   }
 
-  // ── LoRA (node 363 = LoadLoraFromUrlOrPath, node 364 = CR Apply LoRA Stack) ─
-  // Single slot: girl LoRA URL, one strength value applied to both model & clip.
+  // ── LoRA (node 363 = Load LoRA From URL) ──────────────────────────────────
+  // Single LoRA: girl identity. Feeds MODEL directly into KSampler (node 276).
   if (wf["363"]) {
     const strength = Math.min(1, Math.max(0, Number(girlLoraStrength) || 0.6));
-    wf["363"].inputs.num_loras = 1;
-    wf["363"].inputs.lora_1_url = loraUrl ?? "";
-    wf["363"].inputs.lora_1_strength = strength;
+    wf["363"].inputs.url = loraUrl ?? "";
+    wf["363"].inputs.strength_model = strength;
   }
+  // Node 364 (CR Apply LoRA Stack) is no longer part of this workflow.
+  delete wf["364"];
 
   // ── Aspect ratio (node 50) ──────────────────────────────────────────────────
   if (wf["50"]) {
@@ -1416,13 +1417,13 @@ function buildComfyWorkflowPro(params) {
     }
   }
 
-  // Always bypass SeedVR2 for NSFW output path.
-  console.log("[Pro workflow] Upscale disabled — routing VAEDecode -> Film Grain directly");
+  // Guarantee SeedVR2 is not present (template no longer includes it, but guard for stale cache).
   if (wf["284"]) wf["284"].inputs.image = ["25", 0];
   delete wf["359"];
   delete wf["360"];
   delete wf["361"];
   delete wf["362"];
+  delete wf["369"];
 
   return wf;
 }

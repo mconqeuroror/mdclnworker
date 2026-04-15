@@ -1,60 +1,34 @@
 {
   "1": {
     "inputs": {
-      "text": [
-        "41",
-        0
-      ],
-      "clip": [
-        "248",
-        0
-      ]
+      "text": ["41", 0],
+      "clip": ["248", 0]
     },
     "class_type": "CLIPTextEncode",
-    "_meta": {
-      "title": "Negative Prompt"
-    }
+    "_meta": { "title": "Negative Prompt" }
   },
   "2": {
     "inputs": {
-      "text": [
-        "56",
-        0
-      ],
-      "clip": [
-        "248",
-        0
-      ]
+      "text": ["56", 0],
+      "clip": ["248", 0]
     },
     "class_type": "CLIPTextEncode",
-    "_meta": {
-      "title": "Positive prompt"
-    }
+    "_meta": { "title": "Positive prompt" }
   },
   "25": {
     "inputs": {
-      "samples": [
-        "276",
-        0
-      ],
-      "vae": [
-        "246",
-        0
-      ]
+      "samples": ["276", 0],
+      "vae": ["246", 0]
     },
     "class_type": "VAEDecode",
-    "_meta": {
-      "title": "VAE Decode"
-    }
+    "_meta": { "title": "VAE Decode" }
   },
   "41": {
     "inputs": {
       "string": "plastic skin, doll-like, oversmoothed, airbrushed, cartoon, 3d render, low quality, artifacts, deformed anatomy, extra limbs, bad hands, blurry, text, watermark, oversaturated, underexposed, makeup, nail polish, tattoo, jewelry, cgi, render, illustration, painting, cartoon, anime, plastic skin, airbrushed, oversaturated, blur, noise, watermark, deformed, bad anatomy"
     },
     "class_type": "String Literal",
-    "_meta": {
-      "title": "Negative Prompt"
-    }
+    "_meta": { "title": "Negative Prompt" }
   },
   "50": {
     "inputs": {
@@ -66,36 +40,28 @@
       "batch_size": 1
     },
     "class_type": "CR SDXL Aspect Ratio",
-    "_meta": {
-      "title": "🔳 CR SDXL Aspect Ratio"
-    }
+    "_meta": { "title": "🔳 CR SDXL Aspect Ratio" }
   },
   "56": {
     "inputs": {
-      "string": "lora_maxina woman with long wavy blonde hair, fair skin, blue almond-shaped eyes, plump lips, large round breasts, hourglass figure, kneeling on the carpet in a dim bedroom at night, POV from above capturing her giving a blowjob to an average erect cock, her mouth sliding down the shaft with lips stretched around it, cheeks slightly hollowed, gazing up intensely with eye contact. Her right hand grips the base firmly, left hand rests on his thigh, strong makeup on her oval face, messy hair framing her features, small tattoos on her shoulder. Harsh direct phone flash from the front washes out her skin and casts sharp shadows behind. Discarded t-shirt and panties on the floor, charger cable tangled nearby, water bottle tipped over, RAW photo, [subject description], shot on Sony A7R V, 85mm f/1.4 lens, shallow depth of field, natural window light, photorealistic skin texture, pores visible, subsurface scattering, ultra-detailed, 8K,, perfect anatomy, detailed realistic hands and fingers, natural skin pores, subsurface scattering, visible skin texture, coherent body proportions, amateur iPhone flash photography"
+      "string": ""
     },
     "class_type": "String Literal",
-    "_meta": {
-      "title": "Positive Prompt"
-    }
+    "_meta": { "title": "Positive Prompt" }
   },
   "57": {
     "inputs": {
       "seed": 0
     },
     "class_type": "Seed (rgthree)",
-    "_meta": {
-      "title": "Seed (rgthree)"
-    }
+    "_meta": { "title": "Seed (rgthree)" }
   },
   "246": {
     "inputs": {
       "vae_name": "ae.safetensors"
     },
     "class_type": "VAELoader",
-    "_meta": {
-      "title": "Load VAE"
-    }
+    "_meta": { "title": "Load VAE" }
   },
   "247": {
     "inputs": {
@@ -103,9 +69,7 @@
       "weight_dtype": "default"
     },
     "class_type": "UNETLoader",
-    "_meta": {
-      "title": "Load Diffusion Model"
-    }
+    "_meta": { "title": "Load Diffusion Model" }
   },
   "248": {
     "inputs": {
@@ -114,42 +78,23 @@
       "device": "default"
     },
     "class_type": "CLIPLoader",
-    "_meta": {
-      "title": "Load CLIP"
-    }
+    "_meta": { "title": "Load CLIP" }
   },
   "276": {
     "inputs": {
-      "seed": [
-        "57",
-        0
-      ],
-      "steps": 20,
-      "cfg": 2,
+      "seed": ["57", 0],
+      "steps": 50,
+      "cfg": 2.5,
       "sampler_name": "dpmpp_2m",
       "scheduler": "beta",
       "denoise": 1,
-      "model": [
-        "364",
-        0
-      ],
-      "positive": [
-        "2",
-        0
-      ],
-      "negative": [
-        "1",
-        0
-      ],
-      "latent_image": [
-        "50",
-        4
-      ]
+      "model": ["363", 0],
+      "positive": ["2", 0],
+      "negative": ["1", 0],
+      "latent_image": ["50", 4]
     },
     "class_type": "KSampler",
-    "_meta": {
-      "title": "KSampler"
-    }
+    "_meta": { "title": "KSampler" }
   },
   "284": {
     "inputs": {
@@ -157,165 +102,35 @@
       "intensity": 0.06,
       "highlights": 1,
       "supersample_factor": 1,
-      "image": [
-        "361",
-        0
-      ]
+      "image": ["25", 0]
     },
     "class_type": "Image Film Grain",
-    "_meta": {
-      "title": "Image Film Grain"
-    }
+    "_meta": { "title": "Image Film Grain" }
   },
   "286": {
     "inputs": {
       "blur_radius": 1,
       "sigma": 0.3,
-      "image": [
-        "284",
-        0
-      ]
+      "image": ["284", 0]
     },
     "class_type": "ImageBlur",
-    "_meta": {
-      "title": "Image Blur"
-    }
+    "_meta": { "title": "Image Blur" }
   },
   "289": {
     "inputs": {
       "filename_prefix": "modelclone",
-      "images": [
-        "286",
-        0
-      ]
+      "images": ["286", 0]
     },
     "class_type": "SaveImage",
-    "_meta": {
-      "title": "Save Image"
-    }
-  },
-  "359": {
-    "inputs": {
-      "model": "ema_vae_fp16.safetensors",
-      "device": "cuda:0",
-      "encode_tiled": true,
-      "encode_tile_size": 1024,
-      "encode_tile_overlap": 128,
-      "decode_tiled": true,
-      "decode_tile_size": 1024,
-      "decode_tile_overlap": 128,
-      "tile_debug": "false",
-      "offload_device": "none",
-      "cache_model": false
-    },
-    "class_type": "SeedVR2LoadVAEModel",
-    "_meta": {
-      "title": "SeedVR2 (Down)Load VAE Model"
-    }
-  },
-  "360": {
-    "inputs": {
-      "model": "seedvr2_ema_7b_fp16.safetensors",
-      "device": "cuda:0",
-      "blocks_to_swap": 36,
-      "swap_io_components": false,
-      "offload_device": "cpu",
-      "cache_model": false,
-      "attention_mode": "sdpa"
-    },
-    "class_type": "SeedVR2LoadDiTModel",
-    "_meta": {
-      "title": "SeedVR2 (Down)Load DiT Model"
-    }
-  },
-  "361": {
-    "inputs": {
-      "seed": 2468606219,
-      "resolution": 1536,
-      "max_resolution": 2688,
-      "batch_size": 1,
-      "uniform_batch_size": false,
-      "color_correction": "lab",
-      "temporal_overlap": 0,
-      "prepend_frames": 0,
-      "input_noise_scale": 0.02,
-      "latent_noise_scale": 0,
-      "offload_device": "cpu",
-      "enable_debug": false,
-      "image": [
-        "25",
-        0
-      ],
-      "dit": [
-        "360",
-        0
-      ],
-      "vae": [
-        "359",
-        0
-      ]
-    },
-    "class_type": "SeedVR2VideoUpscaler",
-    "_meta": {
-      "title": "SeedVR2 Video Upscaler (v2.5.24)"
-    }
-  },
-  "362": {
-    "inputs": {
-      "filename_prefix": "ComfyUI",
-      "images": [
-        "361",
-        0
-      ]
-    },
-    "class_type": "SaveImage",
-    "_meta": {
-      "title": "Save Image"
-    }
+    "_meta": { "title": "Save Image" }
   },
   "363": {
     "inputs": {
-      "toggle": true,
-      "mode": "simple",
-      "num_loras": 1,
-      "lora_1_url": "",
-      "lora_1_strength": 0.6
+      "model": ["247", 0],
+      "url": "",
+      "strength_model": 0.6
     },
-    "class_type": "LoadLoraFromUrlOrPath",
-    "_meta": {
-      "title": "LoRA Stack (URL)"
-    }
-  },
-  "364": {
-    "inputs": {
-      "model": [
-        "247",
-        0
-      ],
-      "clip": [
-        "248",
-        0
-      ],
-      "lora_stack": [
-        "363",
-        0
-      ]
-    },
-    "class_type": "CR Apply LoRA Stack",
-    "_meta": {
-      "title": "Apply LoRA Stack"
-    }
-  },
-  "369": {
-    "inputs": {
-      "images": [
-        "25",
-        0
-      ]
-    },
-    "class_type": "PreviewImage",
-    "_meta": {
-      "title": "Preview Image"
-    }
+    "class_type": "Load LoRA From URL",
+    "_meta": { "title": "Load LoRA From URL" }
   }
 }
