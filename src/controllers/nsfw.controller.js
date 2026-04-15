@@ -3569,11 +3569,25 @@ export async function finalizeNsfwRunpodGeneration(generationId, requestId, runp
       outputUrl: outputUrlValue,
       completedAt: new Date(),
       errorMessage: null,
+      // Reset refund flag so re-charge below is properly tracked
+      ...(failedNeedsRecovery ? { creditsRefunded: false } : {}),
     },
   });
   if (updated.count === 0) {
     return { ok: true, skipped: true, reason: "race_lost" };
   }
+
+  // Re-deduct credits for recovered generations — they were refunded when the job
+  // was wrongly marked as failed, so re-charge now that we know it actually succeeded.
+  if (failedNeedsRecovery && gen.creditsCost > 0 && gen.userId) {
+    try {
+      await deductCredits(gen.userId, gen.creditsCost);
+      console.log(`💳 [finalize] Re-charged ${gen.creditsCost} credits for recovered generation ${generationId.slice(0, 8)}`);
+    } catch (chargeErr) {
+      console.error(`⚠️ [finalize] Re-charge failed for recovered ${generationId.slice(0, 8)}:`, chargeErr.message);
+    }
+  }
+
   console.log(`✅ [finalize] ${generationId.slice(0, 8)} completed (${permanentUrls.length} imgs)`);
   if (gen.userId && gen.modelId) {
     enqueueCleanupOldGenerations(gen.userId, gen.modelId);
