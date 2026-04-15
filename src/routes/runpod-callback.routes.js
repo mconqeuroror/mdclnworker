@@ -75,10 +75,11 @@ async function findNsfwGenerationByRunpodJobId(jobId) {
     { inputImageUrl: { contains: `"comfyuiPromptId":"${id}"` } },
   ]));
 
+  // Primary: fast indexed lookup — no status filter so we recover any status
+  // (mirrors ModelClone-X's findGenerationForWebhook which has no status gate).
   const direct = await prisma.generation.findFirst({
     where: {
       type: "nsfw",
-      status: { in: ["processing", "pending", "queued", "failed"] },
       createdAt: { gt: new Date(Date.now() - 48 * 60 * 60 * 1000) },
       OR: [
         { providerTaskId: { in: jobIdVariants } },
@@ -89,10 +90,10 @@ async function findNsfwGenerationByRunpodJobId(jobId) {
   });
   if (direct) return direct;
 
+  // Fallback: scan recent NSFW rows and match in-process (covers JSON variants)
   const rows = await prisma.generation.findMany({
     where: {
       type: "nsfw",
-      status: { in: ["processing", "pending", "queued", "failed"] },
       createdAt: { gt: new Date(Date.now() - 48 * 60 * 60 * 1000) },
     },
     take: 200,
@@ -363,6 +364,9 @@ async function handleRunpodCallback(req, res) {
       body.generationId ||
       body.generation_id ||
       body.meta?.generationId ||
+      body.input?.meta?.generationId ||
+      body.input?.generationId ||
+      body.input?.metadata?.generationId ||
       req.query?.generationId ||
       req.query?.generation_id;
     const st = String(body.status || body.state || body.jobStatus || "").toUpperCase();

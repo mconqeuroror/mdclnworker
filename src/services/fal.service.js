@@ -2424,7 +2424,7 @@ function buildComfyWorkflowLegacy(params) {
  * - LoRA 10 (node 303): Cum effect
  * LoRA 4 and 9 are empty/unused slots
  */
-export async function submitNsfwGeneration(params, webhookUrl = null) {
+export async function submitNsfwGeneration(params, webhookUrl = null, generationId = null) {
   const {
     loraUrl,
     triggerWord,
@@ -2585,11 +2585,18 @@ export async function submitNsfwGeneration(params, webhookUrl = null) {
   console.log(JSON.stringify({ input: { prompt: workflow } }, null, 2));
   console.log("📋 ============================================\n");
 
-  const runpodWebhook = webhookUrl || resolveRunpodWebhookUrl();
+  // Always preserve generationId in webhook URL — if caller didn't supply a pre-built URL, build one here.
+  // This mirrors the ModelClone-X pattern where the webhook URL is always constructed with generationId.
+  const runpodWebhook =
+    webhookUrl ||
+    (generationId
+      ? resolveRunpodWebhookUrl({ generationId: String(generationId), kind: "nsfw" })
+      : resolveRunpodWebhookUrl());
   const runPayload = {
     input: {
       prompt: workflow,
       output_node_id: "289",
+      meta: generationId ? { generationId: String(generationId), kind: "nsfw" } : { kind: "nsfw" },
     },
   };
   if (runpodWebhook) {
