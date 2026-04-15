@@ -597,32 +597,8 @@ router.get("/nsfw/training-images/:modelId", authMiddleware, getTrainingImages);
 router.post("/nsfw/train-lora", authMiddleware, generationLimiter, trainLora);
 router.get("/nsfw/training-status/:modelId", authMiddleware, getLoraTrainingStatus);
 router.post("/nsfw/generate", authMiddleware, generationLimiter, generateNsfwImage);
-router.post("/nsfw/nudes-pack", authMiddleware, generationLimiter, generateNudesPack);
-router.get("/nsfw/nudes-pack-poses", authMiddleware, async (_req, res) => {
-  try {
-    const poses = await getEffectiveNudesPackPoses();
-    const p = await getGenerationPricing();
-    const rawJson = JSON.stringify(
-      {
-        poses,
-        nudesPackCreditsMin: Number(p.nudesPackCreditsMin ?? 15),
-        nudesPackCreditsMax: Number(p.nudesPackCreditsMax ?? 30),
-      },
-      null,
-      2,
-    );
-    return res.json({
-      success: true,
-      poses,
-      nudesPackCreditsMin: Number(p.nudesPackCreditsMin ?? 15),
-      nudesPackCreditsMax: Number(p.nudesPackCreditsMax ?? 30),
-      rawJson,
-    });
-  } catch (error) {
-    console.error("Failed to load nudes-pack poses:", error);
-    return res.status(500).json({ success: false, message: "Failed to load nudes-pack poses" });
-  }
-});
+router.post("/nsfw/nudes-pack", authMiddleware, (_req, res) => res.status(503).json({ success: false, message: "Nudes Pack is temporarily unavailable." }));
+router.get("/nsfw/nudes-pack-poses", authMiddleware, (_req, res) => res.status(503).json({ success: false, message: "Nudes Pack is temporarily unavailable." }));
 router.post("/nsfw/generate-prompt", authMiddleware, generationLimiter, generateNsfwPrompt);
 router.post("/nsfw/plan-generation", authMiddleware, generationLimiter, planNsfwGeneration);
 router.get("/nsfw/plan-generation/status/:jobId", authMiddleware, getNsfwPlanGenerationJobStatus);

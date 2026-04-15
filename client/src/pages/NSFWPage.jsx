@@ -5047,15 +5047,7 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
           sidebarCollapsed={layoutSidebarNarrow}
         />
 
-        <NudesPackModal
-          isOpen={nudesPackModalOpen}
-          onClose={() => !isSubmittingNudesPack && setNudesPackModalOpen(false)}
-          onApprove={handleNudesPackApprove}
-          submitting={isSubmittingNudesPack}
-          poses={nudesPackPoses}
-          sidebarCollapsed={layoutSidebarNarrow}
-          nudesPackPricing={nudesPackPricing}
-        />
+        {/* NudesPackModal — disabled */}
 
         {/* Header */}
         <div className="mb-6">
@@ -5499,34 +5491,7 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
                     : "Paste or type the full prompt yourself (Danbooru-style tags work best). Your LoRA trigger is added automatically if missing. Same resolution & quality settings as Advanced."}
                 </p>
 
-                <div className="mb-4 p-3 sm:p-4 rounded-xl border border-rose-500/25 bg-rose-500/[0.06] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-medium text-rose-100">Nudes pack</p>
-                    <p className="text-[11px] text-slate-500 mt-0.5 max-w-xl">
-                      30 curated poses (amateur-style nudes + explicit couple shots). Open the list, toggle poses off if you
-                      want, then approve — each image gets a unique prompt with your LoRA trigger and current looks.{" "}
-                      <span className="text-slate-400">
-                        Price scales: {(nudesPackPricing?.nudesPackCreditsMin ?? NUDES_PACK_CREDITS_MIN)}–{(nudesPackPricing?.nudesPackCreditsMax ?? NUDES_PACK_CREDITS_MAX)} <Coins className="w-3 h-3 inline align-text-bottom" /> per image (fewer poses =
-                        higher per image). Full {nudesPackPoseCount} = {getNudesPackTotalCredits(nudesPackPoseCount, nudesPackPricing)}{" "}
-                        total.
-                      </span>
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setNudesPackModalOpen(true)}
-                    disabled={!isLoraReady}
-                    className="shrink-0 px-4 py-2.5 rounded-xl text-sm font-semibold bg-white text-black hover:bg-white/90 disabled:opacity-40 inline-flex items-center justify-center gap-2"
-                    data-testid="button-nudes-pack-open"
-                  >
-                    <Grid3X3 className="w-4 h-4" />
-                    Plan &amp; approve
-                    <span className="inline-flex items-center gap-0.5 text-amber-800 font-bold">
-                      {getNudesPackTotalCredits(nudesPackPoseCount, nudesPackPricing)}{" "}
-                      <Coins className="w-3.5 h-3.5 text-amber-600" />
-                    </span>
-                  </button>
-                </div>
+                {/* Nudes Pack — temporarily disabled */}
 
                 {nsfwGenerateMode === "simple" && !simplePlanReady && (
                   <>
