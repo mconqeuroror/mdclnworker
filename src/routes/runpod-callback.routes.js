@@ -73,7 +73,7 @@ async function findGenerationByRunpodJobId(jobId, types) {
   const direct = await prisma.generation.findFirst({
     where: {
       type: { in: types },
-      status: { in: ["processing", "pending"] },
+      status: { in: ["queued", "processing", "pending"] },
       createdAt: { gt: new Date(Date.now() - 48 * 60 * 60 * 1000) },
       OR: [
         { providerTaskId: { in: jobIdVariants } },
@@ -87,7 +87,7 @@ async function findGenerationByRunpodJobId(jobId, types) {
   const rows = await prisma.generation.findMany({
     where: {
       type: { in: types },
-      status: { in: ["processing", "pending"] },
+      status: { in: ["queued", "processing", "pending"] },
       createdAt: { gt: new Date(Date.now() - 48 * 60 * 60 * 1000) },
     },
     take: 100,
@@ -162,7 +162,7 @@ async function findDescribeJobByRunpodJobId(jobId) {
   const direct = await prisma.generation.findFirst({
     where: {
       type: "img2img-describe",
-      status: { in: ["processing", "pending"] },
+      status: { in: ["queued", "processing", "pending"] },
       createdAt: { gt: new Date(Date.now() - 4 * 60 * 60 * 1000) },
       OR: [
         { providerTaskId: { in: jobIdVariants } },
@@ -176,7 +176,7 @@ async function findDescribeJobByRunpodJobId(jobId) {
   const rows = await prisma.generation.findMany({
     where: {
       type: "img2img-describe",
-      status: { in: ["processing", "pending"] },
+      status: { in: ["queued", "processing", "pending"] },
       createdAt: { gt: new Date(Date.now() - 4 * 60 * 60 * 1000) },
     },
     take: 50,
@@ -299,7 +299,7 @@ async function handleRunpodCallback(req, res) {
       if (st === "FAILED" || st === "CANCELLED") {
         const msg = rawOut?.error || body.error || "RunPod describe job failed";
         await prisma.generation.updateMany({
-          where: { id: describeGen.id, status: { in: ["processing", "pending"] } },
+          where: { id: describeGen.id, status: { in: ["queued", "processing", "pending"] } },
           data: { status: "failed", errorMessage: getErrorMessageForDb(String(msg)), completedAt: new Date() },
         });
         return res.status(200).json({ ok: true, type: "describe", failed: true });
@@ -350,7 +350,7 @@ async function handleRunpodCallback(req, res) {
         const msg = rawOut?.error || body.error || "RunPod job failed";
         await refundGeneration(imageGen.id).catch(() => {});
         await prisma.generation.updateMany({
-          where: { id: imageGen.id, status: { in: ["processing", "pending"] } },
+          where: { id: imageGen.id, status: { in: ["queued", "processing", "pending"] } },
           data: { status: "failed", errorMessage: getErrorMessageForDb(String(msg)), completedAt: new Date() },
         });
         console.log(`[RunPod webhook] ${imageGen.type} job ${imageGen.id} failed: ${msg}`);
@@ -372,7 +372,7 @@ async function handleRunpodCallback(req, res) {
           console.warn(`[RunPod webhook] ${imageGen.type} COMPLETED but no image in output for ${jobId}`);
           await refundGeneration(imageGen.id).catch(() => {});
           await prisma.generation.updateMany({
-            where: { id: imageGen.id, status: { in: ["processing", "pending"] } },
+            where: { id: imageGen.id, status: { in: ["queued", "processing", "pending"] } },
             data: { status: "failed", errorMessage: msg, completedAt: new Date() },
           });
           return res.status(200).json({ ok: true, type: imageGen.type, failed: true, reason: "no_image" });
@@ -419,7 +419,7 @@ async function handleRunpodCallback(req, res) {
         console.error("[RunPod webhook] refund:", e.message);
       }
       await prisma.generation.updateMany({
-        where: { id: gen.id, status: { in: ["processing", "pending"] } },
+        where: { id: gen.id, status: { in: ["queued", "processing", "pending"] } },
         data: {
           status: "failed",
           errorMessage: getErrorMessageForDb(String(msg)),
@@ -440,7 +440,7 @@ async function handleRunpodCallback(req, res) {
       console.warn(`[RunPod webhook] COMPLETED but no images for ${jobId}`);
       await refundGeneration(gen.id).catch(() => {});
       await prisma.generation.updateMany({
-        where: { id: gen.id, status: { in: ["processing", "pending"] } },
+        where: { id: gen.id, status: { in: ["queued", "processing", "pending"] } },
         data: { status: "failed", errorMessage: msg, completedAt: new Date() },
       });
       return res.status(200).json({ ok: true, type: "nsfw", failed: true, reason: "no_image" });
