@@ -35,13 +35,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // dynamicPoll removed — inline polling used directly
 
 const RUNPOD_API_KEY = process.env.RUNPOD_API_KEY;
-const RUNPOD_ENDPOINT = process.env.RUNPOD_ENDPOINT_ID || "0uskdglppin5ey";
-const RUNPOD_BASE = `https://api.runpod.ai/v2/${RUNPOD_ENDPOINT}`;
+const RUNPOD_ENDPOINT = (process.env.RUNPOD_ENDPOINT_ID || "").trim() || null;
+const RUNPOD_BASE = RUNPOD_ENDPOINT ? `https://api.runpod.ai/v2/${RUNPOD_ENDPOINT}` : null;
 
 /** Dedicated worker for img2img “analyze image” (JoyCaption). */
 const RUNPOD_IMAGE_ANALYSIS_ENDPOINT =
-  process.env.RUNPOD_IMAGE_ANALYSIS_ENDPOINT_ID?.trim() || "805rm2h8t050rp";
-const RUNPOD_ANALYSIS_BASE = `https://api.runpod.ai/v2/${RUNPOD_IMAGE_ANALYSIS_ENDPOINT}`;
+  process.env.RUNPOD_IMAGE_ANALYSIS_ENDPOINT_ID?.trim() || null;
+const RUNPOD_ANALYSIS_BASE = RUNPOD_IMAGE_ANALYSIS_ENDPOINT
+  ? `https://api.runpod.ai/v2/${RUNPOD_IMAGE_ANALYSIS_ENDPOINT}`
+  : null;
 
 /** Server-side sync JoyCaption path — allow up to 5m when the analysis queue is full. */
 const IMG2IMG_ANALYSIS_POLL_TIMEOUT_MS = 5 * 60 * 1000;
