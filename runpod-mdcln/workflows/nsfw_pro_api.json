@@ -88,7 +88,7 @@
       "sampler_name": "dpmpp_2m",
       "scheduler": "beta",
       "denoise": 1,
-      "model": ["363", 0],
+      "model": ["364", 0],
       "positive": ["2", 0],
       "negative": ["1", 0],
       "latent_image": ["50", 4]
@@ -126,11 +126,22 @@
   },
   "363": {
     "inputs": {
-      "model": ["247", 0],
-      "url": "",
-      "strength_model": 0.6
+      "toggle": true,
+      "mode": "simple",
+      "num_loras": 1,
+      "lora_1_url": "",
+      "lora_1_strength": 0.6
     },
-    "class_type": "Load LoRA From URL",
-    "_meta": { "title": "Load LoRA From URL" }
+    "class_type": "LoadLoraFromUrlOrPath",
+    "_meta": { "title": "LoRA Stack (URL)" }
+  },
+  "364": {
+    "inputs": {
+      "model": ["247", 0],
+      "clip": ["248", 0],
+      "lora_stack": ["363", 0]
+    },
+    "class_type": "CR Apply LoRA Stack",
+    "_meta": { "title": "Apply LoRA Stack" }
   }
 }
