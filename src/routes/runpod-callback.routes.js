@@ -252,8 +252,23 @@ async function backfillDescribeRunpodCorrelation(gen, jobId) {
 }
 
 function isTransientRunpodNotFoundError(raw) {
-  const msg = String(raw || "");
+  let msg = "";
+  if (typeof raw === "string") {
+    msg = raw;
+  } else if (raw && typeof raw === "object") {
+    try {
+      msg = JSON.stringify(raw);
+    } catch {
+      msg = String(raw);
+    }
+  } else {
+    msg = String(raw || "");
+  }
   return /job not found|not found yet|may have expired|job.*expired|expired/i.test(msg);
+}
+
+function isTransientRunpodNotFoundPayload(...parts) {
+  return parts.some((p) => isTransientRunpodNotFoundError(p));
 }
 
 function extractRunpodErrorMessage(rawOut, body) {
@@ -392,17 +407,11 @@ async function handleRunpodCallback(req, res) {
         const ageMs = Date.now() - new Date(imageGen.createdAt).getTime();
         // RunPod can emit early flaky FAILED/CANCELLED callbacks before final completion payload.
         // Mirror webhook-first behavior: never fail MCX/upscale too early.
-        if (ageMs < 3 * 60 * 1000 || isTransientRunpodNotFoundError(msg)) {
+        if (ageMs < 3 * 60 * 1000 || isTransientRunpodNotFoundPayload(msg, rawOut, body)) {
           console.warn(
             `[RunPod webhook] transient ${imageGen.type} fail for ${jobId} (age=${Math.round(ageMs / 1000)}s): ${String(msg).slice(0, 200)} — ignoring`,
           );
           return res.status(200).json({ ok: true, skipped: true, type: imageGen.type, reason: "transient_failed_callback" });
-        }
-        if (isTransientRunpodNotFoundError(msg)) {
-          console.warn(
-            `[RunPod webhook] transient ${imageGen.type} failure for ${jobId}: ${String(msg).slice(0, 200)} — ignoring`,
-          );
-          return res.status(200).json({ ok: true, skipped: true, type: imageGen.type, reason: "transient_not_found" });
         }
         await refundGeneration(imageGen.id).catch(() => {});
         await prisma.generation.updateMany({
