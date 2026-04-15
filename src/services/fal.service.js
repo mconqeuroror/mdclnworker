@@ -861,13 +861,13 @@ export default {
 // ============================================
 
 const RUNPOD_API_KEY = process.env.RUNPOD_API_KEY;
-// Resolve NSFW endpoint — fall back to the ModelCloneX endpoint ID so both services
-// work when only RUNPOD_MODELCLONE_X_ENDPOINT_ID (or legacy RUNPOD_SOULX_ENDPOINT_ID)
-// is configured in the environment.
+// Resolve NSFW endpoint exactly like ModelClone-X:
+// RUNPOD_MODELCLONE_X_ENDPOINT_ID -> RUNPOD_ENDPOINT_ID -> RUNPOD_SOULX_ENDPOINT_ID.
+// This keeps NSFW and ModelClone-X on the same backend path.
 const RUNPOD_ENDPOINT_ID =
   String(
-    process.env.RUNPOD_ENDPOINT_ID ||
     process.env.RUNPOD_MODELCLONE_X_ENDPOINT_ID ||
+    process.env.RUNPOD_ENDPOINT_ID ||
     process.env.RUNPOD_SOULX_ENDPOINT_ID ||
     "",
   ).trim() || null;
@@ -2606,6 +2606,8 @@ export async function submitNsfwGeneration(params, webhookUrl = null, generation
     console.log(`📣 RunPod webhook: ${runpodWebhook.slice(0, 80)}${runpodWebhook.length > 80 ? "…" : ""}`);
   }
 
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 25_000);
   try {
     const response = await fetch(`${RUNPOD_BASE_URL}/run`, {
       method: "POST",
@@ -2614,6 +2616,7 @@ export async function submitNsfwGeneration(params, webhookUrl = null, generation
         "Authorization": `Bearer ${RUNPOD_API_KEY}`,
       },
       body: JSON.stringify(runPayload),
+      signal: controller.signal,
     });
 
     if (!response.ok) {
@@ -2679,6 +2682,8 @@ export async function submitNsfwGeneration(params, webhookUrl = null, generation
       success: false,
       error: error.message,
     };
+  } finally {
+    clearTimeout(timer);
   }
 }
 
