@@ -23,7 +23,6 @@ import {
   archiveLoraToR2,
   submitNsfwGeneration,
   checkNsfwGenerationStatus,
-  pollNsfwJob,
   getNsfwGenerationResult,
   archiveNsfwImageToR2,
   buildNsfwPrompt,
@@ -2964,15 +2963,7 @@ export async function generateNsfwImage(req, res) {
         },
       });
 
-      processNsfwGenerationInBackground(
-        generation.id,
-        submission.requestId,
-        userId,
-        thisCost,
-        faceReferenceUrl,
-      ).catch((error) => {
-        console.error("❌ Background NSFW processing error:", error);
-      });
+      // Callback-first: no immediate polling after submit.
     }
 
     generationId = generationIds[0];
@@ -3376,15 +3367,7 @@ export async function generateNudesPack(req, res) {
             },
           });
 
-          processNsfwGenerationInBackground(
-            generationId,
-            submission.requestId,
-            userId,
-            thisCreditCost,
-            faceReferenceUrl,
-          ).catch((error) => {
-            console.error("❌ Nudes pack background error:", error);
-          });
+          // Callback-first: no immediate polling after submit.
           queuedCount += 1;
         }
 
@@ -3466,23 +3449,8 @@ export async function generateNudesPack(req, res) {
 }
 
 // ============================================
-// Background processor for NSFW generation (RunPod)
-// Parallel poll workers — match RunPod concurrency so jobs aren't stuck behind each other.
-// Env: NSFW_POLL_CONCURRENCY (default 5), NSFW_MAX_RUNNING_MS (90m), NSFW_MAX_WALL_MS (180m)
-// Nudes packs + busy RunPod queues can sit IN_QUEUE a long time; wall must exceed worst-case queue+run.
+// Callback-first processor for NSFW generation (RunPod).
 // ============================================
-const nsfwPollQueue = [];
-let nsfwActivePollWorkers = 0;
-const NSFW_POLL_CONCURRENCY = Math.max(
-  1,
-  Math.min(20, Number(process.env.NSFW_POLL_CONCURRENCY) || 5),
-);
-const NSFW_MAX_RUNNING_MS = Number(process.env.NSFW_MAX_RUNNING_MS) || 90 * 60 * 1000;
-const NSFW_MAX_WALL_MS = Number(process.env.NSFW_MAX_WALL_MS) || 180 * 60 * 1000;
-
-console.log(
-  `🔥 NSFW RunPod poll: ${NSFW_POLL_CONCURRENCY} concurrent workers · running timeout ${Math.round(NSFW_MAX_RUNNING_MS / 60000)}m · wall ${Math.round(NSFW_MAX_WALL_MS / 60000)}m`,
-);
 
 /**
  * R2 upload + optional face swap + DB complete. Idempotent via updateMany(status in processing|pending).
@@ -3594,65 +3562,6 @@ export async function finalizeNsfwRunpodGeneration(generationId, requestId, runp
     enqueueCleanupOldGenerations(gen.userId, gen.modelId);
   }
   return { ok: true };
-}
-
-function enqueueNsfwPoll(generationId, requestId, userId, creditsNeeded, faceReferenceUrl) {
-  nsfwPollQueue.push({ generationId, requestId, userId, creditsNeeded, faceReferenceUrl, enqueuedAt: Date.now() });
-  console.log(
-    `📥 [Q] Queued NSFW poll for ${generationId} (pending ${nsfwPollQueue.length}, active ${nsfwActivePollWorkers}/${NSFW_POLL_CONCURRENCY})`,
-  );
-  pumpNsfwPollWorkers();
-}
-
-function pumpNsfwPollWorkers() {
-  while (nsfwActivePollWorkers < NSFW_POLL_CONCURRENCY && nsfwPollQueue.length > 0) {
-    const job = nsfwPollQueue.shift();
-    nsfwActivePollWorkers++;
-    runOneNsfwPollJob(job)
-      .catch((e) => console.error("[NSFW poll worker] unexpected:", e?.message || e))
-      .finally(() => {
-        nsfwActivePollWorkers--;
-        if (nsfwPollQueue.length > 0) {
-          pumpNsfwPollWorkers();
-        } else if (nsfwActivePollWorkers === 0) {
-          console.log(`📭 [Q] NSFW poll queue empty`);
-        }
-      });
-  }
-}
-
-async function runOneNsfwPollJob(job) {
-  const { generationId, requestId } = job;
-  console.log(`\n🔥 [Q] Polling ${generationId.slice(0, 8)}…`);
-
-  try {
-    const pollResult = await pollNsfwJob(requestId, NSFW_MAX_RUNNING_MS, NSFW_MAX_WALL_MS);
-    if (pollResult.error) {
-      throw new Error(pollResult.error);
-    }
-
-    const cached = pollResult.result?._runpodOutput;
-    await finalizeNsfwRunpodGeneration(generationId, requestId, cached);
-  } catch (error) {
-    console.error(`❌ [Q] ${generationId.slice(0, 8)} error: ${error.message}`);
-    await refundGeneration(generationId);
-    await prisma.generation
-      .update({
-        where: { id: generationId },
-        data: { status: "failed", errorMessage: getErrorMessageForDb(error.message || "Generation failed") },
-      })
-      .catch(() => {});
-  }
-}
-
-async function processNsfwGenerationInBackground(
-  generationId,
-  requestId,
-  userId,
-  creditsNeeded,
-  faceReferenceUrl = null,
-) {
-  enqueueNsfwPoll(generationId, requestId, userId, creditsNeeded, faceReferenceUrl);
 }
 
 // ============================================
@@ -5510,6 +5419,7 @@ export default {
   testFaceRefGeneration,
   testFaceRefStatus,
   recoverStuckNsfwGenerations,
+  adminRecoverFailedNsfwRunpod,
   recoverStaleLoraTrainings,
   startNsfwPoller,
   generateNsfwVideoFromImage,
@@ -5523,6 +5433,7 @@ const NSFW_RECOVERY_POLL_CONCURRENCY = Math.max(
   1,
   Math.min(20, Number(process.env.NSFW_RECOVERY_POLL_CONCURRENCY) || 8),
 );
+const NSFW_WATCHDOG_MIN_AGE_MS = Number(process.env.NSFW_WATCHDOG_MIN_AGE_MS) || 30 * 60 * 1000;
 
 async function pollProcessingNsfwGenerations() {
   if (nsfwPollerRunning) return;
@@ -5532,8 +5443,11 @@ async function pollProcessingNsfwGenerations() {
     const processingGens = await prisma.generation.findMany({
       where: {
         status: { in: ['queued', 'processing', 'pending'] },
-        type: { in: ['nsfw', 'nsfw-video', 'nsfw-video-extend'] },
-        createdAt: { gt: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+        type: 'nsfw',
+        AND: [
+          { createdAt: { gt: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
+          { createdAt: { lt: new Date(Date.now() - NSFW_WATCHDOG_MIN_AGE_MS) } },
+        ],
       },
       orderBy: { createdAt: 'asc' },
     });
@@ -5663,7 +5577,7 @@ async function pollSingleNsfwGeneration(gen) {
 function startNsfwPoller() {
   if (nsfwPollerInterval) return;
   console.log(
-    `🚀 Starting continuous NSFW generation poller (every 30s, up to ${NSFW_RECOVERY_POLL_CONCURRENCY} jobs in parallel)...`,
+    `🚀 Starting NSFW watchdog poller (every 30s, only rows older than ${Math.round(NSFW_WATCHDOG_MIN_AGE_MS / 60000)}m; up to ${NSFW_RECOVERY_POLL_CONCURRENCY} jobs in parallel)...`,
   );
   pollProcessingNsfwGenerations();
   nsfwPollerInterval = setInterval(pollProcessingNsfwGenerations, 30000);
@@ -5673,6 +5587,129 @@ export async function recoverStuckNsfwGenerations({ startContinuous = true } = {
   await pollProcessingNsfwGenerations();
   if (startContinuous) {
     startNsfwPoller();
+  }
+}
+
+/**
+ * Admin recovery endpoint:
+ * Re-check failed NSFW generations against RunPod and recover rows that actually completed.
+ */
+export async function adminRecoverFailedNsfwRunpod(req, res) {
+  try {
+    const limitRaw = Number(req.body?.limit ?? req.query?.limit ?? 100);
+    const lookbackHoursRaw = Number(req.body?.lookbackHours ?? req.query?.lookbackHours ?? 72);
+    const dryRun = String(req.body?.dryRun ?? req.query?.dryRun ?? "false").toLowerCase() === "true";
+
+    const limit = Math.max(1, Math.min(500, Number.isFinite(limitRaw) ? limitRaw : 100));
+    const lookbackHours = Math.max(1, Math.min(24 * 30, Number.isFinite(lookbackHoursRaw) ? lookbackHoursRaw : 72));
+    const createdAfter = new Date(Date.now() - lookbackHours * 60 * 60 * 1000);
+
+    const rows = await prisma.generation.findMany({
+      where: {
+        type: "nsfw",
+        status: "failed",
+        outputUrl: null,
+        createdAt: { gt: createdAfter },
+      },
+      select: {
+        id: true,
+        providerTaskId: true,
+        inputImageUrl: true,
+        errorMessage: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: "desc" },
+      take: limit,
+    });
+
+    const stats = {
+      scanned: rows.length,
+      withRequestId: 0,
+      completedOnRunpod: 0,
+      recovered: 0,
+      stillPending: 0,
+      failedOnRunpod: 0,
+      skippedNoRequestId: 0,
+      errors: 0,
+      dryRun,
+      lookbackHours,
+      limit,
+    };
+
+    const samples = [];
+
+    for (const row of rows) {
+      let inputData = {};
+      try {
+        inputData = typeof row.inputImageUrl === "string" ? JSON.parse(row.inputImageUrl || "{}") : (row.inputImageUrl || {});
+      } catch {
+        inputData = {};
+      }
+
+      const requestId =
+        (typeof row.providerTaskId === "string" && row.providerTaskId.trim()) ||
+        (typeof inputData?.runpodJobId === "string" && inputData.runpodJobId.trim()) ||
+        (typeof inputData?.comfyuiPromptId === "string" && inputData.comfyuiPromptId.trim()) ||
+        null;
+
+      if (!requestId) {
+        stats.skippedNoRequestId += 1;
+        continue;
+      }
+      stats.withRequestId += 1;
+
+      try {
+        const status = await checkNsfwGenerationStatus(requestId);
+        if (status.status === "COMPLETED") {
+          stats.completedOnRunpod += 1;
+          if (!dryRun) {
+            const fin = await finalizeNsfwRunpodGeneration(row.id, requestId, status._runpodOutput);
+            if (fin?.ok && !fin?.skipped) {
+              stats.recovered += 1;
+              if (samples.length < 20) samples.push({ id: row.id, requestId, action: "recovered" });
+            } else if (samples.length < 20) {
+              samples.push({ id: row.id, requestId, action: fin?.reason || "skipped" });
+            }
+          } else if (samples.length < 20) {
+            samples.push({ id: row.id, requestId, action: "would_recover" });
+          }
+          continue;
+        }
+
+        if (status.status === "FAILED") {
+          stats.failedOnRunpod += 1;
+          if (samples.length < 20) {
+            samples.push({ id: row.id, requestId, action: "still_failed", error: status.error || null });
+          }
+        } else {
+          stats.stillPending += 1;
+          if (samples.length < 20) {
+            samples.push({ id: row.id, requestId, action: "still_pending", providerStatus: status.status });
+          }
+        }
+      } catch (error) {
+        stats.errors += 1;
+        if (samples.length < 20) {
+          samples.push({ id: row.id, requestId, action: "error", error: error.message });
+        }
+      }
+    }
+
+    return res.json({
+      success: true,
+      message: dryRun
+        ? "Dry run completed. No rows were modified."
+        : "NSFW failed-generation recovery completed.",
+      stats,
+      samples,
+    });
+  } catch (error) {
+    console.error("[adminRecoverFailedNsfwRunpod] error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to run NSFW RunPod recovery",
+      error: error.message,
+    });
   }
 }
 

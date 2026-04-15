@@ -116,6 +116,7 @@ import {
   generateNsfwVideoFromImage,
   extendNsfwVideo,
   recoverStuckNsfwGenerations,
+  adminRecoverFailedNsfwRunpod,
   recoverStaleLoraTrainings,
 } from "../controllers/nsfw.controller.js";
 import multer from "multer";
@@ -243,8 +244,6 @@ import { getEffectiveNudesPackPoses } from "../services/nudes-pack-config.servic
 import { getPromptTemplateValue } from "../services/prompt-template-config.service.js";
 import {
   submitModelCloneXJob,
-  pollModelCloneXJob,
-  extractModelCloneXImages,
 } from "../services/modelcloneX.service.js";
 import {
   MODELCLONE_X_CATEGORY,
@@ -1172,6 +1171,12 @@ router.post(
   authMiddleware,
   adminMiddleware,
   recoverPayment,
+);
+router.post(
+  "/admin/nsfw/recover-failed-runpod",
+  authMiddleware,
+  adminMiddleware,
+  adminRecoverFailedNsfwRunpod,
 );
 router.get(
   "/admin/activity",
@@ -2809,10 +2814,7 @@ router.get("/download", authMiddleware, downloadLimiter, async (req, res) => {
 // ── Upscaler ──────────────────────────────────────────────────────────────────
 import {
   submitUpscalerJob,
-  pollUpscalerJob,
-  extractUpscalerImage,
 } from "../services/upscaler.service.js";
-import { uploadBufferToBlobOrR2 } from "../utils/kieUpload.js";
 import { resolveRunpodWebhookUrl } from "../lib/runpodWebhookUrl.js";
 
 const upscalerUpload = multer({
@@ -2930,84 +2932,8 @@ router.get("/upscale/status/:generationId", authMiddleware, async (req, res) => 
       });
     }
 
-    // Poll RunPod
-    let meta = {};
-    try { meta = JSON.parse(gen.inputImageUrl || "{}"); } catch {}
-    const runpodJobId =
-      (typeof gen.providerTaskId === "string" && gen.providerTaskId.trim()) ||
-      meta.runpodJobId;
-
-    if (!runpodJobId) {
-      return res.json({ success: true, status: "processing" });
-    }
-
-    // Callback-first strategy:
-    // - Recent jobs rely on RunPod webhook to update DB.
-    // - If the row is still processing after a grace period, self-heal by polling RunPod status.
-    const webhookConfigured = Boolean(resolveRunpodWebhookUrl());
-    const ageMs = gen?.createdAt ? Date.now() - new Date(gen.createdAt).getTime() : 0;
-    const webhookGraceMs = 45 * 1000;
-    if (webhookConfigured && ageMs < webhookGraceMs) {
-      return res.json({ success: true, status: "processing" });
-    }
-
-    let rpStatus;
-    try {
-      rpStatus = await pollUpscalerJob(runpodJobId);
-    } catch (pollErr) {
-      // Transient network error — tell client to keep polling
-      console.warn("[Upscaler] poll network error, returning processing:", pollErr.message);
-      return res.json({ success: true, status: "processing" });
-    }
-    const st = rpStatus.status;
-
-    if (st === "FAILED" || st === "CANCELLED") {
-      const errMsg = rpStatus.output?.error || rpStatus.error || "RunPod job failed";
-      await prisma.generation.update({
-        where: { id: gen.id },
-        data: { status: "failed", errorMessage: String(errMsg).slice(0, 500), completedAt: new Date() },
-      });
-      // Refund
-      try {
-        const { refundCredits } = await import("../services/credit.service.js");
-        await refundCredits(userId, gen.creditsCost || 0);
-      } catch {}
-      return res.json({ success: true, status: "failed", error: String(errMsg) });
-    }
-
-    if (st === "COMPLETED") {
-      const imageData = extractUpscalerImage(rpStatus.output ?? rpStatus);
-      if (!imageData) {
-        await prisma.generation.update({
-          where: { id: gen.id },
-          data: { status: "failed", errorMessage: "No image in output", completedAt: new Date() },
-        });
-        return res.json({ success: true, status: "failed", error: "No image in output" });
-      }
-
-      // Upload to blob storage
-      let outputUrl;
-      try {
-        if (imageData.startsWith("http")) {
-          outputUrl = imageData;
-        } else {
-          const buf = Buffer.from(imageData, "base64");
-          outputUrl = await uploadBufferToBlobOrR2(buf, "upscaled", "png", "image/png");
-        }
-      } catch (uploadErr) {
-        console.error("[Upscaler] upload error:", uploadErr.message);
-        outputUrl = `data:image/png;base64,${imageData}`;
-      }
-
-      await prisma.generation.update({
-        where: { id: gen.id },
-        data: { status: "completed", outputUrl, completedAt: new Date() },
-      });
-
-      return res.json({ success: true, status: "completed", imageUrl: outputUrl });
-    }
-
-    // Still in queue / running
+    // Callback-only mode: no direct RunPod polling here.
+    // Stuck rows are reconciled by watchdog (>= 30 min).
     return res.json({ success: true, status: "processing" });
   } catch (err) {
     console.error("[Upscaler] status error:", err.message);
@@ -3426,85 +3352,8 @@ router.get("/modelclone-x/status/:generationId", authMiddleware, async (req, res
       return res.json({ success: true, status: "failed", error: gen.errorMessage });
     }
 
-    // Parse RunPod job ID
-    let runpodJobId = typeof gen.providerTaskId === "string" ? gen.providerTaskId.trim() : null;
-    try {
-      const meta = JSON.parse(gen.inputImageUrl || "{}");
-      runpodJobId = runpodJobId || meta.runpodJobId;
-    } catch (_) { /* ignore */ }
-
-    if (!runpodJobId) {
-      return res.json({ success: true, status: "processing" });
-    }
-
-    // Callback-first strategy:
-    // - Recent jobs rely on RunPod webhook to update DB.
-    // - If still processing after a grace period, self-heal by polling RunPod status.
-    const webhookConfigured = Boolean(resolveRunpodWebhookUrl());
-    const ageMs = gen?.createdAt ? Date.now() - new Date(gen.createdAt).getTime() : 0;
-    const webhookGraceMs = 45 * 1000;
-    if (webhookConfigured && ageMs < webhookGraceMs) {
-      return res.json({ success: true, status: "processing" });
-    }
-
-    let jobData;
-    try {
-      jobData = await pollModelCloneXJob(runpodJobId);
-    } catch (pollErr) {
-      console.warn("[ModelCloneX] poll network error, returning processing:", pollErr.message);
-      return res.json({ success: true, status: "processing" });
-    }
-    const rpStatus = (jobData.status || "").toLowerCase();
-    console.log(`[ModelCloneX] RunPod status for ${runpodJobId}: ${rpStatus} | raw:`, JSON.stringify(jobData).slice(0, 400));
-
-    if (rpStatus === "failed" || rpStatus === "error" || rpStatus === "timed_out" || rpStatus === "cancelled") {
-      const errMsg =
-        jobData.error ||
-        jobData.output?.error ||
-        (typeof jobData.output === "string" ? jobData.output : null) ||
-        `Worker ${rpStatus}`;
-      await prisma.generation.update({
-        where: { id: gen.id },
-        data: { status: "failed", errorMessage: errMsg },
-      });
-      const { refundCredits } = await import("../services/credit.service.js");
-      await refundCredits(userId, gen.creditsCost || 0);
-      return res.json({ success: true, status: "failed", error: errMsg });
-    }
-
-    if (rpStatus === "completed") {
-      const images = extractModelCloneXImages(jobData);
-      if (!images.length) {
-        const errMsg = "No image returned from worker";
-        await prisma.generation.update({
-          where: { id: gen.id },
-          data: { status: "failed", errorMessage: errMsg },
-        });
-        return res.json({ success: true, status: "failed", error: errMsg });
-      }
-
-      const imageData = images[0];
-      let outputUrl;
-      try {
-        if (imageData.startsWith("http")) {
-          outputUrl = imageData;
-        } else {
-          const buf = Buffer.from(imageData, "base64");
-          outputUrl = await uploadBufferToBlobOrR2(buf, "modelclone-x", "png", "image/png");
-        }
-      } catch (uploadErr) {
-        console.error("[ModelCloneX] upload error:", uploadErr.message);
-        outputUrl = `data:image/png;base64,${imageData}`;
-      }
-
-      await prisma.generation.update({
-        where: { id: gen.id },
-        data: { status: "completed", outputUrl, completedAt: new Date() },
-      });
-
-      return res.json({ success: true, status: "completed", imageUrl: outputUrl });
-    }
-
+    // Callback-only mode: no direct RunPod polling here.
+    // Stuck rows are reconciled by watchdog (>= 30 min).
     return res.json({ success: true, status: "processing" });
   } catch (err) {
     console.error("[ModelCloneX] status error:", err.message);

@@ -855,7 +855,7 @@ class GenerationPollerService {
     limit = 30,
     includeTimedOutFailed = false,
   } = {}) {
-    const RUNPOD_GRACE_MS = 45 * 1000;
+    const RUNPOD_GRACE_MS = Number(process.env.RUNPOD_WATCHDOG_MIN_AGE_MS) || 30 * 60 * 1000;
     const FAILED_LOOKBACK_MS = 72 * 60 * 60 * 1000;
     const now = Date.now();
     const safeLimit = Math.max(1, Math.min(500, Number.parseInt(limit, 10) || 30));

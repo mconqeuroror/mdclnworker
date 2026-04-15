@@ -3041,13 +3041,17 @@ export async function getNsfwGenerationResult(jobId, cachedOutput = null) {
       throw new Error("Generation completed but returned no images");
     }
 
-    console.log(`📦 RunPod output: ${output.images.length} image(s) from node ${output.images[0]?.node_id}`);
+    console.log(`📦 RunPod output: ${output.images.length} image(s) from node ${output.images[0]?.node_id || "unknown"}`);
 
     const outputUrls = [];
     for (const img of output.images) {
-      const b64 = img.base64 ?? img.data ?? img.image;
+      const b64 =
+        typeof img === "string"
+          ? img
+          : (img?.base64 ?? img?.data ?? img?.image ?? null);
       if (!b64 || typeof b64 !== "string") {
-        console.warn(`⚠️ RunPod image entry missing base64`, Object.keys(img || {}));
+        const keys = img && typeof img === "object" ? Object.keys(img) : [];
+        console.warn(`⚠️ RunPod image entry missing base64`, keys);
         continue;
       }
       const buffer = Buffer.from(b64, "base64");
