@@ -90,6 +90,9 @@ class GenerationPollerService {
     // Find all processing generations
     // Exclude talking-head type - it uses inline polling in the background process
     // Exclude nsfw type - it uses RunComfy polling in nsfw.controller.js
+    // Exclude img2img-describe - it's a RunPod JoyCaption job resolved via /api/runpod/callback
+    //   (the WaveSpeed poller would otherwise mark it failed with "No WaveSpeed request ID
+    //    found" after the 30s grace because replicateModel is empty for RunPod jobs).
     const pendingGenerations = await prisma.generation.findMany({
       where: {
         status: "processing",
@@ -109,6 +112,7 @@ class GenerationPollerService {
             "upscale",
             "modelclone-x",
             "soulx",
+            "img2img-describe",
           ],
         },
       },
