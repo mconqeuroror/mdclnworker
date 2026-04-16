@@ -20,10 +20,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /workspace
 
 # -----------------------------------------------
-# 2. Clone ComfyUI
+# 2. Clone ComfyUI pinned to v0.16.4 (last version before sqlalchemy dep)
 # -----------------------------------------------
-RUN git clone https://github.com/comfyanonymous/ComfyUI.git /workspace/ComfyUI \
- && cd /workspace/ComfyUI && git checkout v0.16.4
+RUN git clone --depth 1 --branch v0.16.4 https://github.com/comfyanonymous/ComfyUI.git /workspace/ComfyUI
 
 # -----------------------------------------------
 # 3. ComfyUI requirements + hf_transfer
