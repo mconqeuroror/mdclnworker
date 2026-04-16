@@ -861,11 +861,10 @@ export default {
 // ============================================
 
 const RUNPOD_API_KEY = process.env.RUNPOD_API_KEY;
-// Resolve NSFW endpoint exactly like ModelClone-X:
-// RUNPOD_MODELCLONE_X_ENDPOINT_ID -> RUNPOD_ENDPOINT_ID -> RUNPOD_SOULX_ENDPOINT_ID.
-// This keeps NSFW and ModelClone-X on the same backend path.
+// Dedicated NSFW endpoint, falls back through the chain to the default worker.
 const RUNPOD_ENDPOINT_ID =
   String(
+    process.env.RUNPOD_NSFW_ENDPOINT_ID ||
     process.env.RUNPOD_MODELCLONE_X_ENDPOINT_ID ||
     process.env.RUNPOD_ENDPOINT_ID ||
     process.env.RUNPOD_SOULX_ENDPOINT_ID ||
@@ -1315,7 +1314,7 @@ function loadNsfwCoreWorkflowGraph() {
   return null;
 }
 
-// ─── Pro workflow (SeedVR2 upscaler + film grain) ────────────────────────────
+// ─── Pro workflow (clean output — no grain/blur) ─────────────────────────────
 
 let _nsfwProApiCache = null; // Reset whenever nsfw_pro_api.json is updated on disk.
 function loadNsfwProWorkflow() {
@@ -1340,8 +1339,7 @@ function loadNsfwProWorkflow() {
 
 /**
  * Build a ComfyUI API workflow using the new Pro pipeline:
- *   UNet → LoRA chain → KSampler (20 steps, beta scheduler) → VAEDecode
- *   → Film Grain → Blur → SaveImage (node 289)
+ *   UNet → LoRA chain → KSampler (beta scheduler) → VAEDecode → SaveImage (node 289)
  *
  * NOTE: NSFW now always bypasses SeedVR2 upscaling so generations return
  * directly from the base decode + post-processing chain.
@@ -1415,25 +1413,12 @@ function buildComfyWorkflowPro(params) {
   delete wf["41"];
   delete wf["56"];
 
-  // ── Post-processing (blur / grain) ──────────────────────────────────────────
-  if (useWorkflowPostProcessing) {
-    const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
-    const blurEnabled  = postProcessing?.blur?.enabled  !== false;
-    const grainEnabled = postProcessing?.grain?.enabled !== false;
-    const blurStrength  = clamp(Number(postProcessing?.blur?.strength)  ?? 1.0, 0, 1);
-    const grainStrength = clamp(Number(postProcessing?.grain?.strength) ?? 1.0, 0, 1);
-    if (wf["284"]) {
-      wf["284"].inputs.density   = grainEnabled ? Math.max(0.01, +(0.06 * grainStrength).toFixed(4)) : 0.01;
-      wf["284"].inputs.intensity = grainEnabled ? Math.max(0.01, +(0.1  * grainStrength).toFixed(4)) : 0.01;
-    }
-    if (wf["286"]) {
-      wf["286"].inputs.blur_radius = blurEnabled ? Math.max(1, Math.round(2 * blurStrength)) : 1;
-      wf["286"].inputs.sigma       = blurEnabled ? Math.max(0.1, +(0.3 * blurStrength).toFixed(3)) : 0.1;
-    }
-  }
+  // Remove grain/blur nodes — VAEDecode feeds directly to SaveImage
+  delete wf["284"];
+  delete wf["286"];
+  if (wf["289"]) wf["289"].inputs.images = ["25", 0];
 
   // Guarantee SeedVR2 is not present (guard for stale cache).
-  if (wf["284"]) wf["284"].inputs.image = ["25", 0];
   delete wf["359"];
   delete wf["360"];
   delete wf["361"];
@@ -1871,7 +1856,7 @@ function applyNudesPackAdditiveLoraHint(aiSelection, hint) {
  * comma-separated quality dumps; the main prompt should carry scene/lighting in flowing prose.
  */
 const QUALITY_TECHNICAL_TAIL =
-  "smartphone candid photo, natural skin with visible pores, slight wide-angle distortion, unedited raw capture, auto-exposure, grain in shadows, candid amateur nude";
+  "smartphone candid photo, natural skin with visible pores, slight wide-angle distortion, unedited raw capture, auto-exposure, candid amateur nude";
 
 /** Solo nudes only — NEVER append this when the scene describes partnered sex / visible penis / penetration (conflicts with model). */
 const QUALITY_SUFFIX_SOLO =
@@ -2041,18 +2026,17 @@ function patchUltimateSdUpscaleApiNodes(apiWorkflow) {
 }
 
 /**
- * Skip UltimateSDUpscale + UpscaleModelLoader when the worker has no upscale_models
- * (set NSFW_COMFY_BYPASS_UPSCALE=1). Feeds VAEDecode (25) directly into Image Film Grain (284).
+ * Skip UltimateSDUpscale + UpscaleModelLoader and remove grain/blur nodes.
+ * VAEDecode (25) feeds directly into SaveImage (289).
  */
 function bypassUpscaleChainInNsfwCoreApi(apiWorkflow) {
   if (!apiWorkflow || typeof apiWorkflow !== "object") return;
-  const grain = apiWorkflow["284"];
-  if (grain?.class_type === "Image Film Grain" && grain.inputs) {
-    grain.inputs.image = ["25", 0];
-  }
+  delete apiWorkflow["284"];
+  delete apiWorkflow["286"];
   delete apiWorkflow["323"];
   delete apiWorkflow["329"];
   delete apiWorkflow["327"];
+  if (apiWorkflow["289"]) apiWorkflow["289"].inputs.images = ["25", 0];
 }
 
 function buildComfyWorkflow(params) {
@@ -2203,31 +2187,7 @@ function buildComfyWorkflow(params) {
       node303.widgets_values[0] = (Number(height) || 768) * 2;
     }
     
-    // Blur/grain: optional — default keeps template nodes 284/286 (1:1 with desktop export)
-    const usePostFormulas =
-      useWorkflowPostProcessing === true || process.env.NSFW_COMFY_USE_WORKFLOW_POST === "1";
-    if (usePostFormulas) {
-      const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
-      const blurEnabled = postProcessing?.blur?.enabled !== false;
-      const grainEnabled = postProcessing?.grain?.enabled !== false;
-      const blurStrength = clamp(Number(postProcessing?.blur?.strength) ?? 1.0, 0, 1);
-      const grainStrength = clamp(Number(postProcessing?.grain?.strength) ?? 1.0, 0, 1);
-
-      const node284 = findNode(284);
-      if (node284 && node284.widgets_values && node284.widgets_values.length >= 4) {
-        const density = grainEnabled ? Number((0.06 * grainStrength).toFixed(4)) : 0;
-        const intensity = grainEnabled ? Number((0.1 * grainStrength).toFixed(4)) : 0;
-        node284.widgets_values[0] = Math.max(0.01, density);
-        node284.widgets_values[1] = Math.max(0.01, intensity);
-      }
-
-      const node286 = findNode(286);
-      if (node286 && node286.widgets_values && node286.widgets_values.length >= 2) {
-        node286.widgets_values[0] = blurEnabled ? Math.max(1, Math.round(2 * blurStrength)) : 1;
-        const sigma = blurEnabled ? Number((0.3 * blurStrength).toFixed(3)) : 0;
-        node286.widgets_values[1] = Math.max(0.1, sigma);
-      }
-    }
+    // Grain/blur nodes removed — no post-processing
     
     // Node 250: graph `widgets_values` layout is NOT stable (header slots 0–6, then 4 widgets per LoRA).
     // Patching [3]/[7]/[11] was wrong and corrupted the stack. Apply the compact stack on the API node instead (below).
@@ -2405,9 +2365,7 @@ function buildComfyWorkflowLegacy(params) {
       },
       class_type: "KSampler",
     },
-    "284": { inputs: { density: 0.06, intensity: 0.1, highlights: 1, supersample_factor: 1, image: ["28", 0] }, class_type: "Image Film Grain" },
-    "286": { inputs: { blur_radius: 2, sigma: 0.3, image: ["284", 0] }, class_type: "ImageBlur" },
-    "289": { inputs: { filename_prefix: "modelclone", images: ["286", 0] }, class_type: "SaveImage" },
+    "289": { inputs: { filename_prefix: "modelclone", images: ["28", 0] }, class_type: "SaveImage" },
     "304": { inputs: { ckpt_name: "pornworksRealPorn_Illustrious_v4_04.safetensors" }, class_type: "CheckpointLoaderSimple" },
   };
   return workflow;
@@ -2459,16 +2417,7 @@ export async function submitNsfwGeneration(params, webhookUrl = null, generation
     const num = Number(value);
     return Number.isFinite(num) ? clamp(num, 0, 1) : fallback;
   };
-  const normalizedPostProcessing = {
-    blur: {
-      enabled: postProcessing?.blur?.enabled !== false,
-      strength: normalizeStrength(postProcessing?.blur?.strength, 1.0),
-    },
-    grain: {
-      enabled: postProcessing?.grain?.enabled !== false,
-      strength: normalizeStrength(postProcessing?.grain?.strength, 1.0),
-    },
-  };
+  const normalizedPostProcessing = { blur: { enabled: false, strength: 0 }, grain: { enabled: false, strength: 0 } };
 
   // Accept any user-specified strength in 0.1–0.9; fall back to default 0.65.
   const rawStrength = Number(loraStrength);
@@ -2666,8 +2615,7 @@ export async function submitFaceReferenceGeneration(loraUrl, triggerWord) {
     return { success: false, error: "FAL_NSFW_ENDPOINT is not configured" };
   }
 
-  // Prompt optimized for face swap - frontal face, natural skin, slight grain
-  const faceRefPrompt = `${triggerWord}, frontal face portrait photo, looking directly at camera, natural skin texture with slight grain, not plastic or airbrushed, neutral expression, soft natural lighting, clean background, high resolution face detail, professional portrait photography`;
+  const faceRefPrompt = `${triggerWord}, frontal face portrait photo, looking directly at camera, natural skin texture, not plastic or airbrushed, neutral expression, soft natural lighting, clean background, high resolution face detail, professional portrait photography`;
 
   console.log("\n📸 ============================================");
   console.log("📸 FAL.AI FACE REFERENCE GENERATION (Z-Image)");

@@ -3070,29 +3070,7 @@ export async function generateNudesPack(req, res) {
       });
     }
 
-    let faceReferenceUrl = null;
-    if (!skipFaceSwap) {
-      if (faceSwapImageUrl) {
-        const validGalleryImage = await prisma.generation.findFirst({
-          where: {
-            userId,
-            modelId,
-            outputUrl: faceSwapImageUrl,
-            status: "completed",
-            type: { in: ["prompt-image", "image", "face-swap-image", "nsfw"] },
-          },
-        });
-        if (!validGalleryImage) {
-          return res.status(403).json({
-            success: false,
-            message: "Face swap image must be from your gallery (generated for this model)",
-          });
-        }
-        faceReferenceUrl = faceSwapImageUrl;
-      } else {
-        faceReferenceUrl = activeFaceReferenceUrl || null;
-      }
-    }
+    const faceReferenceUrl = null;
 
     const genPricingForPack = await getGenerationPricing();
     const nudesPackPricing = {

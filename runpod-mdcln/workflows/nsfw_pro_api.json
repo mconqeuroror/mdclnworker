@@ -96,30 +96,10 @@
     "class_type": "KSampler",
     "_meta": { "title": "KSampler" }
   },
-  "284": {
-    "inputs": {
-      "density": 0.1,
-      "intensity": 0.06,
-      "highlights": 1,
-      "supersample_factor": 1,
-      "image": ["25", 0]
-    },
-    "class_type": "Image Film Grain",
-    "_meta": { "title": "Image Film Grain" }
-  },
-  "286": {
-    "inputs": {
-      "blur_radius": 1,
-      "sigma": 0.3,
-      "image": ["284", 0]
-    },
-    "class_type": "ImageBlur",
-    "_meta": { "title": "Image Blur" }
-  },
   "289": {
     "inputs": {
       "filename_prefix": "modelclone",
-      "images": ["286", 0]
+      "images": ["25", 0]
     },
     "class_type": "SaveImage",
     "_meta": { "title": "Save Image" }
