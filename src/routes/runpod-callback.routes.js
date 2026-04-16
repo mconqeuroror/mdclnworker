@@ -413,11 +413,19 @@ async function handleRunpodCallback(req, res) {
         const msg = extractRunpodErrorMessage(rawOut, body);
         const ageMs = Date.now() - new Date(imageGen.createdAt).getTime();
 
-        // Identical guard for ALL RunPod types (MCX, NSFW, upscale):
-        // ignore transient "not found / expired" errors and very young failures.
+        // Permanent errors (workflow validation, unknown nodes) must never be ignored.
+        const msgLower = String(msg).toLowerCase();
+        const isPermanentError =
+          msgLower.includes("workflow validation failed") ||
+          msgLower.includes("unknown node type") ||
+          msgLower.includes("invalid workflow") ||
+          msgLower.includes("node type") ||
+          msgLower.includes("missing node");
+
+        // Only ignore transient "not found / expired" errors for very young jobs.
         if (
-          ageMs < 3 * 60 * 1000 ||
-          isTransientRunpodNotFoundPayload(msg, rawOut, body)
+          !isPermanentError &&
+          (ageMs < 3 * 60 * 1000 || isTransientRunpodNotFoundPayload(msg, rawOut, body))
         ) {
           console.warn(
             `[RunPod webhook] ignoring ${imageGen.type} fail for ${jobId} (age=${Math.round(ageMs / 1000)}s): ${String(msg).slice(0, 200)}`,
