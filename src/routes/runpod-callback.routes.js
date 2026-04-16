@@ -367,6 +367,18 @@ async function handleRunpodCallback(req, res) {
       if (st === "COMPLETED") {
         const caption = extractCaptionFromRunpodOutput(rawOut);
         if (!caption) {
+          // Dump the full shape so we can pin extraction for whichever captioner handler is running.
+          let dump = "";
+          try {
+            dump = JSON.stringify(rawOut).slice(0, 2000);
+          } catch {
+            dump = String(rawOut).slice(0, 2000);
+          }
+          console.warn(
+            `[RunPod webhook] describe ${describeGen.id} COMPLETED but no caption extracted ` +
+            `(rawOutKeys=${rawOut && typeof rawOut === "object" ? Object.keys(rawOut).slice(0, 15).join(",") : typeof rawOut}) ` +
+            `rawOut=${dump}`,
+          );
           await prisma.generation.update({
             where: { id: describeGen.id },
             data: { status: "failed", errorMessage: "JoyCaption returned no text" },

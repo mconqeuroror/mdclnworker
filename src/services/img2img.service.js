@@ -492,20 +492,87 @@ export function parseRunpodHandlerOutput(raw) {
 }
 
 /**
+ * Walk common ComfyUI node-output keys and return the first non-empty string we find.
+ * Handles: `text` (string or [string]), `string`, `strings`, `captions`, `caption`.
+ */
+function pickNodeText(node) {
+  if (!node || typeof node !== "object") return null;
+  for (const key of ["text", "caption", "string", "strings", "captions"]) {
+    const v = node[key];
+    if (typeof v === "string" && v.trim()) return v.trim();
+    if (Array.isArray(v) && v.length > 0) {
+      const first = v.find((x) => typeof x === "string" && x.trim());
+      if (first) return first.trim();
+    }
+  }
+  return null;
+}
+
+/**
+ * Scan a ComfyUI-style `outputs` dict (`{ "<node_id>": { text: [...] }, ... }`) for the first
+ * populated text-like field. Prefers higher-numbered nodes (terminal/save nodes usually come last).
+ */
+function scanOutputsForText(outputs) {
+  if (!outputs || typeof outputs !== "object") return null;
+  const preferredOrder = ["53", "48"];
+  for (const id of preferredOrder) {
+    const t = pickNodeText(outputs[id]);
+    if (t) return t;
+  }
+  const otherIds = Object.keys(outputs)
+    .filter((id) => !preferredOrder.includes(id))
+    .sort((a, b) => {
+      const na = Number.parseInt(a, 10);
+      const nb = Number.parseInt(b, 10);
+      if (Number.isFinite(na) && Number.isFinite(nb)) return nb - na;
+      return 0;
+    });
+  for (const id of otherIds) {
+    const t = pickNodeText(outputs[id]);
+    if (t) return t;
+  }
+  return null;
+}
+
+/**
  * Extract the JoyCaption caption text from a completed RunPod job output object.
  * Returns null if no text found.
+ *
+ * Accepts a broad set of handler shapes because different workers wrap their outputs
+ * differently. Order of lookups (first hit wins):
+ *   1. Plain string
+ *   2. `text` / `caption` at top level (with or without `output` / `result` wrapper)
+ *   3. `outputs` / `output_nodes` dicts — checked under top-level, under `output`, and under `result`
  */
 export function extractCaptionFromRunpodOutput(output) {
+  if (typeof output === "string" && output.trim()) return output.trim();
   const o = parseRunpodHandlerOutput(output);
   if (!o) return null;
-  const text =
+
+  const direct =
     (typeof o.text === "string" && o.text.trim()) ||
+    (typeof o.caption === "string" && o.caption.trim()) ||
     (typeof o.output?.text === "string" && o.output.text.trim()) ||
-    (o.result && typeof o.result.text === "string" && o.result.text.trim()) ||
-    (o.result?.output_nodes?.["53"]?.text?.[0]) ||
-    (o.result?.output_nodes?.["48"]?.text?.[0]) ||
-    (Array.isArray(o.result?.text) && o.result.text[0]);
-  return text ? String(text).trim() : null;
+    (typeof o.output?.caption === "string" && o.output.caption.trim()) ||
+    (typeof o.result?.text === "string" && o.result.text.trim()) ||
+    (typeof o.result?.caption === "string" && o.result.caption.trim()) ||
+    (Array.isArray(o.text) && typeof o.text[0] === "string" && o.text[0].trim()) ||
+    (Array.isArray(o.result?.text) && typeof o.result.text[0] === "string" && o.result.text[0].trim());
+  if (direct) return String(direct).trim();
+
+  const candidates = [
+    o.outputs,
+    o.output_nodes,
+    o.output?.outputs,
+    o.output?.output_nodes,
+    o.result?.outputs,
+    o.result?.output_nodes,
+  ];
+  for (const c of candidates) {
+    const t = scanOutputsForText(c);
+    if (t) return t;
+  }
+  return null;
 }
 
 /** RunPod status values that mean success (casing / synonyms differ by API version). */
