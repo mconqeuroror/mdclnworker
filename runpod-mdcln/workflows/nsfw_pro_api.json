@@ -65,7 +65,7 @@
   },
   "247": {
     "inputs": {
-      "unet_name": "zImageTurboNSFW_43BF16AIO.safetensors",
+      "unet_name": "zImageTurboNSFW_20BF16AIO.safetensors",
       "weight_dtype": "default"
     },
     "class_type": "UNETLoader",

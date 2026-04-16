@@ -3,17 +3,13 @@
 # ============================================
 FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
 
-# Build-time secret for CivitAI model download (docker build --build-arg CIVITAI_API_KEY=...)
-ARG CIVITAI_API_KEY=""
-
 ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONFAULTHANDLER=1
 ENV TRANSFORMERS_USE_FAST_IMAGE_PROCESSING=0
-# Expose key to setup_models.sh during build
-ENV CIVITAI_API_KEY=${CIVITAI_API_KEY}
+ENV HF_HUB_ENABLE_HF_TRANSFER=1
 
 # -----------------------------------------------
 # 1. System dependencies  [rarely changes → stays cached]
@@ -57,6 +53,7 @@ RUN pip install --no-cache-dir \
     sentencepiece \
     protobuf \
     "huggingface-hub>=0.25.0" \
+    hf_transfer \
     bitsandbytes
 
 # -----------------------------------------------
@@ -76,9 +73,8 @@ RUN mkdir -p /workspace/ComfyUI/models/checkpoints \
              /workspace/ComfyUI/models/upscale_models \
              /workspace/ComfyUI/models/seedvr2
 
-# Bake all models into image at build time — eliminates 30-min cold start download.
-# Pass CIVITAI_API_KEY as a build arg to include the NSFW UNet.
-# All models baked: VAE + CLIP + UNet + upscaler + SeedVR2 VAE + SeedVR2 DiT + JoyCaption
+# Bake all models into image at build time — eliminates cold start download.
+# All models from HuggingFace: VAE + CLIP + UNet + upscaler + SeedVR2 VAE + SeedVR2 DiT + JoyCaption
 COPY setup_models.sh /workspace/setup_models.sh
 RUN chmod +x /workspace/setup_models.sh
 RUN /workspace/setup_models.sh

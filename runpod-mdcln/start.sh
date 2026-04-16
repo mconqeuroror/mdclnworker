@@ -14,76 +14,8 @@ MODELS_DIR="${COMFYUI_DIR}/models"
 VOLUME_DIR="/runpod-volume"
 VOLUME_MODELS="${VOLUME_DIR}/models"
 
-# 4xFaceUpDAT.pth (~148MB) — primary: Google Drive (HF often blocked on some hosts).
-UPSCALE_GDRIVE_FILE_ID="1d3wPbtjFcgCkWAMVFQalOuQHdiNmfc5i"
-UPSCALE_HF_URL="https://huggingface.co/Acly/Upscaler/resolve/main/4xFaceUpDAT.pth"
+export HF_HUB_ENABLE_HF_TRANSFER=1
 MIN_UPSCALE_FILE_BYTES=5242880
-
-# Download 4xFaceUpDAT.pth: Drive large-file virus interstitial needs confirm + cookies.
-download_4x_face_up_dat() {
-    local dest="$1"
-    local id="${UPSCALE_GDRIVE_FILE_ID}"
-    local tmp="${dest}.tmp"
-    local cook="/tmp/gdrive_ck_$$.txt"
-    local sz
-
-    if [ -f "$dest" ]; then
-        sz=$(stat -c%s "$dest" 2>/dev/null || echo 0)
-        if [ "$sz" -ge "$MIN_UPSCALE_FILE_BYTES" ]; then
-            echo "  [OK] Already exists: $(basename "$dest")"
-            return 0
-        fi
-        echo "  [FIX] Replacing undersized $(basename "$dest") (${sz} bytes)..."
-        rm -f "$dest"
-    fi
-
-    mkdir -p "$(dirname "$dest")"
-    rm -f "$tmp" "$cook"
-
-    echo "  [DL] Downloading: $(basename "$dest") (Google Drive) ..."
-    local page confirm
-    page=$(wget -q --save-cookies "$cook" --keep-session-cookies \
-        "https://drive.google.com/uc?export=download&id=${id}" -O -) || true
-    confirm=$(echo "$page" | sed -n 's/.*confirm=\([0-9A-Za-z_][0-9A-Za-z_]*\).*/\1/p' | head -1)
-    if [ -z "$confirm" ]; then
-        confirm="t"
-    fi
-
-    if wget -q --show-progress --load-cookies "$cook" -O "$tmp" \
-        "https://drive.google.com/uc?export=download&confirm=${confirm}&id=${id}" 2>&1; then
-        :
-    fi
-    sz=$(stat -c%s "$tmp" 2>/dev/null || echo 0)
-    rm -f "$cook"
-
-    if [ "$sz" -lt "$MIN_UPSCALE_FILE_BYTES" ]; then
-        rm -f "$tmp"
-        echo "  [DL] Retry: direct confirm=1 ..."
-        wget -q --show-progress -O "$tmp" \
-            "https://drive.google.com/uc?export=download&confirm=1&id=${id}" 2>&1 || true
-        sz=$(stat -c%s "$tmp" 2>/dev/null || echo 0)
-    fi
-
-    if [ "$sz" -ge "$MIN_UPSCALE_FILE_BYTES" ]; then
-        mv "$tmp" "$dest"
-        echo "  [OK] Downloaded: $(basename "$dest") ($(du -h "$dest" | cut -f1))"
-        return 0
-    fi
-
-    rm -f "$tmp"
-    echo "  [DL] Fallback: HuggingFace mirror ..."
-    if wget -q --show-progress -O "$tmp" "$UPSCALE_HF_URL" 2>&1; then
-        sz=$(stat -c%s "$tmp" 2>/dev/null || echo 0)
-        if [ "$sz" -ge "$MIN_UPSCALE_FILE_BYTES" ]; then
-            mv "$tmp" "$dest"
-            echo "  [OK] Downloaded: $(basename "$dest") ($(du -h "$dest" | cut -f1))"
-            return 0
-        fi
-    fi
-    rm -f "$tmp"
-    echo "  [!!] FAILED to download: $(basename "$dest") (will retry on next boot)"
-    return 1
-}
 
 download_if_missing() {
     local url="$1"
@@ -91,8 +23,13 @@ download_if_missing() {
     local name="$(basename $dest)"
 
     if [ -f "$dest" ]; then
-        echo "  [OK] Already exists: $name"
-        return 0
+        local sz=$(stat -c%s "$dest" 2>/dev/null || echo 0)
+        if [ "$sz" -gt 1000 ]; then
+            echo "  [OK] Already exists: $name"
+            return 0
+        fi
+        echo "  [FIX] Replacing corrupt/empty $(basename "$dest") (${sz} bytes)..."
+        rm -f "$dest"
     fi
 
     echo "  [DL] Downloading: $name ..."
@@ -131,30 +68,30 @@ setup_models() {
         "${target_dir}/clip/qwen_3_4b.safetensors"
 
     echo ""
-    echo "--- [3/6] UNet: zImageTurboNSFW_43BF16AIO.safetensors (CivitAI) ---"
-    if [ -f "${target_dir}/unet/zImageTurboNSFW_43BF16AIO.safetensors" ]; then
-        echo "  [OK] Already exists: zImageTurboNSFW_43BF16AIO.safetensors"
-    else
-        echo "  [DL] Downloading from CivitAI (requires API key)..."
-        mkdir -p "${target_dir}/unet"
-        CIVITAI_URL="https://civitai.com/api/download/models/2682644?type=Model&format=SafeTensor&size=pruned&fp=fp16&token=${CIVITAI_API_KEY}"
-        if wget -q --show-progress --content-disposition -O "${target_dir}/unet/zImageTurboNSFW_43BF16AIO.safetensors.tmp" "${CIVITAI_URL}" 2>&1; then
-            mv "${target_dir}/unet/zImageTurboNSFW_43BF16AIO.safetensors.tmp" "${target_dir}/unet/zImageTurboNSFW_43BF16AIO.safetensors"
-            echo "  [OK] Downloaded: zImageTurboNSFW_43BF16AIO.safetensors ($(du -h "${target_dir}/unet/zImageTurboNSFW_43BF16AIO.safetensors" | cut -f1))"
-        else
-            echo "  [!!] FAILED to download from CivitAI. Check CIVITAI_API_KEY env var."
-            rm -f "${target_dir}/unet/zImageTurboNSFW_43BF16AIO.safetensors.tmp"
-        fi
+    echo "--- [3/6] UNet: zImageTurboNSFW_20BF16AIO.safetensors (HuggingFace) ---"
+    download_if_missing \
+        "https://huggingface.co/bigckck/Z-Image_Turbo_NSFW_2.0bf16_aio/resolve/main/zImageTurboNSFW_20BF16AIO.safetensors" \
+        "${target_dir}/unet/zImageTurboNSFW_20BF16AIO.safetensors"
+    if [ ! -f "${target_dir}/unet/zImageTurboNSFW_20BF16AIO.safetensors" ]; then
+        echo ""
+        echo "  ╔══════════════════════════════════════════════════════════════╗"
+        echo "  ║  FATAL: zImageTurboNSFW_20BF16AIO.safetensors NOT FOUND    ║"
+        echo "  ║  NSFW / MCX / img2img workflows will ALL fail.             ║"
+        echo "  ╚══════════════════════════════════════════════════════════════╝"
+        echo ""
     fi
-    if [ -f "${target_dir}/unet/zImageTurboNSFW_20BF16AIO.safetensors" ]; then
-        echo "  [CLEANUP] Removing old v2.0 model..."
-        rm -f "${target_dir}/unet/zImageTurboNSFW_20BF16AIO.safetensors"
+    # Remove old v4.3 model if present (migrated to v2.0 from self-hosted HF mirror)
+    if [ -f "${target_dir}/unet/zImageTurboNSFW_43BF16AIO.safetensors" ]; then
+        echo "  [CLEANUP] Removing old v4.3 model..."
+        rm -f "${target_dir}/unet/zImageTurboNSFW_43BF16AIO.safetensors"
     fi
 
     echo ""
     echo "--- [4/6] Upscaler: 4xFaceUpDAT.pth ---"
     mkdir -p "${target_dir}/upscale_models"
-    download_4x_face_up_dat "${target_dir}/upscale_models/4xFaceUpDAT.pth"
+    download_if_missing \
+        "https://huggingface.co/Acly/Upscaler/resolve/main/4xFaceUpDAT.pth" \
+        "${target_dir}/upscale_models/4xFaceUpDAT.pth"
 
     echo ""
     echo "--- [5/6] SeedVR2 VAE: ema_vae_fp16.safetensors (~501MB) ---"
@@ -206,7 +143,9 @@ if [ -d "$VOLUME_DIR" ]; then
     if [ ! -f "${MODELS_DIR}/upscale_models/4xFaceUpDAT.pth" ]; then
         echo ">>> [RETRY] Upscale model missing after volume link — downloading 4xFaceUpDAT.pth..."
         mkdir -p "${MODELS_DIR}/upscale_models"
-        download_4x_face_up_dat "${MODELS_DIR}/upscale_models/4xFaceUpDAT.pth"
+        download_if_missing \
+            "https://huggingface.co/Acly/Upscaler/resolve/main/4xFaceUpDAT.pth" \
+            "${MODELS_DIR}/upscale_models/4xFaceUpDAT.pth"
     fi
 else
     export HF_HOME="/root/.cache/huggingface"
@@ -227,7 +166,9 @@ if [ -f "$UPSCALE_PTH" ]; then
     if [ "$USZ" -lt "$MIN_UPSCALE_FILE_BYTES" ]; then
         echo ">>> [FIX] Upscale file too small (${USZ} bytes, min ${MIN_UPSCALE_FILE_BYTES}) — re-downloading..."
         rm -f "$UPSCALE_PTH"
-        download_4x_face_up_dat "$UPSCALE_PTH"
+        download_if_missing \
+            "https://huggingface.co/Acly/Upscaler/resolve/main/4xFaceUpDAT.pth" \
+            "$UPSCALE_PTH"
     fi
 fi
 

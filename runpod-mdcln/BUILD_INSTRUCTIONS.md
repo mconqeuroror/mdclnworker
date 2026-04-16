@@ -28,23 +28,23 @@ The [modelclone](https://github.com/typekpaco2002/mdlcln) backend builds prompts
 
 ## Required RunPod environment
 
-- **`CIVITAI_API_KEY`** — **required** for downloading the Z-Image Turbo NSFW UNet on first boot (`zImageTurboNSFW_43BF16AIO.safetensors`). Without it, the UNet step in `start.sh` fails and image generation will break.
 - **Network volume** (~200GB recommended) — attach at `/runpod-volume` so VAE/CLIP/UNet/checkpoint persist.
+- All models are downloaded from HuggingFace (no API keys required).
 
 ## Models (must match workflow filenames)
 
 `start.sh` downloads to `/runpod-volume/models/...` (or `ComfyUI/models` if no volume):
 
-| File | Role |
-|------|------|
-| `vae/ae.safetensors` | VAELoader node `246` |
-| `clip/qwen_3_4b.safetensors` | CLIPLoader node `248` |
-| `unet/zImageTurboNSFW_43BF16AIO.safetensors` | UNETLoader node `247` (CivitAI) |
-| `checkpoints/pornworksRealPorn_Illustrious_v4_04.safetensors` | CheckpointLoaderSimple refiner path |
+| File | Source | Role |
+|------|--------|------|
+| `vae/ae.safetensors` | `Comfy-Org/z_image_turbo` | VAELoader node `246` |
+| `clip/qwen_3_4b.safetensors` | `Comfy-Org/z_image_turbo` | CLIPLoader node `248` |
+| `unet/zImageTurboNSFW_20BF16AIO.safetensors` | `bigckck/Z-Image_Turbo_NSFW_2.0bf16_aio` | UNETLoader node `247` |
+| `checkpoints/pornworksRealPorn_Illustrious_v4_04.safetensors` | — | CheckpointLoaderSimple refiner path |
 
 User/pose LoRAs are loaded **by URL** via `LoadLoraFromUrlOrPath` (no bake needed).
 
-`workflow_api.json` in this repo is a **reference UI export**; the live app sends API prompts built from the modelclone template. **UNET name in that JSON must stay aligned** with `start.sh` (`43BF16AIO`).
+`workflow_api.json` in this repo is a **reference UI export**; the live app sends API prompts built from the modelclone template. **UNET name in that JSON must stay aligned** with `start.sh` (`20BF16AIO`).
 
 ## Quick deploy
 
@@ -56,18 +56,9 @@ docker push yourdockerhub/modelclone-worker:latest
 
 ### 2. RunPod serverless endpoint
 - Image: your pushed image  
-- **Env**: `CIVITAI_API_KEY`  
 - **Network volume** at `/runpod-volume`  
 - GPU: 4090 / A100 class (~20GB+ VRAM)  
-
-### 3. Optional: bake models into image
-Uncomment in `Dockerfile`:
-```dockerfile
-ARG CIVITAI_API_KEY
-ENV CIVITAI_API_KEY=$CIVITAI_API_KEY
-RUN /workspace/setup_models.sh
-```
-Build with: `docker build --build-arg CIVITAI_API_KEY=... .`
+- No API keys needed — all models are on HuggingFace
 
 ## File overview
 
@@ -78,12 +69,12 @@ Build with: `docker build --build-arg CIVITAI_API_KEY=... .`
 | `handler.py` | RunPod handler (`input.prompt`, optional `upload_images`) |
 | `custom_nodes.list` | GitHub repos for custom nodes |
 | `setup_custom_nodes.sh` | Clone list during image build |
-| `setup_models.sh` | Optional bake (HF + CivitAI UNet if `CIVITAI_API_KEY` set) |
+| `setup_models.sh` | Optional bake (all models from HuggingFace) |
 | `workflow_api.json` | Reference workflow (keep UNET filename in sync) |
 
 ## Troubleshooting
 
-1. **Missing UNet** — Set `CIVITAI_API_KEY`; check logs for `[!!] FAILED to download from CivitAI`.  
+1. **Missing UNet** — Check logs for `[!!] FAILED to download` — the HuggingFace source may be temporarily unavailable.  
 2. **Unknown node type** — Call handler with `{"input": {"debug_nodes": true}}` and compare to workflow `class_type` values.  
 3. **Refiner disconnected** — Backend must apply `ue_links` (modelclone `comfyUiGraphToApiPrompt`) so checkpoint `MODEL`/`CLIP`/`VAE` reach nodes `45`, `8`, `21`, `28`, `42`.  
-4. **Outdated docs** — Do **not** use `z_image_turbo_bf16_nsfw_v2.safetensors` with the current workflow; filename must be `zImageTurboNSFW_43BF16AIO.safetensors`.
+4. **Outdated docs** — Do **not** use `z_image_turbo_bf16_nsfw_v2.safetensors` with the current workflow; filename must be `zImageTurboNSFW_20BF16AIO.safetensors`.
