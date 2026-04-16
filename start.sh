@@ -16,11 +16,11 @@ VOLUME_MODELS="${VOLUME_DIR}/models"
 
 export HF_HUB_ENABLE_HF_TRANSFER=1
 
-# Ensure critical Python deps are present
+# Ensure critical Python deps are present (use python3 -m pip to match the Python that runs ComfyUI)
 echo ">>> Ensuring runtime Python dependencies..."
-pip install -q --no-cache-dir \
+python3 -m pip install --no-cache-dir \
     "huggingface-hub>=0.25.0" hf_transfer \
-    sqlalchemy aiosqlite 2>/dev/null || true
+    sqlalchemy aiosqlite || echo "  [WARN] pip install failed — ComfyUI may crash if it needs sqlalchemy"
 
 download_if_missing() {
     local url="$1"

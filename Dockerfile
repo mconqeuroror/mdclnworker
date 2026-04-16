@@ -27,9 +27,9 @@ RUN git clone --depth 1 --branch v0.16.4 https://github.com/comfyanonymous/Comfy
 # -----------------------------------------------
 # 3. ComfyUI requirements + hf_transfer
 # -----------------------------------------------
-RUN pip install --no-cache-dir -r /workspace/ComfyUI/requirements.txt
+RUN python3 -m pip install --no-cache-dir -r /workspace/ComfyUI/requirements.txt
 
-RUN pip install --no-cache-dir \
+RUN python3 -m pip install --no-cache-dir \
     "huggingface-hub>=0.25.0" \
     hf_transfer \
     sqlalchemy aiosqlite
