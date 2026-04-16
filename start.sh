@@ -27,10 +27,9 @@ python3 -m pip install --no-cache-dir \
     sqlalchemy aiosqlite \
     runpod requests \
     opencv-python-headless \
-    numba \
-    piexif \
-    deepdiff \
-    || echo "  [WARN] pip install failed — some custom nodes may not load"
+    scikit-image \
+    numba piexif deepdiff \
+    || echo "  [WARN] pip install failed — handler or custom nodes may not load"
 
 download_if_missing() {
     local url="$1"
