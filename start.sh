@@ -100,7 +100,7 @@ setup_models() {
     echo "--- [4/4] Upscaler: 4xFaceUpDAT.pth ---"
     mkdir -p "${target_dir}/upscale_models"
     download_if_missing \
-        "https://huggingface.co/Acly/Upscaler/resolve/main/4xFaceUpDAT.pth" \
+        "https://huggingface.co/f5aiteam/Upscaler_Models/resolve/main/4xFaceUpDAT.pth" \
         "${target_dir}/upscale_models/4xFaceUpDAT.pth"
 }
 
@@ -128,7 +128,7 @@ if [ -d "$VOLUME_DIR" ]; then
         echo ">>> [RETRY] Upscale model missing after volume link — downloading 4xFaceUpDAT.pth..."
         mkdir -p "${MODELS_DIR}/upscale_models"
         download_if_missing \
-            "https://huggingface.co/Acly/Upscaler/resolve/main/4xFaceUpDAT.pth" \
+            "https://huggingface.co/f5aiteam/Upscaler_Models/resolve/main/4xFaceUpDAT.pth" \
             "${MODELS_DIR}/upscale_models/4xFaceUpDAT.pth"
     fi
     # Clean up old SeedVR2/JoyCaption dirs from previous builds
@@ -155,7 +155,7 @@ if [ -f "$UPSCALE_PTH" ]; then
         echo ">>> [FIX] Upscale file too small (${USZ} bytes, min ${MIN_UPSCALE_FILE_BYTES}) — re-downloading..."
         rm -f "$UPSCALE_PTH"
         download_if_missing \
-            "https://huggingface.co/Acly/Upscaler/resolve/main/4xFaceUpDAT.pth" \
+            "https://huggingface.co/f5aiteam/Upscaler_Models/resolve/main/4xFaceUpDAT.pth" \
             "$UPSCALE_PTH"
     fi
 fi
