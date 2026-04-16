@@ -1,0 +1,166 @@
+{
+  "1": {
+    "inputs": {
+      "text": ["41", 0],
+      "clip": ["248", 0]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": { "title": "Negative Prompt" }
+  },
+  "2": {
+    "inputs": {
+      "text": ["56", 0],
+      "clip": ["248", 0]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": { "title": "Positive prompt" }
+  },
+  "25": {
+    "inputs": {
+      "samples": ["276", 0],
+      "vae": ["246", 0]
+    },
+    "class_type": "VAEDecode",
+    "_meta": { "title": "VAE Decode" }
+  },
+  "41": {
+    "inputs": {
+      "string": "plastic skin, doll-like, oversmoothed, airbrushed, cartoon, 3d render, low quality, artifacts, deformed anatomy, extra limbs, bad hands, blurry, text, watermark, oversaturated, underexposed, makeup, nail polish, tattoo, jewelry, cgi, render, illustration, painting, cartoon, anime, plastic skin, airbrushed, oversaturated, blur, noise, watermark, deformed, bad anatomy"
+    },
+    "class_type": "String Literal",
+    "_meta": { "title": "Negative Prompt" }
+  },
+  "50": {
+    "inputs": {
+      "width": 1024,
+      "height": 1024,
+      "aspect_ratio": "9:16 portrait 768x1344",
+      "swap_dimensions": "Off",
+      "upscale_factor": 2,
+      "batch_size": 1
+    },
+    "class_type": "CR SDXL Aspect Ratio",
+    "_meta": { "title": "CR SDXL Aspect Ratio" }
+  },
+  "56": {
+    "inputs": {
+      "string": ""
+    },
+    "class_type": "String Literal",
+    "_meta": { "title": "Positive Prompt" }
+  },
+  "57": {
+    "inputs": {
+      "seed": -1
+    },
+    "class_type": "Seed (rgthree)",
+    "_meta": { "title": "Seed (rgthree)" }
+  },
+  "246": {
+    "inputs": {
+      "vae_name": "ae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": { "title": "Load VAE" }
+  },
+  "247": {
+    "inputs": {
+      "unet_name": "zImageTurboNSFW_20BF16AIO.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": { "title": "Load Diffusion Model" }
+  },
+  "248": {
+    "inputs": {
+      "clip_name": "qwen_3_4b.safetensors",
+      "type": "qwen_image",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": { "title": "Load CLIP" }
+  },
+  "276": {
+    "inputs": {
+      "seed": ["57", 0],
+      "steps": 10,
+      "cfg": 2,
+      "sampler_name": "dpmpp_2m",
+      "scheduler": "beta",
+      "denoise": 1,
+      "model": ["247", 0],
+      "positive": ["2", 0],
+      "negative": ["1", 0],
+      "latent_image": ["50", 4]
+    },
+    "class_type": "KSampler",
+    "_meta": { "title": "KSampler" }
+  },
+  "369": {
+    "inputs": {
+      "filename_prefix": "soulx_pre",
+      "images": ["25", 0]
+    },
+    "class_type": "SaveImage",
+    "_meta": { "title": "Save Pre-upscale Image" }
+  },
+  "370": {
+    "inputs": {
+      "seed": 0,
+      "resolution": 2080,
+      "max_resolution": 2080,
+      "batch_size": 1,
+      "uniform_batch_size": false,
+      "color_correction": "lab",
+      "temporal_overlap": 0,
+      "prepend_frames": 0,
+      "input_noise_scale": 0.02,
+      "latent_noise_scale": 0,
+      "offload_device": "cpu",
+      "enable_debug": false,
+      "image": ["25", 0],
+      "dit": ["371", 0],
+      "vae": ["372", 0]
+    },
+    "class_type": "SeedVR2VideoUpscaler",
+    "_meta": { "title": "SeedVR2 Upscaler" }
+  },
+  "371": {
+    "inputs": {
+      "model": "seedvr2_ema_7b_fp16.safetensors",
+      "device": "cuda:0",
+      "blocks_to_swap": 36,
+      "swap_io_components": false,
+      "offload_device": "cpu",
+      "cache_model": false,
+      "attention_mode": "sdpa"
+    },
+    "class_type": "SeedVR2LoadDiTModel",
+    "_meta": { "title": "SeedVR2 Load DiT Model" }
+  },
+  "372": {
+    "inputs": {
+      "model": "ema_vae_fp16.safetensors",
+      "device": "cuda:0",
+      "encode_tiled": true,
+      "encode_tile_size": 1024,
+      "encode_tile_overlap": 128,
+      "decode_tiled": true,
+      "decode_tile_size": 1024,
+      "decode_tile_overlap": 128,
+      "tile_debug": "false",
+      "offload_device": "none",
+      "cache_model": false
+    },
+    "class_type": "SeedVR2LoadVAEModel",
+    "_meta": { "title": "SeedVR2 Load VAE Model" }
+  },
+  "373": {
+    "inputs": {
+      "filename_prefix": "soulx_final",
+      "images": ["370", 0]
+    },
+    "class_type": "SaveImage",
+    "_meta": { "title": "Save Final Upscaled Image" }
+  }
+}
