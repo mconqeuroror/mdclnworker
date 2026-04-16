@@ -22,7 +22,8 @@ WORKDIR /workspace
 # -----------------------------------------------
 # 2. Clone ComfyUI
 # -----------------------------------------------
-RUN git clone https://github.com/comfyanonymous/ComfyUI.git /workspace/ComfyUI
+RUN git clone https://github.com/comfyanonymous/ComfyUI.git /workspace/ComfyUI \
+ && cd /workspace/ComfyUI && git checkout v0.16.4
 
 # -----------------------------------------------
 # 3. ComfyUI requirements + hf_transfer
@@ -31,9 +32,7 @@ RUN pip install --no-cache-dir -r /workspace/ComfyUI/requirements.txt
 
 RUN pip install --no-cache-dir \
     "huggingface-hub>=0.25.0" \
-    hf_transfer \
-    sqlalchemy \
-    aiosqlite
+    hf_transfer
 
 # -----------------------------------------------
 # 4. Patch ComfyUI  [rarely changes → stays cached]
