@@ -12,10 +12,19 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const RUNPOD_API_KEY = process.env.RUNPOD_API_KEY;
-const RUNPOD_UPSCALER_ENDPOINT_ID = process.env.RUNPOD_UPSCALER_ENDPOINT_ID;
+const RUNPOD_UPSCALER_ENDPOINT_ID = (
+  process.env.RUNPOD_UPSCALER_ENDPOINT_ID ||
+  process.env.RUNPOD_ENDPOINT_ID ||
+  ""
+).trim() || null;
 
 if (!RUNPOD_UPSCALER_ENDPOINT_ID) {
-  console.warn("⚠️  RUNPOD_UPSCALER_ENDPOINT_ID not set — upscaler will not work");
+  console.warn("⚠️  No upscaler endpoint configured (RUNPOD_UPSCALER_ENDPOINT_ID / RUNPOD_ENDPOINT_ID) — upscaler will not work");
+} else {
+  const resolvedFrom = process.env.RUNPOD_UPSCALER_ENDPOINT_ID?.trim()
+    ? "RUNPOD_UPSCALER_ENDPOINT_ID"
+    : "RUNPOD_ENDPOINT_ID (fallback)";
+  console.log(`[Upscaler] endpoint=${RUNPOD_UPSCALER_ENDPOINT_ID} (from ${resolvedFrom})`);
 }
 
 export const UPSCALER_CREDIT_COST = 5;
@@ -26,6 +35,8 @@ function loadUpscalerWorkflow() {
   const candidates = [
     path.join(process.cwd(), "runpod-mdcln", "workflows", "upscaler_api.json"),
     path.join(__dirname, "..", "..", "runpod-mdcln", "workflows", "upscaler_api.json"),
+    path.join(process.cwd(), "runpod-upscaler", "workflows", "upscaler_api.json"),
+    path.join(__dirname, "..", "..", "runpod-upscaler", "workflows", "upscaler_api.json"),
   ];
   for (const p of candidates) {
     if (fs.existsSync(p)) {
@@ -101,7 +112,7 @@ export async function submitUpscalerJob(imageBase64, filename = "upscale_input.j
     data.taskId;
   if (!jobId) throw new Error(`Upscaler submit returned no job id: ${JSON.stringify(data)}`);
 
-  console.log(`[Upscaler] Job submitted: ${jobId}`);
+  console.log(`[Upscaler] Job submitted: ${jobId} → endpoint=${RUNPOD_UPSCALER_ENDPOINT_ID}`);
   return jobId;
 }
 

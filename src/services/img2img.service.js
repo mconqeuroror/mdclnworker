@@ -35,12 +35,20 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // dynamicPoll removed — inline polling used directly
 
 const RUNPOD_API_KEY = process.env.RUNPOD_API_KEY;
-const RUNPOD_ENDPOINT = (process.env.RUNPOD_ENDPOINT_ID || "").trim() || null;
+const RUNPOD_ENDPOINT = (
+  process.env.RUNPOD_NSFW_ENDPOINT_ID ||
+  process.env.RUNPOD_ENDPOINT_ID ||
+  ""
+).trim() || null;
 const RUNPOD_BASE = RUNPOD_ENDPOINT ? `https://api.runpod.ai/v2/${RUNPOD_ENDPOINT}` : null;
 
 /** Dedicated worker for img2img “analyze image” (JoyCaption). */
-const RUNPOD_IMAGE_ANALYSIS_ENDPOINT =
-  process.env.RUNPOD_IMAGE_ANALYSIS_ENDPOINT_ID?.trim() || null;
+const RUNPOD_IMAGE_ANALYSIS_ENDPOINT = (
+  process.env.RUNPOD_CAPTIONER_ENDPOINT_ID ||
+  process.env.RUNPOD_IMAGE_ANALYSIS_ENDPOINT_ID ||
+  process.env.RUNPOD_ENDPOINT_ID ||
+  ""
+).trim() || null;
 const RUNPOD_ANALYSIS_BASE = RUNPOD_IMAGE_ANALYSIS_ENDPOINT
   ? `https://api.runpod.ai/v2/${RUNPOD_IMAGE_ANALYSIS_ENDPOINT}`
   : null;
@@ -50,6 +58,20 @@ const IMG2IMG_ANALYSIS_POLL_TIMEOUT_MS = 5 * 60 * 1000;
 
 if (!RUNPOD_API_KEY) {
   console.warn("⚠️  RUNPOD_API_KEY not set — img2img pipeline will not work");
+}
+if (RUNPOD_ENDPOINT) {
+  const resolvedFrom = process.env.RUNPOD_NSFW_ENDPOINT_ID?.trim()
+    ? "RUNPOD_NSFW_ENDPOINT_ID"
+    : "RUNPOD_ENDPOINT_ID";
+  console.log(`[img2img] gen endpoint=${RUNPOD_ENDPOINT} (from ${resolvedFrom})`);
+}
+if (RUNPOD_IMAGE_ANALYSIS_ENDPOINT) {
+  const resolvedFrom = process.env.RUNPOD_CAPTIONER_ENDPOINT_ID?.trim()
+    ? "RUNPOD_CAPTIONER_ENDPOINT_ID"
+    : process.env.RUNPOD_IMAGE_ANALYSIS_ENDPOINT_ID?.trim()
+      ? "RUNPOD_IMAGE_ANALYSIS_ENDPOINT_ID"
+      : "RUNPOD_ENDPOINT_ID";
+  console.log(`[img2img] captioner endpoint=${RUNPOD_IMAGE_ANALYSIS_ENDPOINT} (from ${resolvedFrom})`);
 }
 
 // ── Embedded workflow templates ───────────────────────────────────────────────

@@ -881,6 +881,15 @@ if (!RUNPOD_ENDPOINT_ID) {
   console.warn(
     "⚠️ No RunPod NSFW endpoint configured (RUNPOD_ENDPOINT_ID / RUNPOD_MODELCLONE_X_ENDPOINT_ID / RUNPOD_SOULX_ENDPOINT_ID) — NSFW generation will not work",
   );
+} else {
+  const resolvedFrom = process.env.RUNPOD_NSFW_ENDPOINT_ID?.trim()
+    ? "RUNPOD_NSFW_ENDPOINT_ID"
+    : process.env.RUNPOD_MODELCLONE_X_ENDPOINT_ID?.trim()
+      ? "RUNPOD_MODELCLONE_X_ENDPOINT_ID"
+      : process.env.RUNPOD_ENDPOINT_ID?.trim()
+        ? "RUNPOD_ENDPOINT_ID"
+        : "RUNPOD_SOULX_ENDPOINT_ID";
+  console.log(`[NSFW/fal] endpoint=${RUNPOD_ENDPOINT_ID} (from ${resolvedFrom})`);
 }
 
 /** Pose / makeup / cum / enhancement additive slots — never exceed this (girl LoRA identity is separate). */
