@@ -31,7 +31,8 @@ RUN pip install --no-cache-dir -r /workspace/ComfyUI/requirements.txt
 
 RUN pip install --no-cache-dir \
     "huggingface-hub>=0.25.0" \
-    hf_transfer
+    hf_transfer \
+    sqlalchemy aiosqlite
 
 # -----------------------------------------------
 # 4. Patch ComfyUI  [rarely changes → stays cached]

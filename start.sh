@@ -16,10 +16,11 @@ VOLUME_MODELS="${VOLUME_DIR}/models"
 
 export HF_HUB_ENABLE_HF_TRANSFER=1
 
-# Ensure critical Python deps are present (Docker build may target a different Python)
+# Ensure critical Python deps are present
 echo ">>> Ensuring runtime Python dependencies..."
 pip install -q --no-cache-dir \
-    "huggingface-hub>=0.25.0" hf_transfer 2>/dev/null || true
+    "huggingface-hub>=0.25.0" hf_transfer \
+    sqlalchemy aiosqlite 2>/dev/null || true
 
 download_if_missing() {
     local url="$1"
