@@ -275,6 +275,12 @@ router.get("/describe-status/:id", authMiddleware, async (req, res) => {
   const userId = req.user.userId || req.user.id;
   const { id } = req.params;
 
+  // Disable conditional caching — identical "processing" bodies were being served
+  // as HTTP 304 by Vercel/proxies, and the client treats empty bodies as errors.
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+
   try {
     const gen = await prisma.generation.findUnique({
       where: { id },
@@ -304,7 +310,8 @@ router.get("/describe-status/:id", authMiddleware, async (req, res) => {
 
     // Callback-only mode: no direct RunPod polling here.
     // Stuck rows are reconciled by watchdog (>= 30 min).
-    return res.json({ status: "processing" });
+    // Include ts so the body is never byte-identical across polls (defense in depth vs 304s).
+    return res.json({ status: "processing", ts: Date.now() });
   } catch (err) {
     console.error("❌ /describe-status error:", err.message);
     return res.status(500).json({ error: err.message });

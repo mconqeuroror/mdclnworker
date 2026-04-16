@@ -1283,8 +1283,13 @@ function NsfwImg2ImgTab({ modelId, activeLoraObj, chipSelections = {}, nsfwImage
             return;
           }
           try {
-            const sr = await api.get(`/img2img/describe-status/${describeJobId}`);
-            const { status, prompt: p, error } = sr.data || {};
+            const sr = await api.get(`/img2img/describe-status/${describeJobId}`, {
+              params: { _t: Date.now() },
+              headers: { "Cache-Control": "no-cache", Pragma: "no-cache" },
+            });
+            const data = sr.data || {};
+            const { status, prompt: p, error } = data;
+            const hasBody = data && Object.keys(data).length > 0;
             if (!status && error) {
               setIsAnalyzing(false);
               const errText = formatImg2imgUserMessage(error, "Analysis failed");
@@ -1300,13 +1305,12 @@ function NsfwImg2ImgTab({ modelId, activeLoraObj, chipSelections = {}, nsfwImage
               const errText = formatImg2imgUserMessage(error, "Analysis failed");
               setAnalyzeError(errText);
               toast.error(`${copy.toastAnalysisFailedPrefix} ${errText}`);
-            } else if (status === "processing") {
+            } else if (status === "processing" || !hasBody) {
+              // Empty body (e.g. HTTP 304 Not Modified) — keep polling, not a failure.
               setTimeout(pollDescribe, 3000);
             } else {
               console.warn("[img2img describe-status] unexpected payload:", sr.data);
-              setIsAnalyzing(false);
-              setAnalyzeError("Unexpected server response. Please try Analyze again.");
-              toast.error(copy.toastAnalysisFailedPrefix + " Unexpected server response.");
+              setTimeout(pollDescribe, 3000);
             }
           } catch (pollErr) {
             console.warn("describe-status poll error:", pollErr.message);
