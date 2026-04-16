@@ -868,7 +868,7 @@ AI LoRA Selector (Grok 3 Mini — determines for this generation):
   · Special effects: running makeup, cum effect
   ↓
 Build ComfyUI workflow JSON dynamically:
-  · Base: zImageTurboNSFW_43BF16AIO.safetensors
+  · Base: zImageTurboNSFW_20BF16AIO.safetensors
   · CLIP: qwen_3_4b.safetensors  ·  VAE: ae.safetensors
   · LoRAs chained via LoraLoaderFromURL nodes
   ↓

@@ -126,7 +126,7 @@ const IMGTOPROMPT_WORKFLOW = {
 const IMG2IMG_WORKFLOW = {
   "1": {
     "class_type": "UNETLoader",
-    "inputs": { "unet_name": "zImageTurboNSFW_43BF16AIO.safetensors", "weight_dtype": "default" }
+    "inputs": { "unet_name": "zImageTurboNSFW_20BF16AIO.safetensors", "weight_dtype": "default" }
   },
   "2": {
     "class_type": "CLIPLoader",
@@ -207,7 +207,7 @@ const NSFW_TXT2IMG_WORKFLOW = {
   "50": { inputs: { width: 1024, height: 1024, aspect_ratio: "16:9 landscape 1344x768", swap_dimensions: "On", upscale_factor: 1, batch_size: 1 }, class_type: "CR SDXL Aspect Ratio" },
   "57": { inputs: { seed: 0 }, class_type: "Seed (rgthree)" },
   "246": { inputs: { vae_name: "ae.safetensors" }, class_type: "VAELoader" },
-  "247": { inputs: { unet_name: "zImageTurboNSFW_43BF16AIO.safetensors", weight_dtype: "default" }, class_type: "UNETLoader" },
+  "247": { inputs: { unet_name: "zImageTurboNSFW_20BF16AIO.safetensors", weight_dtype: "default" }, class_type: "UNETLoader" },
   "248": { inputs: { clip_name: "qwen_3_4b.safetensors", type: "qwen_image", device: "default" }, class_type: "CLIPLoader" },
   "250": {
     inputs: {

@@ -2387,7 +2387,7 @@ function buildComfyWorkflowLegacy(params) {
     },
     "57": { inputs: { seed }, class_type: "Seed (rgthree)" },
     "246": { inputs: { vae_name: "ae.safetensors" }, class_type: "VAELoader" },
-    "247": { inputs: { unet_name: "zImageTurboNSFW_43BF16AIO.safetensors", weight_dtype: "default" }, class_type: "UNETLoader" },
+    "247": { inputs: { unet_name: "zImageTurboNSFW_20BF16AIO.safetensors", weight_dtype: "default" }, class_type: "UNETLoader" },
     "248": { inputs: { clip_name: "qwen_3_4b.safetensors", type: "qwen_image", device: "default" }, class_type: "CLIPLoader" },
     ...loraNodes,
     "276": {
