@@ -1087,8 +1087,13 @@ function NsfwImg2ImgTab({ modelId, activeLoraObj, chipSelections = {}, nsfwImage
   const [sourceMode, setSourceMode] = useState("gallery");
   const [galleryPage, setGalleryPage] = useState(1);
   const [sourceImageUrl, setSourceImageUrl] = useState(null);
-  const [uploadedBase64, setUploadedBase64] = useState(null);
+  // uploadedUrl is the public URL returned by Vercel Blob (direct browser → Blob, bypasses the
+  // Vercel function 4.5 MB body limit that used to 413 when the image was sent as base64 JSON).
+  const [uploadedUrl, setUploadedUrl] = useState(null);
   const [uploadedPreview, setUploadedPreview] = useState(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadError, setUploadError] = useState(null);
   const fileInputRef = useRef(null);
 
   // Describe step
@@ -1173,12 +1178,12 @@ function NsfwImg2ImgTab({ modelId, activeLoraObj, chipSelections = {}, nsfwImage
   const totalImages = imageData?.pagination?.total || 0;
   const totalPages = Math.ceil(totalImages / pageSize);
 
-  // Whether we have a source ready
-  const hasSource = sourceMode === "gallery" ? !!sourceImageUrl : !!uploadedBase64;
+  // Whether we have a source ready — in upload mode we need the Blob URL, not just the preview.
+  const hasSource = sourceMode === "gallery" ? !!sourceImageUrl : !!uploadedUrl;
   // Preview URL for the source image
   const sourcePreviewUrl = sourceMode === "gallery" ? sourceImageUrl : uploadedPreview;
 
-  const handleFileChange = (e) => {
+  const handleFileChange = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     // Reset analysis when new file is chosen
@@ -1187,16 +1192,29 @@ function NsfwImg2ImgTab({ modelId, activeLoraObj, chipSelections = {}, nsfwImage
     setAnalyzeError(null);
     setOutputUrl(null);
     setGenError(null);
-    // Object URL for preview
+    setUploadError(null);
+    setUploadedUrl(null);
+    // Instant local preview
     if (uploadedPreview) URL.revokeObjectURL(uploadedPreview);
     setUploadedPreview(URL.createObjectURL(file));
-    // Convert to base64 (strip data: prefix)
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const b64 = ev.target.result.split(",")[1];
-      setUploadedBase64(b64);
-    };
-    reader.readAsDataURL(file);
+    // Direct browser → Vercel Blob. Avoids the 4.5 MB Vercel function body limit
+    // we'd hit if we base64-encoded the file and sent it via JSON.
+    setIsUploading(true);
+    setUploadProgress(0);
+    try {
+      const url = await uploadFile(file, (p) => setUploadProgress(p));
+      setUploadedUrl(url);
+    } catch (err) {
+      console.error("[nsfw img2img] upload failed:", err);
+      const msg = err?.message || "Upload failed";
+      setUploadError(msg);
+      toast.error(msg);
+      if (uploadedPreview) URL.revokeObjectURL(uploadedPreview);
+      setUploadedPreview(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const handleAnalyze = async () => {
@@ -1245,12 +1263,8 @@ function NsfwImg2ImgTab({ modelId, activeLoraObj, chipSelections = {}, nsfwImage
       const payload = {
         triggerWord,
         lookDescription: labeledParts,
+        inputImageUrl: sourceMode === "upload" ? uploadedUrl : sourceImageUrl,
       };
-      if (sourceMode === "upload") {
-        payload.inputImageBase64 = uploadedBase64;
-      } else {
-        payload.inputImageUrl = sourceImageUrl;
-      }
       const response = await api.post("/img2img/describe", payload);
       const data = response.data;
 
@@ -1435,12 +1449,8 @@ function NsfwImg2ImgTab({ modelId, activeLoraObj, chipSelections = {}, nsfwImage
         loraStrength,
         denoise,
         modelId,
+        inputImageUrl: sourceMode === "upload" ? uploadedUrl : sourceImageUrl,
       };
-      if (sourceMode === "upload") {
-        payload.inputImageBase64 = uploadedBase64;
-      } else {
-        payload.inputImageUrl = sourceImageUrl;
-      }
       const response = await api.post("/img2img/generate", payload);
       const jid = response.data.jobId;
       setJobId(jid);
@@ -1503,7 +1513,13 @@ function NsfwImg2ImgTab({ modelId, activeLoraObj, chipSelections = {}, nsfwImage
           <span className="text-sm font-medium text-white">{copy.i2iSourcePhoto}</span>
           <div className="flex gap-1 bg-white/[0.04] rounded-lg p-0.5">
             <button
-              onClick={() => { setSourceMode("gallery"); setUploadedBase64(null); setUploadedPreview(null); }}
+              onClick={() => {
+                setSourceMode("gallery");
+                setUploadedUrl(null);
+                if (uploadedPreview) URL.revokeObjectURL(uploadedPreview);
+                setUploadedPreview(null);
+                setUploadError(null);
+              }}
               className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${sourceMode === "gallery" ? "bg-white/10 text-white" : "text-slate-400 hover:text-white"}`}
             >
               {copy.sourceGallery}
@@ -1530,8 +1546,22 @@ function NsfwImg2ImgTab({ modelId, activeLoraObj, chipSelections = {}, nsfwImage
             {uploadedPreview ? (
               <div className="relative">
                 <img src={uploadedPreview} alt="uploaded" className="w-full max-h-56 object-contain rounded-xl border border-white/10" />
+                {isUploading && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/60 rounded-xl">
+                    <Loader2 className="w-5 h-5 animate-spin text-white" />
+                    <span className="text-xs text-white/80">Uploading… {Math.round(uploadProgress || 0)}%</span>
+                  </div>
+                )}
                 <button
-                  onClick={() => { setUploadedBase64(null); setUploadedPreview(null); setRawDescription(""); setEditablePrompt(""); if (fileInputRef.current) fileInputRef.current.value = ""; }}
+                  onClick={() => {
+                    setUploadedUrl(null);
+                    if (uploadedPreview) URL.revokeObjectURL(uploadedPreview);
+                    setUploadedPreview(null);
+                    setUploadError(null);
+                    setRawDescription("");
+                    setEditablePrompt("");
+                    if (fileInputRef.current) fileInputRef.current.value = "";
+                  }}
                   className="absolute top-2 right-2 p-1 rounded-full bg-black/60 text-white hover:bg-black/80 transition-colors"
                 >
                   <X className="w-3.5 h-3.5" />
@@ -1540,7 +1570,8 @@ function NsfwImg2ImgTab({ modelId, activeLoraObj, chipSelections = {}, nsfwImage
             ) : (
               <button
                 onClick={() => fileInputRef.current?.click()}
-                className="w-full border-2 border-dashed border-white/10 rounded-xl py-8 flex flex-col items-center gap-2 text-slate-400 hover:text-white hover:border-white/20 transition-all"
+                disabled={isUploading}
+                className="w-full border-2 border-dashed border-white/10 rounded-xl py-8 flex flex-col items-center gap-2 text-slate-400 hover:text-white hover:border-white/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 data-testid="button-i2i-pick-file"
               >
                 <ImageIcon className="w-8 h-8" />
@@ -1548,7 +1579,10 @@ function NsfwImg2ImgTab({ modelId, activeLoraObj, chipSelections = {}, nsfwImage
                 <span className="text-xs text-slate-500">JPG · PNG · WebP</span>
               </button>
             )}
-            {uploadedBase64 && !uploadedPreview && (
+            {uploadError && (
+              <p className="text-xs text-rose-400">{uploadError}</p>
+            )}
+            {uploadedUrl && !isUploading && (
               <p className="text-xs text-emerald-400">{copy.i2iImageLoaded}</p>
             )}
           </div>
