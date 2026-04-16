@@ -17,6 +17,12 @@ VOLUME_MODELS="${VOLUME_DIR}/models"
 export HF_HUB_ENABLE_HF_TRANSFER=1
 MIN_UPSCALE_FILE_BYTES=5242880
 
+# Ensure critical Python deps are present (Docker build may target a different Python)
+echo ">>> Ensuring runtime Python dependencies..."
+pip install -q --no-cache-dir \
+    "huggingface-hub>=0.25.0" hf_transfer \
+    sqlalchemy aiosqlite 2>/dev/null || true
+
 download_if_missing() {
     local url="$1"
     local dest="$2"
@@ -52,23 +58,21 @@ setup_models() {
     mkdir -p "${target_dir}/loras"
     mkdir -p "${target_dir}/diffusion_models"
     mkdir -p "${target_dir}/unet"
-    mkdir -p "${target_dir}/LLavacheckpoints"
-    mkdir -p "${target_dir}/seedvr2"
 
     echo ""
-    echo "--- [1/6] VAE: ae.safetensors (335MB) ---"
+    echo "--- [1/4] VAE: ae.safetensors (335MB) ---"
     download_if_missing \
         "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors" \
         "${target_dir}/vae/ae.safetensors"
 
     echo ""
-    echo "--- [2/6] CLIP: qwen_3_4b.safetensors (8GB) ---"
+    echo "--- [2/4] CLIP: qwen_3_4b.safetensors (8GB) ---"
     download_if_missing \
         "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/text_encoders/qwen_3_4b.safetensors" \
         "${target_dir}/clip/qwen_3_4b.safetensors"
 
     echo ""
-    echo "--- [3/6] UNet: zImageTurboNSFW_20BF16AIO.safetensors (HuggingFace) ---"
+    echo "--- [3/4] UNet: zImageTurboNSFW_20BF16AIO.safetensors (HuggingFace) ---"
     download_if_missing \
         "https://huggingface.co/bigckck/Z-Image_Turbo_NSFW_2.0bf16_aio/resolve/main/zImageTurboNSFW_20BF16AIO.safetensors" \
         "${target_dir}/unet/zImageTurboNSFW_20BF16AIO.safetensors"
@@ -86,34 +90,23 @@ setup_models() {
         rm -f "${target_dir}/unet/zImageTurboNSFW_43BF16AIO.safetensors"
     fi
 
+    # Symlink AIO model into checkpoints/ so CheckpointLoaderSimple workflows also find it
+    if [ -f "${target_dir}/unet/zImageTurboNSFW_20BF16AIO.safetensors" ]; then
+        ln -sf "${target_dir}/unet/zImageTurboNSFW_20BF16AIO.safetensors" \
+               "${target_dir}/checkpoints/zImageTurboNSFW_20BF16AIO.safetensors"
+        echo "  [OK] Symlinked AIO model into checkpoints/"
+    fi
+
     echo ""
-    echo "--- [4/6] Upscaler: 4xFaceUpDAT.pth ---"
+    echo "--- [4/4] Upscaler: 4xFaceUpDAT.pth ---"
     mkdir -p "${target_dir}/upscale_models"
     download_if_missing \
         "https://huggingface.co/Acly/Upscaler/resolve/main/4xFaceUpDAT.pth" \
         "${target_dir}/upscale_models/4xFaceUpDAT.pth"
-
-    echo ""
-    echo "--- [5/6] SeedVR2 VAE: ema_vae_fp16.safetensors (~501MB) ---"
-    download_if_missing \
-        "https://huggingface.co/Osrivers/SEEDVR2/resolve/main/ema_vae_fp16.safetensors" \
-        "${target_dir}/seedvr2/ema_vae_fp16.safetensors"
-
-    echo ""
-    echo "--- [6/6] SeedVR2 DiT: seedvr2_ema_7b_fp16.safetensors (~16.5GB) ---"
-    if [ "${SKIP_SEEDVR2_MODELS:-0}" = "1" ]; then
-        echo "  [SKIP] SKIP_SEEDVR2_MODELS=1 — skipping 16.5GB DiT model download."
-        echo "         Set NSFW_COMFY_BYPASS_SEEDVR2=1 on the worker to run without SeedVR2 upscaling."
-    else
-        download_if_missing \
-            "https://huggingface.co/numz/SeedVR2_comfyUI/resolve/main/seedvr2_ema_7b_fp16.safetensors" \
-            "${target_dir}/seedvr2/seedvr2_ema_7b_fp16.safetensors"
-    fi
 }
 
 # -----------------------------------------------
 # Set HuggingFace cache location
-# Points at network volume so LLM downloads (JoyCaption) persist across reboots
 # -----------------------------------------------
 if [ -d "$VOLUME_DIR" ]; then
     export HF_HOME="${VOLUME_DIR}/hf_cache"
@@ -125,20 +118,12 @@ if [ -d "$VOLUME_DIR" ]; then
 
     echo ""
     echo ">>> Symlinking network volume models into ComfyUI..."
-    # Always mkdir + link each subdir. Linking only when the volume path already existed could
-    # skip upscale_models on some boots; ComfyUI would then keep the empty image layer directory
-    # and UpscaleModelLoader would see [] (workflow validation: 4xFaceUpDAT.pth not in list).
-    for subdir in checkpoints clip loras vae unet diffusion_models LLavacheckpoints upscale_models seedvr2; do
+    for subdir in checkpoints clip loras vae unet diffusion_models upscale_models; do
         mkdir -p "${VOLUME_MODELS}/${subdir}"
         rm -rf "${MODELS_DIR}/${subdir}"
         ln -sfn "${VOLUME_MODELS}/${subdir}" "${MODELS_DIR}/${subdir}"
         echo "  [OK] Linked: ${MODELS_DIR}/${subdir} -> ${VOLUME_MODELS}/${subdir}"
     done
-    # SeedVR2 node looks for models in SEEDVR2/ (uppercase) on Linux (case-sensitive fs).
-    # Without this symlink the node downloads the 16.5GB DIT model at runtime every job.
-    rm -rf "${MODELS_DIR}/SEEDVR2"
-    ln -sfn "${VOLUME_MODELS}/seedvr2" "${MODELS_DIR}/SEEDVR2"
-    echo "  [OK] Linked: ${MODELS_DIR}/SEEDVR2 -> ${VOLUME_MODELS}/seedvr2 (case alias)"
     # Volume may have an empty upscale_models dir (failed prior download). Re-attempt into linked path.
     if [ ! -f "${MODELS_DIR}/upscale_models/4xFaceUpDAT.pth" ]; then
         echo ">>> [RETRY] Upscale model missing after volume link — downloading 4xFaceUpDAT.pth..."
@@ -147,6 +132,10 @@ if [ -d "$VOLUME_DIR" ]; then
             "https://huggingface.co/Acly/Upscaler/resolve/main/4xFaceUpDAT.pth" \
             "${MODELS_DIR}/upscale_models/4xFaceUpDAT.pth"
     fi
+    # Clean up old SeedVR2/JoyCaption dirs from previous builds
+    rm -rf "${VOLUME_MODELS}/seedvr2" 2>/dev/null || true
+    rm -rf "${MODELS_DIR}/seedvr2" "${MODELS_DIR}/SEEDVR2" 2>/dev/null || true
+    rm -rf "${VOLUME_MODELS}/LLavacheckpoints" "${MODELS_DIR}/LLavacheckpoints" 2>/dev/null || true
 else
     export HF_HOME="/root/.cache/huggingface"
     mkdir -p "${HF_HOME}"
@@ -182,8 +171,6 @@ fi
 # This check runs at boot so even an old Docker image gets the right nodes.
 # -----------------------------------------------
 LORA_URL_DIR="${COMFYUI_DIR}/custom_nodes/ComfyUI-load-lora-from-url"
-LAYERSTYLE_DIR="${COMFYUI_DIR}/custom_nodes/ComfyUI_LayerStyle_Advance"
-JOYCAPTION_DIR="${COMFYUI_DIR}/custom_nodes/ComfyUI-JoyCaption"
 
 echo ""
 echo "--- Checking bollerdominik/ComfyUI-load-lora-from-url (LoadLoraFromUrlOrPath) ---"
@@ -229,184 +216,10 @@ else
     echo "  [OK] ComfyUI_UltimateSDUpscale installed!"
 fi
 
-echo ""
-echo "--- Checking numz/ComfyUI-SeedVR2_VideoUpscaler (SeedVR2 nodes) ---"
-SEEDVR2_DIR="${COMFYUI_DIR}/custom_nodes/ComfyUI-SeedVR2_VideoUpscaler"
-if [ -d "${SEEDVR2_DIR}" ]; then
-    echo "  [OK] ComfyUI-SeedVR2_VideoUpscaler already installed"
-else
-    echo "  [!!] ComfyUI-SeedVR2_VideoUpscaler missing — installing..."
-    git clone --depth 1 "https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler.git" "${SEEDVR2_DIR}"
-    if [ -f "${SEEDVR2_DIR}/requirements.txt" ]; then
-        pip install -q --no-cache-dir -r "${SEEDVR2_DIR}/requirements.txt" || true
-    fi
-    echo "  [OK] ComfyUI-SeedVR2_VideoUpscaler installed!"
-fi
-
-echo ""
-echo "--- Checking chflame163/ComfyUI_LayerStyle_Advance (JoyCaption nodes) ---"
-if grep -qr "LoadJoyCaptionBeta1Model" "${LAYERSTYLE_DIR}" 2>/dev/null; then
-    echo "  [OK] ComfyUI_LayerStyle_Advance already installed with JoyCaption nodes"
-else
-    echo "  [!!] JoyCaption nodes missing — installing chflame163/ComfyUI_LayerStyle_Advance..."
-    rm -rf "${LAYERSTYLE_DIR}"
-    git clone --depth 1 "https://github.com/chflame163/ComfyUI_LayerStyle_Advance.git" "${LAYERSTYLE_DIR}"
-    if [ -f "${LAYERSTYLE_DIR}/requirements.txt" ]; then
-        pip install -q --no-cache-dir -r "${LAYERSTYLE_DIR}/requirements.txt"
-    fi
-    pip install -q --no-cache-dir \
-        "transformers==4.44.2" accelerate sentencepiece protobuf \
-        "huggingface-hub>=0.25.0" bitsandbytes peft einops
-    echo "  [OK] ComfyUI_LayerStyle_Advance installed!"
-fi
-
-echo ""
-echo "--- Checking 1038lab/ComfyUI-JoyCaption ---"
-if [ -d "${JOYCAPTION_DIR}" ]; then
-    echo "  [OK] ComfyUI-JoyCaption already installed"
-else
-    echo "  [!!] ComfyUI-JoyCaption missing — installing..."
-    git clone --depth 1 "https://github.com/1038lab/ComfyUI-JoyCaption.git" "${JOYCAPTION_DIR}"
-fi
-if [ -f "${JOYCAPTION_DIR}/requirements.txt" ]; then
-    pip install -q --no-cache-dir -r "${JOYCAPTION_DIR}/requirements.txt"
-fi
-if [ -f "${JOYCAPTION_DIR}/requirements_gguf.txt" ]; then
-    pip install -q --no-cache-dir -r "${JOYCAPTION_DIR}/requirements_gguf.txt" || true
-fi
-
-# Repair JoyCaption source if a previous rollout injected problematic tokenizer patches.
-JOYCAPTION_BETA_FILE="${LAYERSTYLE_DIR}/py/joycaption_beta_1.py"
-echo ""
-echo "--- Repairing JoyCaption tokenizer patch state ---"
-if [ -f "${JOYCAPTION_BETA_FILE}" ]; then
-    python3 - "${JOYCAPTION_BETA_FILE}" <<'PYEOF'
-import re
-import sys
-
-path = sys.argv[1]
-with open(path, "r", encoding="utf-8") as f:
-    code = f.read()
-
-original = code
-
-# Repair invalid syntax from earlier bad patch variants.
-code = re.sub(
-    r'self\.processor\s*=\s*#\s*USE_SLOW_TOKENIZER_PATCH\s*\n\s*AutoProcessor\.from_pretrained\(([^)]*)\)',
-    r'self.processor = AutoProcessor.from_pretrained(\1)',
-    code,
-    flags=re.MULTILINE,
-)
-
-# Remove forced slow-tokenizer arg which crashes this model in current stack.
-code = re.sub(
-    r'AutoProcessor\.from_pretrained\(\s*checkpoint_path\s*,\s*use_fast\s*=\s*False\s*\)',
-    'AutoProcessor.from_pretrained(checkpoint_path)',
-    code,
-)
-
-if code != original:
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(code)
-    print("  [OK] JoyCaption source repaired (removed stale tokenizer patch)")
-else:
-    print("  [OK] JoyCaption source already clean")
-PYEOF
-else
-    echo "  [!!] joycaption_beta_1.py not found; repair skipped"
-fi
-
-# -----------------------------------------------
-# Download JoyCaption Beta1 LLM (required by imgtoprompt_api.json workflow)
-# Model: fancyfeast/llama-joycaption-beta-one-hf-llava (~9GB)
-# Stored in HF_HOME cache — skipped automatically if already present
-# -----------------------------------------------
-JOYCAPTION_MODEL_ID="fancyfeast/llama-joycaption-beta-one-hf-llava"
-JOYCAPTION_MARKER="${HF_HOME}/hub/models--fancyfeast--llama-joycaption-beta-one-hf-llava/snapshots"
-
-echo ""
-echo "--- JoyCaption Beta1 LLM (${JOYCAPTION_MODEL_ID}, ~9GB) ---"
-if [ -d "${JOYCAPTION_MARKER}" ]; then
-    echo "  [OK] JoyCaption Beta1 already in HF cache — skipping download"
-else
-    echo "  [DL] Downloading JoyCaption Beta1 (this takes a few minutes)..."
-    python3 - <<'PYEOF'
-import sys, os
-hf_home = os.environ.get("HF_HOME", "/root/.cache/huggingface")
-os.environ["HF_HOME"] = hf_home
-try:
-    from huggingface_hub import snapshot_download
-    path = snapshot_download("fancyfeast/llama-joycaption-beta-one-hf-llava")
-    print(f"  [OK] JoyCaption Beta1 ready at: {path}")
-except Exception as e:
-    print(f"  [!!] JoyCaption download failed: {e}", file=sys.stderr)
-    sys.exit(0)
-PYEOF
-fi
-
-# Validate cached JoyCaption processor/tokenizer.
-# If cache is corrupted (common after interrupted/no-space downloads), wipe and re-download.
-echo "  [CHK] Validating JoyCaption processor cache..."
-# Guard with || true — AutoProcessor.from_pretrained can trigger Rust panics
-# inside the tokenizers library that bypass Python exception handling and
-# crash the process. This must never kill the worker startup.
-python3 - <<'PYEOF' || true
-import os
-import shutil
-import sys
-
-from huggingface_hub import snapshot_download
-from transformers import AutoProcessor
-
-model_id = "fancyfeast/llama-joycaption-beta-one-hf-llava"
-hf_home = os.environ.get("HF_HOME", "/root/.cache/huggingface")
-hub_dir = os.path.join(hf_home, "hub")
-model_prefix = "models--fancyfeast--llama-joycaption-beta-one-hf-llava"
-model_dir = os.path.join(hub_dir, model_prefix)
-
-def validate_or_raise():
-    snap = snapshot_download(repo_id=model_id)
-    AutoProcessor.from_pretrained(snap)
-    return snap
-
-try:
-    snap = validate_or_raise()
-    print(f"  [OK] JoyCaption processor valid: {snap}")
-except Exception as first_err:
-    print(f"  [WARN] JoyCaption cache validation failed: {first_err}")
-    print("  [FIX] Removing cached model and re-downloading...")
-    shutil.rmtree(model_dir, ignore_errors=True)
-    try:
-        snap = validate_or_raise()
-        print(f"  [OK] JoyCaption processor recovered: {snap}")
-    except Exception as second_err:
-        print(f"  [ERR] JoyCaption cache still invalid after re-download: {second_err}", file=sys.stderr)
-        print("  [WARN] Continuing startup; JoyCaption-based describe jobs may still fail", file=sys.stderr)
-PYEOF
-
-# Pre-populate LLavacheckpoints with symlinks to HF cache so the ComfyUI plugin
-# doesn't re-copy ~9GB at runtime (which caused "No space left on device").
-JOYCAPTION_SNAPSHOT=$(ls -d "${JOYCAPTION_MARKER}"/*/ 2>/dev/null | head -1)
-if [ -n "$JOYCAPTION_SNAPSHOT" ]; then
-    if [ -d "$VOLUME_DIR" ]; then
-        LLAVA_TARGET="${VOLUME_MODELS}/LLavacheckpoints/llama-joycaption-beta-one-hf-llava"
-    else
-        LLAVA_TARGET="${MODELS_DIR}/LLavacheckpoints/llama-joycaption-beta-one-hf-llava"
-    fi
-    mkdir -p "$LLAVA_TARGET"
-    LINK_COUNT=0
-    for f in "${JOYCAPTION_SNAPSHOT}"*; do
-        [ ! -f "$f" ] && continue
-        fname=$(basename "$f")
-        if [ ! -e "$LLAVA_TARGET/$fname" ]; then
-            ln -sf "$f" "$LLAVA_TARGET/$fname"
-            LINK_COUNT=$((LINK_COUNT + 1))
-        fi
-    done
-    echo "  [OK] Pre-linked ${LINK_COUNT} JoyCaption files into LLavacheckpoints (avoids runtime copy)"
-else
-    echo "  [!!] No JoyCaption snapshot found — runtime will attempt download (may fail if disk is small)"
-fi
+# Clean up old SeedVR2/JoyCaption nodes from previous builds
+rm -rf "${COMFYUI_DIR}/custom_nodes/ComfyUI-SeedVR2_VideoUpscaler" 2>/dev/null || true
+rm -rf "${COMFYUI_DIR}/custom_nodes/ComfyUI_LayerStyle_Advance" 2>/dev/null || true
+rm -rf "${COMFYUI_DIR}/custom_nodes/ComfyUI-JoyCaption" 2>/dev/null || true
 
 echo ""
 echo ">>> Upscale models directory (UltimateSDUpscale / UpscaleModelLoader):"
@@ -431,18 +244,6 @@ cd ${COMFYUI_DIR}
 LISTEN_ADDR="${COMFYUI_LISTEN:-0.0.0.0}"
 echo ">>> Binding ComfyUI to ${LISTEN_ADDR}:8188"
 
-# Export HF_HOME so ComfyUI and layerstyle can find the cached JoyCaption model
-export HF_HOME="${HF_HOME}"
-
-# Disable fast image processing in transformers — the torchvision-based fast path
-# doesn't support lanczos interpolation on tensors, which crashes JoyCaption.
-export TRANSFORMERS_USE_FAST_IMAGE_PROCESSING=0
-
-# Fail fast if the runtime isn't configured for the JoyCaption lanczos fix.
-if [ "${TRANSFORMERS_USE_FAST_IMAGE_PROCESSING}" != "0" ]; then
-    echo ">>> ERROR: TRANSFORMERS_USE_FAST_IMAGE_PROCESSING must be 0"
-    exit 1
-fi
 COMFYUI_LOG="/tmp/comfyui_output.log"
 : > "${COMFYUI_LOG}"
 
@@ -476,7 +277,7 @@ if [ $WAITED -ge $MAX_WAIT ]; then
     exit 1
 fi
 
-echo ">>> Validating required node types for all workflows..."
+echo ">>> Validating required node types for NSFW workflows..."
 python3 - <<'PYEOF'
 import json
 import os
@@ -492,12 +293,6 @@ required = {
     "Image Film Grain",
     "UNETLoader",
     "CLIPLoader",
-    "SeedVR2LoadVAEModel",
-    "SeedVR2LoadDiTModel",
-    "SeedVR2VideoUpscaler",
-    "LayerUtility: LoadJoyCaptionBeta1Model",
-    "LayerUtility: JoyCaption2ExtraOptions",
-    "LayerUtility: JoyCaptionBeta1",
 }
 
 try:
@@ -516,12 +311,10 @@ if missing:
 else:
     print(">>> All required node types validated OK")
 
-# UpscaleModelLoader only lists files ComfyUI sees under models/upscale_models/
 REQUIRED_UPSCALE = "4xFaceUpDAT.pth"
 
 def upscale_model_choices(info):
     ul = info.get("UpscaleModelLoader") or {}
-    # ComfyUI 0.18+ object_info may use "inputs" instead of "input"
     inp = ul.get("input") or ul.get("inputs") or {}
     req = inp.get("required") or {}
     mn = req.get("model_name")
@@ -529,7 +322,6 @@ def upscale_model_choices(info):
         return []
     if not isinstance(mn, list) or len(mn) == 0:
         return []
-    # v0.18+: ["COMBO", ["a.pth", "b.pth"], {widget extras...}] — do not treat "COMBO" as a filename
     if mn[0] == "COMBO" and len(mn) > 1:
         opts = mn[1]
         if isinstance(opts, list):
