@@ -16,11 +16,21 @@ VOLUME_MODELS="${VOLUME_DIR}/models"
 
 export HF_HUB_ENABLE_HF_TRANSFER=1
 
-# Ensure critical Python deps are present (use python3 -m pip to match the Python that runs ComfyUI)
+# Ensure critical Python deps are present in the SAME python that runs ComfyUI.
+# The base image has both python3.10 (default /usr/bin/python3 — what ComfyUI
+# uses) and python3.12 (where plain `pip` points). Always use `python3 -m pip`
+# so installs target 3.10's site-packages. Missing any of these caused
+# mass IMPORT FAILED on custom nodes (cv2, numba, runpod, piexif, deepdiff).
 echo ">>> Ensuring runtime Python dependencies..."
 python3 -m pip install --no-cache-dir \
     "huggingface-hub>=0.25.0" hf_transfer \
-    sqlalchemy aiosqlite || echo "  [WARN] pip install failed — ComfyUI may crash if it needs sqlalchemy"
+    sqlalchemy aiosqlite \
+    runpod requests \
+    opencv-python-headless \
+    numba \
+    piexif \
+    deepdiff \
+    || echo "  [WARN] pip install failed — some custom nodes may not load"
 
 download_if_missing() {
     local url="$1"

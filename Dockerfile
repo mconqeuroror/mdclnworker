@@ -26,6 +26,11 @@ RUN git clone --depth 1 --branch v0.16.4 https://github.com/comfyanonymous/Comfy
 
 # -----------------------------------------------
 # 3. ComfyUI requirements + hf_transfer
+# CRITICAL: use `python3 -m pip` so packages land in the SAME Python that
+# `python3 main.py` uses at runtime. On this base image plain `pip` points
+# to Python 3.12 while `python3` is Python 3.10 — installing via plain pip
+# silently put everything in the wrong env and caused mass ModuleNotFoundError
+# at runtime (cv2, numba, runpod, piexif, deepdiff, ...).
 # -----------------------------------------------
 RUN python3 -m pip install --no-cache-dir -r /workspace/ComfyUI/requirements.txt
 
@@ -75,11 +80,12 @@ RUN test -d /workspace/ComfyUI/custom_nodes/comfyui-tooling-nodes || \
     (echo "ERROR: Acly/comfyui-tooling-nodes failed to clone" && exit 1)
 RUN test -d /workspace/ComfyUI/custom_nodes/was-node-suite-comfyui || \
     (echo "ERROR: WASasquatch/was-node-suite-comfyui failed to clone" && exit 1)
-# Install pip requirements for every custom node
+# Install pip requirements for every custom node (python3 -m pip to hit the
+# same 3.10 env ComfyUI runs under).
 RUN for dir in /workspace/ComfyUI/custom_nodes/*/; do \
       if [ -f "$dir/requirements.txt" ]; then \
         echo "Installing requirements for $(basename $dir)..." && \
-        pip install --no-cache-dir -r "$dir/requirements.txt" || true; \
+        python3 -m pip install --no-cache-dir -r "$dir/requirements.txt" || true; \
       fi; \
       if [ -f "$dir/install.py" ]; then \
         echo "Running install.py for $(basename $dir)..." && \
@@ -90,7 +96,7 @@ RUN for dir in /workspace/ComfyUI/custom_nodes/*/; do \
 # -----------------------------------------------
 # 7. RunPod handler + startup  [changes frequently — always last so rebuilds are instant]
 # -----------------------------------------------
-RUN pip install --no-cache-dir runpod requests
+RUN python3 -m pip install --no-cache-dir runpod requests
 
 COPY handler.py /workspace/handler.py
 COPY start.sh /workspace/start.sh
