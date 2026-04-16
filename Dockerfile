@@ -47,8 +47,7 @@ RUN mkdir -p /workspace/ComfyUI/models/checkpoints \
              /workspace/ComfyUI/models/clip \
              /workspace/ComfyUI/models/vae \
              /workspace/ComfyUI/models/loras \
-             /workspace/ComfyUI/models/unet \
-             /workspace/ComfyUI/models/upscale_models
+             /workspace/ComfyUI/models/unet
 
 # -----------------------------------------------
 # 6. Custom nodes  [changes occasionally — cached independently of models above]
@@ -76,9 +75,6 @@ RUN test -d /workspace/ComfyUI/custom_nodes/comfyui-tooling-nodes || \
     (echo "ERROR: Acly/comfyui-tooling-nodes failed to clone" && exit 1)
 RUN test -d /workspace/ComfyUI/custom_nodes/was-node-suite-comfyui || \
     (echo "ERROR: WASasquatch/was-node-suite-comfyui failed to clone" && exit 1)
-RUN test -d /workspace/ComfyUI/custom_nodes/ComfyUI_UltimateSDUpscale || \
-    (echo "ERROR: ssitu/ComfyUI_UltimateSDUpscale failed to clone" && exit 1)
-
 # Install pip requirements for every custom node
 RUN for dir in /workspace/ComfyUI/custom_nodes/*/; do \
       if [ -f "$dir/requirements.txt" ]; then \

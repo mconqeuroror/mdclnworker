@@ -15,7 +15,6 @@ VOLUME_DIR="/runpod-volume"
 VOLUME_MODELS="${VOLUME_DIR}/models"
 
 export HF_HUB_ENABLE_HF_TRANSFER=1
-MIN_UPSCALE_FILE_BYTES=5242880
 
 # Ensure critical Python deps are present (Docker build may target a different Python)
 echo ">>> Ensuring runtime Python dependencies..."
@@ -59,19 +58,19 @@ setup_models() {
     mkdir -p "${target_dir}/unet"
 
     echo ""
-    echo "--- [1/4] VAE: ae.safetensors (335MB) ---"
+    echo "--- [1/3] VAE: ae.safetensors (335MB) ---"
     download_if_missing \
         "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors" \
         "${target_dir}/vae/ae.safetensors"
 
     echo ""
-    echo "--- [2/4] CLIP: qwen_3_4b.safetensors (8GB) ---"
+    echo "--- [2/3] CLIP: qwen_3_4b.safetensors (8GB) ---"
     download_if_missing \
         "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/text_encoders/qwen_3_4b.safetensors" \
         "${target_dir}/clip/qwen_3_4b.safetensors"
 
     echo ""
-    echo "--- [3/4] UNet: zImageTurboNSFW_20BF16AIO.safetensors (HuggingFace) ---"
+    echo "--- [3/3] UNet: zImageTurboNSFW_20BF16AIO.safetensors (HuggingFace) ---"
     download_if_missing \
         "https://huggingface.co/bigckck/Z-Image_Turbo_NSFW_2.0bf16_aio/resolve/main/zImageTurboNSFW_20BF16AIO.safetensors" \
         "${target_dir}/unet/zImageTurboNSFW_20BF16AIO.safetensors"
@@ -96,12 +95,6 @@ setup_models() {
         echo "  [OK] Symlinked AIO model into checkpoints/"
     fi
 
-    echo ""
-    echo "--- [4/4] Upscaler: 4xFaceUpDAT.pth ---"
-    mkdir -p "${target_dir}/upscale_models"
-    download_if_missing \
-        "https://huggingface.co/f5aiteam/Upscaler_Models/resolve/main/4xFaceUpDAT.pth" \
-        "${target_dir}/upscale_models/4xFaceUpDAT.pth"
 }
 
 # -----------------------------------------------
@@ -117,20 +110,12 @@ if [ -d "$VOLUME_DIR" ]; then
 
     echo ""
     echo ">>> Symlinking network volume models into ComfyUI..."
-    for subdir in checkpoints clip loras vae unet diffusion_models upscale_models; do
+    for subdir in checkpoints clip loras vae unet diffusion_models; do
         mkdir -p "${VOLUME_MODELS}/${subdir}"
         rm -rf "${MODELS_DIR}/${subdir}"
         ln -sfn "${VOLUME_MODELS}/${subdir}" "${MODELS_DIR}/${subdir}"
         echo "  [OK] Linked: ${MODELS_DIR}/${subdir} -> ${VOLUME_MODELS}/${subdir}"
     done
-    # Volume may have an empty upscale_models dir (failed prior download). Re-attempt into linked path.
-    if [ ! -f "${MODELS_DIR}/upscale_models/4xFaceUpDAT.pth" ]; then
-        echo ">>> [RETRY] Upscale model missing after volume link — downloading 4xFaceUpDAT.pth..."
-        mkdir -p "${MODELS_DIR}/upscale_models"
-        download_if_missing \
-            "https://huggingface.co/f5aiteam/Upscaler_Models/resolve/main/4xFaceUpDAT.pth" \
-            "${MODELS_DIR}/upscale_models/4xFaceUpDAT.pth"
-    fi
     # Clean up old SeedVR2/JoyCaption dirs from previous builds
     rm -rf "${VOLUME_MODELS}/seedvr2" 2>/dev/null || true
     rm -rf "${MODELS_DIR}/seedvr2" "${MODELS_DIR}/SEEDVR2" 2>/dev/null || true
@@ -140,29 +125,6 @@ else
     mkdir -p "${HF_HOME}"
     echo ">>> No network volume — downloading models directly into ComfyUI..."
     setup_models "${MODELS_DIR}"
-fi
-
-if [ ! -f "${MODELS_DIR}/upscale_models/4xFaceUpDAT.pth" ]; then
-    echo ">>> [WARN] 4xFaceUpDAT.pth still missing — UltimateSDUpscale will fail until it downloads."
-    echo ">>>         API server can set NSFW_COMFY_BYPASS_UPSCALE=1 to skip upscale in the workflow."
-fi
-
-# Corrupt / HTML error pages from failed wget are often tiny; real 4xFaceUpDAT.pth is tens of MB.
-UPSCALE_PTH="${MODELS_DIR}/upscale_models/4xFaceUpDAT.pth"
-if [ -f "$UPSCALE_PTH" ]; then
-    USZ=$(stat -c%s "$UPSCALE_PTH" 2>/dev/null || echo 0)
-    if [ "$USZ" -lt "$MIN_UPSCALE_FILE_BYTES" ]; then
-        echo ">>> [FIX] Upscale file too small (${USZ} bytes, min ${MIN_UPSCALE_FILE_BYTES}) — re-downloading..."
-        rm -f "$UPSCALE_PTH"
-        download_if_missing \
-            "https://huggingface.co/f5aiteam/Upscaler_Models/resolve/main/4xFaceUpDAT.pth" \
-            "$UPSCALE_PTH"
-    fi
-fi
-
-if [ "${REQUIRE_UPSCALE_MODEL:-0}" = "1" ] && [ ! -f "$UPSCALE_PTH" ]; then
-    echo ">>> ERROR: REQUIRE_UPSCALE_MODEL=1 but 4xFaceUpDAT.pth is missing after downloads."
-    exit 1
 fi
 
 # -----------------------------------------------
@@ -201,35 +163,14 @@ fi
 rm -rf "${COMFYUI_DIR}/custom_nodes/ComfyUI_LoRA_from_URL" 2>/dev/null || true
 rm -rf "${COMFYUI_DIR}/custom_nodes/ComfyUI-EasyCivitai-XTNodes" 2>/dev/null || true
 
-echo ""
-echo "--- Checking ssitu/ComfyUI_UltimateSDUpscale (UltimateSDUpscale node) ---"
-ULTIMATESD_DIR="${COMFYUI_DIR}/custom_nodes/ComfyUI_UltimateSDUpscale"
-if [ -d "${ULTIMATESD_DIR}" ]; then
-    echo "  [OK] ComfyUI_UltimateSDUpscale already installed"
-else
-    echo "  [!!] ComfyUI_UltimateSDUpscale missing — installing..."
-    git clone --depth 1 "https://github.com/ssitu/ComfyUI_UltimateSDUpscale.git" "${ULTIMATESD_DIR}"
-    if [ -f "${ULTIMATESD_DIR}/requirements.txt" ]; then
-        pip install -q --no-cache-dir -r "${ULTIMATESD_DIR}/requirements.txt" || true
-    fi
-    echo "  [OK] ComfyUI_UltimateSDUpscale installed!"
-fi
-
-# Clean up old SeedVR2/JoyCaption nodes from previous builds
+# Clean up old upscaler/SeedVR2/JoyCaption nodes from previous builds
+rm -rf "${COMFYUI_DIR}/custom_nodes/ComfyUI_UltimateSDUpscale" 2>/dev/null || true
 rm -rf "${COMFYUI_DIR}/custom_nodes/ComfyUI-SeedVR2_VideoUpscaler" 2>/dev/null || true
 rm -rf "${COMFYUI_DIR}/custom_nodes/ComfyUI_LayerStyle_Advance" 2>/dev/null || true
 rm -rf "${COMFYUI_DIR}/custom_nodes/ComfyUI-JoyCaption" 2>/dev/null || true
 
-echo ""
-echo ">>> Upscale models directory (UltimateSDUpscale / UpscaleModelLoader):"
-ls -la "${MODELS_DIR}/upscale_models" 2>/dev/null || echo "  [!!] missing ${MODELS_DIR}/upscale_models"
-if [ -L "${MODELS_DIR}/upscale_models" ]; then
-    echo "  (symlink -> $(readlink -f "${MODELS_DIR}/upscale_models" 2>/dev/null || readlink "${MODELS_DIR}/upscale_models"))"
-fi
-for p in "${MODELS_DIR}/upscale_models"/*.pth; do
-    [ -e "$p" ] || continue
-    echo "  $(du -h "$p" 2>/dev/null | cut -f1)  $(basename "$p")"
-done
+# Clean up leftover upscale models from previous builds
+rm -rf "${MODELS_DIR}/upscale_models" 2>/dev/null || true
 
 echo ""
 echo ">>> Model files available (.safetensors):"
@@ -279,17 +220,13 @@ fi
 echo ">>> Validating required node types for NSFW workflows..."
 python3 - <<'PYEOF'
 import json
-import os
 import urllib.request
 
 required = {
     "LoadLoraFromUrlOrPath",
     "CR Apply LoRA Stack",
     "CR SDXL Aspect Ratio",
-    "UltimateSDUpscale",
-    "UpscaleModelLoader",
     "Seed (rgthree)",
-    "Image Film Grain",
     "UNETLoader",
     "CLIPLoader",
 }
@@ -309,52 +246,6 @@ if missing:
         print(f"    - {n}")
 else:
     print(">>> All required node types validated OK")
-
-REQUIRED_UPSCALE = "4xFaceUpDAT.pth"
-
-def upscale_model_choices(info):
-    ul = info.get("UpscaleModelLoader") or {}
-    inp = ul.get("input") or ul.get("inputs") or {}
-    req = inp.get("required") or {}
-    mn = req.get("model_name")
-    if mn is None:
-        return []
-    if not isinstance(mn, list) or len(mn) == 0:
-        return []
-    if mn[0] == "COMBO" and len(mn) > 1:
-        opts = mn[1]
-        if isinstance(opts, list):
-            return [x for x in opts if isinstance(x, str)]
-        if isinstance(opts, dict):
-            for key in ("options", "choices", "values"):
-                v = opts.get(key)
-                if isinstance(v, list):
-                    return [x for x in v if isinstance(x, str)]
-    first = mn[0]
-    if isinstance(first, list):
-        return [x for x in first if isinstance(x, str)]
-    if isinstance(first, str) and first not in ("COMBO", "STRING", "INT", "FLOAT", "BOOLEAN"):
-        return [x for x in mn if isinstance(x, str)]
-    for item in mn:
-        if isinstance(item, list):
-            return [x for x in item if isinstance(x, str)]
-    return []
-
-try:
-    choices = upscale_model_choices(data)
-    if REQUIRED_UPSCALE in choices:
-        print(f">>> Upscale model OK: {REQUIRED_UPSCALE} is registered in ComfyUI ({len(choices)} file(s) in upscale_models)")
-    else:
-        print(f">>> WARN: {REQUIRED_UPSCALE} not in UpscaleModelLoader list (got {len(choices)} entries). Check models path / symlinks.")
-        if choices[:5]:
-            print(f">>>      Sample: {choices[:5]}")
-        if os.environ.get("REQUIRE_UPSCALE_MODEL") == "1":
-            print(">>> ERROR: REQUIRE_UPSCALE_MODEL=1 — refusing to start without upscaler registered.")
-            raise SystemExit(1)
-except SystemExit:
-    raise
-except Exception as e:
-    print(f">>> WARN: could not verify UpscaleModelLoader choices: {e}")
 PYEOF
 
 echo ">>> Starting RunPod serverless handler..."
