@@ -1865,7 +1865,7 @@ function applyNudesPackAdditiveLoraHint(aiSelection, hint) {
  * comma-separated quality dumps; the main prompt should carry scene/lighting in flowing prose.
  */
 const QUALITY_TECHNICAL_TAIL =
-  "smartphone candid photo, natural skin with visible pores, slight wide-angle distortion, unedited raw capture, auto-exposure, candid amateur nude";
+  "highly detailed, extremely detailed textures, perfect realistic skin, shallow depth of field";
 
 /** Solo nudes only — NEVER append this when the scene describes partnered sex / visible penis / penetration (conflicts with model). */
 const QUALITY_SUFFIX_SOLO =

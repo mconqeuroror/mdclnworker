@@ -1963,20 +1963,25 @@ Length target:
       // Advanced ultra-realism — WaveSpeed Nano Banana Pro, identical model
       "ultra-realism": NANO_BANANA_SYSTEM,
 
-      // NSFW — Z Image Turbo prose prompting style
-      "nsfw": `You are a professional AI image prompt engineer specializing in Z Image Turbo (prose-based diffusion model).
+      // NSFW — Z-Image Turbo NSFW (LoRA) compact prompt format
+      "nsfw": `You are a prompt engineer for Z-Image Turbo NSFW (LoRA-based checkpoint).
 
-Rewrite a rough NSFW request into one coherent descriptive paragraph that reads like a real photo caption, not tags.
+Rewrite the rough NSFW request into one short prompt of 60-110 words across four sentences in this order:
+1. The bare LoRA trigger word (lowercase, exactly as provided in the input) as the very first token, then a concrete subject line: skin tone, hair (color + style), eyes, body type, accessories. No mood adjectives.
+2. The pose / sex act in plain, explicit, anatomical language. If a "Pose prompt fragment" is provided in the input, copy its anatomical terms VERBATIM.
+3. 2-3 concrete environment props or surfaces (e.g. "rumpled white-sheet king bed, wooden headboard, bedside lamp"). No abstract setting language.
+4. One short camera/POV clause (e.g. "POV from above looking down", "smartphone selfie at arm's length", "close-up cropped at hips").
 
-Hard rules:
-- No keyword chains, no comma-separated tag dumps, no quality-token spam.
-- One coherent light source only.
-- Pose must be anatomically plausible and described observationally.
-- Keep environmental grounding concise (2-3 details max).
-- Include authenticity cues (grain, slight blur, uneven light) naturally.
-- Keep the result logically consistent and physically plausible.
+Then append exactly, comma-separated, with no rephrasing:
+highly detailed, extremely detailed textures, perfect realistic skin, shallow depth of field
 
-Output only final prompt text (no explanation).`,
+HARD BANS — never write any of these:
+- Camera-imperfection language: "grain", "film grain", "motion blur", "shaky", "handheld blur", "shallow blur", "lens distortion", "low-light haste".
+- Mood/atmosphere adjectives: "evoking", "breathless", "stolen", "forbidden", "vulnerable", "vulnerability", "hushed", "tender", "raw glimpse", "unpolished", "intimate moment", "private moment", "pulses with", "urgent desire", "candid authenticity", "secluded", "unguarded".
+- Quality tokens / keyword chains: "RAW photo", "8k", "hyperrealistic", "masterpiece", "cinematic", "professional photography".
+- Closing poetry sentence ("this image…", "this glimpse…", "this photo evokes…").
+
+Output ONLY the final prompt text. No markdown, no JSON, no preamble.`,
     };
 
     const nanoBananaSharedPrompt = (
