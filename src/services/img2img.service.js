@@ -407,7 +407,14 @@ async function runpodSubmitWithEndpoint(endpointId, payload, webhookUrl = null) 
 
   const base = runpodBaseForEndpoint(endpointId);
   const body = { input: payload };
-  if (webhookUrl) body.webhook = webhookUrl;
+  if (webhookUrl) {
+    body.webhook = webhookUrl;
+  } else {
+    console.warn(
+      `[RunPod] /run to endpoint=${endpointId} submitted WITHOUT webhook ` +
+      `— job result will only land via active polling. Set CALLBACK_BASE_URL or RUNPOD_WEBHOOK_URL.`,
+    );
+  }
 
   const resp = await fetch(`${base}/run`, {
     method: "POST",
@@ -460,6 +467,17 @@ export async function submitDescribeJob(imageBase64OrNull, imageUrl, webhookUrl 
     output_node_id: "53",
   };
 
+  if (webhookUrl) {
+    console.log(
+      `📣 [img2img/describe] RunPod webhook: ${webhookUrl.slice(0, 96)}${webhookUrl.length > 96 ? "…" : ""}`,
+    );
+  } else {
+    console.warn(
+      `⚠️ [img2img/describe] No webhook URL resolved — describe job will be stranded ` +
+      `("Analysis timed out") unless a watchdog reconciles it. ` +
+      `Check CALLBACK_BASE_URL / RUNPOD_WEBHOOK_URL env vars.`,
+    );
+  }
   return runpodSubmitWithEndpoint(RUNPOD_IMAGE_ANALYSIS_ENDPOINT, payload, webhookUrl);
 }
 

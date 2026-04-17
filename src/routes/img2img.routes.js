@@ -251,7 +251,10 @@ router.post("/describe", LARGE_JSON, authMiddleware, async (req, res) => {
       },
     });
 
-    console.log(`🔍 [img2img/describe] Job ${runpodJobId} submitted → describeJobId ${gen.id}`);
+    console.log(
+      `🔍 [img2img/describe] Job ${runpodJobId} submitted → describeJobId ${gen.id} ` +
+      `webhook=${webhookUrl ? webhookUrl.slice(0, 96) + (webhookUrl.length > 96 ? "…" : "") : "(none — will be stranded!)"}`,
+    );
     return res.json({ describeJobId: gen.id });
   } catch (err) {
     console.error("❌ /describe submit failed:", err.message);

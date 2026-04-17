@@ -286,7 +286,11 @@ function extractRunpodErrorMessage(rawOut, body) {
 }
 
 async function handleRunpodCallback(req, res) {
-  console.log(`[runpod-callback] ${req.method} ${req.originalUrl} from ${req.ip}`);
+  console.log(
+    `[runpod-callback] ${req.method} ${req.originalUrl} from ${req.ip} ` +
+    `ua="${(req.headers["user-agent"] || "").slice(0, 80)}" ` +
+    `len=${req.headers["content-length"] || "?"}`,
+  );
   if (!verifyWebhook(req)) {
     return res.status(401).json({ ok: false, error: "unauthorized" });
   }
@@ -348,8 +352,19 @@ async function handleRunpodCallback(req, res) {
       if (req.method === "GET") {
         return res.status(200).json({ ok: true, probe: true });
       }
+      console.warn(
+        `[runpod-callback] no jobId in payload (topKeys=${
+          body && typeof body === "object" ? Object.keys(body).slice(0, 10).join(",") : typeof body
+        })`,
+      );
       return res.status(200).json({ ok: false, reason: "no_job_id" });
     }
+
+    console.log(
+      `[runpod-callback] jobId=${jobId} status=${st || "?"} ` +
+      `generationId=${generationId || "(none)"} ` +
+      `outKeys=${rawOut && typeof rawOut === "object" ? Object.keys(rawOut).slice(0, 8).join(",") : typeof rawOut}`,
+    );
 
     // ── Check for img2img-describe job first ─────────────────────────────────
     const describeGen = await findDescribeGenerationForWebhook(jobId, generationId);
@@ -487,6 +502,18 @@ async function handleRunpodCallback(req, res) {
 
       return res.status(200).json({ ok: true, skipped: true, type: imageGen.type, status: st });
     }
+
+    // No matching row in any tracked type. RunPod fired a webhook for a job
+    // we don't recognize — log loudly so we can debug stale endpoints / wrong
+    // CALLBACK_BASE_URL between environments.
+    console.warn(
+      `[runpod-callback] UNMATCHED jobId=${jobId} status=${st || "?"} ` +
+      `generationId=${generationId || "(none)"} — no img2img-describe / upscale / ` +
+      `modelclone-x / soulx / nsfw row found in last 48h. ` +
+      `This may indicate a webhook arriving at the wrong deployment, ` +
+      `or a generation row that was deleted before the webhook fired.`,
+    );
+    return res.status(200).json({ ok: false, reason: "unmatched_job", jobId, status: st || null });
   } catch (e) {
     console.error("[RunPod webhook]", e);
     // 200 so RunPod does not hammer retries; fix via polling / logs
