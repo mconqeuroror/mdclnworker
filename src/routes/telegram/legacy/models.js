@@ -119,7 +119,12 @@ async function finishLooksAndContinue(chatId, flow) {
 
     // AI-generated model path: no photos yet — generate them via /models/generate-ai
     if (aiGenerate) {
-      const gender = String(looks.gender || "female").toLowerCase().includes("male") ? "male" : "female";
+      const rawGender = String(looks.gender || "female").toLowerCase();
+      const gender = /\b(female|woman|girl|lady|f)\b/.test(rawGender)
+        ? "female"
+        : /\b(male|man|boy|guy|m)\b/.test(rawGender)
+          ? "male"
+          : "female";
       await send(chatId, `⏳ Generating AI ${gender} model "${name}" from your looks definition…`, null);
       const result = await apiGenerateAiModel(uid, { name, gender, style: "photorealistic" });
       clearFlow(chatId);

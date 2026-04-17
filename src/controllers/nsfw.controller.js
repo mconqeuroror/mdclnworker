@@ -288,19 +288,29 @@ function summarizeAttributes(attrs = {}, fallbackString = "") {
 
 function buildDifferentiatingFeatures(attrs = {}) {
   if (!attrs || typeof attrs !== "object") return "none";
+  const ageRaw = attrs.age || attrs.ageRange || attrs.ageGroup || "";
+  const ageStr = (() => {
+    if (!ageRaw) return "";
+    const s = String(ageRaw).trim();
+    if (!s) return "";
+    return /^\d+/.test(s) ? `${s}y/o` : s;
+  })();
   const candidates = [
-    attrs.skinTone,
-    attrs.hairColor,
-    attrs.hairLength,
-    attrs.hairTexture,
-    attrs.eyeColor,
-    attrs.bodyType,
+    ageStr,
     attrs.ethnicity || attrs.heritage,
+    attrs.skinTone,
+    attrs.hairColor && attrs.hairLength
+      ? `${attrs.hairLength} ${attrs.hairColor} hair${attrs.hairTexture ? ` (${attrs.hairTexture})` : ""}`
+      : attrs.hairColor || attrs.hairLength,
+    attrs.eyeColor ? `${attrs.eyeColor} eyes` : "",
+    attrs.faceShape ? `${attrs.faceShape} face` : "",
+    attrs.bodyType,
+    attrs.distinctiveFeatures || attrs.distinguishingMarks || attrs.uniqueFeatures || "",
   ]
     .map((v) => (typeof v === "string" ? v.trim() : ""))
     .filter(Boolean);
   const unique = [...new Set(candidates)];
-  return unique.slice(0, 3).join(", ") || "none";
+  return unique.slice(0, 5).join(", ") || "none";
 }
 
 // ============================================
@@ -3624,12 +3634,10 @@ async function runNsfwPromptGenerationForModel(
       aiParams.gender ||
       "",
     ).toLowerCase();
-    const genderClass =
-      rawGender.includes("male") || rawGender.includes("man")
-        ? "man"
-        : rawGender.includes("female") || rawGender.includes("woman")
-          ? "woman"
-          : "person";
+    const isFemaleGender = /\b(female|woman|girl|lady|f)\b/.test(rawGender);
+    const isMaleGender =
+      !isFemaleGender && /\b(male|man|boy|guy|m)\b/.test(rawGender);
+    const genderClass = isFemaleGender ? "woman" : isMaleGender ? "man" : "woman";
 
     const differentiatingFeatures = buildDifferentiatingFeatures(attributesDetail);
     const poseHint = [
@@ -3690,9 +3698,17 @@ Total output: 60-110 words across the four sentences + the technical tail. Short
 ## TRIGGER WORD
 The very first token of the output MUST be the bare trigger "${triggerWord}" followed by a comma. Do not capitalize differently, do not embed it inside another word, do not skip it.
 
-## ANATOMY / GENDER
-- Subject gender: ${genderClass}. Do not switch.
+## ANATOMY / GENDER (HARD CONSTRAINT)
+- Subject gender is exactly: ${genderClass}. NEVER switch. NEVER write the opposite sex.
+${genderClass === "woman"
+  ? "- The subject is a WOMAN. Never describe her as a 'man', 'guy', 'boy', or 'male'. Never give her a penis, never describe an erection, never give her testicles or a beard. Pronouns: she/her. If the scene involves penetration, the partner's anatomy may be mentioned ONLY if the user's pose/scene explicitly involves a partner — otherwise this is a solo female nude."
+  : genderClass === "man"
+  ? "- The subject is a MAN. Never describe him as a 'woman', 'girl', or 'female'. Never give him breasts, vulva, or female genitalia. Pronouns: he/him."
+  : "- Keep gender ambiguous unless the scene clearly implies one."}
 - Penetration / contact descriptions must be physically possible for the stated pose. If the user's pose makes the requested act impossible (e.g. "lying flat on back" + "ass in air looking down at camera"), pick the dominant intent and silently make the rest consistent.
+
+## IDENTITY ANCHORING (REDUCE WRONG-FACE LEAKAGE)
+The LoRA learned a specific person. To stop the model from defaulting to a generic / training-sample face, your subject sentence MUST anchor identity by including, when present in differentiating_features: age, ethnicity, hair (length + color + texture), eye color, face shape, body type, distinctive features. Do not invent any of these — only use what is in differentiating_features.
 
 OUTPUT: Return ONLY the final prompt text. One paragraph. No markdown, no JSON, no preamble, no explanation.
 If the request is genuinely impossible to render as one coherent image, return exactly:
