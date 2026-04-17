@@ -6,8 +6,22 @@ import axios from "axios";
 import toast from "react-hot-toast";
 import { useAuthStore } from "../store";
 import { useTheme } from "../hooks/useTheme.jsx";
-import { pricingAPI } from "../services/api";
+import { pricingAPI, uploadFile } from "../services/api";
 import { downloadFromPublicUrl } from "../utils/directDownload";
+
+/** Force any value into a renderable string so React #31 can never fire from setErrorMsg(obj). */
+function toErrMsg(v, fallback = "Something went wrong.") {
+  if (v == null) return fallback;
+  if (typeof v === "string") return v.trim() || fallback;
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  if (typeof v === "object") {
+    if (typeof v.message === "string" && v.message.trim()) return v.message;
+    if (typeof v.error === "string" && v.error.trim()) return v.error;
+    if (v.error && typeof v.error === "object" && typeof v.error.message === "string") return v.error.message;
+    try { return JSON.stringify(v); } catch { return fallback; }
+  }
+  return fallback;
+}
 
 const DEFAULT_UPSCALER_CREDITS = 5;
 const POLL_INTERVAL_MS = 4000;
@@ -72,8 +86,9 @@ export default function UpscalerPage() {
       toast.error("Please drop an image file.");
       return;
     }
-    if (file.size > 20 * 1024 * 1024) {
-      toast.error("Image must be under 20 MB.");
+    // Hard cap kept high; real cap is enforced server-side via /upload/config (Vercel Blob plan).
+    if (file.size > 100 * 1024 * 1024) {
+      toast.error("Image must be under 100 MB.");
       return;
     }
     setInputFile(file);
@@ -126,7 +141,7 @@ export default function UpscalerPage() {
         } else if (st === "failed") {
           stopPoll();
           setStatus("error");
-          setErrorMsg(error || "Upscaling failed. Your credits have been refunded.");
+          setErrorMsg(toErrMsg(error, "Upscaling failed. Your credits have been refunded."));
         }
         // If still processing, keep polling
         if (elapsed > 5 * 60 * 1000) {
@@ -154,21 +169,26 @@ export default function UpscalerPage() {
 
     try {
       const token = localStorage.getItem("token");
-      const formData = new FormData();
-      formData.append("image", inputFile);
 
-      const res = await axios.post("/api/upscale", formData, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "multipart/form-data",
-        },
-        onUploadProgress: (e) => {
-          const pct = Math.round((e.loaded / (e.total || 1)) * 20);
-          setProgress(5 + pct);
-        },
+      // Step 1: browser → Vercel Blob direct upload (file never traverses our serverless function → no 413)
+      const inputImageUrl = await uploadFile(inputFile, (pct) => {
+        // Map blob upload progress (0-100) onto our 5-25% slot
+        setProgress(5 + Math.round((pct / 100) * 20));
       });
 
-      if (!res.data.success) throw new Error(res.data.error || "Submission failed");
+      // Step 2: tell our API to dispatch a RunPod job from that URL (small JSON body)
+      const res = await axios.post(
+        "/api/upscale",
+        { inputImageUrl },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        },
+      );
+
+      if (!res.data?.success) throw new Error(toErrMsg(res.data?.error, "Submission failed"));
 
       setStatus("processing");
       setProgress(25);
@@ -176,7 +196,7 @@ export default function UpscalerPage() {
       pollStatus(res.data.generationId);
     } catch (err) {
       setStatus("error");
-      setErrorMsg(err.response?.data?.error || err.message || "Submission failed.");
+      setErrorMsg(toErrMsg(err.response?.data?.error || err, "Submission failed."));
       setProgress(0);
     }
   };

@@ -761,8 +761,15 @@ router.get("/pricing/generation", authMiddleware, async (_req, res) => {
   }
 });
 
-// Client direct-to-blob: server only returns a token (JSON). File is uploaded browser → Vercel Blob (no 413).
-router.post("/upload/blob", authMiddleware, async (req, res) => {
+// Client direct-to-blob: server returns a token (JSON). File is uploaded browser → Vercel Blob (no 413).
+//
+// Auth model:
+//  - body.type === "blob.generate-client-token": initiated by the browser; requires user JWT.
+//  - body.type === "blob.upload-completed":      server-to-server webhook from Vercel Blob,
+//    signed via x-vercel-blob-signature and verified inside handleUpload(). It never carries
+//    a user JWT, so authMiddleware would (and previously did) reject it with 401, killing the
+//    onUploadCompleted hook. We branch on body.type to keep auth on the client path only.
+async function handleUploadBlobRequest(req, res) {
   if (!isVercelBlobConfigured()) {
     return res.status(503).json({ error: "Blob storage not configured" });
   }
@@ -801,6 +808,13 @@ router.post("/upload/blob", authMiddleware, async (req, res) => {
     console.error("[upload/blob] handleUpload error:", err?.message || err);
     return res.status(400).json({ error: err?.message || "Upload token failed" });
   }
+}
+
+router.post("/upload/blob", (req, res, next) => {
+  if (req.body?.type === "blob.upload-completed") {
+    return handleUploadBlobRequest(req, res);
+  }
+  return authMiddleware(req, res, () => handleUploadBlobRequest(req, res));
 });
 
 // Presigned URL for direct browser -> R2 upload (legacy fallback).
@@ -2801,6 +2815,9 @@ const upscalerUpload = multer({
   },
 });
 
+// Accept either:
+//  - JSON body: { inputImageUrl }  (preferred — file already uploaded direct-to-blob, no 413)
+//  - multipart/form-data with "image" field (legacy fallback for clients without blob support)
 router.post(
   "/upscale",
   authMiddleware,
@@ -2809,7 +2826,15 @@ router.post(
   async (req, res) => {
     const userId = req.user?.userId;
     if (!userId) return res.status(401).json({ success: false, error: "Unauthorized" });
-    if (!req.file) return res.status(400).json({ success: false, error: "No image file provided" });
+
+    const inputImageUrl =
+      typeof req.body?.inputImageUrl === "string" && req.body.inputImageUrl.trim()
+        ? req.body.inputImageUrl.trim()
+        : null;
+
+    if (!inputImageUrl && !req.file) {
+      return res.status(400).json({ success: false, error: "No image provided (expected JSON {inputImageUrl} or multipart 'image' field)" });
+    }
 
     const { deductCredits, checkAndExpireCredits, refundCredits, getTotalCredits } = await import("../services/credit.service.js");
 
@@ -2830,11 +2855,30 @@ router.post(
         });
       }
 
-      const imageBuffer = req.file.buffer;
+      let imageBuffer;
+      let filename;
+      if (inputImageUrl) {
+        const r = await fetch(inputImageUrl);
+        if (!r.ok) {
+          return res.status(400).json({
+            success: false,
+            error: `Could not fetch input image (${r.status} ${r.statusText})`,
+          });
+        }
+        const ab = await r.arrayBuffer();
+        imageBuffer = Buffer.from(ab);
+        const urlPath = (() => {
+          try { return new URL(inputImageUrl).pathname; } catch { return ""; }
+        })();
+        const ext = (urlPath.match(/\.([a-zA-Z0-9]+)$/)?.[1] || "jpg").toLowerCase();
+        filename = `upscale_${Date.now()}.${ext}`;
+      } else {
+        imageBuffer = req.file.buffer;
+        filename = `upscale_${Date.now()}.jpg`;
+      }
       const imageBase64 = imageBuffer.toString("base64");
-      const filename = `upscale_${Date.now()}.jpg`;
 
-      // Create generation record
+      // Create generation record (keep blob URL when present so we can clean it up later)
       const gen = await prisma.generation.create({
         data: {
           userId,
@@ -2842,7 +2886,7 @@ router.post(
           prompt: "",
           creditsCost: upscalerCost,
           status: "processing",
-          inputImageUrl: JSON.stringify({ submitting: true }),
+          inputImageUrl: JSON.stringify({ submitting: true, blobUrl: inputImageUrl || null }),
         },
       });
       generationId = gen.id;
@@ -2858,12 +2902,12 @@ router.post(
       });
       const runpodJobId = await submitUpscalerJob(imageBase64, filename, webhookUrl);
 
-      // Update record with job ID
+      // Update record with job ID (preserve blob URL when present so we can clean it up after completion)
       await prisma.generation.update({
         where: { id: generationId },
         data: {
           providerTaskId: runpodJobId,
-          inputImageUrl: JSON.stringify({ runpodJobId }),
+          inputImageUrl: JSON.stringify({ runpodJobId, blobUrl: inputImageUrl || null }),
         },
       });
 
