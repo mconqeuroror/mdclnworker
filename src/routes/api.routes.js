@@ -778,7 +778,14 @@ async function handleUploadBlobRequest(req, res) {
     if (!body || typeof body.type !== "string") {
       return res.status(400).json({ error: "Invalid handleUpload body" });
     }
-    const requestWithUrl = { ...req, url: req.originalUrl || req.url || "/api/upload/blob" };
+    const host = req.get?.("host") || req.headers?.host || "modelclone.app";
+    const proto = (req.headers?.["x-forwarded-proto"] || req.protocol || "https").toString();
+    const path = req.originalUrl || req.url || "/api/upload/blob";
+    const requestWithUrl = {
+      url: `${proto}://${host}${path}`,
+      method: req.method,
+      headers: req.headers || {},
+    };
     const jsonResponse = await handleUpload({
       body,
       request: requestWithUrl,
