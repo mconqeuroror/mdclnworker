@@ -320,7 +320,7 @@ export const SCENE_PRESETS = [
   {
     id: "doggy",
     label: "Doggy Style",
-    description: "doggy style on all fours on bed, arched back, looking over shoulder at camera, average-sized erect penis entering from behind with visible penetration, visible anus and pussy, one hand gripping sheets, slightly damp skin, messy hair, white sheets",
+    description: "medium shot, POV from behind, partner's hips and thighs in lower foreground framing the shot, his erect cock penetrating her from behind, woman on all fours with arched back on white bed sheets, her ass facing the camera, looking back over her shoulder at the viewer, one hand gripping sheets, messy hair",
   },
   {
     id: "bent_over",
@@ -335,7 +335,7 @@ export const SCENE_PRESETS = [
   {
     id: "blowjob_pov",
     label: "Blowjob POV",
-    description: "bjz, intimate explicit scene, young woman engaged in oral sex, kneeling, lips wrapped around erect penis, gaze directed upwards towards camera, one hand on shaft other hand on thigh, focused determined expression, watery eyes, drool dripping, messy hair falling forward, bedroom floor, raw unapologetic POV",
+    description: "bjz, first person POV from the man receiving oral, his lower abdomen and upper thighs visible at the edges of the frame, his erect cock continuous with his body, kneeling young woman with her lips wrapped around it, gaze directed upwards toward the camera, one hand on the base of the shaft, focused determined expression, watery eyes, drool dripping, messy hair falling forward, bedroom floor",
   },
   {
     id: "cumshot_facial",
@@ -360,7 +360,7 @@ export const SCENE_PRESETS = [
   {
     id: "missionary",
     label: "Missionary",
-    description: "missionary on bed, lying on back legs spread, average-sized penis penetrating pussy with visible contact at entrance, labia around shaft, one hand squeezing breast, biting lip, messy hair on pillow, flushed cheeks, POV from above",
+    description: "medium shot, POV from above looking down, partner's torso and hips in upper foreground silhouette, his erect cock penetrating her from above, woman lying on her back on the bed with legs spread and knees bent, one hand squeezing her breast, biting her lip, messy hair on the pillow, flushed cheeks, eye contact with the camera",
   },
   {
     id: "selfie_bed",
@@ -370,22 +370,22 @@ export const SCENE_PRESETS = [
   {
     id: "deepthroat",
     label: "Deepthroat POV",
-    description: "kneeling deepthroat, average-sized erect penis deep in mouth, gagging drool dripping down chin, watery eyes looking up, one hand on base of shaft other on thigh, flushed cheeks, POV from above",
+    description: "bjz, first person POV from the man receiving oral, his lower abdomen and upper thighs visible at the edges of the frame, his erect cock continuous with his body deep in her mouth, kneeling woman with her throat full, gagging, drool dripping down her chin, watery eyes looking up at the camera, one hand on the base of the shaft, flushed cheeks, POV from above",
   },
   {
     id: "reverse_cowgirl",
     label: "Reverse Cowgirl",
-    description: "reverse cowgirl, ass facing camera, average-sized penis visible entering from below with clear connection, one hand squeezing breast, looking back over shoulder, slightly damp skin, messy bedroom",
+    description: "medium shot, POV from below looking up at her back, partner's hips and lower torso in foreground, his erect cock penetrating her from below, woman straddling facing away in reverse cowgirl, her back arched, her ass and back facing the camera, one hand squeezing her breast, looking back over her shoulder, messy bedroom",
   },
   {
     id: "prone_bone",
     label: "Prone Bone",
-    description: "prone bone face down on bed, average-sized penis entering from behind with visible penetration, visible anus, arched back, one hand gripping sheets, slightly damp skin, messy hair",
+    description: "medium shot, POV from behind, partner's hips and thighs in lower foreground framing the shot, his erect cock penetrating her from behind, woman lying face down on the bed in prone bone position with arched back, one hand gripping sheets, messy hair",
   },
   {
     id: "titfuck",
     label: "Titfuck POV",
-    description: "pushing breasts together around average-sized erect penis, looking up at camera, playful expression, slightly damp skin, POV from above",
+    description: "first person POV from the man receiving the act, his lower abdomen and upper thighs visible at the edges of the frame, his erect cock continuous with his body sliding between her breasts, woman pushing her breasts together around it, looking up at the camera with a playful expression",
   },
 ];
 

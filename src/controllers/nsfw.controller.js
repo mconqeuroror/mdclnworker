@@ -3672,8 +3672,47 @@ Sentence 1 — Trigger + subject line.
   Start with the bare trigger word "${triggerWord}" as the very first token, then describe the subject CONCRETELY: skin tone, hair (color + style), eyes, body type, any explicit accessories. No mood adjectives.
   Example skeleton: "${triggerWord}, a [skin] [age] ${genderClass} with [hair] hair and [eye] eyes, [body type], [accessory if any]."
 
-Sentence 2 — Pose / sex act.
-  Describe pose, body position, action and (if NSFW) the sex act in PLAIN, EXPLICIT, ANATOMICAL language. If a "Pose prompt fragment" is provided in the input, copy its anatomical terms VERBATIM — do not soften, paraphrase, or reorder them. Mention what is visible (penetration depth, contact at entrance, exposed parts) only when the scene calls for it. State which body part is doing what to which body part.
+Sentence 2 — Pose / sex act (COMPOSITION-FIRST POV — read carefully).
+  For SOLO scenes (no partner): describe body position, action, and visible nudity in plain anatomical language ("nude", "spread legs", "ass raised toward camera", "pussy visible", "biting her lip"). One short anatomy phrase at most.
+
+  For EXPLICIT SEX ACTS (any scene with a male partner: doggystyle, missionary, cowgirl, reverse cowgirl, mating press, prone bone, spooning, standing-from-behind, piledriver, amazon, oral, titfuck, anal, etc.) — you MUST use composition-first POV phrasing. Z-Image Turbo and similar photoreal NSFW models mutate badly (penis floating outside vagina, duplicated genitals, oversized scale, detached shafts) when given clinical "penis entering pussy with visible penetration, anus and pussy visible" narration. The female LoRA character is ALWAYS the dominant subject; the male partner appears ONLY as edge-of-frame body parts (his hips, thighs, hands, abs, erect cock) — NEVER his face, NEVER his identity. Penetration is described in ONE short composition phrase, never repeated, never stacked with other anatomy.
+
+  HARD BANS — these strings MUST NOT appear in your output, even if a Pose prompt fragment uses them; rewrite to the composition templates below instead:
+    - "penis entering pussy", "penis entering vagina", "penis entering her", "penis entering from <direction>"
+    - "with visible penetration", "visible penetration", "with visible contact at entrance", "with clear connection"
+    - stacked anatomy lists like "anus and pussy visible", "vulva and asshole visible", "labia spread around the shaft", "labia gripping the shaft"
+    - penis size descriptors: "average-sized", "average erect", "small", "huge", "gigantic", "oversized", "massive", "enormous", "tiny", "big", "large" before penis/cock/dick/shaft
+    - "her labia", "her pussy", "her vulva", "her anus" mentioned as standalone visible objects in a sex-act scene (skin contact at the join is implied by "penetrating her")
+    - duplicated penetration mentions in the same prompt
+    - "slightly damp skin" or other moisture/sweat gloss adjectives
+
+  POSE → CAMERA POV TEMPLATES (use the matching one, adapt the woman-side detail to the user's scene):
+    • Doggystyle / prone bone (woman on all fours or face-down, man behind):
+      "POV from behind, partner's hips and thighs in lower foreground framing the shot, his erect cock penetrating her from behind, woman on all fours / face-down on [surface] with arched back, her ass facing the camera, [her hand placement / expression / hair from the user scene]"
+    • Standing from behind (both standing, man behind):
+      "POV from behind standing, partner's hips and abs in lower foreground, his erect cock penetrating her from behind, woman bent forward over [surface] with arched back, her ass pushed back toward the camera, [grip / surface / expression]"
+    • Missionary (woman on back, man on top):
+      "POV from above looking down, partner's torso and hips in upper foreground silhouette, his erect cock penetrating her from above, woman lying on her back on [surface] with legs spread and knees bent, [hand placement, expression, eye contact with the camera]"
+    • Mating press (woman on back, legs folded back, man pressing down):
+      "POV from above with deep angle, woman lying on her back with her legs folded back over her shoulders, partner's hips pressed down between her thighs, his hands on the backs of her thighs, deep penetration angle, [her expression]"
+    • Cowgirl (woman on top, facing partner):
+      "POV from below looking up at her, partner's hips and thighs in lower foreground, woman straddling and riding on top, body upright or slightly arched, her hands on his chest / her own breasts / her hair, eye contact with the camera"
+    • Reverse cowgirl (woman on top, facing away):
+      "POV from below looking up at her back, partner's hips and lower torso in foreground, woman straddling facing away, her back arched, her ass and back facing the camera, [hand placement]"
+    • Spooning / sideways (both lying on side, man behind):
+      "side profile shot, both lying on their sides, partner behind her, his hips against her ass and his erect cock penetrating her from behind, his arm wrapped around her, [her expression]"
+    • Anal (any orientation):
+      same templates as the matching vaginal pose, but penetration phrase becomes "his erect cock penetrating her ass from <direction>". One mention only — never also describe vaginal penetration in the same prompt.
+    • Blowjob / deepthroat / titfuck POV (oral / chest with male body in frame):
+      "first person POV from the man receiving [oral / the act], his lower abdomen and upper thighs visible at the edges of the frame, his erect cock continuous with his body, [woman's mouth wrapped around it / deep in her throat / sliding between her breasts], [her expression, gaze, hand placement]"
+    • Sixty-nine / piledriver / amazon / less common: pick the camera POV that matches the dominant body orientation, place the partner's framing body parts at the matching edge of the frame, and describe penetration as ONE short composition phrase ("his erect cock penetrating her from above", "her pussy over his face") — never as a clinical anatomical event.
+
+  Phrasing rules for sex acts:
+    - Use "his erect cock" or "his erect penis" — pick ONE, never both. Never use a size descriptor.
+    - Penetration is described in ONE short phrase. Do not repeat it. Do not stack anatomy after it.
+    - Preserve every NON-act detail from the user scene verbatim: surface, sheet color, lighting, time of day, props, the woman's expression, where her hands are, whether she's looking at the camera, jewelry, makeup, hair state.
+    - If a Pose prompt fragment is provided in the input, you MAY copy its NON-act details verbatim (woman's expression, surface, lighting, hand placement, hair) but you MUST rewrite the act portion using the matching POV template above. The Pose prompt fragment is a hint, not a verbatim instruction for the act.
+    - If the scene mentions a sex act but does NOT mention a male partner at all, treat it as solo — describe only the woman's body position, do NOT add a partner.
 
 Sentence 3 — Environment / background.
   Two or three concrete props or surfaces: "on a rumpled white-sheet king bed", "wooden headboard, bedside lamp", "shower wall behind". No abstract setting language.
@@ -3685,9 +3724,17 @@ Final tail (always append, exactly once, comma-separated, no rephrasing):
   highly detailed, extremely detailed textures, perfect realistic skin, shallow depth of field
 
 ## HARD BANS — DO NOT WRITE
+- Clinical sex-act anatomy (mutates the model badly — see Sentence 2 templates):
+  - "penis entering pussy / vagina / her", "penis entering from <direction>"
+  - "with visible penetration", "with visible contact at entrance", "with clear connection"
+  - stacked anatomy: "anus and pussy visible", "vulva and asshole visible", "labia spread around the shaft", "labia gripping the shaft"
+  - penis size descriptors before penis/cock/dick/shaft: "average-sized", "average erect", "small", "huge", "gigantic", "oversized", "massive", "enormous", "tiny", "big", "large"
+  - duplicated penetration mentions
+  - the partner's face / identity / facial expression — partner is body-parts only at the edge of frame
 - Mood / atmosphere adjectives: "evoking", "breathless", "stolen", "forbidden", "vulnerable", "vulnerability", "hushed", "tender", "raw glimpse", "unpolished", "intimate moment", "private moment", "pulses with", "urgent desire", "candid authenticity", "secluded", "unguarded".
 - Camera-imperfection language: NO "grain", NO "film grain", NO "motion blur", NO "shaky", NO "handheld blur", NO "shallow blur", NO "lens distortion", NO "low-light haste".
 - Quality tokens / keyword chains: NO "RAW photo", NO "8k", NO "hyperrealistic", NO "masterpiece", NO "cinematic", NO "professional", NO long ", , ," tag dumps.
+- Moisture/sweat gloss adjectives: NO "slightly damp skin".
 - No closing mood / poetry sentence — stop after the technical tail.
 - No "this image…", "this photo…", "this glimpse…" sentences.
 - No body-part contradictions (e.g. "lying on back" + "ass thrust up").
@@ -3706,6 +3753,7 @@ ${genderClass === "woman"
   ? "- The subject is a MAN. Never describe him as a 'woman', 'girl', or 'female'. Never give him breasts, vulva, or female genitalia. Pronouns: he/him."
   : "- Keep gender ambiguous unless the scene clearly implies one."}
 - Penetration / contact descriptions must be physically possible for the stated pose. If the user's pose makes the requested act impossible (e.g. "lying flat on back" + "ass in air looking down at camera"), pick the dominant intent and silently make the rest consistent.
+- For partnered sex scenes: penetration must be in EXACTLY ONE short composition phrase (e.g. "his erect cock penetrating her from behind"). Never reference the join with separate anatomy nouns ("her labia", "her pussy entrance", "his shaft visible", "anus visible") — that triggers floating/duplicated genital artifacts in Z-Image Turbo.
 
 ## IDENTITY ANCHORING (REDUCE WRONG-FACE LEAKAGE)
 The LoRA learned a specific person. To stop the model from defaulting to a generic / training-sample face, your subject sentence MUST anchor identity by including, when present in differentiating_features: age, ethnicity, hair (length + color + texture), eye color, face shape, body type, distinctive features. Do not invent any of these — only use what is in differentiating_features.
