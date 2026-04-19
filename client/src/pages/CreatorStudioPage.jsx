@@ -425,6 +425,36 @@ function RefSlot({ url, onRemove, onAdd, uploading }) {
   );
 }
 
+/**
+ * Wraps MediaUploadField with a tiny "Pick saved" link that opens the AssetManagerModal
+ * in picker mode. Used for Seedance-2 reference upload slots so the user can attach a
+ * saved KIE volcanic asset (asset://<id>) instead of uploading from disk every time.
+ */
+function MediaUploadFieldWithAssetPicker({
+  label, value, onUploaded, accept = "image/*", preview = "image",
+  pickerType,                // "image" | "video" | "audio"
+  onOpenAssetPicker,         // ({ assetType, onPick }) => void
+}) {
+  return (
+    <div className="space-y-1">
+      <MediaUploadField
+        label={label}
+        value={value}
+        onUploaded={onUploaded}
+        accept={accept}
+        preview={preview}
+      />
+      <button
+        type="button"
+        onClick={() => onOpenAssetPicker?.({ assetType: pickerType, onPick: (asset) => onUploaded(asset.assetUri || asset.sourceUrl) })}
+        className="text-[10px] text-violet-300 hover:text-violet-200 underline-offset-2 hover:underline"
+      >
+        + Pick from saved assets
+      </button>
+    </div>
+  );
+}
+
 function MediaUploadField({ label, value, onUploaded, accept = "image/*", preview = "image" }) {
   const inputRef = useRef(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -1470,6 +1500,279 @@ const TABS = [
   { id: "avatars",     label: "Real Avatars",  icon: User, desc: "Photo avatar videos" },
 ];
 
+const ASSET_TYPE_FROM_MIME = (mimeType) => {
+  const t = String(mimeType || "").toLowerCase();
+  if (t.startsWith("video/")) return "video";
+  if (t.startsWith("audio/")) return "audio";
+  if (t.startsWith("image/")) return "image";
+  return null;
+};
+
+const slugifyAssetName = (raw) =>
+  String(raw || "")
+    .toLowerCase()
+    .replace(/\.[a-z0-9]+$/, "")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 32) || "asset";
+
+/**
+ * Modal that manages the user's saved Creator Studio (KIE volcanic) assets.
+ * - Drag/drop a file → uploads to R2/Blob via uploadFile() → registers with KIE via createAsset.
+ * - Lists all saved assets with thumbnail / name / type badge.
+ * - Each asset has Insert (@name into active prompt), Pick (only when pickerMode is set), and Delete.
+ */
+function AssetManagerModal({
+  isOpen,
+  onClose,
+  pickerMode,             // null | "image" | "video" | "audio"
+  onPick,                 // (asset) => void
+  onInsertToken,          // (name) => void  — appends @name to the active prompt
+}) {
+  const [assets, setAssets] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const inputRef = useRef(null);
+
+  const fetchAssets = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await creatorStudioAPI.listAssets();
+      setAssets(Array.isArray(data?.assets) ? data.assets : []);
+    } catch (err) {
+      toast.error(err?.response?.data?.message || err?.message || "Failed to load assets");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isOpen) fetchAssets();
+  }, [isOpen, fetchAssets]);
+
+  const handleNewFile = useCallback(async (file) => {
+    if (!file) return;
+    const assetType = ASSET_TYPE_FROM_MIME(file.type);
+    if (!assetType) {
+      toast.error("Unsupported file type. Use image, video, or audio.");
+      return;
+    }
+    if (pickerMode && pickerMode !== assetType) {
+      toast.error(`This picker only accepts ${pickerMode} assets.`);
+      return;
+    }
+    setUploading(true);
+    try {
+      const uploadResult = await uploadFile(file);
+      const url = uploadResult?.url || uploadResult;
+      if (!url) throw new Error("Upload returned no URL");
+      const name = slugifyAssetName(file.name);
+      const created = await creatorStudioAPI.createAsset({ url, assetType, name });
+      if (!created?.success) throw new Error(created?.message || "Asset registration failed");
+      toast.success(`Asset @${name} registered.`);
+      await fetchAssets();
+    } catch (err) {
+      toast.error(err?.response?.data?.message || err?.message || "Asset upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }, [fetchAssets, pickerMode]);
+
+  const handleDelete = useCallback(async (assetId) => {
+    if (!assetId) return;
+    if (!window.confirm("Delete this asset? Generations that reference it will fail.")) return;
+    try {
+      const data = await creatorStudioAPI.deleteAsset(assetId);
+      if (!data?.success) throw new Error(data?.message || "Delete failed");
+      setAssets((prev) => prev.filter((a) => a.id !== assetId));
+    } catch (err) {
+      toast.error(err?.response?.data?.message || err?.message || "Delete failed");
+    }
+  }, []);
+
+  if (!isOpen) return null;
+
+  const filteredAssets = pickerMode
+    ? assets.filter((a) => String(a.assetType || "").toLowerCase() === pickerMode)
+    : assets;
+  const usedCount = assets.length;
+  const cap = 100;
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-3 bg-black/70 backdrop-blur-sm" onClick={onClose}>
+      <div
+        className="w-full max-w-2xl max-h-[88vh] flex flex-col rounded-2xl border border-white/10 overflow-hidden"
+        style={{ background: "linear-gradient(180deg, rgba(17,24,39,0.98) 0%, rgba(11,16,28,0.98) 100%)" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-white/[0.06]">
+          <div className="min-w-0">
+            <h2 className="text-base font-bold text-white truncate">
+              {pickerMode ? `Pick a ${pickerMode} asset` : "My Assets"}
+            </h2>
+            <p className="text-[11px] text-slate-400 mt-0.5 tabular-nums">
+              {usedCount}/{cap} used · stored as KIE volcanic assets
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="shrink-0 w-9 h-9 rounded-lg border border-white/10 bg-white/[0.03] text-slate-300 hover:bg-white/[0.06] flex items-center justify-center transition-colors"
+            aria-label="Close"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="px-4 pt-3">
+          <input
+            ref={inputRef}
+            type="file"
+            accept={pickerMode === "image" ? "image/*" : pickerMode === "video" ? "video/*" : pickerMode === "audio" ? "audio/*" : "image/*,video/*,audio/*"}
+            className="hidden"
+            onChange={(e) => handleNewFile(e.target.files?.[0])}
+          />
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+            onDragLeave={() => setIsDragging(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setIsDragging(false);
+              handleNewFile(e.dataTransfer?.files?.[0]);
+            }}
+            disabled={uploading || usedCount >= cap}
+            className={`w-full rounded-xl border border-dashed transition-all flex items-center justify-center px-4 py-5 ${
+              isDragging
+                ? "border-violet-400 bg-violet-500/10"
+                : "border-white/15 bg-white/[0.03] hover:border-white/30 hover:bg-white/[0.05]"
+            } disabled:opacity-50 disabled:cursor-not-allowed`}
+          >
+            <div className="flex items-center gap-3">
+              {uploading ? (
+                <Loader2 className="w-5 h-5 text-slate-300 animate-spin" />
+              ) : (
+                <div className="w-9 h-9 rounded-lg border border-white/15 bg-white/[0.05] flex items-center justify-center">
+                  <Plus className="w-4 h-4 text-slate-200" />
+                </div>
+              )}
+              <div className="text-left">
+                <p className="text-sm text-white font-semibold">
+                  {uploading ? "Uploading & registering…" : "Drop a file or click to upload"}
+                </p>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  {pickerMode
+                    ? `Only ${pickerMode} files accepted`
+                    : "Image, video, or audio · charged at the configured asset-create rate"}
+                </p>
+              </div>
+            </div>
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-4 py-3 [scrollbar-width:thin]">
+          {loading ? (
+            <div className="flex items-center justify-center py-10 text-slate-400">
+              <Loader2 className="w-5 h-5 animate-spin" />
+            </div>
+          ) : filteredAssets.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-10 gap-2 text-center">
+              <div className="w-12 h-12 rounded-2xl border border-white/10 bg-white/[0.03] flex items-center justify-center">
+                <Sparkles className="w-5 h-5 text-slate-500" />
+              </div>
+              <p className="text-sm text-slate-400">
+                {pickerMode ? `No ${pickerMode} assets yet — upload one above.` : "No assets yet — upload one above to get started."}
+              </p>
+            </div>
+          ) : (
+            <ul className="space-y-2">
+              {filteredAssets.map((asset) => {
+                const name = String(asset.name || "asset");
+                const aType = String(asset.assetType || "").toLowerCase();
+                const previewUrl = asset.sourceUrl || asset.assetUri || "";
+                return (
+                  <li
+                    key={asset.id}
+                    className="flex items-center gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2.5"
+                  >
+                    <div className="w-12 h-12 rounded-lg overflow-hidden border border-white/10 bg-black/40 flex items-center justify-center shrink-0">
+                      {aType === "image" && previewUrl?.startsWith("http") ? (
+                        <img src={previewUrl} alt="" className="w-full h-full object-cover" />
+                      ) : aType === "video" ? (
+                        <Video className="w-5 h-5 text-slate-300" />
+                      ) : aType === "audio" ? (
+                        <Mic className="w-5 h-5 text-slate-300" />
+                      ) : (
+                        <Sparkles className="w-5 h-5 text-slate-500" />
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-sm text-white font-semibold truncate">@{name}</p>
+                        <span className="text-[9px] uppercase tracking-wider text-slate-300 px-1.5 py-0.5 rounded-md bg-white/[0.06] border border-white/[0.08]">
+                          {aType || "?"}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-500 truncate mt-0.5">
+                        {asset.assetUri || asset.sourceUrl || "—"}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {pickerMode ? (
+                        <button
+                          type="button"
+                          onClick={() => { onPick?.(asset); onClose(); }}
+                          className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-violet-600 hover:bg-violet-500 text-white border border-violet-500 shadow-[0_4px_12px_-4px_rgba(124,58,237,0.5)]"
+                        >
+                          Use
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => { onInsertToken?.(name); onClose(); }}
+                            className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-white/[0.05] hover:bg-white/[0.08] text-slate-200 border border-white/[0.08]"
+                            title={`Insert @${name} into the active prompt`}
+                          >
+                            Insert @{name}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(asset.id)}
+                            className="w-8 h-8 rounded-lg border border-white/[0.08] bg-white/[0.03] text-slate-400 hover:text-red-400 hover:bg-red-500/10 hover:border-red-500/30 flex items-center justify-center transition-colors"
+                            aria-label="Delete asset"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+
+        <div className="px-4 py-3 border-t border-white/[0.06] flex items-center justify-between gap-3">
+          <p className="text-[10px] text-slate-500 leading-snug">
+            Reference an asset in your Seedance prompt with <span className="text-slate-300 font-mono">@name</span>; we'll auto-attach it.
+          </p>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white/[0.05] hover:bg-white/[0.08] text-slate-200 border border-white/[0.08]"
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab = "generate", initialModelId = null, initialPrompt = "" }) {
   const copy = PAGE_COPY[resolveLocale()] || PAGE_COPY.en;
   const [activeTab, setActiveTab] = useState(initialTab);
@@ -1540,6 +1843,11 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
   const [extendSourceId, setExtendSourceId] = useState("");
   const [mobileVideoBarExpanded, setMobileVideoBarExpanded] = useState(false);
   const [kling30AdvancedOpen, setKling30AdvancedOpen] = useState(false);
+  // Seedance volcanic-asset library — manage modal + picker mode
+  const [assetManagerOpen, setAssetManagerOpen] = useState(false);
+  /** @type {{ assetType: "image"|"video"|"audio", onPick: (asset: any) => void } | null} */
+  const [assetPickerCfg, setAssetPickerCfg] = useState(null);
+  const openAssetPicker = useCallback((cfg) => setAssetPickerCfg(cfg), []);
   const isFluxImageModel = imageModel.startsWith("flux-kontext");
   const isIdeogramImageModel = imageModel.startsWith("ideogram-v3");
   const isWanImageModel = imageModel === "wan-2-7-image" || imageModel === "wan-2-7-image-pro";
@@ -2882,21 +3190,21 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                 )}
                 {videoFamily === "seedance2" && videoMode === "edit" && (
                   <div className="flex flex-wrap items-start gap-2">
-                    <MediaUploadField label="First Frame" value={videoImageUrl} onUploaded={setVideoImageUrl} />
-                    <MediaUploadField label="Last Frame" value={videoEndFrameUrl} onUploaded={setVideoEndFrameUrl} />
+                    <MediaUploadFieldWithAssetPicker label="First Frame" value={videoImageUrl} onUploaded={setVideoImageUrl} pickerType="image" onOpenAssetPicker={openAssetPicker} />
+                    <MediaUploadFieldWithAssetPicker label="Last Frame" value={videoEndFrameUrl} onUploaded={setVideoEndFrameUrl} pickerType="image" onOpenAssetPicker={openAssetPicker} />
                   </div>
                 )}
                 {videoFamily === "seedance2" && videoMode === "i2v" && (
                   <div className="flex flex-wrap items-start gap-2">
-                    <MediaUploadField label="First Frame" value={videoImageUrl} onUploaded={setVideoImageUrl} />
+                    <MediaUploadFieldWithAssetPicker label="First Frame" value={videoImageUrl} onUploaded={setVideoImageUrl} pickerType="image" onOpenAssetPicker={openAssetPicker} />
                   </div>
                 )}
                 {videoFamily === "seedance2" && videoMode === "multi-ref" && (
                   <div className="flex flex-wrap items-start gap-2">
-                    <MediaUploadField label="Ref 1 (opt)" value={videoImageUrl} onUploaded={setVideoImageUrl} />
-                    <MediaUploadField label="Ref 2 (opt)" value={videoRefImageUrl} onUploaded={setVideoRefImageUrl} />
-                    <MediaUploadField label="Ref 3 (opt)" value={videoThirdImageUrl} onUploaded={setVideoThirdImageUrl} />
-                    <MediaUploadField label="Ref Video (opt)" value={videoInputVideoUrl} onUploaded={setVideoInputVideoUrl} accept="video/*" preview="video" />
+                    <MediaUploadFieldWithAssetPicker label="Ref 1 (opt)" value={videoImageUrl} onUploaded={setVideoImageUrl} pickerType="image" onOpenAssetPicker={openAssetPicker} />
+                    <MediaUploadFieldWithAssetPicker label="Ref 2 (opt)" value={videoRefImageUrl} onUploaded={setVideoRefImageUrl} pickerType="image" onOpenAssetPicker={openAssetPicker} />
+                    <MediaUploadFieldWithAssetPicker label="Ref 3 (opt)" value={videoThirdImageUrl} onUploaded={setVideoThirdImageUrl} pickerType="image" onOpenAssetPicker={openAssetPicker} />
+                    <MediaUploadFieldWithAssetPicker label="Ref Video (opt)" value={videoInputVideoUrl} onUploaded={setVideoInputVideoUrl} accept="video/*" preview="video" pickerType="video" onOpenAssetPicker={openAssetPicker} />
                   </div>
                 )}
                 {videoFamily === "veo31" && videoMode === "extend" && (
@@ -3147,6 +3455,14 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                         </div>
                       </>
                     )}
+                    <button
+                      type="button"
+                      onClick={() => setAssetManagerOpen(true)}
+                      className="ml-auto px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all border bg-white/[0.03] text-slate-200 border-white/[0.08] hover:bg-white/[0.06] hover:text-white"
+                      title="Manage saved assets — reference them in the prompt with @name"
+                    >
+                      Manage Assets
+                    </button>
                   </div>
                 )}
                 {/* ── Generate row ──────────────────────────────────── */}
@@ -3401,19 +3717,19 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                 )}
                 {videoFamily === "seedance2" && videoMode === "edit" && (
                   <div className="flex flex-wrap gap-2">
-                    <MediaUploadField label="First Frame" value={videoImageUrl} onUploaded={setVideoImageUrl} />
-                    <MediaUploadField label="Last Frame" value={videoEndFrameUrl} onUploaded={setVideoEndFrameUrl} />
+                    <MediaUploadFieldWithAssetPicker label="First Frame" value={videoImageUrl} onUploaded={setVideoImageUrl} pickerType="image" onOpenAssetPicker={openAssetPicker} />
+                    <MediaUploadFieldWithAssetPicker label="Last Frame" value={videoEndFrameUrl} onUploaded={setVideoEndFrameUrl} pickerType="image" onOpenAssetPicker={openAssetPicker} />
                   </div>
                 )}
                 {videoFamily === "seedance2" && videoMode === "i2v" && (
-                  <MediaUploadField label="First Frame" value={videoImageUrl} onUploaded={setVideoImageUrl} />
+                  <MediaUploadFieldWithAssetPicker label="First Frame" value={videoImageUrl} onUploaded={setVideoImageUrl} pickerType="image" onOpenAssetPicker={openAssetPicker} />
                 )}
                 {videoFamily === "seedance2" && videoMode === "multi-ref" && (
                   <div className="flex flex-wrap gap-2">
-                    <MediaUploadField label="Ref 1 (opt)" value={videoImageUrl} onUploaded={setVideoImageUrl} />
-                    <MediaUploadField label="Ref 2 (opt)" value={videoRefImageUrl} onUploaded={setVideoRefImageUrl} />
-                    <MediaUploadField label="Ref 3 (opt)" value={videoThirdImageUrl} onUploaded={setVideoThirdImageUrl} />
-                    <MediaUploadField label="Ref Video (opt)" value={videoInputVideoUrl} onUploaded={setVideoInputVideoUrl} accept="video/*" preview="video" />
+                    <MediaUploadFieldWithAssetPicker label="Ref 1 (opt)" value={videoImageUrl} onUploaded={setVideoImageUrl} pickerType="image" onOpenAssetPicker={openAssetPicker} />
+                    <MediaUploadFieldWithAssetPicker label="Ref 2 (opt)" value={videoRefImageUrl} onUploaded={setVideoRefImageUrl} pickerType="image" onOpenAssetPicker={openAssetPicker} />
+                    <MediaUploadFieldWithAssetPicker label="Ref 3 (opt)" value={videoThirdImageUrl} onUploaded={setVideoThirdImageUrl} pickerType="image" onOpenAssetPicker={openAssetPicker} />
+                    <MediaUploadFieldWithAssetPicker label="Ref Video (opt)" value={videoInputVideoUrl} onUploaded={setVideoInputVideoUrl} accept="video/*" preview="video" pickerType="video" onOpenAssetPicker={openAssetPicker} />
                   </div>
                 )}
                 {videoFamily === "veo31" && videoMode === "extend" && (
@@ -3727,6 +4043,13 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                         </div>
                       </div>
                     )}
+                    <button
+                      type="button"
+                      onClick={() => setAssetManagerOpen(true)}
+                      className="w-full min-h-[40px] px-3 py-2 rounded-lg text-xs font-semibold transition-all border bg-white/[0.03] text-slate-200 border-white/[0.08] hover:bg-white/[0.06] hover:text-white"
+                    >
+                      Manage Assets
+                    </button>
                   </div>
                 )}
                 {videoFamily !== "sora2" && videoFamily !== "kling26" && videoFamily !== "veo31" && videoFamily !== "kling30" && (
@@ -3774,6 +4097,27 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
           } catch (err) {
             toast.error(err?.response?.data?.message || err?.message || "Mask upload failed");
           }
+        }}
+      />
+
+      <AssetManagerModal
+        isOpen={assetManagerOpen || !!assetPickerCfg}
+        pickerMode={assetPickerCfg?.assetType || null}
+        onPick={(asset) => {
+          assetPickerCfg?.onPick?.(asset);
+          setAssetPickerCfg(null);
+        }}
+        onInsertToken={(name) => {
+          if (!name) return;
+          setVideoPrompt((prev) => {
+            const trimmed = String(prev || "").trimEnd();
+            const sep = trimmed.length > 0 ? " " : "";
+            return `${trimmed}${sep}@${name}`;
+          });
+        }}
+        onClose={() => {
+          setAssetManagerOpen(false);
+          setAssetPickerCfg(null);
         }}
       />
     </div>

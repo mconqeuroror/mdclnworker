@@ -21,6 +21,7 @@ import {
   generateVideoWithKlingTextKie,
   generateVideoWithVeo31Kie,
   extendVideoWithVeo31Kie,
+  generateSeedance2Kie,
   requestVeo31Video4k,
   requestVeo31Video1080p,
 } from "../services/kie.service.js";
@@ -4175,6 +4176,54 @@ function extractKlingElementRefs(promptText) {
   return refs;
 }
 
+/**
+ * Resolve @asset_name tokens in a Seedance prompt to KIE volcanic asset URIs.
+ *
+ * Looks at the user's saved Creator Studio assets (type "creator-studio-asset"
+ * stored by createCreatorStudioAsset) and matches @<name> tokens by case-insensitive
+ * exact name. Returns the asset URIs (asset://<id>) split by asset type so the caller
+ * can push each into the correct Seedance reference array (image / video / audio).
+ *
+ * The @<name> token is intentionally LEFT in the prompt — Seedance picks up the
+ * named-reference cue from the prompt and uses the asset URI from the reference array
+ * to bind it.
+ */
+async function resolveSeedanceAssetTokens(userId, promptText) {
+  const tokens = extractKlingElementRefs(promptText);
+  if (!userId || tokens.size === 0) {
+    return { imageAssetUris: [], videoAssetUris: [], audioAssetUris: [] };
+  }
+  const assets = await prisma.generation.findMany({
+    where: {
+      userId,
+      type: "creator-studio-asset",
+      status: "completed",
+    },
+    select: {
+      prompt: true,
+      providerMode: true,
+      outputUrl: true,
+      providerResponse: true,
+    },
+    take: 200,
+  });
+  const imageAssetUris = [];
+  const videoAssetUris = [];
+  const audioAssetUris = [];
+  for (const asset of assets) {
+    const meta = parseProviderResponseObject(asset.providerResponse);
+    const name = String(meta?.assetName || asset.prompt || "").trim().toLowerCase();
+    if (!name || !tokens.has(name)) continue;
+    const uri = String(meta?.assetUri || asset.outputUrl || "").trim();
+    if (!uri) continue;
+    const t = String(asset.providerMode || "").toLowerCase();
+    if (t === "image") imageAssetUris.push(uri);
+    else if (t === "video") videoAssetUris.push(uri);
+    else if (t === "audio") audioAssetUris.push(uri);
+  }
+  return { imageAssetUris, videoAssetUris, audioAssetUris };
+}
+
 function estimateCreatorStudioVideoCredits(pricing, payload) {
   const family = String(payload.family || "").toLowerCase();
   const mode = normalizeCreatorStudioVideoMode(family, payload.mode);
@@ -4682,7 +4731,8 @@ async function processCreatorStudioVideoInBackground({
   const normalizedInputVideoUrl = String(inputVideoUrl || "").trim();
   try {
     const onTaskSubmitted = async (taskId) => {
-      const providerName = lowerFamily === "seedance2" ? "piapi" : "kie";
+      // All Creator-Studio video families now route through KIE (Seedance flipped from PIAPI).
+      const providerName = "kie";
       await persistKieGenerationCorrelation({
         taskId,
         generationId,
@@ -4865,24 +4915,59 @@ async function processCreatorStudioVideoInBackground({
         }),
       );
     } else if (lowerFamily === "seedance2") {
-      // Route Seedance 2 through piapi.ai
+      // Route Seedance 2 through KIE (variant: bytedance/seedance-2 or bytedance/seedance-2-fast).
+      // KIE accepts asset://<id> URIs natively in any reference URL field, so user-supplied
+      // saved-asset URIs (registered via createCreatorStudioAsset) and resolved @asset_name
+      // tokens both flow through unchanged.
       const refImagesRaw = [normalizedReferenceImageUrl, normalizedThirdImageUrl].filter(Boolean).slice(0, 10);
       const refVideosRaw = normalizedInputVideoUrl ? [normalizedInputVideoUrl] : [];
       const refAudiosRaw = Array.isArray(seedanceReferenceAudioUrls) ? seedanceReferenceAudioUrls.filter(Boolean).slice(0, 3) : [];
+
+      // Server-side resolution of @asset_name tokens in the prompt → push into the
+      // appropriate reference array based on each asset's type. Tokens are kept in the
+      // prompt so the model still sees the cue.
+      const tokenRefs = await resolveSeedanceAssetTokens(userId, finalPrompt).catch(() => null);
+      const tokenImageAssets = tokenRefs?.imageAssetUris || [];
+      const tokenVideoAssets = tokenRefs?.videoAssetUris || [];
+      const tokenAudioAssets = tokenRefs?.audioAssetUris || [];
+      if (tokenImageAssets.length || tokenVideoAssets.length || tokenAudioAssets.length) {
+        console.log(
+          `[Seedance/KIE] Resolved @asset tokens — images=${tokenImageAssets.length} videos=${tokenVideoAssets.length} audios=${tokenAudioAssets.length}`,
+        );
+      }
+
+      const variant = String(seedanceTaskType || "seedance-2").toLowerCase() === "seedance-2-fast"
+        || String(seedanceTaskType || "").toLowerCase() === "seedance-2-fast-preview"
+        ? "seedance-2-fast-preview"
+        : "seedance-2-preview";
+      const seedanceResolutionLower = String(seedanceResolution || "720p").toLowerCase();
+      const seedanceRes = seedanceResolutionLower === "1080p" ? "1080p" : "720p";
+
+      const baseRefImages = normalizedMode === "multi-ref"
+        ? [normalizedImageUrl, ...refImagesRaw].filter(Boolean).slice(0, 12)
+        : [];
+      const baseRefVideos = normalizedMode === "multi-ref" ? refVideosRaw : [];
+      const baseRefAudios = normalizedMode === "multi-ref" ? refAudiosRaw : [];
+
+      const dedupe = (arr) => Array.from(new Set(arr.filter(Boolean)));
+      const referenceImageUrls = dedupe([...baseRefImages, ...tokenImageAssets]).slice(0, 12);
+      const referenceVideoUrls = dedupe([...baseRefVideos, ...tokenVideoAssets]).slice(0, 3);
+      const referenceAudioUrls = dedupe([...baseRefAudios, ...tokenAudioAssets]).slice(0, 3);
+
       result = await requestQueue.enqueue(() =>
-        generateSeedancePiapi({
-          csMode: normalizedMode,
+        generateSeedance2Kie({
+          variant,
           prompt: String(finalPrompt || ""),
-          taskType: String(seedanceTaskType || "seedance-2"),
-          duration: Number(durationSeconds) || 5,
-          aspectRatio: String(aspectRatio || "16:9"),
           firstFrameUrl: normalizedImageUrl || null,
           lastFrameUrl: normalizedMode === "edit" ? (normalizedEndFrameUrl || null) : null,
-          referenceImageUrls: normalizedMode === "multi-ref"
-            ? [normalizedImageUrl, ...refImagesRaw].filter(Boolean).slice(0, 12)
-            : [],
-          referenceVideoUrls: normalizedMode === "multi-ref" ? refVideosRaw : [],
-          referenceAudioUrls: normalizedMode === "multi-ref" ? refAudiosRaw : [],
+          referenceImageUrls,
+          referenceVideoUrls,
+          referenceAudioUrls,
+          returnLastFrame: !!seedanceReturnLastFrame,
+          generateAudio: !!seedanceGenerateAudio,
+          resolution: seedanceRes,
+          aspectRatio: String(aspectRatio || "16:9"),
+          duration: Number(durationSeconds) || 5,
           onTaskCreated: onTaskSubmitted,
         }),
       );
@@ -4891,7 +4976,7 @@ async function processCreatorStudioVideoInBackground({
     }
 
     if (result?.success && result?.deferred && result?.taskId) {
-      const taskTagPrefix = lowerFamily === "seedance2" ? "piapi-task:" : "kie-task:";
+      const taskTagPrefix = "kie-task:";
       await prisma.generation.update({
         where: { id: generationId },
         data: {
@@ -5185,10 +5270,8 @@ export async function generateCreatorStudioVideo(req, res) {
     await deductCredits(userId, creditsNeeded);
     creditsDeducted = creditsNeeded;
 
-    const generationProvider = lowerFamily === "seedance2" ? "piapi" : "kie";
-    const generationProviderModel = lowerFamily === "seedance2"
-      ? `piapi-seedance2-${normalizedMode}`
-      : `kie-${lowerFamily}-${normalizedMode}`;
+    const generationProvider = "kie";
+    const generationProviderModel = `kie-${lowerFamily}-${normalizedMode}`;
 
     const generation = await prisma.generation.create({
       data: {
