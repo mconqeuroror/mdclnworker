@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   X, Plus, Download, Loader2, Maximize2, Wand2, Sparkles, AlertCircle, Zap,
   Trash2, Video, User, Play, Clock, Coins, ChevronDown, Mic, CheckCircle,
-  PauseCircle, Info,
+  PauseCircle, Info, Volume2, VolumeX,
 } from "lucide-react";
 import { creatorStudioAPI, avatarAPI, modelAPI, pricingAPI, uploadFile } from "../services/api";
 import { downloadFromPublicUrl } from "../utils/directDownload";
@@ -353,15 +353,16 @@ function Chip({ active, onClick, children }) {
     <button
       onClick={onClick}
       type="button"
-      className="px-3 py-2.5 min-h-[44px] md:min-h-0 md:px-2.5 md:py-1.5 rounded-xl md:rounded-lg text-xs md:text-[11px] font-semibold whitespace-nowrap transition-all select-none inline-flex items-center justify-center shrink-0"
+      className="px-3 py-2 min-h-[36px] md:min-h-0 md:px-2.5 md:py-1.5 rounded-lg text-xs md:text-[11px] font-semibold whitespace-nowrap transition-all select-none inline-flex items-center justify-center shrink-0 active:scale-[0.97]"
       style={active ? {
         background: "rgba(139,92,246,0.28)",
         color: "#e9d5ff",
         border: "1px solid rgba(139,92,246,0.55)",
         boxShadow: "0 0 8px 1px rgba(139,92,246,0.25)",
       } : {
+        background: "rgba(255,255,255,0.03)",
         color: "var(--text-secondary)",
-        border: "1px solid var(--border-medium)",
+        border: "1px solid rgba(255,255,255,0.08)",
       }}
     >
       {children}
@@ -1869,7 +1870,14 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
     ...history.filter((g) => g.id !== activeGeneration?.id),
   ];
   const videoModes = getVideoModesByFamily(videoFamily);
-  const soundAvailable = videoFamily === "kling26" || videoFamily === "kling30";
+  const soundAvailable =
+    videoFamily === "kling26" ||
+    videoFamily === "kling30" ||
+    videoFamily === "veo31" ||
+    videoFamily === "sora2" ||
+    videoFamily === "wan22" ||
+    videoFamily === "wan26" ||
+    videoFamily === "wan27";
   const selectedVideoFamily = VIDEO_FAMILIES.find((f) => f.id === videoFamily);
   const durationConfig = useMemo(
     () => getDurationConfig(videoFamily, videoMode),
@@ -2368,13 +2376,13 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
 
           {/* Mobile bar — collapsible: compact prompt + generate; expand for refs / aspect / res */}
           <div
-            className={`md:hidden fixed left-1/2 z-[35] w-[min(calc(100vw-1.25rem),26rem)] -translate-x-1/2 overflow-x-hidden rounded-2xl backdrop-blur-xl p-3 [scrollbar-width:thin] ${
-              mobileGenBarExpanded ? "max-h-[min(52vh,420px)] overflow-y-auto" : ""
+            className={`md:hidden fixed left-1/2 z-[35] w-[min(calc(100vw-1rem),28rem)] -translate-x-1/2 overflow-x-hidden rounded-2xl backdrop-blur-2xl p-2.5 [scrollbar-width:thin] ${
+              mobileGenBarExpanded ? "max-h-[min(78vh,640px)] overflow-y-auto" : ""
             }`}
             style={{
-              background: "var(--bg-surface)",
-              border: "1px solid var(--border-medium)",
-              boxShadow: "0 16px 48px -16px var(--shadow-ambient)",
+              background: "linear-gradient(180deg, rgba(17,24,39,0.94) 0%, rgba(11,16,28,0.94) 100%)",
+              border: "1px solid rgba(148,163,184,0.18)",
+              boxShadow: "0 24px 64px -24px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04) inset",
               bottom: "max(0.75rem, calc(var(--dashboard-mobile-tab-stack, calc(3.5rem + env(safe-area-inset-bottom))) + 0.625rem))",
             }}
           >
@@ -2384,17 +2392,17 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                 onClick={() => setMobileGenBarExpanded((e) => !e)}
                 aria-expanded={mobileGenBarExpanded}
                 aria-label={mobileGenBarExpanded ? copy.collapseGenControls : copy.expandGenControls}
-                className="flex-shrink-0 w-11 min-h-[44px] rounded-xl border border-white/20 bg-black/50 flex items-center justify-center text-slate-300 hover:bg-black/70 transition-colors"
+                className={`flex-shrink-0 w-11 min-h-[44px] rounded-xl border flex items-center justify-center transition-all ${
+                  mobileGenBarExpanded
+                    ? "border-violet-500/40 bg-violet-500/15 text-violet-200"
+                    : "border-white/[0.08] bg-white/[0.03] text-slate-300 hover:bg-white/[0.06]"
+                }`}
               >
-                {mobileGenBarExpanded ? (
-                  <ChevronDown className="w-5 h-5 rotate-180" aria-hidden />
-                ) : (
-                  <ChevronDown className="w-5 h-5" aria-hidden />
-                )}
+                <ChevronDown className={`w-5 h-5 transition-transform duration-200 ${mobileGenBarExpanded ? "rotate-180" : ""}`} aria-hidden />
               </button>
               {!mobileGenBarExpanded && (
                 <>
-                  <div className="flex-1 min-w-0 rounded-xl border border-white/20 bg-black/65 px-2.5 py-2 flex items-center">
+                  <div className="flex-1 min-w-0 rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 flex items-center focus-within:border-violet-500/40 focus-within:bg-white/[0.05] transition-colors">
                     <textarea
                       value={prompt}
                       onChange={(e) => setPrompt(e.target.value)}
@@ -2407,7 +2415,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                     type="button"
                     onClick={handleGenerate}
                     disabled={imageGenerateDisabled}
-                    className="flex-shrink-0 min-w-[7rem] min-h-[44px] px-3 rounded-xl text-xs font-semibold disabled:opacity-40 flex flex-col items-center justify-center gap-0.5 leading-tight"
+                    className="flex-shrink-0 min-w-[6.25rem] min-h-[44px] px-3 rounded-xl text-xs font-bold disabled:opacity-40 flex flex-col items-center justify-center gap-0.5 leading-tight shadow-[0_8px_20px_-6px_rgba(124,58,237,0.55)] active:scale-[0.97] transition-transform"
                     style={{ background: "linear-gradient(135deg,#7c3aed,#4f46e5)", color: "white" }}
                   >
                     {isGenerating ? (
@@ -2416,42 +2424,38 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                       <>
                         <span className="flex items-center gap-1">
                           <Zap className="w-3.5 h-3.5 shrink-0" />
-                          <span className="whitespace-nowrap">{COST}</span>
+                          <span className="whitespace-nowrap tabular-nums">{COST}</span>
                           <Coins className="w-3.5 h-3.5 text-yellow-400 shrink-0" />
                         </span>
-                        <span className="text-[10px] font-medium opacity-90">{copy.tabGenerate}</span>
+                        <span className="text-[10px] font-medium opacity-90 tracking-wide">{copy.tabGenerate}</span>
                       </>
                     )}
                   </button>
                 </>
               )}
               {mobileGenBarExpanded && (
-                <div className="flex-1 min-w-0 flex items-center min-h-[44px] px-1">
-                  <p className="text-[11px] text-slate-400 truncate w-full">
-                    <span className="text-slate-500">{aspectSummary}</span>
-                    <span className="mx-1 text-slate-600">·</span>
-                    <span>{resolution}</span>
-                    <span className="mx-1 text-slate-600">·</span>
-                    <span>{COST} cr</span>
-                  </p>
+                <div className="flex-1 min-w-0 flex items-center min-h-[44px] px-2 gap-2 truncate">
+                  <span className="text-[11px] text-violet-200 font-semibold truncate">{aspectSummary}</span>
+                  <span className="text-[10px] text-slate-500 px-1.5 py-0.5 rounded-md bg-white/[0.04] border border-white/[0.06] uppercase tracking-wider">{resolution}</span>
+                  <span className="ml-auto text-[11px] text-white font-bold tabular-nums shrink-0">{COST} cr</span>
                 </div>
               )}
             </div>
             {!mobileGenBarExpanded && (
-              <p className="text-[10px] text-slate-500 mt-2 text-center leading-snug px-0.5">
+              <p className="text-[10px] text-slate-500 mt-2 text-center leading-snug px-0.5 tabular-nums">
                 {formatCopy(copy.creditsAvailable, { credits: creditsLeft })}
               </p>
             )}
 
             {mobileGenBarExpanded && (
-              <div className="mt-3 space-y-2.5 border-t border-white/10 pt-3">
-                <div className="rounded-xl border border-white/15 bg-black/50 px-3 py-2">
+              <div className="mt-2.5 space-y-3 border-t border-white/[0.06] pt-3">
+                <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5 focus-within:border-violet-500/40 focus-within:bg-white/[0.05] transition-colors">
                   <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)}
                     placeholder={copy.promptPlaceholder} rows={2}
                     className="w-full bg-transparent text-sm text-white placeholder:text-slate-500 resize-none outline-none min-h-[2.5rem]" />
                 </div>
                 <div>
-                  <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">{copy.model || "Model"}</span>
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 block mb-2">{copy.model || "Model"}</span>
                   <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-0.5 px-0.5 snap-x [scrollbar-width:thin]">
                     {IMAGE_MODELS.map((model) => (
                       <Chip key={model.id} active={imageModel === model.id} onClick={() => setImageModel(model.id)}>
@@ -2460,9 +2464,33 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                     ))}
                   </div>
                 </div>
+                {(isIdeogramImageModel || isWanImageModel) && (
+                  <div>
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 block mb-2">Outputs</span>
+                    <div className="flex gap-1.5">
+                      {[1, 2, 3, 4].map((n) => (
+                        <Chip key={n} active={imageNumOutputs === n} onClick={() => setImageNumOutputs(n)}>
+                          <span className="whitespace-nowrap">{n}</span>
+                        </Chip>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {isIdeogramImageModel && (
+                  <div>
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 block mb-2">Speed</span>
+                    <div className="flex gap-1.5">
+                      {["TURBO", "BALANCED", "QUALITY"].map((mode) => (
+                        <Chip key={mode} active={ideogramRenderingSpeed === mode} onClick={() => setIdeogramRenderingSpeed(mode)}>
+                          <span className="whitespace-nowrap">{mode}</span>
+                        </Chip>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {supportsReferenceSlots && (
                   <div>
-                    <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">{copy.refs}</span>
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 block mb-2">{copy.refs}</span>
                     <div className="flex gap-2 overflow-x-auto pb-1 -mx-0.5 px-0.5 snap-x [scrollbar-width:thin]">
                       {refs.map((url, i) => (
                         <RefSlot key={i} url={url} uploading={uploadingIdx === i}
@@ -2473,16 +2501,137 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                 )}
                 {showSingleInputUploader && (
                   <div>
-                    <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Input Image</span>
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 block mb-2">Input Image</span>
                     <MediaUploadField
                       label={singleInputRequired ? "Required" : "Optional"}
                       value={imageInputUrl}
                       onUploaded={setImageInputUrl}
                     />
+                    {imageModel === "ideogram-v3-edit" && (
+                      <div className="mt-2 rounded-xl border border-white/10 bg-black/20 p-2.5">
+                        <p className="text-xs text-slate-300 mb-1.5">Inpainting mask</p>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            disabled={!imageInputUrl}
+                            onClick={() => setMaskEditorOpen(true)}
+                            className="px-3 py-1.5 rounded-lg text-xs bg-white/10 text-slate-200 hover:bg-white/15 disabled:opacity-40"
+                          >
+                            Draw mask
+                          </button>
+                          <span className="text-[11px] text-slate-500 truncate">
+                            {imageMaskUrl ? "Mask ready" : "No mask uploaded"}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {isFluxImageModel && (
+                  <div className="space-y-2">
+                    <button
+                      type="button"
+                      onClick={() => setFluxPromptUpsampling((v) => !v)}
+                      className={`w-full min-h-[40px] px-3 py-2 rounded-lg text-xs font-semibold transition-all border ${fluxPromptUpsampling ? "bg-violet-600 text-white border-violet-500 shadow-[0_4px_12px_-4px_rgba(124,58,237,0.5)]" : "bg-white/[0.03] text-slate-300 border-white/[0.08] hover:bg-white/[0.06]"}`}
+                    >
+                      Prompt upsampling · {fluxPromptUpsampling ? "On" : "Off"}
+                    </button>
+                    <div>
+                      <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 block mb-2">Safety</span>
+                      <div className="flex gap-1.5">
+                        <Chip active={fluxSafetyTolerance === 0} onClick={() => setFluxSafetyTolerance(0)}>
+                          <span className="whitespace-nowrap">Strict</span>
+                        </Chip>
+                        <Chip active={fluxSafetyTolerance === 2} onClick={() => setFluxSafetyTolerance(2)}>
+                          <span className="whitespace-nowrap">Relaxed</span>
+                        </Chip>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {isWanImageModel && (
+                  <div className="space-y-2">
+                    <button
+                      type="button"
+                      onClick={() => setWanThinkingMode((v) => !v)}
+                      className={`w-full min-h-[40px] px-3 py-2 rounded-lg text-xs font-semibold transition-all border ${wanThinkingMode ? "bg-violet-600 text-white border-violet-500 shadow-[0_4px_12px_-4px_rgba(124,58,237,0.5)]" : "bg-white/[0.03] text-slate-300 border-white/[0.08] hover:bg-white/[0.06]"}`}
+                    >
+                      Thinking mode · {wanThinkingMode ? "On" : "Off"}
+                    </button>
+                    <div className="rounded-lg border border-white/15 bg-black/30 px-3 py-2">
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <span className="text-[11px] text-slate-300">Color palette (optional)</span>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="color"
+                            value={wanPaletteColorValue}
+                            onChange={(e) => setWanPaletteColorValue(String(e.target.value || "#C2D1E6").toUpperCase())}
+                            className="w-7 h-7 p-0 rounded border border-white/20 bg-transparent"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = String(wanPaletteColorValue || "").toUpperCase();
+                              if (!/^#[0-9A-F]{6}$/.test(next)) return;
+                              setWanPaletteColors((prev) => {
+                                if (prev.includes(next) || prev.length >= 10) return prev;
+                                return [...prev, next];
+                              });
+                            }}
+                            className="px-2 py-1 rounded-md text-[11px] bg-white/10 text-slate-200 hover:bg-white/15"
+                          >
+                            Add
+                          </button>
+                        </div>
+                      </div>
+                      {wanPaletteColors.length > 0 ? (
+                        <div className="flex flex-wrap gap-1.5">
+                          {wanPaletteColors.map((hex) => (
+                            <button
+                              key={hex}
+                              type="button"
+                              onClick={() => setWanPaletteColors((prev) => prev.filter((c) => c !== hex))}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] border border-white/20 text-white"
+                              style={{ background: `${hex}33` }}
+                              title="Remove color"
+                            >
+                              <span className="inline-block w-2.5 h-2.5 rounded-full border border-white/40" style={{ background: hex }} />
+                              {hex}
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-[10px] text-slate-500">No palette set. WAN auto-selects colors.</p>
+                      )}
+                    </div>
+                    <div className="rounded-lg border border-white/15 bg-black/30 px-3 py-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[11px] text-slate-300">BBox list (advanced, optional)</span>
+                        <button
+                          type="button"
+                          onClick={() => setWanAdvancedMaskOpen((v) => !v)}
+                          className="px-2 py-1 rounded-md text-[11px] bg-white/10 text-slate-200 hover:bg-white/15"
+                        >
+                          {wanAdvancedMaskOpen ? "Hide" : "Edit"}
+                        </button>
+                      </div>
+                      {wanAdvancedMaskOpen && (
+                        <>
+                          <textarea
+                            value={wanBboxListText}
+                            onChange={(e) => setWanBboxListText(e.target.value)}
+                            placeholder='JSON only. Example: [[10,10,120,120]]'
+                            rows={3}
+                            className="mt-2 w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-xs text-white outline-none resize-y"
+                          />
+                          <p className="mt-1 text-[10px] text-slate-500">Leave empty for normal generation/editing.</p>
+                        </>
+                      )}
+                    </div>
                   </div>
                 )}
                 <div>
-                  <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">{copy.aspect}</span>
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 block mb-2">{copy.aspect}</span>
                   <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-0.5 px-0.5 snap-x [scrollbar-width:thin]">
                     {ASPECT_RATIOS.map((ar) => (
                       <Chip key={ar.value} active={aspectRatio === ar.value} onClick={() => setAspectRatio(ar.value)}>
@@ -2492,7 +2641,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                   </div>
                 </div>
                 <div>
-                  <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">{copy.res}</span>
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 block mb-2">{copy.res}</span>
                   <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-0.5 px-0.5 [scrollbar-width:thin]">
                     {RESOLUTIONS.map((r) => (
                       <Chip key={r} active={resolution === r} onClick={() => setResolution(r)}>
@@ -2502,14 +2651,14 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                   </div>
                 </div>
                 <button type="button" onClick={handleGenerate} disabled={imageGenerateDisabled}
-                  className="w-full min-h-[44px] shrink-0 px-4 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-40 flex items-center justify-center gap-1.5"
+                  className="w-full min-h-[48px] shrink-0 px-4 py-3 rounded-xl text-sm font-bold disabled:opacity-40 flex items-center justify-center gap-2 shadow-[0_8px_24px_-6px_rgba(124,58,237,0.55)] active:scale-[0.99] transition-transform"
                   style={{ background: "linear-gradient(135deg,#7c3aed,#4f46e5)", color: "white" }}>
                   {isGenerating
                     ? <Loader2 className="w-5 h-5 animate-spin" />
                     : <span className="flex items-center gap-1.5 whitespace-nowrap">{formatCopy(copy.buttonGenerateCost, { cost: COST })} <Coins className="w-4 h-4 text-yellow-400" /></span>
                   }
                 </button>
-                <p className="text-[10px] text-slate-500 text-center">{formatCopy(copy.creditsAvailable, { credits: creditsLeft })}</p>
+                <p className="text-[10px] text-slate-500 text-center tabular-nums">{formatCopy(copy.creditsAvailable, { credits: creditsLeft })}</p>
               </div>
             )}
           </div>
@@ -3049,71 +3198,75 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
 
           {/* Mobile bar — collapsible video controls */}
           <div
-            className={`md:hidden fixed left-1/2 z-[35] w-[min(calc(100vw-1.25rem),26rem)] -translate-x-1/2 overflow-x-hidden rounded-2xl backdrop-blur-xl p-3 [scrollbar-width:thin] ${
-              mobileVideoBarExpanded ? "max-h-[min(60vh,480px)] overflow-y-auto" : ""
+            className={`md:hidden fixed left-1/2 z-[35] w-[min(calc(100vw-1rem),28rem)] -translate-x-1/2 overflow-x-hidden rounded-2xl backdrop-blur-2xl p-2.5 [scrollbar-width:thin] ${
+              mobileVideoBarExpanded ? "max-h-[min(78vh,640px)] overflow-y-auto" : ""
             }`}
             style={{
-              background: "var(--bg-surface)",
-              border: "1px solid var(--border-medium)",
-              boxShadow: "0 16px 48px -16px var(--shadow-ambient)",
+              background: "linear-gradient(180deg, rgba(17,24,39,0.94) 0%, rgba(11,16,28,0.94) 100%)",
+              border: "1px solid rgba(148,163,184,0.18)",
+              boxShadow: "0 24px 64px -24px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04) inset",
               bottom: "max(0.75rem, calc(var(--dashboard-mobile-tab-stack, calc(3.5rem + env(safe-area-inset-bottom))) + 0.625rem))",
             }}
           >
             <div className="flex items-stretch gap-2">
               <button type="button" onClick={() => setMobileVideoBarExpanded((e) => !e)}
                 aria-expanded={mobileVideoBarExpanded}
-                className="flex-shrink-0 w-11 min-h-[44px] rounded-xl border border-white/20 bg-black/50 flex items-center justify-center text-slate-300 hover:bg-black/70 transition-colors">
-                {mobileVideoBarExpanded ? <ChevronDown className="w-5 h-5 rotate-180" aria-hidden /> : <ChevronDown className="w-5 h-5" aria-hidden />}
+                aria-label={mobileVideoBarExpanded ? "Collapse" : "Expand controls"}
+                className={`flex-shrink-0 w-11 min-h-[44px] rounded-xl border flex items-center justify-center transition-all ${
+                  mobileVideoBarExpanded
+                    ? "border-violet-500/40 bg-violet-500/15 text-violet-200"
+                    : "border-white/[0.08] bg-white/[0.03] text-slate-300 hover:bg-white/[0.06]"
+                }`}>
+                <ChevronDown className={`w-5 h-5 transition-transform duration-200 ${mobileVideoBarExpanded ? "rotate-180" : ""}`} aria-hidden />
               </button>
               {!mobileVideoBarExpanded && (
                 <>
-                  <div className="flex-1 min-w-0 rounded-xl border border-white/20 bg-black/65 px-2.5 py-2 flex items-center">
+                  <div className="flex-1 min-w-0 rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 flex items-center focus-within:border-violet-500/40 focus-within:bg-white/[0.05] transition-colors">
                     <textarea value={videoPrompt} onChange={(e) => setVideoPrompt(e.target.value)}
                       placeholder="Video prompt…" rows={1}
                       className="w-full bg-transparent text-sm text-white placeholder:text-slate-500 resize-none outline-none leading-snug min-h-[2.5rem] max-h-[2.5rem] overflow-y-auto [scrollbar-width:thin]" />
                   </div>
                   <button type="button" onClick={handleGenerateVideo} disabled={isVideoGenerating}
-                    className="flex-shrink-0 min-w-[7rem] min-h-[44px] px-3 rounded-xl text-xs font-semibold disabled:opacity-40 flex flex-col items-center justify-center gap-0.5 leading-tight"
+                    className="flex-shrink-0 min-w-[6.25rem] min-h-[44px] px-3 rounded-xl text-xs font-bold disabled:opacity-40 flex flex-col items-center justify-center gap-0.5 leading-tight shadow-[0_8px_20px_-6px_rgba(124,58,237,0.55)] active:scale-[0.97] transition-transform"
                     style={{ background: "linear-gradient(135deg,#7c3aed,#4f46e5)", color: "white" }}>
                     {isVideoGenerating ? <Loader2 className="w-5 h-5 animate-spin" /> : (
                       <>
                         <span className="flex items-center gap-1">
                           <Video className="w-3.5 h-3.5 shrink-0" />
-                          <span className="whitespace-nowrap">{videoPricingInfo.cost}</span>
+                          <span className="whitespace-nowrap tabular-nums">{videoPricingInfo.cost}</span>
                           <Coins className="w-3.5 h-3.5 text-yellow-400 shrink-0" />
                         </span>
-                        <span className="text-[10px] font-medium opacity-90">Video</span>
+                        <span className="text-[10px] font-medium opacity-90 tracking-wide">Video</span>
                       </>
                     )}
                   </button>
                 </>
               )}
               {mobileVideoBarExpanded && (
-                <div className="flex-1 min-w-0 flex items-center min-h-[44px] px-1">
-                  <p className="text-[11px] text-slate-400 truncate w-full">
-                    <span className="text-slate-500">{selectedVideoFamily?.label}</span>
-                    <span className="mx-1 text-slate-600">·</span>
-                    <span>{videoMode}</span>
-                    <span className="mx-1 text-slate-600">·</span>
-                    <span>{videoPricingInfo.cost} cr</span>
-                  </p>
+                <div className="flex-1 min-w-0 flex items-center min-h-[44px] px-2 gap-2 truncate">
+                  <span className="text-[11px] text-violet-200 font-semibold truncate">{selectedVideoFamily?.label}</span>
+                  <span className="text-[10px] text-slate-500 px-1.5 py-0.5 rounded-md bg-white/[0.04] border border-white/[0.06] uppercase tracking-wider">{videoMode}</span>
+                  {soundAvailable && soundEnabled && (
+                    <Volume2 className="w-3.5 h-3.5 text-violet-300 shrink-0" aria-label="Sound on" />
+                  )}
+                  <span className="ml-auto text-[11px] text-white font-bold tabular-nums shrink-0">{videoPricingInfo.cost} cr</span>
                 </div>
               )}
             </div>
             {!mobileVideoBarExpanded && (
-              <p className="text-[10px] text-slate-500 mt-2 text-center leading-snug px-0.5">
+              <p className="text-[10px] text-slate-500 mt-2 text-center leading-snug px-0.5 tabular-nums">
                 {formatCopy(copy.creditsAvailable, { credits: creditsLeft })}
               </p>
             )}
             {mobileVideoBarExpanded && (
-              <div className="mt-3 space-y-2.5 border-t border-white/10 pt-3">
-                <div className="rounded-xl border border-white/15 bg-black/50 px-3 py-2">
+              <div className="mt-2.5 space-y-3 border-t border-white/[0.06] pt-3">
+                <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5 focus-within:border-violet-500/40 focus-within:bg-white/[0.05] transition-colors">
                   <textarea value={videoPrompt} onChange={(e) => setVideoPrompt(e.target.value)}
                     placeholder="Describe motion, camera, timing…" rows={2}
-                    className="w-full bg-transparent text-sm text-white placeholder:text-slate-500 resize-none outline-none min-h-[2.5rem]" />
+                    className="w-full bg-transparent text-sm text-white placeholder:text-slate-500 resize-none outline-none min-h-[2.5rem] leading-relaxed" />
                 </div>
                 <div>
-                  <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Model</span>
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 block mb-2">Model</span>
                   <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-0.5 px-0.5 snap-x [scrollbar-width:thin]">
                     {VIDEO_FAMILIES.map((family) => (
                       <Chip
@@ -3133,7 +3286,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                   </div>
                 </div>
                 <div>
-                  <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Mode</span>
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 block mb-2">Mode</span>
                   <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-0.5 px-0.5 snap-x [scrollbar-width:thin]">
                     {videoModes.map((m) => (
                       <Chip key={m} active={videoMode === m} onClick={() => setVideoMode(m)}>
@@ -3156,6 +3309,49 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                     ))}
                   </div>
                 </div>
+                {/* Audio — prominent, only when the selected family supports sound */}
+                {soundAvailable && (
+                  <div className="rounded-xl border border-white/10 bg-white/[0.03] p-2.5 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        {soundEnabled
+                          ? <Volume2 className="w-4 h-4 text-violet-300 shrink-0" aria-hidden />
+                          : <VolumeX className="w-4 h-4 text-slate-500 shrink-0" aria-hidden />}
+                        <div className="min-w-0">
+                          <div className="text-xs font-semibold text-white">Audio</div>
+                          <div className="text-[10px] text-slate-400 truncate">
+                            {soundEnabled ? "Generate with sound" : "No sound"}
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={soundEnabled}
+                        onClick={() => setSoundEnabled((v) => !v)}
+                        className={`relative shrink-0 inline-flex h-7 w-12 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-violet-500/50 ${
+                          soundEnabled
+                            ? "bg-gradient-to-r from-violet-600 to-indigo-600 shadow-[0_0_12px_rgba(124,58,237,0.45)]"
+                            : "bg-white/[0.08] border border-white/[0.08]"
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform duration-200 ${
+                            soundEnabled ? "translate-x-6" : "translate-x-1"
+                          }`}
+                        />
+                      </button>
+                    </div>
+                    {soundEnabled && (
+                      <input
+                        value={soundPrompt}
+                        onChange={(e) => setSoundPrompt(e.target.value)}
+                        placeholder="Optional sound prompt (speech, ambience, SFX…)"
+                        className="w-full rounded-lg border border-white/10 bg-black/30 px-2.5 py-2 text-xs text-white outline-none placeholder:text-slate-600 focus:border-violet-500/50 focus:bg-black/40 transition-colors"
+                      />
+                    )}
+                  </div>
+                )}
                 {/* Uploads — conditional by family + mode */}
                 {((videoFamily === "sora2" || videoFamily === "kling26") && videoMode === "i2v") && (
                   <MediaUploadField label="Input Image" value={videoImageUrl} onUploaded={setVideoImageUrl} />
@@ -3220,43 +3416,62 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                     <MediaUploadField label="Ref Video (opt)" value={videoInputVideoUrl} onUploaded={setVideoInputVideoUrl} accept="video/*" preview="video" />
                   </div>
                 )}
+                {videoFamily === "veo31" && videoMode === "extend" && (
+                  <select value={extendSourceId} onChange={(e) => setExtendSourceId(e.target.value)} className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-xs text-white outline-none">
+                    <option value="">Select Veo video to extend…</option>
+                    {videoHistory
+                      .filter((item) => item?.providerFamily === "veo31" && item?.providerTaskId && item?.status === "completed")
+                      .map((item) => (
+                        <option key={item.id} value={item.providerTaskId}>
+                          {item.prompt?.slice(0, 56) || "Veo generation"} ({item.providerTaskId})
+                        </option>
+                      ))}
+                  </select>
+                )}
                 {/* Family-specific settings */}
                 {videoFamily === "sora2" && (
                   <div className="space-y-2">
                     <div>
-                      <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Duration</span>
+                      <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 block mb-2">Duration</span>
                       <div className="flex gap-1.5">
                         <Chip active={videoNFrames === "10"} onClick={() => setVideoNFrames("10")}><span className="whitespace-nowrap">10s</span></Chip>
                         <Chip active={videoNFrames === "15"} onClick={() => setVideoNFrames("15")}><span className="whitespace-nowrap">15s</span></Chip>
                       </div>
                     </div>
                     <div>
-                      <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Quality</span>
+                      <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 block mb-2">Quality</span>
                       <div className="flex gap-1.5">
                         <Chip active={videoSize === "standard"} onClick={() => setVideoSize("standard")}><span className="whitespace-nowrap">Standard</span></Chip>
                         <Chip active={videoSize === "high"} onClick={() => setVideoSize("high")}><span className="whitespace-nowrap">High</span></Chip>
                       </div>
                     </div>
                     <div>
-                      <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Aspect</span>
+                      <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 block mb-2">Aspect</span>
                       <div className="flex gap-1.5">
                         <Chip active={videoAspectRatio === "portrait"} onClick={() => setVideoAspectRatio("portrait")}><span className="whitespace-nowrap">Portrait</span></Chip>
                         <Chip active={videoAspectRatio === "landscape"} onClick={() => setVideoAspectRatio("landscape")}><span className="whitespace-nowrap">Landscape</span></Chip>
                       </div>
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => setSoraRemoveWatermark((v) => !v)}
+                      className={`w-full min-h-[40px] px-3 py-2 rounded-lg text-xs font-semibold transition-all border ${soraRemoveWatermark ? "bg-violet-600 text-white border-violet-500 shadow-[0_4px_12px_-4px_rgba(124,58,237,0.5)]" : "bg-white/[0.03] text-slate-300 border-white/[0.08] hover:bg-white/[0.06]"}`}
+                    >
+                      Remove Watermark · {soraRemoveWatermark ? "On" : "Off"}
+                    </button>
                   </div>
                 )}
                 {videoFamily === "kling30" && (
                   <div className="space-y-2">
                     <div>
-                      <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Quality</span>
+                      <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 block mb-2">Quality</span>
                       <div className="flex gap-1.5">
                         <Chip active={kling30Quality === "std"} onClick={() => setKling30Quality("std")}><span className="whitespace-nowrap">Standard</span></Chip>
                         <Chip active={kling30Quality === "pro"} onClick={() => setKling30Quality("pro")}><span className="whitespace-nowrap">Pro</span></Chip>
                       </div>
                     </div>
                     <div>
-                      <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Aspect</span>
+                      <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 block mb-2">Aspect</span>
                       <div className="flex gap-1.5">
                         <Chip active={videoAspectRatio === "16:9"} onClick={() => setVideoAspectRatio("16:9")}><span className="whitespace-nowrap">16:9</span></Chip>
                         <Chip active={videoAspectRatio === "9:16"} onClick={() => setVideoAspectRatio("9:16")}><span className="whitespace-nowrap">9:16</span></Chip>
@@ -3265,11 +3480,116 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                     </div>
                     {!kling30MultiShot && (
                       <div>
-                        <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Duration</span>
+                        <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 block mb-2">Duration</span>
                         <div className="flex items-center gap-2">
                           <input type="range" min={3} max={15} step={1} value={videoDuration} onChange={(e) => setVideoDuration(Number(e.target.value))} className="flex-1 accent-violet-500" />
                           <span className="text-xs text-white font-medium w-6 text-right">{videoDuration}s</span>
                         </div>
+                      </div>
+                    )}
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setKling30MultiShot((v) => !v)}
+                        className={`flex-1 min-w-[6rem] min-h-[40px] px-3 py-2 rounded-lg text-xs font-semibold transition-all border ${kling30MultiShot ? "bg-violet-600 text-white border-violet-500 shadow-[0_4px_12px_-4px_rgba(124,58,237,0.5)]" : "bg-white/[0.03] text-slate-300 border-white/[0.08] hover:bg-white/[0.06]"}`}
+                      >
+                        Multi-shot
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setKling30AdvancedOpen((v) => !v)}
+                        className={`flex-1 min-w-[6rem] min-h-[40px] px-3 py-2 rounded-lg text-xs font-semibold transition-all border ${kling30AdvancedOpen ? "bg-white/[0.08] text-white border-white/[0.16]" : "bg-white/[0.03] text-slate-300 border-white/[0.08] hover:bg-white/[0.06]"}`}
+                      >
+                        {klingElements.length > 0 ? `Elements (${klingElements.length})` : "Elements"}
+                      </button>
+                    </div>
+                    {kling30MultiShot && (
+                      <div className="rounded-lg border border-white/10 bg-black/20 p-2 space-y-1.5 max-h-[28vh] overflow-y-auto [scrollbar-width:thin]">
+                        <div className="flex items-center justify-between">
+                          <p className="text-[10px] text-slate-400">
+                            {kling30Shots.length} shot{kling30Shots.length !== 1 ? "s" : ""} · {kling30Shots.reduce((sum, s) => sum + s.duration, 0)}s / 15s
+                          </p>
+                          {kling30Shots.length < 5 && (
+                            <button
+                              type="button"
+                              onClick={() => setKling30Shots((prev) => [...prev, { prompt: "", duration: 3 }])}
+                              className="flex items-center gap-1 text-[10px] text-violet-400 hover:text-violet-300 transition-colors"
+                            >
+                              <Plus className="w-3 h-3" /> Shot
+                            </button>
+                          )}
+                        </div>
+                        {kling30Shots.map((shot, idx) => (
+                          <div key={idx} className="flex flex-col gap-1.5 rounded-md bg-black/30 p-1.5">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] text-slate-500 shrink-0 w-4">{idx + 1}</span>
+                              <input
+                                value={shot.prompt}
+                                onChange={(e) => setKling30Shots((prev) => prev.map((s, i) => i === idx ? { ...s, prompt: e.target.value } : s))}
+                                placeholder={`Shot ${idx + 1} — motion, camera…`}
+                                className="flex-1 min-w-0 rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-white outline-none placeholder:text-slate-600"
+                              />
+                              {kling30Shots.length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() => setKling30Shots((prev) => prev.filter((_, i) => i !== idx))}
+                                  className="text-slate-600 hover:text-red-400 transition-colors shrink-0"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 pl-6">
+                              <input
+                                type="range"
+                                min={3}
+                                max={Math.min(10, 15 - kling30Shots.filter((_, i) => i !== idx).reduce((s, sh) => s + sh.duration, 0))}
+                                step={1}
+                                value={shot.duration}
+                                onChange={(e) => setKling30Shots((prev) => prev.map((s, i) => i === idx ? { ...s, duration: Number(e.target.value) } : s))}
+                                className="flex-1 accent-violet-500"
+                              />
+                              <span className="text-[10px] text-white w-7 text-right">{shot.duration}s</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {kling30AdvancedOpen && (
+                      <div className="rounded-lg border border-white/10 bg-black/20 p-2 space-y-2">
+                        <div className="space-y-1.5">
+                          <input value={klingElementName} onChange={(e) => setKlingElementName(e.target.value)} placeholder="@name" className="w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-white outline-none placeholder:text-slate-600" />
+                          <input value={klingElementDescription} onChange={(e) => setKlingElementDescription(e.target.value)} placeholder="Description" className="w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-white outline-none placeholder:text-slate-600" />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          {klingElementMediaUrls.map((url, idx) => (
+                            <MediaUploadField key={idx} label={`Img ${idx + 1}${idx < 2 ? "*" : ""}`} value={url} onUploaded={(newUrl) => setKlingElementMediaUrls((prev) => prev.map((v, i) => (i === idx ? newUrl : v)))} />
+                          ))}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const media = klingElementMediaUrls.filter(Boolean);
+                            if (!klingElementName.trim() || !klingElementDescription.trim() || media.length < 2) { toast.error("Need name, description, and 2+ images."); return; }
+                            setKlingElements((prev) => [...prev.slice(0, 2), { name: klingElementName.trim(), description: klingElementDescription.trim(), element_input_urls: media.slice(0, 4) }]);
+                            setKlingElementName(""); setKlingElementDescription(""); setKlingElementMediaUrls(["", "", "", ""]);
+                          }}
+                          className="w-full flex items-center justify-center gap-1 px-3 py-2 rounded-lg text-xs font-semibold bg-violet-600 hover:bg-violet-500 text-white transition-colors"
+                        >
+                          <Plus className="w-3.5 h-3.5" /> Add element
+                        </button>
+                        {klingElements.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {klingElements.map((element, idx) => (
+                              <span key={`${element.name}-${idx}`} className="inline-flex items-center gap-1 text-[10px] text-slate-300 rounded-md bg-black/40 px-1.5 py-0.5">
+                                @{element.name} · {element.element_input_urls.length}
+                                <button type="button" className="text-slate-600 hover:text-red-400" onClick={() => setKlingElements((prev) => prev.filter((_, i) => i !== idx))}>
+                                  <X className="w-2.5 h-2.5" />
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -3278,7 +3598,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                   <div className="space-y-2">
                     {videoMode === "t2v" && (
                       <div>
-                        <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Aspect</span>
+                        <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 block mb-2">Aspect</span>
                         <div className="flex gap-1.5">
                           <Chip active={videoAspectRatio === "1:1"} onClick={() => setVideoAspectRatio("1:1")}><span className="whitespace-nowrap">1:1</span></Chip>
                           <Chip active={videoAspectRatio === "16:9"} onClick={() => setVideoAspectRatio("16:9")}><span className="whitespace-nowrap">16:9</span></Chip>
@@ -3287,7 +3607,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                       </div>
                     )}
                     <div>
-                      <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Duration</span>
+                      <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 block mb-2">Duration</span>
                       <div className="flex gap-1.5">
                         <Chip active={videoDuration === 5} onClick={() => setVideoDuration(5)}><span className="whitespace-nowrap">5s</span></Chip>
                         <Chip active={videoDuration === 10} onClick={() => setVideoDuration(10)}><span className="whitespace-nowrap">10s</span></Chip>
@@ -3298,7 +3618,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                 {videoFamily === "veo31" && (
                   <div className="space-y-2">
                     <div>
-                      <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Speed</span>
+                      <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 block mb-2">Speed</span>
                       <div className="flex gap-1.5">
                         <Chip active={videoSpeed === "fast"} onClick={() => setVideoSpeed("fast")}><span className="whitespace-nowrap">Fast</span></Chip>
                         <Chip active={videoSpeed === "quality"} onClick={() => setVideoSpeed("quality")}><span className="whitespace-nowrap">Quality</span></Chip>
@@ -3307,7 +3627,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                     </div>
                     {(videoMode === "ref2v" || videoMode === "i2v") && (
                       <div>
-                        <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Aspect</span>
+                        <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 block mb-2">Aspect</span>
                         <div className="flex gap-1.5">
                           {videoMode !== "ref2v" && (
                             <Chip active={videoAspectRatio === "Auto"} onClick={() => setVideoAspectRatio("Auto")}><span className="whitespace-nowrap">Auto</span></Chip>
@@ -3317,11 +3637,38 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                         </div>
                       </div>
                     )}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setVeoEnableTranslation((v) => !v)}
+                        className={`min-h-[36px] px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all border ${veoEnableTranslation ? "bg-violet-600 text-white border-violet-500 shadow-[0_4px_12px_-4px_rgba(124,58,237,0.5)]" : "bg-white/[0.03] text-slate-300 border-white/[0.08] hover:bg-white/[0.06]"}`}
+                      >
+                        Translate
+                      </button>
+                      <span className="text-[10px] text-slate-400 px-2 py-1 rounded-md bg-white/[0.04] border border-white/[0.06]">8s fixed</span>
+                    </div>
+                    <div className="flex gap-2">
+                      <input
+                        type="number"
+                        min={10000}
+                        max={99999}
+                        value={veoSeed}
+                        onChange={(e) => setVeoSeed(e.target.value)}
+                        placeholder="Seed"
+                        className="flex-1 min-w-0 rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-white outline-none placeholder:text-slate-600"
+                      />
+                      <input
+                        value={veoWatermark}
+                        onChange={(e) => setVeoWatermark(e.target.value)}
+                        placeholder="Watermark"
+                        className="flex-1 min-w-0 rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-white outline-none placeholder:text-slate-600"
+                      />
+                    </div>
                   </div>
                 )}
                 {videoFamily === "wan22" && (
                   <div>
-                    <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Resolution</span>
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 block mb-2">Resolution</span>
                     <div className="flex gap-1.5">
                       <Chip active={wanResolution === "480p"} onClick={() => setWanResolution("480p")}><span className="whitespace-nowrap">480p</span></Chip>
                       {(videoMode === "move" || videoMode === "replace") && (
@@ -3333,7 +3680,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                 )}
                 {videoFamily === "wan26" && (
                   <div>
-                    <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Resolution</span>
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 block mb-2">Resolution</span>
                     <div className="flex gap-1.5">
                       <Chip active={wanResolution === "720p"} onClick={() => setWanResolution("720p")}><span className="whitespace-nowrap">720p</span></Chip>
                       <Chip active={wanResolution === "1080p"} onClick={() => setWanResolution("1080p")}><span className="whitespace-nowrap">1080p</span></Chip>
@@ -3343,7 +3690,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                 {videoFamily === "wan27" && (
                   <div className="space-y-2">
                     <div>
-                      <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Resolution</span>
+                      <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 block mb-2">Resolution</span>
                       <div className="flex gap-1.5">
                         <Chip active={wanResolution === "720p"} onClick={() => setWanResolution("720p")}><span className="whitespace-nowrap">720p</span></Chip>
                         <Chip active={wanResolution === "1080p"} onClick={() => setWanResolution("1080p")}><span className="whitespace-nowrap">1080p</span></Chip>
@@ -3351,7 +3698,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                     </div>
                     {(videoMode === "t2v" || videoMode === "replace" || videoMode === "edit") && (
                       <div>
-                        <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Aspect</span>
+                        <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 block mb-2">Aspect</span>
                         <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-0.5 px-0.5 snap-x [scrollbar-width:thin]">
                           {["16:9", "9:16", "1:1", "4:3", "3:4"].map((ar) => (
                             <Chip key={ar} active={videoAspectRatio === ar} onClick={() => setVideoAspectRatio(ar)}><span className="whitespace-nowrap">{ar}</span></Chip>
@@ -3364,7 +3711,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                 {videoFamily === "seedance2" && (
                   <div className="space-y-2">
                     <div>
-                      <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Variant</span>
+                      <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 block mb-2">Variant</span>
                       <div className="flex gap-1.5 flex-wrap">
                       <Chip active={seedanceTaskType === "seedance-2"} onClick={() => setSeedanceTaskType("seedance-2")}><span className="whitespace-nowrap">Quality</span></Chip>
                       <Chip active={seedanceTaskType === "seedance-2-fast"} onClick={() => setSeedanceTaskType("seedance-2-fast")}><span className="whitespace-nowrap">Fast</span></Chip>
@@ -3372,7 +3719,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                     </div>
                     {(videoMode === "t2v" || videoMode === "i2v" || videoMode === "edit" || videoMode === "multi-ref") && (
                       <div>
-                        <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Aspect</span>
+                        <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 block mb-2">Aspect</span>
                         <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-0.5 px-0.5 snap-x [scrollbar-width:thin]">
                           {["1:1", "16:9", "9:16", "4:3", "3:4", "21:9"].map((ar) => (
                             <Chip key={ar} active={videoAspectRatio === ar} onClick={() => setVideoAspectRatio(ar)}><span className="whitespace-nowrap">{ar}</span></Chip>
@@ -3384,7 +3731,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                 )}
                 {videoFamily !== "sora2" && videoFamily !== "kling26" && videoFamily !== "veo31" && videoFamily !== "kling30" && (
                   <div>
-                    <span className="text-[11px] text-slate-400 uppercase tracking-widest block mb-1.5 font-medium">Duration</span>
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 block mb-2">Duration</span>
                     <div className="flex items-center gap-2">
                       <input type="range" min={durationConfig.min} max={durationConfig.max} step={durationConfig.step} disabled={durationConfig.fixed} value={videoDuration} onChange={(e) => setVideoDuration(Number(e.target.value))} className="flex-1 accent-violet-500 disabled:opacity-50" />
                       <span className="text-xs text-white font-medium w-6 text-right">{videoDuration}s</span>
@@ -3392,14 +3739,14 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                   </div>
                 )}
                 <button type="button" onClick={handleGenerateVideo} disabled={isVideoGenerating}
-                  className="w-full min-h-[44px] shrink-0 px-4 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-40 flex items-center justify-center gap-1.5"
+                  className="w-full min-h-[48px] shrink-0 px-4 py-3 rounded-xl text-sm font-bold disabled:opacity-40 flex items-center justify-center gap-2 shadow-[0_8px_24px_-6px_rgba(124,58,237,0.55)] active:scale-[0.99] transition-transform"
                   style={{ background: "linear-gradient(135deg,#7c3aed,#4f46e5)", color: "white" }}>
                   {isVideoGenerating
                     ? <Loader2 className="w-5 h-5 animate-spin" />
                     : <span className="flex items-center gap-1.5 whitespace-nowrap">{copy.generateVideo} {videoPricingInfo.cost} <Coins className="w-4 h-4 text-yellow-400" /></span>
                   }
                 </button>
-                <p className="text-[10px] text-slate-500 text-center">{formatCopy(copy.creditsAvailable, { credits: creditsLeft })}</p>
+                <p className="text-[10px] text-slate-500 text-center tabular-nums">{formatCopy(copy.creditsAvailable, { credits: creditsLeft })}</p>
               </div>
             )}
           </div>

@@ -318,7 +318,16 @@ export default function DashboardPage() {
   const hideRestrictedTabs = !hasRestrictedFeatureAccess(user);
   const premiumTabs = ["course", "repurposer", "reelfinder", "voice-studio"];
 
-  const [activeTab, setActiveTab] = useState("home");
+  const [activeTab, setActiveTab] = useState(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const fromUrl = params.get("tab");
+      if (fromUrl) return fromUrl === "soulx" ? "modelclone-x" : fromUrl;
+      const fromStorage = safeLocalStorageGet("dashboard-active-tab");
+      if (fromStorage) return fromStorage;
+    } catch (_) {}
+    return "home";
+  });
   const [showPremiumGate, setShowPremiumGate] = useState(false);
   const [showAddCredits, setShowAddCredits] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
@@ -364,7 +373,6 @@ export default function DashboardPage() {
         } else {
           setActiveTab(tabParam);
         }
-        window.history.replaceState({}, document.title, "/dashboard");
       }
       if (urlParams.get("openCredits") === "true") {
         setShowAddCredits(true);
@@ -405,6 +413,26 @@ export default function DashboardPage() {
       setShowPremiumGate(true);
     }
   }, [activeTab, canAccessPremiumTabs]);
+
+  // Persist active tab so a page refresh restores the same section.
+  useEffect(() => {
+    try {
+      safeLocalStorageSet("dashboard-active-tab", activeTab);
+      const params = new URLSearchParams(window.location.search);
+      const current = params.get("tab");
+      if (activeTab && activeTab !== "home") {
+        if (current !== activeTab) {
+          params.set("tab", activeTab);
+          const search = params.toString();
+          window.history.replaceState({}, document.title, `/dashboard${search ? `?${search}` : ""}`);
+        }
+      } else if (current) {
+        params.delete("tab");
+        const search = params.toString();
+        window.history.replaceState({}, document.title, `/dashboard${search ? `?${search}` : ""}`);
+      }
+    } catch (_) {}
+  }, [activeTab]);
 
   useEffect(() => {
     if (!hideRestrictedTabs) return;
