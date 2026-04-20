@@ -5,6 +5,11 @@ import { Analytics } from '@vercel/analytics/react';
 import App from './App';
 import './index.css';
 import TelegramAuthGate from './components/TelegramAuthGate.jsx';
+import { bootstrapPrivateMode } from './hooks/usePrivateMode.js';
+
+// Apply the persisted Private Mode body class before React renders anything,
+// so refreshing the page does not flash unblurred user media.
+bootstrapPrivateMode();
 
 // Top-level error boundary: catch errors so Vite does not show overlay/reload (endless refresh loop locally)
 class RootErrorClass extends React.Component {

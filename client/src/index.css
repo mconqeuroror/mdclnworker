@@ -2222,3 +2222,53 @@ html.light [data-testid="button-mode-nsfw"] span {
 html[data-theme="light"] [data-testid^="button-method-"] span,
 html.light [data-testid^="button-method-"] span { color: #1e293b !important; }
 
+/* ── Private Mode ─────────────────────────────────────────────────────────────
+ * When the user toggles Private Mode in the sidebar (persisted in localStorage
+ * as mc-private-mode="1"), this adds a `.mc-private-mode` class to <body>.
+ * Every <img>, <video>, and any element explicitly marked with
+ * `data-private="true"` gets a heavy blur so user media — history thumbnails,
+ * input previews, generated outputs — is visually unreadable to anyone looking
+ * over the shoulder. The user can still click / scroll / interact as normal.
+ *
+ * Opt-out: UI chrome (sidebar, top nav, logo, avatars, buttons, icon-only
+ * elements) is explicitly excluded below so the app still looks normal.
+ * Individual components can force-opt-out with `data-private-allow="true"`.
+ * ─────────────────────────────────────────────────────────────────────────── */
+body.mc-private-mode img:not([data-private-allow="true"]),
+body.mc-private-mode video:not([data-private-allow="true"]),
+body.mc-private-mode [data-private="true"] {
+  filter: blur(22px) saturate(1.15);
+  transition: filter 180ms ease;
+  will-change: filter;
+}
+
+/* Un-blur UI chrome: sidebar / navigation / headers / logos / avatars / icons */
+body.mc-private-mode aside img,
+body.mc-private-mode aside video,
+body.mc-private-mode nav img,
+body.mc-private-mode nav video,
+body.mc-private-mode header img,
+body.mc-private-mode header video,
+body.mc-private-mode [data-logo] img,
+body.mc-private-mode [data-logo] video,
+body.mc-private-mode [data-avatar] img,
+body.mc-private-mode [data-avatar] video,
+body.mc-private-mode [data-icon] img,
+body.mc-private-mode [data-icon] video,
+body.mc-private-mode [role="menubar"] img,
+body.mc-private-mode [role="menubar"] video,
+body.mc-private-mode [role="menu"] img,
+body.mc-private-mode [role="menu"] video,
+body.mc-private-mode .no-private-blur,
+body.mc-private-mode .no-private-blur img,
+body.mc-private-mode .no-private-blur video {
+  filter: none !important;
+}
+
+/* Light dark overlay + lock icon hint across blurred content so the user
+ * immediately knows why things look fuzzy. Applied as a pseudo-element ONLY
+ * on elements explicitly marked with data-private="true" to avoid covering
+ * every icon with a padlock. */
+body.mc-private-mode [data-private="true"] {
+  position: relative;
+}

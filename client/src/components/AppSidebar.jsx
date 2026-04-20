@@ -36,11 +36,14 @@ import {
   PinOff,
   Volume2,
   VolumeX,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { SiTelegram, SiDiscord, SiInstagram } from "react-icons/si";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useBranding } from "../hooks/useBranding";
 import { useTheme } from "../hooks/useTheme.jsx";
+import { usePrivateMode } from "../hooks/usePrivateMode.js";
 import { hasPremiumAccess } from "../utils/premiumAccess";
 import { sound } from "../utils/sounds";
 
@@ -97,6 +100,9 @@ const SIDEBAR_COPY = {
     unpinSidebar: "Unpin sidebar",
     soundOn: "Click sound on",
     soundOff: "Click sound off",
+    privateModeOn: "Private Mode · On",
+    privateModeOff: "Private Mode · Off",
+    privateModeHint: "Blur all photos & videos (history, inputs, outputs)",
   },
   ru: {
     dashboard: "Панель",
@@ -131,6 +137,9 @@ const SIDEBAR_COPY = {
     unpinSidebar: "Открепить панель",
     soundOn: "Звук клика включен",
     soundOff: "Звук клика выключен",
+    privateModeOn: "Приватный режим · Вкл",
+    privateModeOff: "Приватный режим · Выкл",
+    privateModeHint: "Размыть все фото и видео (история, входы, результаты)",
   },
 };
 
@@ -186,6 +195,7 @@ export default function AppSidebar({
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [locale, setLocale] = useState(getCurrentLocale);
   const [soundEnabled, setSoundEnabled] = useState(() => sound.isEnabled());
+  const [privateMode, setPrivateMode] = usePrivateMode();
   const copy = SIDEBAR_COPY[locale] || SIDEBAR_COPY.en;
   const collapsedRow = visuallyCollapsed ? "justify-center px-0 gap-0 min-h-[44px]" : "";
   const collapsedProfileRow = visuallyCollapsed ? "justify-center px-0 gap-0 min-h-[48px]" : "";
@@ -812,6 +822,61 @@ export default function AppSidebar({
             {soundEnabled ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
           </button>
         </div>
+
+        {/* Private Mode — persists across reloads, blurs history / input / output media */}
+        <button
+          onClick={() => setPrivateMode(!privateMode)}
+          role="switch"
+          aria-checked={privateMode}
+          title={privateMode ? copy.privateModeOn : copy.privateModeOff}
+          data-testid="sidebar-private-mode-toggle"
+          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 border ${
+            visuallyCollapsed ? "justify-center px-0 gap-0 min-h-[44px]" : ""
+          } ${
+            privateMode
+              ? "bg-violet-500/15 text-violet-100 border-violet-500/35 shadow-[0_0_18px_rgba(139,92,246,0.18)]"
+              : "bg-white/[0.02] text-slate-400 hover:text-slate-200 hover:bg-white/[0.05] border-white/[0.06]"
+          }`}
+        >
+          {privateMode ? (
+            <EyeOff className="w-5 h-5 flex-shrink-0 text-violet-300" />
+          ) : (
+            <Eye className="w-5 h-5 flex-shrink-0" />
+          )}
+          <AnimatePresence>
+            {!visuallyCollapsed && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="flex-1 min-w-0 text-left"
+              >
+                <div className="text-sm font-semibold truncate">
+                  {privateMode ? copy.privateModeOn : copy.privateModeOff}
+                </div>
+                <div className="text-[10px] text-slate-500 truncate leading-tight">
+                  {copy.privateModeHint}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+          {!visuallyCollapsed && (
+            <span
+              className={`ml-auto relative inline-flex h-5 w-9 items-center rounded-full transition-colors duration-200 shrink-0 ${
+                privateMode
+                  ? "bg-gradient-to-r from-violet-600 to-indigo-600"
+                  : "bg-white/[0.08]"
+              }`}
+              aria-hidden
+            >
+              <span
+                className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform duration-200 ${
+                  privateMode ? "translate-x-4" : "translate-x-0.5"
+                }`}
+              />
+            </span>
+          )}
+        </button>
 
         {/* Theme Toggle */}
         <button
