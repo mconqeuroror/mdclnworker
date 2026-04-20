@@ -7,7 +7,7 @@ import { useQuery, useMutation } from '@tanstack/react-query';
 import api, { stripeAPI, authAPI } from '../services/api';
 import toast from 'react-hot-toast';
 import { queryClient } from '../lib/queryClient';
-import { hasBillingAccess, hasPremiumAccess } from '../utils/premiumAccess';
+import { hasPremiumAccess } from '../utils/premiumAccess';
 import { resolveLocale } from '../components/generateAIModelFormCopy';
 import { SETTINGS_PAGE_COPY, formatSettingsCopy } from '../data/settingsPageCopy';
 import { copyTextToClipboard, selectElementContents } from '../utils/clipboard.js';
@@ -25,7 +25,6 @@ export default function SettingsPage() {
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [showRetentionModal, setShowRetentionModal] = useState(false);
   const canAccessPremium = hasPremiumAccess(user);
-  const canAccessBilling = hasBillingAccess(user);
   const t = SETTINGS_PAGE_COPY[resolveLocale()] || SETTINGS_PAGE_COPY.en;
   
   // Change password state
@@ -124,7 +123,7 @@ export default function SettingsPage() {
   const { data: subscription, isLoading: subscriptionLoading } = useQuery({
     queryKey: ['/api/stripe/subscription-status'],
     queryFn: () => stripeAPI.getSubscriptionStatus(),
-    enabled: canAccessBilling
+    enabled: true
   });
 
   // Fetch 2FA status
@@ -974,13 +973,12 @@ export default function SettingsPage() {
         </div>
 
         {/* Subscription & Billing Management */}
-        {canAccessBilling && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.05 }}
-            className="glass-panel rounded-xl sm:rounded-2xl p-4 sm:p-6"
-          >
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.05 }}
+          className="glass-panel rounded-xl sm:rounded-2xl p-4 sm:p-6"
+        >
             <h2 className="text-lg sm:text-xl font-bold mb-3 sm:mb-4 flex items-center gap-2">
               <CreditCard className="w-4 h-4 sm:w-5 sm:h-5" />
               {canAccessPremium ? t.subscriptionTitle : t.billingTitle}
@@ -1076,8 +1074,7 @@ export default function SettingsPage() {
                 </div>
               </div>
             )}
-          </motion.div>
-        )}
+        </motion.div>
 
         {/* Legal */}
         <motion.div

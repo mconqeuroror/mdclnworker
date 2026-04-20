@@ -2049,16 +2049,37 @@ router.post('/create-portal-session', authMiddleware, async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    if (!user.stripeCustomerId) {
-      return res.status(400).json({ error: 'No Stripe customer found' });
+    let customerId = user.stripeCustomerId;
+
+    // Make billing portal available to every tier:
+    // recover existing Stripe customer by email, or create one if missing.
+    if (!customerId) {
+      const existingByEmail = await stripe.customers.list({
+        email: user.email,
+        limit: 1,
+      });
+      customerId = existingByEmail?.data?.[0]?.id || null;
+
+      if (!customerId) {
+        const createdCustomer = await stripe.customers.create({
+          email: user.email,
+          metadata: { userId: user.id },
+        });
+        customerId = createdCustomer.id;
+      }
+
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { stripeCustomerId: customerId },
+      });
     }
 
     // Auto-detect correct return URL
     const returnUrl = getTrustedFrontendUrl(req);
 
     const portalSession = await stripe.billingPortal.sessions.create({
-      customer: user.stripeCustomerId,
-      return_url: `${returnUrl}/settings`,
+      customer: customerId,
+      return_url: `${returnUrl}/dashboard?tab=settings&billing=updated`,
     });
 
     console.log('✅ Customer Portal session created:', portalSession.url);

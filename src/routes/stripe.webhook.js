@@ -1301,10 +1301,27 @@ router.post(
 
         case "customer.subscription.deleted": {
           const subscription = event.data.object;
+          const stripeCustomerId =
+            typeof subscription.customer === "string"
+              ? subscription.customer
+              : subscription.customer?.id || null;
 
-          const user = await prisma.user.findFirst({
+          let user = await prisma.user.findFirst({
             where: { stripeSubscriptionId: subscription.id },
           });
+
+          if (!user) {
+            const metadataUserId = subscription.metadata?.userId || null;
+            if (metadataUserId) {
+              user = await prisma.user.findUnique({ where: { id: metadataUserId } });
+            }
+          }
+
+          if (!user && stripeCustomerId) {
+            user = await prisma.user.findFirst({
+              where: { stripeCustomerId },
+            });
+          }
 
           if (user) {
             await prisma.user.update({
@@ -1376,9 +1393,22 @@ router.post(
             break;
           }
 
-          const user = await prisma.user.findFirst({
+          let user = await prisma.user.findFirst({
             where: { stripeSubscriptionId: subscription.id },
           });
+
+          if (!user) {
+            const metadataUserId = subscription.metadata?.userId || null;
+            if (metadataUserId) {
+              user = await prisma.user.findUnique({ where: { id: metadataUserId } });
+            }
+          }
+
+          if (!user && stripeCustomerId) {
+            user = await prisma.user.findFirst({
+              where: { stripeCustomerId },
+            });
+          }
 
           if (user) {
             await prisma.user.update({

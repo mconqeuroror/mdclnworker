@@ -36,6 +36,8 @@ import {
   Mic,
   Sun,
   Moon,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { SiTelegram, SiDiscord } from "react-icons/si";
 import toast from "react-hot-toast";
@@ -63,6 +65,7 @@ import PurchaseSuccessModal from "../components/PurchaseSuccessModal";
 import CreateModelModal from "../components/CreateModelModal";
 import AppSidebar from "../components/AppSidebar";
 import { useBranding } from "../hooks/useBranding";
+import { usePrivateMode } from "../hooks/usePrivateMode.js";
 
 const LOCALE_STORAGE_KEY = "app_locale";
 const SIDEBAR_PINNED_KEY = "dashboard_sidebar_pinned";
@@ -108,6 +111,9 @@ const COPY = {
     mobileReferAndEarn: "Refer And Earn",
     mobileTelegram: "Telegram",
     mobileDiscord: "Discord",
+    mobilePrivateModeOn: "Private Mode On",
+    mobilePrivateModeOff: "Private Mode Off",
+    mobilePrivateModeHint: "Blur all photos and videos",
     mobileJobBoard: "Job Board",
     badgeNew: "New",
     mobileAdmin: "Admin",
@@ -197,6 +203,9 @@ const COPY = {
     mobileReferAndEarn: "Приглашай и зарабатывай",
     mobileTelegram: "Telegram",
     mobileDiscord: "Discord",
+    mobilePrivateModeOn: "Приватный режим включен",
+    mobilePrivateModeOff: "Приватный режим выключен",
+    mobilePrivateModeHint: "Размыть все фото и видео",
     mobileJobBoard: "Биржа заказов",
     badgeNew: "Новое",
     mobileAdmin: "Администратор",
@@ -334,6 +343,7 @@ export default function DashboardPage() {
   const [purchaseDetails, setPurchaseDetails] = useState(null);
   const [showEarnModal, setShowEarnModal] = useState(false);
   const [showReferralModal, setShowReferralModal] = useState(false);
+  const [privateMode, setPrivateMode] = usePrivateMode();
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [showCreateModelModal, setShowCreateModelModal] = useState(false);
   const [uploadRealMode, setUploadRealMode] = useState(false);
@@ -377,6 +387,12 @@ export default function DashboardPage() {
       if (urlParams.get("openCredits") === "true") {
         setShowAddCredits(true);
         window.history.replaceState({}, "", "/dashboard");
+      }
+      if (urlParams.get("billing") === "updated") {
+        await loadUserProfile();
+        urlParams.delete("billing");
+        const search = urlParams.toString();
+        window.history.replaceState({}, "", `/dashboard${search ? `?${search}` : ""}`);
       }
     })();
 
@@ -741,6 +757,46 @@ export default function DashboardPage() {
                 <SiDiscord className="w-5 h-5 text-slate-300" />
                 {copy.mobileDiscord}
               </a>
+
+              <button
+                onClick={() => setPrivateMode(!privateMode)}
+                role="switch"
+                aria-checked={privateMode}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-all ${
+                  privateMode
+                    ? "bg-violet-500/15 text-violet-100 border-violet-500/35 shadow-[0_0_18px_rgba(139,92,246,0.18)]"
+                    : "bg-white/[0.02] text-slate-400 hover:text-slate-200 hover:bg-white/[0.05] border-white/[0.06]"
+                }`}
+                data-testid="mobile-private-mode-toggle"
+              >
+                {privateMode ? (
+                  <EyeOff className="w-5 h-5 flex-shrink-0 text-violet-300" />
+                ) : (
+                  <Eye className="w-5 h-5 flex-shrink-0" />
+                )}
+                <div className="flex-1 min-w-0 text-left">
+                  <div className="text-sm font-semibold truncate">
+                    {privateMode ? copy.mobilePrivateModeOn : copy.mobilePrivateModeOff}
+                  </div>
+                  <div className="text-[10px] text-slate-500 truncate leading-tight">
+                    {copy.mobilePrivateModeHint}
+                  </div>
+                </div>
+                <span
+                  className={`ml-auto relative inline-flex h-5 w-9 items-center rounded-full transition-colors duration-200 shrink-0 ${
+                    privateMode
+                      ? "bg-gradient-to-r from-violet-600 to-indigo-600"
+                      : "bg-white/[0.08]"
+                  }`}
+                  aria-hidden
+                >
+                  <span
+                    className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform duration-200 ${
+                      privateMode ? "translate-x-4" : "translate-x-0.5"
+                    }`}
+                  />
+                </span>
+              </button>
 
               <button
                 onClick={() => {
