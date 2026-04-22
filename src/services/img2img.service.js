@@ -254,6 +254,32 @@ function inlineStringOutputNodeAsValue(api, sourceNodeId, value) {
 }
 
 /**
+ * NSFW v2promax desktop graph ships with a "person mask preview" branch
+ * (PersonMaskUltra V2 → MaskToImage → PreviewImage, plus ETN_ApplyMaskToImage
+ * → PreviewImage) and a SmolVLM image-describe node. None of them feed the
+ * final SaveImage chain (28 → 284 → 286 → 289), they're pure UI decoration in
+ * the Comfy desktop client. The RunPod worker doesn't ship the LayerStyle
+ * suite, so it rejects the prompt with:
+ *   "Unknown node types: 'LayerMask: PersonMaskUltra V2', 'LayerUtility: SmolVLM'"
+ * Drop the whole dead branch from the API prompt before submitting.
+ */
+const NSFW_IMG2IMG_DEAD_PREVIEW_NODE_IDS = ["312", "313", "314", "320", "321", "333"];
+
+function pruneDeadPreviewBranchFromApiPrompt(api) {
+  const dead = new Set(NSFW_IMG2IMG_DEAD_PREVIEW_NODE_IDS);
+  for (const id of dead) delete api[id];
+  for (const node of Object.values(api)) {
+    if (!node?.inputs) continue;
+    for (const k of Object.keys(node.inputs)) {
+      const v = node.inputs[k];
+      if (Array.isArray(v) && v.length >= 1 && dead.has(String(v[0]))) {
+        delete node.inputs[k];
+      }
+    }
+  }
+}
+
+/**
  * RunPod API prompt from `attached_assets/nsfw_img2img_v2promax_workflow.json` (ZIT img encode → refiner ckpt).
  * SaveImage is pointed at VAEDecode 28 so the handler output skips grain/blur; all other nodes from the JSON remain in the prompt (same worker serves multiple workflows).
  *
@@ -273,6 +299,8 @@ function buildNsfwImg2ImgV2ApiPrompt({ positivePrompt, loraUrl, loraStrength, se
 
   removeRgthreeFastGroupsBypasserFromComfyUiGraph(graph.nodes, graph.links);
   const api = comfyUiGraphToApiPrompt(graph.nodes, graph.links, graph.extra);
+
+  pruneDeadPreviewBranchFromApiPrompt(api);
 
   inlineStringLiteralRefsInApiWorkflow(api, { "41": negativeText });
   delete api["41"];
