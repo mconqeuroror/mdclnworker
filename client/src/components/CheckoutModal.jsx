@@ -25,9 +25,17 @@ const stripePublicKey = import.meta.env.MODE === 'production'
       || import.meta.env.VITE_STRIPE_TEST_PUBLIC_KEY
       || import.meta.env.VITE_STRIPE_NEW_PUBLIC_KEY
       || import.meta.env.VITE_STRIPE_PUBLIC_KEY);
+// Country MUST match the Stripe account's country, otherwise Apple Pay / Google Pay
+// silently refuse to render with "Apple Pay / Google Pay not available in this browser".
+// US LLC account → must be 'US'. Defaults to 'US'; override only if you switch accounts.
 const stripeMerchantCountry = String(import.meta.env.VITE_STRIPE_MERCHANT_COUNTRY || 'US').toUpperCase();
 
-console.log('Stripe mode:', import.meta.env.MODE, 'Using key:', stripePublicKey?.substring(0, 12) + '...');
+console.log('Stripe mode:', import.meta.env.MODE, 'Using key:', stripePublicKey?.substring(0, 12) + '...', 'country:', stripeMerchantCountry);
+if (stripeMerchantCountry !== 'US') {
+  console.warn(
+    `⚠️ VITE_STRIPE_MERCHANT_COUNTRY="${stripeMerchantCountry}" — wallets will not render unless this matches the live Stripe account country (US LLC = "US"). Unset the env var or set it to "US".`,
+  );
+}
 
 const stripePromise = loadStripe(stripePublicKey);
 const PENDING_STRIPE_CONFIRMATION_KEY = "pendingStripeConfirmation";
