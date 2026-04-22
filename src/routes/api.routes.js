@@ -4,6 +4,10 @@ import { isAllowedPublicAssetHost } from "../utils/publicAssetHost.js";
 import { getErrorMessageForDb } from "../lib/userError.js";
 import { enforceGeneratedContentDeletionBlock } from "../utils/generated-content-deletion-guard.js";
 import {
+  buildStructuredPromptInput,
+  STRUCTURED_INPUT_CONTRACT,
+} from "../lib/structuredPromptInput.js";
+import {
   signup,
   login,
   googleAuth,
@@ -2986,21 +2990,23 @@ router.use((req, res, next) => {
 
 const MODELCLONE_X_SFW_SYSTEM_PROMPT = `You are a senior prompt director for Z-Image Turbo (Tongyi-MAI 6B S3-DiT Turbo) focused on SFW portrait/lifestyle outputs. Your job is to transform a user's rough idea into one polished, detailed POSITIVE prompt that produces stunning, photorealistic results.
 
+${STRUCTURED_INPUT_CONTRACT}
+
 Z-Image Turbo responds best to natural descriptive prose, not tag lists. Write one flowing paragraph that covers:
-1. Shot type + framing (close-up portrait, cowboy shot, full body, POV, etc.)
-2. Subject description — if MODEL IDENTITY CONTEXT is provided, weave those traits in naturally as the subject. Do not invent conflicting attributes.
-3. Exact clothing and styling details — be precise and grounded
-4. Action, pose, expression, eye contact
-5. Environment and background with specific details
-6. Lighting setup (golden hour, studio softbox, candlelight, neon, etc.)
-7. Camera feel (35mm f/1.8, telephoto compression, smartphone POV, etc.)
-8. Overall mood and color grading
+1. Shot type + framing (close-up portrait, cowboy shot, full body, POV, etc.) — pull from "composition" when present.
+2. Subject description — when "main_subject" is present, weave EVERY non-empty identity field into the subject (gender, age, ethnicity, skin tone, face shape, eye color, hair color/length/texture/style, body type, distinguishing features, tattoos, piercings, …). When "main_subject" is ABSENT, do not describe the subject's face, hair, eyes, body type, or ethnicity at all — describe a generic person in the action only and let the image model freely choose appearance.
+3. Exact clothing and styling details — be precise and grounded; clothing is part of the scene, not identity, so describe it even when "main_subject" is absent.
+4. Action, pose, expression, eye contact — from "scene" (user_request, pose, expression, gaze).
+5. Environment and background — from "scene.setting", "scene.environment_details", "scene.props".
+6. Lighting setup — from "scene.lighting", "scene.time_of_day", "scene.color_mood".
+7. Camera feel — from "composition" (camera_angle, camera_lens, depth_of_field).
+8. Overall mood and color grading — from "colors" + "style".
 
 Rules:
-- Output ONLY the final positive prompt — no preamble, no explanation, no headings, no code block
+- Output ONLY the final positive prompt — no preamble, no explanation, no headings, no code block, no JSON
 - NEVER include negative terms, quality disclaimers, or anatomy constraints — those are handled separately
-- If trigger word is provided in the identity context, do NOT include it — it is injected automatically
-- Preserve every user-specified detail; only add richness, never contradict or water down the request
+- If trigger_word is provided in the JSON, do NOT include it — it is injected automatically by the caller
+- Preserve every user-specified detail in scene.user_request; only add richness, never contradict or water down the request
 - Keep it under 200 words, one clean paragraph
 - STRICT SFW POLICY: no nudity, no explicit sexual acts, no exposed genitals, no explicit erotic phrasing
 - If user asks for explicit/NSFW content, rewrite to a tasteful SFW equivalent while preserving composition/mood`;
@@ -3077,6 +3083,10 @@ async function optimizeModelCloneXPrompt({
   userPrompt,
   withCharacter = false,
   modelIdentityContext = "",
+  model = null,
+  lora = null,
+  triggerWord = "",
+  context = {},
 }) {
   const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
   if (!OPENROUTER_API_KEY) return userPrompt;
@@ -3094,11 +3104,37 @@ async function optimizeModelCloneXPrompt({
   }
   if (!systemPrompt) systemPrompt = MODELCLONE_X_SFW_SYSTEM_PROMPT;
 
-  const defaultUserWrapper = `User request: "{{USER_PROMPT}}"
+  // Guarantee the structured-JSON contract is always in the system prompt, even when
+  // an admin has overridden the template in the DB without copying the contract over.
+  if (!systemPrompt.includes("STRUCTURED JSON INPUT")) {
+    systemPrompt = `${systemPrompt}\n\n${STRUCTURED_INPUT_CONTRACT}`;
+  }
+
+  // Build the structured JSON payload. When withCharacter=false, main_subject is
+  // omitted entirely so Grok will not invent identity facts (no model selected).
+  const structured = buildStructuredPromptInput({
+    model,
+    lora,
+    userRequest: userPrompt,
+    context,
+    options: {
+      withCharacter: Boolean(withCharacter && model),
+      mode: "modelclone-x",
+      triggerWord,
+    },
+  });
+
+  const defaultUserWrapper = `Structured request (read every field; integrate identity ONLY from main_subject when present, otherwise describe a generic subject and let the model choose appearance):
+
+{{REQUEST_JSON}}
 
 {{IDENTITY_BLOCK}}
+Legacy raw user prompt (for reference only — scene.user_request inside the JSON is the source of truth):
+"{{USER_PROMPT}}"
+
 Hard rules:
 - Final output must remain SFW (no nudity/explicit sexual content).
+- One flowing paragraph. No JSON, no labels, no preamble.
 
 Generate the optimized prompt now.`;
   const userWrapperTemplate =
@@ -3106,14 +3142,16 @@ Generate the optimized prompt now.`;
     defaultUserWrapper;
   const wrapperFilled = userWrapperTemplate
     .replaceAll("{{USER_PROMPT}}", String(userPrompt || "").trim())
+    .replaceAll("{{REQUEST_JSON}}", structured.json)
     .replaceAll(
       "{{IDENTITY_BLOCK}}",
       withCharacter && modelIdentityContext
-        ? `MODEL IDENTITY CONTEXT (must be injected as core subject identity with the user request):\n${String(modelIdentityContext || "").trim()}\n\n- Integrate model identity naturally so outputs keep this person consistent across generations.\n`
+        ? `Legacy identity context block (already covered by main_subject above; kept for backwards compatibility):\n${String(modelIdentityContext || "").trim()}\n\n`
         : "",
     )
     .replaceAll("{{MODEL_IDENTITY_CONTEXT}}", String(modelIdentityContext || "").trim())
-    .replaceAll("{{WITH_CHARACTER}}", withCharacter ? "true" : "false");
+    .replaceAll("{{WITH_CHARACTER}}", withCharacter ? "true" : "false")
+    .replaceAll("{{HAS_MAIN_SUBJECT}}", structured.hasMainSubject ? "true" : "false");
   const userContent = wrapperFilled;
 
   let lastError = null;
@@ -3301,6 +3339,12 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
       userPrompt: inputPrompt,
       withCharacter: useCharacter,
       modelIdentityContext: identityContext,
+      // Pass the raw model + LoRA so the optimizer can build the structured JSON itself.
+      // For "no character" mode, model is intentionally null so main_subject is omitted.
+      model: useCharacter ? modelForPrompt : null,
+      lora: useCharacter ? loraForPrompt : null,
+      triggerWord: useCharacter ? triggerWord : "",
+      context: {},
     });
   } catch (optErr) {
     console.warn("[ModelCloneX] Prompt optimization fallback to raw prompt:", optErr.message);

@@ -15,6 +15,10 @@
 
 import prisma from "../lib/prisma.js";
 import {
+  buildStructuredPromptInput,
+  STRUCTURED_INPUT_CONTRACT,
+} from "../lib/structuredPromptInput.js";
+import {
   generateTriggerWord,
   normalizeCaptionSubjectClass,
   startLoraTraining,
@@ -3658,9 +3662,11 @@ async function runNsfwPromptGenerationForModel(
 
     let systemPrompt = `You are a prompt engineer for Z-Image Turbo NSFW (Tongyi-MAI 6B Z-Image Turbo NSFW LoRA stack). Your job is to write a SHORT, CONCRETE, VISUAL-ONLY prompt that matches the documented input format for this checkpoint.
 
-## INPUT YOU WILL RECEIVE
+${STRUCTURED_INPUT_CONTRACT}
+
+## CALLER-PROVIDED FACTS (always respect these in addition to the JSON above)
 - trigger: ${triggerWord}
-- differentiating_features: ${differentiatingFeatures}
+- differentiating_features (legacy fallback string): ${differentiatingFeatures}
 - pose: ${poseHint}
 - scene: ${sceneHint}
 - lighting: ${lightingHint}
@@ -3765,16 +3771,42 @@ If the request is genuinely impossible to render as one coherent image, return e
     const systemTemplateKey = mode === "nudes-pack" ? "nudesPackPromptGeneratorSystem" : "nsfwPromptGenerator";
     systemPrompt = await getPromptTemplateValue(systemTemplateKey, systemPrompt);
 
+    // Guarantee the structured-JSON contract is always in the system prompt, even when
+    // an admin has overridden the template in the DB without copying the contract over.
+    if (!systemPrompt.includes("STRUCTURED JSON INPUT")) {
+      systemPrompt = `${systemPrompt}\n\n${STRUCTURED_INPUT_CONTRACT}`;
+    }
+
+    // Build the structured JSON payload for Grok. NSFW always has a LoRA model selected,
+    // so main_subject is filled with every identity-lock field we have.
+    const isPartnered = /\b(doggy|missionary|cowgirl|reverse[-\s]?cowgirl|mating[-\s]?press|prone[-\s]?bone|spoon|standing[-\s]?from[-\s]?behind|piledriver|amazon|oral|blowjob|deep[-\s]?throat|titfuck|anal|sex|fuck|fucking|penetrat|partner)/i.test(
+      `${userRequest} ${poseHint} ${context?.pose?.title || ""}`,
+    );
+    const structured = buildStructuredPromptInput({
+      model,
+      lora: context?.lora || null,
+      userRequest,
+      context: { ...context, attributesDetail },
+      options: {
+        withCharacter: true,
+        mode: mode === "nudes-pack" ? "nudes-pack" : "nsfw",
+        triggerWord,
+        explicit: true,
+        isPartnered,
+      },
+    });
+
     const defaultUserWrapper =
       mode === "nudes-pack"
-        ? "Compose one final NSFW prompt for this nudes-pack item. Use the full request as source-of-truth.\n\n{{REQUEST}}"
-        : "{{REQUEST}}";
+        ? "Compose one final NSFW prompt for this nudes-pack item. The structured JSON below is the source of truth — integrate every non-empty field of `main_subject` (LoRA-locked identity), follow `scene.user_request` for action, and apply the Sentence 1-4 + tail rules from your system prompt.\n\n{{REQUEST_JSON}}\n\nLegacy raw request (for reference only):\n{{REQUEST}}"
+        : "Structured request (read every field, integrate identity from main_subject, follow scene.user_request for action):\n\n{{REQUEST_JSON}}\n\nLegacy raw request (for reference only):\n{{REQUEST}}";
     const wrapperTemplate =
       mode === "nudes-pack"
         ? await getPromptTemplateValue("nudesPackPromptGeneratorUserWrapper", defaultUserWrapper)
         : defaultUserWrapper;
     const userMessage = applyPromptTemplatePlaceholders(wrapperTemplate, {
       REQUEST: userRequest,
+      REQUEST_JSON: structured.json,
       MODEL_NAME: model?.name || "",
       MODE: mode || "default",
       POSE_ID: context?.pose?.id || "",
