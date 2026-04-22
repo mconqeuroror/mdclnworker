@@ -13,18 +13,15 @@
 
 import express from "express";
 import prisma from "../lib/prisma.js";
-import { resolveRunpodWebhookUrl } from "../lib/runpodWebhookUrl.js";
 import { authMiddleware } from "../middleware/auth.middleware.js";
 import {
   runImg2ImgPipeline,
   extractPromptFromImage,
   generateImg2Img,
   submitImg2ImgJob,
-  submitDescribeJob,
   getRunpodJobStatus,
   isRunpodJobIdValidationError,
   parseRunpodHandlerOutput,
-  extractCaptionFromRunpodOutput,
   injectModelIntoPrompt,
 } from "../services/img2img.service.js";
 import { isR2Configured } from "../utils/r2.js";
@@ -193,136 +190,11 @@ setInterval(() => {
   }
 }, 15 * 60 * 1000);
 
-// ── Background sweeper: finalize stranded img2img-describe rows ──────────────
-// The /describe-status route runs the polling fallback ONLY while a client is
-// actively polling. If the user closes the tab AND the RunPod webhook fails to
-// land, the row stays "processing" forever. This sweeper finalizes such rows
-// the same way the webhook handler would — extract caption, run Grok inject,
-// persist {prompt, rawDescription} — so the next /describe-status read returns
-// the recovered result instead of "processing".
-const DESCRIBE_SWEEP_INTERVAL = 30_000;
-const DESCRIBE_SWEEP_MIN_AGE_MS = 90_000; // give webhook + active polling a head start
-let _describeSweepRunning = false;
-setInterval(async () => {
-  if (_describeSweepRunning) return;
-  _describeSweepRunning = true;
-  try {
-    const candidates = await prisma.generation.findMany({
-      where: {
-        type: "img2img-describe",
-        status: { in: ["pending", "processing", "queued"] },
-        createdAt: { lt: new Date(Date.now() - DESCRIBE_SWEEP_MIN_AGE_MS) },
-      },
-      orderBy: { createdAt: "desc" },
-      take: 10,
-      select: {
-        id: true,
-        userId: true,
-        inputImageUrl: true,
-        providerTaskId: true,
-        createdAt: true,
-      },
-    });
-
-    for (const gen of candidates) {
-      let meta = {};
-      try { meta = gen.inputImageUrl ? JSON.parse(gen.inputImageUrl) : {}; } catch { continue; }
-      const runpodJobId =
-        (typeof gen.providerTaskId === "string" && gen.providerTaskId.trim()) ||
-        meta.runpodJobId;
-      if (!runpodJobId) continue;
-
-      let rp;
-      try {
-        rp = await getRunpodJobStatus(runpodJobId, { useImageAnalysisEndpoint: true });
-      } catch (e) {
-        if (isRunpodJobIdValidationError(e)) {
-          await prisma.generation.updateMany({
-            where: { id: gen.id, status: { in: ["queued", "processing", "pending"] } },
-            data: {
-              status: "failed",
-              errorMessage: getErrorMessageForDb("Invalid RunPod job id").slice(0, 500),
-              completedAt: new Date(),
-            },
-          });
-          continue;
-        }
-        // Transient RunPod error — leave the row alone and try again next tick.
-        continue;
-      }
-
-      const st = String(rp?.status || "").toUpperCase();
-
-      if (st === "FAILED" || st === "CANCELLED") {
-        const errMsg = rp?.error || rp?.output?.error || "RunPod describe job failed";
-        await prisma.generation.updateMany({
-          where: { id: gen.id, status: { in: ["queued", "processing", "pending"] } },
-          data: {
-            status: "failed",
-            errorMessage: getErrorMessageForDb(String(errMsg)).slice(0, 500),
-            completedAt: new Date(),
-          },
-        });
-        console.warn(
-          `[describe-sweeper] job ${gen.id} (runpod=${runpodJobId}) finalized as FAILED: ${String(errMsg).slice(0, 120)}`,
-        );
-        continue;
-      }
-
-      if (st === "COMPLETED") {
-        const rawOut = rp.output ?? rp.result ?? rp;
-        const caption = extractCaptionFromRunpodOutput(rawOut);
-        if (!caption) {
-          await prisma.generation.updateMany({
-            where: { id: gen.id, status: { in: ["queued", "processing", "pending"] } },
-            data: {
-              status: "failed",
-              errorMessage: "JoyCaption returned no text",
-              completedAt: new Date(),
-            },
-          });
-          console.warn(
-            `[describe-sweeper] job ${gen.id} (runpod=${runpodJobId}) COMPLETED but no caption extractable`,
-          );
-          continue;
-        }
-
-        const triggerWord = meta.triggerWord || "";
-        const lookDescription = meta.lookDescription || "";
-        let prompt;
-        try {
-          prompt = await injectModelIntoPrompt(caption, triggerWord, lookDescription);
-        } catch (grokErr) {
-          console.error(`[describe-sweeper] Grok inject failed for ${gen.id}: ${grokErr.message}`);
-          prompt = caption;
-        }
-
-        const upd = await prisma.generation.updateMany({
-          where: { id: gen.id, status: { in: ["queued", "processing", "pending"] } },
-          data: {
-            status: "completed",
-            pipelinePayload: JSON.stringify({ prompt, rawDescription: caption }),
-            completedAt: new Date(),
-          },
-        });
-        if (upd.count > 0) {
-          console.log(
-            `✅ [describe-sweeper] job ${gen.id} recovered (webhook+poll both missed; runpod=${runpodJobId})`,
-          );
-        }
-      }
-      // IN_QUEUE / IN_PROGRESS / unknown — leave alone, retry next tick.
-    }
-  } catch (e) {
-    console.warn("describe sweeper error:", e?.message || e);
-  } finally {
-    _describeSweepRunning = false;
-  }
-}, DESCRIBE_SWEEP_INTERVAL);
-
 // ── POST /api/img2img/describe ────────────────────────────────────────────────
-// Submits a JoyCaption RunPod job and returns immediately with a describeJobId.
-// Client polls GET /api/img2img/describe-status/:id for the result.
+// Synchronously runs Grok 4 Fast (vision via OpenRouter) to describe the input
+// image, then runs the Grok inject step to produce the final ZIT-ready prompt.
+// The describe Generation row is created already-completed so the existing
+// client polling loop (`/describe-status/:id`) resolves on the first poll.
 router.post("/describe", LARGE_JSON, authMiddleware, async (req, res) => {
   const userId = req.user.userId || req.user.id;
   const { inputImageUrl, inputImageBase64, triggerWord, lookDescription = "" } = req.body;
@@ -354,7 +226,6 @@ router.post("/describe", LARGE_JSON, authMiddleware, async (req, res) => {
 
   let gen = null;
   try {
-    // Create the pending job first so fast RunPod webhooks always have a row to pair against.
     gen = await prisma.generation.create({
       data: {
         userId,
@@ -366,27 +237,29 @@ router.post("/describe", LARGE_JSON, authMiddleware, async (req, res) => {
       },
     });
 
-    const webhookUrl = resolveRunpodWebhookUrl({
-      generationId: gen.id,
-      kind: "img2img-describe",
-    });
-    const runpodJobId = await submitDescribeJob(inputImageBase64 || null, inputImageUrl || null, webhookUrl);
+    const caption = await extractPromptFromImage(inputImageUrl || null, inputImageBase64 || null);
+
+    let prompt;
+    try {
+      prompt = await injectModelIntoPrompt(caption, triggerWord, lookDescription);
+    } catch (grokErr) {
+      console.error("[img2img/describe] Grok inject failed:", grokErr.message);
+      prompt = caption;
+    }
 
     await prisma.generation.update({
       where: { id: gen.id },
       data: {
-        providerTaskId: runpodJobId,
-        inputImageUrl: JSON.stringify({ runpodJobId, triggerWord, lookDescription }),
+        status: "completed",
+        pipelinePayload: JSON.stringify({ prompt, rawDescription: caption }),
+        completedAt: new Date(),
       },
     });
 
-    console.log(
-      `🔍 [img2img/describe] Job ${runpodJobId} submitted → describeJobId ${gen.id} ` +
-      `webhook=${webhookUrl ? webhookUrl.slice(0, 96) + (webhookUrl.length > 96 ? "…" : "") : "(none — will be stranded!)"}`,
-    );
+    console.log(`🔍 [img2img/describe] describeJobId ${gen.id} completed inline (Grok vision + Grok inject)`);
     return res.json({ describeJobId: gen.id });
   } catch (err) {
-    console.error("❌ /describe submit failed:", err.message);
+    console.error("❌ /describe failed:", err.message);
     if (gen?.id) {
       await prisma.generation.update({
         where: { id: gen.id },
@@ -396,7 +269,7 @@ router.post("/describe", LARGE_JSON, authMiddleware, async (req, res) => {
     if (DESCRIBE_CREDIT_COST > 0) {
       try { await refundCredits(userId, DESCRIBE_CREDIT_COST); } catch {}
     }
-    return res.status(500).json({ success: false, error: err.message || "Failed to start analysis" });
+    return res.status(500).json({ success: false, error: err.message || "Failed to describe image" });
   }
 });
 
@@ -430,7 +303,6 @@ router.get("/describe-status/:id", authMiddleware, async (req, res) => {
     if (!gen) return res.status(404).json({ error: "Describe job not found" });
     if (gen.userId !== userId) return res.status(403).json({ error: "Unauthorized" });
 
-    // Already resolved
     if (gen.status === "completed") {
       let result = {};
       try { result = JSON.parse(gen.pipelinePayload || "{}"); } catch {}
@@ -440,133 +312,10 @@ router.get("/describe-status/:id", authMiddleware, async (req, res) => {
       return res.json({ status: "failed", error: gen.errorMessage || "Analysis failed" });
     }
 
-    // Webhook-first, polling-fallback mode.
-    // RunPod webhooks regularly fail to land on Vercel (network blips, region
-    // routing, sandboxed deployments) and previously left describe jobs stuck
-    // in "processing" until the watchdog reconciled them — surfacing as
-    // "Analysis timed out" on the client. Now: while the row is still
-    // processing, ask RunPod directly. If it's done, finalize here using the
-    // exact same logic as the webhook handler.
-    let meta = {};
-    try { meta = JSON.parse(gen.inputImageUrl || "{}"); } catch {}
-    const runpodJobId = meta.runpodJobId || (gen).providerTaskId;
-
-    if (runpodJobId) {
-      try {
-        // Describe jobs are submitted to the dedicated JoyCaption (analysis)
-        // endpoint, NOT the gen endpoint. Job ids only resolve against the
-        // endpoint that issued them, so we must pass the flag here or every
-        // poll silently 404s and the client always times out at 5 min.
-        const poll = await getRunpodJobStatus(runpodJobId, { useImageAnalysisEndpoint: true });
-        const st = String(poll?.status || "").toUpperCase();
-
-        if (st === "FAILED" || st === "CANCELLED") {
-          const errMsg =
-            poll?.error ||
-            poll?.output?.error ||
-            "RunPod describe job failed";
-          // updateMany guards against the webhook landing between this read
-          // and the write — only finalize if still in a non-terminal state.
-          await prisma.generation.updateMany({
-            where: { id: gen.id, status: { in: ["queued", "processing", "pending"] } },
-            data: {
-              status: "failed",
-              errorMessage: getErrorMessageForDb(String(errMsg)).slice(0, 500),
-              completedAt: new Date(),
-            },
-          });
-          console.warn(
-            `⚠️ [img2img/describe-status] job ${gen.id} (runpod=${runpodJobId}) ` +
-            `finalized as FAILED via polling fallback: ${String(errMsg).slice(0, 120)}`,
-          );
-          return res.json({ status: "failed", error: String(errMsg) });
-        }
-
-        if (st === "COMPLETED") {
-          // Mirror the webhook handler: hand raw `output` to the extractor,
-          // which already normalizes ComfyUI / wrapped shapes internally.
-          const rawOut = poll.output ?? poll.result ?? poll;
-          const caption = extractCaptionFromRunpodOutput(rawOut);
-
-          if (!caption) {
-            let dump = "";
-            try { dump = JSON.stringify(rawOut).slice(0, 1500); } catch { dump = String(rawOut).slice(0, 1500); }
-            console.warn(
-              `[img2img/describe-status] job ${gen.id} (runpod=${runpodJobId}) ` +
-              `COMPLETED but no caption extracted via polling fallback. ` +
-              `rawOutKeys=${rawOut && typeof rawOut === "object" ? Object.keys(rawOut).slice(0, 15).join(",") : typeof rawOut} ` +
-              `rawOut=${dump}`,
-            );
-            await prisma.generation.updateMany({
-              where: { id: gen.id, status: { in: ["queued", "processing", "pending"] } },
-              data: {
-                status: "failed",
-                errorMessage: "JoyCaption returned no text",
-                completedAt: new Date(),
-              },
-            });
-            return res.json({ status: "failed", error: "JoyCaption returned no text" });
-          }
-
-          const triggerWord = meta.triggerWord || "";
-          const lookDescription = meta.lookDescription || "";
-          let prompt;
-          try {
-            prompt = await injectModelIntoPrompt(caption, triggerWord, lookDescription);
-          } catch (grokErr) {
-            console.error("[img2img/describe-status] Grok inject failed:", grokErr.message);
-            prompt = caption;
-          }
-
-          const upd = await prisma.generation.updateMany({
-            where: { id: gen.id, status: { in: ["queued", "processing", "pending"] } },
-            data: {
-              status: "completed",
-              pipelinePayload: JSON.stringify({ prompt, rawDescription: caption }),
-              completedAt: new Date(),
-            },
-          });
-
-          if (upd.count > 0) {
-            console.log(
-              `✅ [img2img/describe-status] job ${gen.id} completed via polling fallback ` +
-              `(webhook never arrived for runpod=${runpodJobId})`,
-            );
-          } else {
-            // Webhook beat us to it — re-read the canonical row.
-            const fresh = await prisma.generation.findUnique({
-              where: { id: gen.id },
-              select: { status: true, pipelinePayload: true, errorMessage: true },
-            });
-            if (fresh?.status === "completed") {
-              let r = {};
-              try { r = JSON.parse(fresh.pipelinePayload || "{}"); } catch {}
-              return res.json({ status: "completed", prompt: r.prompt, rawDescription: r.rawDescription });
-            }
-            if (fresh?.status === "failed") {
-              return res.json({ status: "failed", error: fresh.errorMessage || "Analysis failed" });
-            }
-          }
-          return res.json({ status: "completed", prompt, rawDescription: caption });
-        }
-        // st is IN_PROGRESS / IN_QUEUE / unknown — fall through to "processing".
-      } catch (pollErr) {
-        // Don't fail the client poll on a transient RunPod hiccup — just keep
-        // returning "processing" so the next tick retries.
-        console.warn(
-          `[img2img/describe-status] RunPod poll failed for job ${gen.id} ` +
-          `(runpod=${runpodJobId}): ${pollErr.message}`,
-        );
-      }
-    } else {
-      console.warn(
-        `[img2img/describe-status] job ${gen.id} has no runpodJobId yet — ` +
-        `still waiting for /describe to persist providerTaskId.`,
-      );
-    }
-
-    // Include ts so the body is never byte-identical across polls (defense in
-    // depth vs 304 caching by Vercel/proxies).
+    // /describe runs Grok vision + Grok inject inline before responding, so any
+    // row we still see in "processing" here is one whose POST was interrupted
+    // (server crash mid-request, Vercel timeout, etc.). Surface that to the
+    // client; the next /describe call will create a fresh row.
     return res.json({ status: "processing", ts: Date.now() });
   } catch (err) {
     console.error("❌ /describe-status error:", err.message);
@@ -587,7 +336,7 @@ router.post("/generate", LARGE_JSON, authMiddleware, async (req, res) => {
     denoise = 0.6,
     seed,
     modelId,
-    prompt: prebuiltPrompt, // if provided, skip JoyCaption+inject steps
+    prompt: prebuiltPrompt, // if provided, skip Grok describe+inject steps
   } = req.body;
 
   if ((!inputImageUrl && !inputImageBase64) || !loraUrl || !triggerWord) {

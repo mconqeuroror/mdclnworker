@@ -1,18 +1,20 @@
 /**
  * img2img Pipeline Service
  *
- * Orchestrates a 2-step RunPod ComfyUI flow:
- *   Step 1 — imgtoprompt: JoyCaption Beta1 describes the input image (scene, pose, activity)
- *   Step 2 — OpenAI injects the model's LoRA trigger word + look description into the prompt
+ * Orchestrates a 3-step flow:
+ *   Step 1 — describe: Grok 4 Fast (vision via OpenRouter) thoroughly describes the input image
+ *           (person, sexual act, background, environment in precise detail).
+ *   Step 2 — inject: Grok rewrites the description with the model's LoRA trigger word + look description.
  *   Step 3 — img2img: RunPod ComfyUI graph from `attached_assets/nsfw_img2img_v2promax_workflow.json`
  *           (ZIT encode + refiner ckpt). Node 250 uses only the passed girl `loraUrl` (same stack rules as txt2img with no AI additives — no pose/makeup/enhancement/cum URLs).
  *
- * JoyCaption (image analysis) runs on a dedicated RunPod endpoint so its queue does not block img2img gen.
+ * Image description runs synchronously through OpenRouter so we no longer depend on a
+ * dedicated RunPod captioner worker / JoyCaption queue.
  *
  * Environment variables:
- *   RUNPOD_API_KEY                     — RunPod API key
- *   RUNPOD_ENDPOINT_ID                 — Serverless endpoint for img2img / main ComfyUI jobs
- *   RUNPOD_IMAGE_ANALYSIS_ENDPOINT_ID    — Optional; defaults to dedicated JoyCaption worker id
+ *   RUNPOD_API_KEY        — RunPod API key (img2img / main ComfyUI jobs)
+ *   RUNPOD_ENDPOINT_ID    — Serverless endpoint for img2img / main ComfyUI jobs
+ *   OPENROUTER_API_KEY    — OpenRouter API key (used for Grok describe + Grok inject)
  */
 
 import fs from "fs";
@@ -42,19 +44,9 @@ const RUNPOD_ENDPOINT = (
 ).trim() || null;
 const RUNPOD_BASE = RUNPOD_ENDPOINT ? `https://api.runpod.ai/v2/${RUNPOD_ENDPOINT}` : null;
 
-/** Dedicated worker for img2img “analyze image” (JoyCaption). */
-const RUNPOD_IMAGE_ANALYSIS_ENDPOINT = (
-  process.env.RUNPOD_CAPTIONER_ENDPOINT_ID ||
-  process.env.RUNPOD_IMAGE_ANALYSIS_ENDPOINT_ID ||
-  process.env.RUNPOD_ENDPOINT_ID ||
-  ""
-).trim() || null;
-const RUNPOD_ANALYSIS_BASE = RUNPOD_IMAGE_ANALYSIS_ENDPOINT
-  ? `https://api.runpod.ai/v2/${RUNPOD_IMAGE_ANALYSIS_ENDPOINT}`
-  : null;
-
-/** Server-side sync JoyCaption path — allow up to 5m when the analysis queue is full. */
-const IMG2IMG_ANALYSIS_POLL_TIMEOUT_MS = 5 * 60 * 1000;
+/** Grok 4 Fast (vision) via OpenRouter — used for the image-describe step (replaces JoyCaption). */
+const GROK_VISION_MODEL = (process.env.GROK_VISION_MODEL || "x-ai/grok-4.1-fast").trim();
+const GROK_DESCRIBE_TIMEOUT_MS = Number(process.env.GROK_DESCRIBE_TIMEOUT_MS) || 60_000;
 
 if (!RUNPOD_API_KEY) {
   console.warn("⚠️  RUNPOD_API_KEY not set — img2img pipeline will not work");
@@ -65,85 +57,13 @@ if (RUNPOD_ENDPOINT) {
     : "RUNPOD_ENDPOINT_ID";
   console.log(`[img2img] gen endpoint=${RUNPOD_ENDPOINT} (from ${resolvedFrom})`);
 }
-if (RUNPOD_IMAGE_ANALYSIS_ENDPOINT) {
-  const resolvedFrom = process.env.RUNPOD_CAPTIONER_ENDPOINT_ID?.trim()
-    ? "RUNPOD_CAPTIONER_ENDPOINT_ID"
-    : process.env.RUNPOD_IMAGE_ANALYSIS_ENDPOINT_ID?.trim()
-      ? "RUNPOD_IMAGE_ANALYSIS_ENDPOINT_ID"
-      : "RUNPOD_ENDPOINT_ID";
-  console.log(`[img2img] captioner endpoint=${RUNPOD_IMAGE_ANALYSIS_ENDPOINT} (from ${resolvedFrom})`);
+if (!process.env.OPENROUTER_API_KEY) {
+  console.warn("⚠️  OPENROUTER_API_KEY not set — img2img describe (Grok vision) will not work");
 }
 
 // ── Embedded workflow templates ───────────────────────────────────────────────
 // Inlined at build time so the service works in any deployment environment
 // regardless of whether runpod worker workflow JSON is present on disk.
-
-const IMGTOPROMPT_WORKFLOW = {
-  "38": {
-    "class_type": "LayerUtility: LoadJoyCaptionBeta1Model",
-    "inputs": {
-      "model": "fancyfeast/llama-joycaption-beta-one-hf-llava",
-      "quantization_mode": "bf16",
-      "device": "cuda"
-    }
-  },
-  "45": {
-    "class_type": "PrimitiveString",
-    "inputs": { "value": "" }
-  },
-  "44": {
-    "class_type": "LayerUtility: JoyCaption2ExtraOptions",
-    "inputs": {
-      "refer_character_name": true,
-      "exclude_people_info": true,
-      "include_lighting": false,
-      "include_camera_angle": false,
-      "include_watermark": false,
-      "include_JPEG_artifacts": false,
-      "include_exif": false,
-      "exclude_sexual": false,
-      "exclude_image_resolution": false,
-      "include_aesthetic_quality": false,
-      "include_composition_style": false,
-      "exclude_text": false,
-      "specify_depth_field": false,
-      "specify_lighting_sources": false,
-      "do_not_use_ambiguous_language": true,
-      "include_nsfw": false,
-      "only_describe_most_important_elements": false,
-      "character_name": ["45", 0]
-    }
-  },
-  "52": {
-    "class_type": "LoadImage",
-    "inputs": { "image": "__INPUT_IMAGE__", "upload": "image" }
-  },
-  "48": {
-    "class_type": "LayerUtility: JoyCaptionBeta1",
-    "inputs": {
-      "image": ["52", 0],
-      "joycaption_beta1_model": ["38", 0],
-      "extra_options": ["44", 0],
-      "caption_type": "Descriptive",
-      "caption_length": "medium-length",
-      "max_new_tokens": 512,
-      "top_p": 0.99,
-      "top_k": 0,
-      "temperature": 0.6,
-      "user_prompt": "Describe the scene, setting, pose, sexual activity, and camera angle. Include: clothing, props, background, position, what is happening sexually. DO NOT describe the woman's hair color, hair length, eye color, skin tone, body type, facial features, tattoos, piercings, nail color, or expression. Use explicit anatomical terms: pussy, vagina, penis, dick, penetration, sex, anal. Do not include model names or watermarks."
-    }
-  },
-  "53": {
-    "class_type": "easy saveText",
-    "inputs": {
-      "text": ["48", 0],
-      "output_file_path": "",
-      "file_name": "",
-      "file_extension": "txt",
-      "overwrite": true
-    }
-  }
-};
 
 const IMG2IMG_WORKFLOW = {
   "1": {
@@ -257,7 +177,6 @@ function cloneWorkflow(template) {
 }
 
 function loadImg2ImgWorkflow()     { return cloneWorkflow(IMG2IMG_WORKFLOW); }
-function loadImgToPromptWorkflow() { return cloneWorkflow(IMGTOPROMPT_WORKFLOW); }
 function loadNsfwTxt2ImgWorkflow() { return cloneWorkflow(NSFW_TXT2IMG_WORKFLOW); }
 
 function ensureFiniteNumber(value, fieldName) {
@@ -447,41 +366,6 @@ async function runpodSubmit(payload, webhookUrl = null) {
 }
 
 /**
- * Submit a JoyCaption describe job to RunPod and return the jobId immediately (no polling).
- * Webhook URL is attached if provided so RunPod can POST results back.
- */
-export async function submitDescribeJob(imageBase64OrNull, imageUrl, webhookUrl = null) {
-  let imageBase64 = imageBase64OrNull;
-  if (!imageBase64) {
-    if (!imageUrl || !/^https?:\/\//i.test(imageUrl)) {
-      throw new Error(`Cannot analyze image: no valid URL or base64 data provided.`);
-    }
-    imageBase64 = await imageUrlToBase64(imageUrl);
-  }
-
-  const workflow = loadImgToPromptWorkflow();
-  const payload = {
-    prompt: workflow,
-    upload_images: [{ node_id: "52", data: imageBase64, filename: "joycaption_input.jpg" }],
-    output_type: "text",
-    output_node_id: "53",
-  };
-
-  if (webhookUrl) {
-    console.log(
-      `📣 [img2img/describe] RunPod webhook: ${webhookUrl.slice(0, 96)}${webhookUrl.length > 96 ? "…" : ""}`,
-    );
-  } else {
-    console.warn(
-      `⚠️ [img2img/describe] No webhook URL resolved — describe job will be stranded ` +
-      `("Analysis timed out") unless a watchdog reconciles it. ` +
-      `Check CALLBACK_BASE_URL / RUNPOD_WEBHOOK_URL env vars.`,
-    );
-  }
-  return runpodSubmitWithEndpoint(RUNPOD_IMAGE_ANALYSIS_ENDPOINT, payload, webhookUrl);
-}
-
-/**
  * Normalize handler `output` from RunPod `/status` — sometimes JSON-stringified or wrapped in `{ output: { ... } }`.
  */
 export function parseRunpodHandlerOutput(raw) {
@@ -507,90 +391,6 @@ export function parseRunpodHandlerOutput(raw) {
     }
   }
   return o;
-}
-
-/**
- * Walk common ComfyUI node-output keys and return the first non-empty string we find.
- * Handles: `text` (string or [string]), `string`, `strings`, `captions`, `caption`.
- */
-function pickNodeText(node) {
-  if (!node || typeof node !== "object") return null;
-  for (const key of ["text", "caption", "string", "strings", "captions"]) {
-    const v = node[key];
-    if (typeof v === "string" && v.trim()) return v.trim();
-    if (Array.isArray(v) && v.length > 0) {
-      const first = v.find((x) => typeof x === "string" && x.trim());
-      if (first) return first.trim();
-    }
-  }
-  return null;
-}
-
-/**
- * Scan a ComfyUI-style `outputs` dict (`{ "<node_id>": { text: [...] }, ... }`) for the first
- * populated text-like field. Prefers higher-numbered nodes (terminal/save nodes usually come last).
- */
-function scanOutputsForText(outputs) {
-  if (!outputs || typeof outputs !== "object") return null;
-  const preferredOrder = ["53", "48"];
-  for (const id of preferredOrder) {
-    const t = pickNodeText(outputs[id]);
-    if (t) return t;
-  }
-  const otherIds = Object.keys(outputs)
-    .filter((id) => !preferredOrder.includes(id))
-    .sort((a, b) => {
-      const na = Number.parseInt(a, 10);
-      const nb = Number.parseInt(b, 10);
-      if (Number.isFinite(na) && Number.isFinite(nb)) return nb - na;
-      return 0;
-    });
-  for (const id of otherIds) {
-    const t = pickNodeText(outputs[id]);
-    if (t) return t;
-  }
-  return null;
-}
-
-/**
- * Extract the JoyCaption caption text from a completed RunPod job output object.
- * Returns null if no text found.
- *
- * Accepts a broad set of handler shapes because different workers wrap their outputs
- * differently. Order of lookups (first hit wins):
- *   1. Plain string
- *   2. `text` / `caption` at top level (with or without `output` / `result` wrapper)
- *   3. `outputs` / `output_nodes` dicts — checked under top-level, under `output`, and under `result`
- */
-export function extractCaptionFromRunpodOutput(output) {
-  if (typeof output === "string" && output.trim()) return output.trim();
-  const o = parseRunpodHandlerOutput(output);
-  if (!o) return null;
-
-  const direct =
-    (typeof o.text === "string" && o.text.trim()) ||
-    (typeof o.caption === "string" && o.caption.trim()) ||
-    (typeof o.output?.text === "string" && o.output.text.trim()) ||
-    (typeof o.output?.caption === "string" && o.output.caption.trim()) ||
-    (typeof o.result?.text === "string" && o.result.text.trim()) ||
-    (typeof o.result?.caption === "string" && o.result.caption.trim()) ||
-    (Array.isArray(o.text) && typeof o.text[0] === "string" && o.text[0].trim()) ||
-    (Array.isArray(o.result?.text) && typeof o.result.text[0] === "string" && o.result.text[0].trim());
-  if (direct) return String(direct).trim();
-
-  const candidates = [
-    o.outputs,
-    o.output_nodes,
-    o.output?.outputs,
-    o.output?.output_nodes,
-    o.result?.outputs,
-    o.result?.output_nodes,
-  ];
-  for (const c of candidates) {
-    const t = scanOutputsForText(c);
-    if (t) return t;
-  }
-  return null;
 }
 
 /** RunPod status values that mean success (casing / synonyms differ by API version). */
@@ -622,14 +422,11 @@ export function normalizeRunpodStatusResponse(body) {
   return { status, output, raw: body };
 }
 
-/**
- * Map normalized RunPod response to done | failed | processing for describe / polling.
- */
-export function classifyRunpodDescribePhase(normalized) {
-  const { status, output, raw } = normalized;
+/** Map a normalized RunPod response to done | failed | processing for describe / polling. */
+export function classifyRunpodPhase(normalized) {
+  const { status } = normalized;
   if (status && RUNPOD_DONE_STATUSES.has(status)) return "done";
   if (status && RUNPOD_FAILED_STATUSES.has(status)) return "failed";
-  if (extractCaptionFromRunpodOutput(output ?? raw)) return "done";
   return "processing";
 }
 
@@ -648,17 +445,15 @@ export function isRunpodJobIdValidationError(err) {
 
 /**
  * @param {string} jobId
- * @param {{ useImageAnalysisEndpoint?: boolean }} [options] — use dedicated JoyCaption endpoint for status (required for jobs submitted there)
  */
-export async function getRunpodJobStatus(jobId, options = {}) {
+export async function getRunpodJobStatus(jobId) {
   if (!RUNPOD_API_KEY) {
     throw new Error("Generation service not configured");
   }
 
   assertRunpodJobId(jobId);
 
-  const base = options.useImageAnalysisEndpoint ? RUNPOD_ANALYSIS_BASE : RUNPOD_BASE;
-  const resp = await fetch(`${base}/status/${jobId}`, {
+  const resp = await fetch(`${RUNPOD_BASE}/status/${jobId}`, {
     headers: { Authorization: `Bearer ${RUNPOD_API_KEY}` },
   });
 
@@ -775,71 +570,96 @@ async function imageUrlToBase64(url) {
   return buffer.toString("base64");
 }
 
-// ── Step 1: Extract prompt via ComfyUI JoyCaption Beta1 ──────────────────────
+// ── Step 1: Extract prompt via Grok 4 Fast (vision via OpenRouter) ───────────
+
+/** System prompt for the Grok image-describe call (replaces JoyCaption). */
+const GROK_DESCRIBE_SYSTEM_PROMPT = `You are an expert visual analyst describing photographs for a downstream NSFW img2img generation pipeline.
+
+You will receive a single image. Your only job is to write ONE thorough, precise prose description of the photograph. The description must capture, in clear order:
+
+1. THE PERSON / PEOPLE — for each visible person: pose, body position, where their hands are, where they are looking, facial expression, what they are wearing or not wearing, and any visible accessories (jewelry, glasses, etc). Use direct anatomical and explicit terms when relevant (e.g. "topless", "nude", "spread legs", "erect penis", "vagina", "anal", "penetration") — do NOT use euphemisms.
+2. THE SEXUAL ACT (if any) — describe exactly what is happening sexually with anatomical precision: the position, who is on top / behind / under, what body parts are touching or penetrating which, the angle of the act, hand placement, and any clearly visible sexual fluids or props.
+3. THE BACKGROUND AND ENVIRONMENT — describe the location (bedroom, bathroom, outdoors, hotel, kitchen, etc.), key furniture/props (bed, sheet color, couch, chair, surface, mirror, plants, windows, walls), the floor / ground, the lighting (natural / warm / cold / harsh / soft / candle / neon / window light), the time of day if inferable, and the overall mood/atmosphere.
+4. CAMERA / FRAMING — type of shot (close-up, medium shot, wide shot, POV from behind, POV from above, side profile, etc.), camera angle (low / high / eye-level), and framing (full body, half body, headshot).
+
+Output rules:
+- Output ONLY the description as flowing prose. No headings, no bullet points, no markdown, no labels, no preamble.
+- Be specific and concrete. Avoid vague words like "intimate" or "seductive" — describe what you SEE.
+- Do NOT include personal identity claims (no celebrity names, no real names).
+- Do NOT include watermarks, logos, signatures, or photographer tags in the description.
+- Keep the description thorough but a single paragraph (up to ~250 words).`;
 
 /**
- * Sends the input image to RunPod ComfyUI using the imgtoprompt_api.json workflow.
- * JoyCaption Beta1 (LayerStyle) describes the scene; result comes from node 53 (easy saveText).
+ * Describes the input image thoroughly using Grok 4 Fast (vision) via OpenRouter.
+ * Returns the description string used as the raw caption for the prompt-injection step.
+ *
+ * Accepts either an http(s) image URL or a raw base64 image payload (the caller already
+ * has whichever is convenient). When base64 is provided we wrap it in a data: URL so the
+ * model can fetch it inline without the upstream needing to host the image.
  */
 export async function extractPromptFromImage(imageUrl, imageBase64Provided) {
-  console.log("\n🔍 [img2img] Step 1 — extracting prompt via ComfyUI JoyCaption...");
+  console.log("\n🔍 [img2img] Step 1 — describing image via Grok vision (OpenRouter)...");
   console.log(`   Image: ${imageBase64Provided ? "[base64 upload]" : imageUrl}`);
 
-  let imageBase64;
+  if (!process.env.OPENROUTER_API_KEY) {
+    throw new Error("OPENROUTER_API_KEY is not configured — cannot run Grok image describe step");
+  }
+
+  let imageBlockUrl;
   if (imageBase64Provided) {
-    imageBase64 = imageBase64Provided;
+    const cleaned = String(imageBase64Provided).trim().replace(/^data:[^,]+,/, "");
+    imageBlockUrl = `data:image/jpeg;base64,${cleaned}`;
+  } else if (imageUrl && /^https?:\/\//i.test(imageUrl)) {
+    imageBlockUrl = imageUrl;
   } else {
-    // Validate URL before attempting to fetch — placeholder values like "upload"
-    // or "base64-upload" must never be fetched.
-    if (!imageUrl || !/^https?:\/\//i.test(imageUrl)) {
-      throw new Error(
-        `Cannot analyze image: no valid URL or base64 data provided (got: "${imageUrl}"). ` +
-        `Please upload the image file directly instead of using a URL.`
-      );
-    }
-    imageBase64 = await imageUrlToBase64(imageUrl);
-  }
-  const workflow = loadImgToPromptWorkflow();
-
-  const payload = {
-    prompt: workflow,
-    upload_images: [
-      {
-        node_id: "52",
-        data: imageBase64,
-        filename: "joycaption_input.jpg",
-      },
-    ],
-    output_type: "text",
-    output_node_id: "53",  // "easy saveText" node — appears in ComfyUI history with {"text": ["..."]}
-  };
-
-  const jobId = await runpodSubmitWithEndpoint(RUNPOD_IMAGE_ANALYSIS_ENDPOINT, payload);
-  console.log(`   RunPod job submitted (analysis endpoint ${RUNPOD_IMAGE_ANALYSIS_ENDPOINT}): ${jobId}`);
-
-  const output = await runpodPoll(jobId, IMG2IMG_ANALYSIS_POLL_TIMEOUT_MS, 5_000, RUNPOD_ANALYSIS_BASE);
-
-  if (!output) {
-    throw new Error("Image captioning job returned no output");
-  }
-  if (output.error) {
-    throw new Error(`JoyCaption failed: ${output.error}`);
-  }
-
-  // RunPod returns { phase: "done", result: data.output }; caption can be result.text or top-level text
-  const text =
-    (typeof output.text === "string" && output.text.trim()) ||
-    (output.result && typeof output.result.text === "string" && output.result.text.trim()) ||
-    (output.result?.output_nodes?.["53"]?.text?.[0]) ||
-    (Array.isArray(output.result?.text) && output.result.text[0]);
-  if (!text || !String(text).trim()) {
     throw new Error(
-      `JoyCaption returned no text. Output nodes: ${JSON.stringify(output.output_nodes || output.result || output)}`
+      `Cannot analyze image: no valid URL or base64 data provided (got: "${imageUrl}"). ` +
+      `Please upload the image file directly instead of using a URL.`,
     );
   }
 
-  const caption = String(text).trim();
-  console.log(`   ✅ JoyCaption description (${caption.length} chars): ${caption.slice(0, 120)}...`);
+  const requestBody = {
+    model: GROK_VISION_MODEL,
+    messages: [
+      { role: "system", content: GROK_DESCRIBE_SYSTEM_PROMPT },
+      {
+        role: "user",
+        content: [
+          { type: "image_url", image_url: { url: imageBlockUrl } },
+          {
+            type: "text",
+            text: "Describe this photograph thoroughly per the rules above. Capture the person(s), the act, the background and the environment in precise detail. Output the description as a single prose paragraph, nothing else.",
+          },
+        ],
+      },
+    ],
+    max_tokens: 800,
+    temperature: 0.3,
+  };
+
+  const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+    },
+    body: JSON.stringify(requestBody),
+    signal: AbortSignal.timeout(GROK_DESCRIBE_TIMEOUT_MS),
+  });
+
+  if (!resp.ok) {
+    const errText = await resp.text().catch(() => "");
+    throw new Error(`Grok describe failed (${resp.status}): ${errText.slice(0, 400)}`);
+  }
+
+  const data = await resp.json();
+  const raw = data?.choices?.[0]?.message?.content;
+  const caption = (typeof raw === "string" ? raw : "").trim();
+  if (!caption) {
+    throw new Error(`Grok describe returned no text. Raw response: ${JSON.stringify(data).slice(0, 400)}`);
+  }
+
+  console.log(`   ✅ Grok description (${caption.length} chars): ${caption.slice(0, 120)}...`);
   return caption;
 }
 
@@ -888,7 +708,7 @@ function escapeRegExp(str) {
 }
 
 /**
- * Takes the raw JoyCaption description and rewrites it to include:
+ * Takes the raw Grok image description and rewrites it to include:
  * - The model's LoRA trigger word (so the LoRA fires correctly)
  * - Key look descriptors from the model profile (hair, skin, eyes, body)
  *
@@ -913,7 +733,7 @@ export async function injectModelIntoPrompt(rawDescription, triggerWord, lookDes
 You will receive labeled sections in every user message:
 - TRIGGER_WORD — the LoRA trigger token. Your output MUST start with exactly: TRIGGER_WORD followed by a comma and a space (example: "${trigger}, ").
 - TARGET_CHARACTER_LOOKS — every physical attribute of the replacement character. It may arrive as comma-separated "label: value" pairs from the app (e.g. "hair color: blonde hair"). You MUST use every non-empty fact but rewrite them into fluent natural English. NEVER paste "ethnicity:", "hair color:", "skin tone:", or any other field labels into the output.
-- ORIGINAL_IMAGE_PROMPT — raw image-to-prompt text (JoyCaption). It describes the scene, pose, action, camera angle, lighting, background, composition, and the source person's looks.
+- ORIGINAL_IMAGE_PROMPT — raw image-to-prompt text (Grok visual description). It describes the scene, pose, action, camera angle, lighting, background, composition, and the source person's looks.
 
 YOUR JOB: Output ONLY a single clean, highly ZIT-optimized img2img prompt (nothing else — no explanations, no quotes, no markdown, no extra text).
 
@@ -931,7 +751,7 @@ Rules for the output prompt (ZIT-specific):
 EXPLICIT SEX-ACT POSE REWRITE RULES (CRITICAL — read carefully)
 ==============================================================
 
-When ORIGINAL_IMAGE_PROMPT contains an explicit sex act between two people (doggystyle, missionary, cowgirl, reverse cowgirl, mating press, prone bone, spooning / sideways, standing-from-behind, piledriver, amazon, etc.), you MUST rewrite the act using PROPER PHOTOGRAPHIC COMPOSITION instead of the clinical "penis entering pussy" narrative that JoyCaption produces. Anatomical narration like "average-sized erect penis entering pussy from behind with visible penetration, anus and pussy visible" causes severe anatomical mutations in img2img; composition-first phrasing does not.
+When ORIGINAL_IMAGE_PROMPT contains an explicit sex act between two people (doggystyle, missionary, cowgirl, reverse cowgirl, mating press, prone bone, spooning / sideways, standing-from-behind, piledriver, amazon, etc.), you MUST rewrite the act using PROPER PHOTOGRAPHIC COMPOSITION instead of any clinical "penis entering pussy" narrative. Anatomical narration like "average-sized erect penis entering pussy from behind with visible penetration, anus and pussy visible" causes severe anatomical mutations in img2img; composition-first phrasing does not.
 
 HARD BANS (never appear in your output, even if present in ORIGINAL_IMAGE_PROMPT):
 - "penis entering pussy", "penis entering vagina", "penis entering her", "penis entering from behind/above/below"
@@ -1089,8 +909,8 @@ export async function generateImg2Img({ imageUrl, imageBase64Provided, prompt, l
 
 /**
  * Runs the complete img2img pipeline:
- * 1. JoyCaption extracts scene description from input image
- * 2. OpenAI injects trigger word + model look
+ * 1. Grok 4 Fast (vision) extracts a thorough scene description from the input image
+ * 2. Grok injects trigger word + model look
  * 3. img2img generates the swapped result
  * 4. Result is uploaded to R2 for permanent storage
  *

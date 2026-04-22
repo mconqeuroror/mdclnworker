@@ -7,13 +7,8 @@
  */
 import express from "express";
 import prisma from "../lib/prisma.js";
-import { refundCredits, refundGeneration } from "../services/credit.service.js";
+import { refundGeneration } from "../services/credit.service.js";
 import { getErrorMessageForDb } from "../lib/userError.js";
-import {
-  extractCaptionFromRunpodOutput,
-  injectModelIntoPrompt,
-  parseRunpodHandlerOutput,
-} from "../services/img2img.service.js";
 import { extractUpscalerImage } from "../services/upscaler.service.js";
 import { extractModelCloneXImages } from "../services/modelcloneX.service.js";
 import { uploadBufferToBlobOrR2 } from "../utils/kieUpload.js";
@@ -166,97 +161,6 @@ async function backfillRunpodCorrelation(gen, jobId) {
   }).catch(() => {});
 }
 
-async function findDescribeJobByRunpodJobId(jobId) {
-  const jobIdVariants = buildRunpodJobIdVariants(jobId);
-  if (jobIdVariants.length === 0) return null;
-
-  const containsFilters = jobIdVariants.flatMap((id) => ([
-    { inputImageUrl: { contains: `"runpodJobId":"${id}"` } },
-    { inputImageUrl: { contains: `"comfyuiPromptId":"${id}"` } },
-  ]));
-
-  const direct = await prisma.generation.findFirst({
-    where: {
-      type: "img2img-describe",
-      status: { in: ["queued", "processing", "pending"] },
-      createdAt: { gt: new Date(Date.now() - 4 * 60 * 60 * 1000) },
-      OR: [
-        { providerTaskId: { in: jobIdVariants } },
-        ...containsFilters,
-      ],
-    },
-    orderBy: { createdAt: "desc" },
-  });
-  if (direct) return direct;
-
-  const rows = await prisma.generation.findMany({
-    where: {
-      type: "img2img-describe",
-      status: { in: ["queued", "processing", "pending"] },
-      createdAt: { gt: new Date(Date.now() - 4 * 60 * 60 * 1000) },
-    },
-    take: 50,
-    orderBy: { createdAt: "desc" },
-  });
-  return rows.find((g) => {
-    try {
-      const j = JSON.parse(g.inputImageUrl || "{}");
-      return (
-        matchesRunpodJobId(g?.providerTaskId, jobIdVariants) ||
-        matchesRunpodJobId(j?.runpodJobId, jobIdVariants) ||
-        matchesRunpodJobId(j?.comfyuiPromptId, jobIdVariants)
-      );
-    } catch {
-      return false;
-    }
-  }) || null;
-}
-
-async function findDescribeGenerationForWebhook(jobId, generationId) {
-  const explicitGenerationId = String(generationId || "").trim();
-  if (explicitGenerationId) {
-    const direct = await prisma.generation.findFirst({
-      where: {
-        id: explicitGenerationId,
-        type: "img2img-describe",
-        createdAt: { gt: new Date(Date.now() - 4 * 60 * 60 * 1000) },
-      },
-    });
-    if (direct) return direct;
-  }
-  return findDescribeJobByRunpodJobId(jobId);
-}
-
-async function backfillDescribeRunpodCorrelation(gen, jobId) {
-  if (!gen?.id || !jobId) return;
-  const jobIdVariants = buildRunpodJobIdVariants(jobId);
-  const existingProviderTaskId = String(gen.providerTaskId || "").trim();
-  if (existingProviderTaskId && matchesRunpodJobId(existingProviderTaskId, jobIdVariants)) {
-    return;
-  }
-
-  let inputData = {};
-  try {
-    inputData =
-      typeof gen.inputImageUrl === "string"
-        ? JSON.parse(gen.inputImageUrl || "{}")
-        : (gen.inputImageUrl || {});
-  } catch {
-    inputData = {};
-  }
-
-  await prisma.generation.update({
-    where: { id: gen.id },
-    data: {
-      providerTaskId: existingProviderTaskId || jobId,
-      inputImageUrl: JSON.stringify({
-        ...inputData,
-        runpodJobId: inputData?.runpodJobId || jobId,
-      }),
-    },
-  }).catch(() => {});
-}
-
 function isTransientRunpodNotFoundError(raw) {
   let msg = "";
   if (typeof raw === "string") {
@@ -366,68 +270,6 @@ async function handleRunpodCallback(req, res) {
       `outKeys=${rawOut && typeof rawOut === "object" ? Object.keys(rawOut).slice(0, 8).join(",") : typeof rawOut}`,
     );
 
-    // ── Check for img2img-describe job first ─────────────────────────────────
-    const describeGen = await findDescribeGenerationForWebhook(jobId, generationId);
-    if (describeGen) {
-      await backfillDescribeRunpodCorrelation(describeGen, jobId);
-      if (st === "FAILED" || st === "CANCELLED") {
-        const msg = rawOut?.error || body.error || "RunPod describe job failed";
-        await prisma.generation.updateMany({
-          where: { id: describeGen.id, status: { in: ["queued", "processing", "pending"] } },
-          data: { status: "failed", errorMessage: getErrorMessageForDb(String(msg)), completedAt: new Date() },
-        });
-        return res.status(200).json({ ok: true, type: "describe", failed: true });
-      }
-
-      if (st === "COMPLETED") {
-        const caption = extractCaptionFromRunpodOutput(rawOut);
-        if (!caption) {
-          // Dump the full shape so we can pin extraction for whichever captioner handler is running.
-          let dump = "";
-          try {
-            dump = JSON.stringify(rawOut).slice(0, 2000);
-          } catch {
-            dump = String(rawOut).slice(0, 2000);
-          }
-          console.warn(
-            `[RunPod webhook] describe ${describeGen.id} COMPLETED but no caption extracted ` +
-            `(rawOutKeys=${rawOut && typeof rawOut === "object" ? Object.keys(rawOut).slice(0, 15).join(",") : typeof rawOut}) ` +
-            `rawOut=${dump}`,
-          );
-          await prisma.generation.update({
-            where: { id: describeGen.id },
-            data: { status: "failed", errorMessage: "JoyCaption returned no text" },
-          });
-          return res.status(200).json({ ok: true, type: "describe", failed: true, reason: "no_caption" });
-        }
-
-        let meta = {};
-        try { meta = JSON.parse(describeGen.inputImageUrl || "{}"); } catch {}
-        const { triggerWord = "", lookDescription = "" } = meta;
-
-        let prompt;
-        try {
-          prompt = await injectModelIntoPrompt(caption, triggerWord, lookDescription);
-        } catch (grokErr) {
-          console.error("[RunPod webhook] Grok inject failed:", grokErr.message);
-          prompt = caption;
-        }
-
-        await prisma.generation.update({
-          where: { id: describeGen.id },
-          data: {
-            status: "completed",
-            pipelinePayload: JSON.stringify({ prompt, rawDescription: caption }),
-            completedAt: new Date(),
-          },
-        });
-        console.log(`✅ [RunPod webhook] describe job ${describeGen.id} completed`);
-        return res.status(200).json({ ok: true, type: "describe" });
-      }
-
-      return res.status(200).json({ ok: true, skipped: true, type: "describe", status: st });
-    }
-
     // ── RunPod image generations (exact same callback flow for MCX + NSFW) ──
     const imageGen = await findGenerationForWebhook(
       jobId,
@@ -508,7 +350,7 @@ async function handleRunpodCallback(req, res) {
     // CALLBACK_BASE_URL between environments.
     console.warn(
       `[runpod-callback] UNMATCHED jobId=${jobId} status=${st || "?"} ` +
-      `generationId=${generationId || "(none)"} — no img2img-describe / upscale / ` +
+      `generationId=${generationId || "(none)"} — no upscale / ` +
       `modelclone-x / soulx / nsfw row found in last 48h. ` +
       `This may indicate a webhook arriving at the wrong deployment, ` +
       `or a generation row that was deleted before the webhook fired.`,
