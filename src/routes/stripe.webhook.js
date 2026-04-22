@@ -1,6 +1,10 @@
 import express from "express";
-import Stripe from "stripe";
 import prisma from "../lib/prisma.js";
+import {
+  getStripeForAccount,
+  getWebhookSecretForAccount,
+  normalizeAccount,
+} from "../lib/stripeClients.js";
 import {
   inferSubscriptionPlanFromAmount,
   inferSubscriptionCreditsFromAmount,
@@ -28,13 +32,26 @@ const router = express.Router();
  * See docs/STRIPE_WEBHOOK.md for URL, events, and env.
  */
 
-// GET: describe the webhook endpoint (for ops/support; Stripe only POSTs)
+// GET: describe the webhook endpoints (for ops/support; Stripe only POSTs).
+// Two endpoints, one per Stripe account:
+//   POST /api/stripe/webhook          → NEW (US LLC) account events
+//   POST /api/stripe/webhook/legacy   → LEGACY (pre-USLLC) account events (rebills only)
 router.get("/", (req, res) => {
   const base = req.protocol + "://" + req.get("host");
   res.json({
-    callbackUrl: `${base}/api/stripe/webhook`,
+    accounts: {
+      new: {
+        callbackUrl: `${base}/api/stripe/webhook`,
+        signingSecretEnv: "STRIPE_NEW_WEBHOOK_SECRET",
+      },
+      legacy: {
+        callbackUrl: `${base}/api/stripe/webhook/legacy`,
+        signingSecretEnv: "STRIPE_LEGACY_WEBHOOK_SECRET (or STRIPE_WEBHOOK_SECRET fallback)",
+      },
+    },
     method: "POST",
-    description: "Stripe calls this URL on payment events (e.g. rebill). We match user and assign plan renewal + credits.",
+    description:
+      "Stripe calls these URLs on payment events. NEW handles all new charges; legacy handles grandfathered subscription rebills/cancels until they expire.",
     eventsUsed: [
       "invoice.payment_succeeded",
       "checkout.session.completed",
@@ -47,23 +64,34 @@ router.get("/", (req, res) => {
   });
 });
 
-// Use TEST keys in development, LIVE keys in production
-const stripeSecretKey =
-  process.env.NODE_ENV === "production"
-    ? process.env.STRIPE_SECRET_KEY
-    : process.env.TESTING_STRIPE_SECRET_KEY;
-
-if (!stripeSecretKey) {
-  console.error("❌ Stripe secret key is not set");
+/**
+ * Account-aware Prisma where-clauses so LEGACY-account webhooks can resolve users
+ * via the preserved `legacyStripeSubscriptionId` / `legacyStripeCustomerId` columns
+ * after the user has migrated their primary IDs to the NEW account.
+ */
+function userWhereForSubscription(account, subscriptionId) {
+  if (account === "legacy") {
+    return {
+      OR: [
+        { stripeSubscriptionId: subscriptionId },
+        { legacyStripeSubscriptionId: subscriptionId },
+      ],
+    };
+  }
+  return { stripeSubscriptionId: subscriptionId };
 }
 
-console.log(
-  `🔑 Webhook using ${process.env.NODE_ENV === "production" ? "LIVE" : "TEST"} Stripe keys`,
-);
-
-const stripe = new Stripe(stripeSecretKey || "sk_test_placeholder", {
-  apiVersion: "2024-11-20.acacia",
-});
+function userWhereForCustomer(account, stripeCustomerId) {
+  if (account === "legacy") {
+    return {
+      OR: [
+        { stripeCustomerId },
+        { legacyStripeCustomerId: stripeCustomerId },
+      ],
+    };
+  }
+  return { stripeCustomerId };
+}
 
 async function finalizeSpecialOfferModelReady(modelId, updates = {}) {
   const model = await prisma.savedModel.update({
@@ -100,7 +128,7 @@ function subscriptionCreditsExpireAtFromInvoice(invoice, billingCycle) {
   return fallback;
 }
 
-async function resolveRefundContextFromCharge(charge) {
+async function resolveRefundContextFromCharge(stripe, account, charge) {
   const candidateSessionIds = [];
   const paymentIntentId = typeof charge.payment_intent === "string" ? charge.payment_intent : null;
   if (paymentIntentId) {
@@ -153,7 +181,7 @@ async function resolveRefundContextFromCharge(charge) {
       if (subscriptionId && stripeCustomerId) {
         const [subscription, user] = await Promise.all([
           stripe.subscriptions.retrieve(subscriptionId),
-          prisma.user.findFirst({ where: { stripeCustomerId } }),
+          prisma.user.findFirst({ where: userWhereForCustomer(account, stripeCustomerId) }),
         ]);
         const originalCredits = normalizeCreditUnits(
           subscription.metadata?.credits,
@@ -175,39 +203,47 @@ async function resolveRefundContextFromCharge(charge) {
   return null;
 }
 
-// Webhook to handle successful payments
-// IMPORTANT: This route needs RAW body for signature verification
-router.post(
-  "/",
-  express.raw({ type: "application/json" }),
-  async (req, res) => {
+// Webhook handler factory — same logic, different Stripe account context per mount.
+// IMPORTANT: This route needs RAW body for signature verification.
+function buildWebhookHandler(account) {
+  const accountName = normalizeAccount(account);
+
+  return async (req, res) => {
     const sig = req.headers["stripe-signature"];
+    const stripe = getStripeForAccount(accountName);
+    if (!stripe) {
+      console.error(`❌ Stripe ${accountName} account is not configured — cannot process webhook`);
+      return res.status(500).send("Stripe account not configured");
+    }
+
+    const webhookSecret = getWebhookSecretForAccount(accountName);
     let event;
 
     try {
       // Verify webhook signature
-      if (process.env.STRIPE_WEBHOOK_SECRET) {
-        event = stripe.webhooks.constructEvent(
-          req.body,
-          sig,
-          process.env.STRIPE_WEBHOOK_SECRET,
-        );
-        console.log("✅ Webhook signature verified");
+      if (webhookSecret) {
+        event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+        console.log(`✅ Webhook signature verified [${accountName}]`);
       } else if (process.env.NODE_ENV === 'production') {
-        // CRITICAL: In production, ALWAYS require webhook secret
-        console.error("❌ FATAL: STRIPE_WEBHOOK_SECRET missing in production!");
+        // CRITICAL: In production, ALWAYS require webhook secret per account
+        console.error(
+          `❌ FATAL: webhook signing secret missing for ${accountName} account in production!`,
+        );
         return res.status(500).send("Webhook configuration error");
       } else {
         // Development only: allow without signature (for testing)
-        console.warn("⚠️ DEV MODE: Skipping webhook signature verification");
+        console.warn(`⚠️ DEV MODE: Skipping webhook signature verification [${accountName}]`);
         event = JSON.parse(req.body.toString());
       }
     } catch (err) {
-      console.error("❌ Webhook signature verification failed:", err.message);
+      console.error(
+        `❌ Webhook signature verification failed [${accountName}]:`,
+        err.message,
+      );
       return res.status(400).send("Webhook signature verification failed");
     }
 
-    console.log(`📨 Received webhook event: ${event.type}`);
+    console.log(`📨 Received webhook event [${accountName}]: ${event.type}`);
 
     // Handle the event
     try {
@@ -1005,9 +1041,9 @@ router.post(
           const stripeCustomerId =
             typeof invoice.customer === "string" ? invoice.customer : invoice.customer?.id || null;
 
-          // Find user by subscription ID
+          // Find user by subscription ID — account-aware (legacy webhook may target legacyStripeSubscriptionId)
           let user = await prisma.user.findFirst({
-            where: { stripeSubscriptionId: subscriptionId },
+            where: userWhereForSubscription(accountName, subscriptionId),
           });
 
           // Fallback: if user not found by subscriptionId (first payment where
@@ -1103,7 +1139,7 @@ router.post(
 
               if (!user && stripeCustomerId) {
                 user = await prisma.user.findFirst({
-                  where: { stripeCustomerId },
+                  where: userWhereForCustomer(accountName, stripeCustomerId),
                 });
                 if (user) {
                   console.log(
@@ -1307,7 +1343,7 @@ router.post(
               : subscription.customer?.id || null;
 
           let user = await prisma.user.findFirst({
-            where: { stripeSubscriptionId: subscription.id },
+            where: userWhereForSubscription(accountName, subscription.id),
           });
 
           if (!user) {
@@ -1319,25 +1355,48 @@ router.post(
 
           if (!user && stripeCustomerId) {
             user = await prisma.user.findFirst({
-              where: { stripeCustomerId },
+              where: userWhereForCustomer(accountName, stripeCustomerId),
             });
           }
 
           if (user) {
+            // If this delete event came from the LEGACY account but the user has since
+            // moved their primary IDs to NEW (legacyStripeSubscriptionId still points at this),
+            // do NOT wipe their NEW-account subscription. Just clear the legacy slots.
+            const isLegacyOnlyEvent =
+              accountName === "legacy" &&
+              user.legacyStripeSubscriptionId === subscription.id &&
+              user.stripeSubscriptionId &&
+              user.stripeSubscriptionId !== subscription.id;
+
             await prisma.user.update({
               where: { id: user.id },
-              data: {
-                subscriptionStatus: "cancelled",
-                stripeSubscriptionId: null,
-                subscriptionTier: null,
-                subscriptionBillingCycle: null,
-                subscriptionCredits: 0,
-                creditsExpireAt: null,
-                subscriptionCancelledAt: new Date(),
-              },
+              data: isLegacyOnlyEvent
+                ? {
+                    legacyStripeSubscriptionId: null,
+                  }
+                : {
+                    subscriptionStatus: "cancelled",
+                    stripeSubscriptionId: null,
+                    subscriptionTier: null,
+                    subscriptionBillingCycle: null,
+                    subscriptionCredits: 0,
+                    creditsExpireAt: null,
+                    subscriptionCancelledAt: new Date(),
+                    legacyStripeSubscriptionId:
+                      user.legacyStripeSubscriptionId === subscription.id
+                        ? null
+                        : user.legacyStripeSubscriptionId,
+                  },
             });
 
-            console.log(`❌ Subscription cancelled for user ${user.id}; subscription credits wiped`);
+            if (isLegacyOnlyEvent) {
+              console.log(
+                `🧹 Legacy subscription ${subscription.id} cancelled — user ${user.id} keeps active NEW-account subscription`,
+              );
+            } else {
+              console.log(`❌ Subscription cancelled for user ${user.id}; subscription credits wiped`);
+            }
           }
           break;
         }
@@ -1355,7 +1414,7 @@ router.post(
 
           if (activeStatuses.has(subscription.status)) {
             let user = await prisma.user.findFirst({
-              where: { stripeSubscriptionId: subscription.id },
+              where: userWhereForSubscription(accountName, subscription.id),
             });
 
             if (!user) {
@@ -1367,24 +1426,37 @@ router.post(
 
             if (!user && stripeCustomerId) {
               user = await prisma.user.findFirst({
-                where: { stripeCustomerId },
+                where: userWhereForCustomer(accountName, stripeCustomerId),
               });
             }
 
             if (user) {
-              await prisma.user.update({
-                where: { id: user.id },
-                data: {
-                  stripeSubscriptionId: subscription.id,
-                  subscriptionTier: subscription.metadata?.tierId || user.subscriptionTier,
-                  subscriptionBillingCycle: billingCycle,
-                  subscriptionStatus: subscription.status === "past_due" ? "active" : subscription.status,
-                },
-              });
+              // For LEGACY events when user has migrated to NEW, only repair legacy slot.
+              const isLegacyOnlyEvent =
+                accountName === "legacy" &&
+                user.legacyStripeSubscriptionId === subscription.id &&
+                user.stripeSubscriptionId &&
+                user.stripeSubscriptionId !== subscription.id;
 
-              console.log(
-                `🔄 Subscription sync repaired for user ${user.id}: ${subscription.id} (${subscription.status})`,
-              );
+              if (isLegacyOnlyEvent) {
+                console.log(
+                  `🔄 Legacy subscription ${subscription.id} status=${subscription.status} — user ${user.id} already migrated to NEW, no primary fields touched`,
+                );
+              } else {
+                await prisma.user.update({
+                  where: { id: user.id },
+                  data: {
+                    stripeSubscriptionId: subscription.id,
+                    subscriptionTier: subscription.metadata?.tierId || user.subscriptionTier,
+                    subscriptionBillingCycle: billingCycle,
+                    subscriptionStatus: subscription.status === "past_due" ? "active" : subscription.status,
+                  },
+                });
+
+                console.log(
+                  `🔄 Subscription sync repaired for user ${user.id}: ${subscription.id} (${subscription.status})`,
+                );
+              }
             }
             break;
           }
@@ -1394,7 +1466,7 @@ router.post(
           }
 
           let user = await prisma.user.findFirst({
-            where: { stripeSubscriptionId: subscription.id },
+            where: userWhereForSubscription(accountName, subscription.id),
           });
 
           if (!user) {
@@ -1406,27 +1478,45 @@ router.post(
 
           if (!user && stripeCustomerId) {
             user = await prisma.user.findFirst({
-              where: { stripeCustomerId },
+              where: userWhereForCustomer(accountName, stripeCustomerId),
             });
           }
 
           if (user) {
+            const isLegacyOnlyEvent =
+              accountName === "legacy" &&
+              user.legacyStripeSubscriptionId === subscription.id &&
+              user.stripeSubscriptionId &&
+              user.stripeSubscriptionId !== subscription.id;
+
             await prisma.user.update({
               where: { id: user.id },
-              data: {
-                subscriptionStatus: "cancelled",
-                stripeSubscriptionId: null,
-                subscriptionTier: null,
-                subscriptionBillingCycle: null,
-                subscriptionCredits: 0,
-                creditsExpireAt: null,
-                subscriptionCancelledAt: new Date(),
-              },
+              data: isLegacyOnlyEvent
+                ? { legacyStripeSubscriptionId: null }
+                : {
+                    subscriptionStatus: "cancelled",
+                    stripeSubscriptionId: null,
+                    subscriptionTier: null,
+                    subscriptionBillingCycle: null,
+                    subscriptionCredits: 0,
+                    creditsExpireAt: null,
+                    subscriptionCancelledAt: new Date(),
+                    legacyStripeSubscriptionId:
+                      user.legacyStripeSubscriptionId === subscription.id
+                        ? null
+                        : user.legacyStripeSubscriptionId,
+                  },
             });
 
-            console.log(
-              `⚠️ Subscription moved to ${subscription.status} for user ${user.id}; subscription credits wiped`,
-            );
+            if (isLegacyOnlyEvent) {
+              console.log(
+                `🧹 Legacy subscription ${subscription.id} (${subscription.status}) cleared — user ${user.id} keeps active NEW subscription`,
+              );
+            } else {
+              console.log(
+                `⚠️ Subscription moved to ${subscription.status} for user ${user.id}; subscription credits wiped`,
+              );
+            }
           }
           break;
         }
@@ -1440,7 +1530,7 @@ router.post(
             break;
           }
 
-          const context = await resolveRefundContextFromCharge(charge);
+          const context = await resolveRefundContextFromCharge(stripe, accountName, charge);
           if (!context) {
             console.warn("⚠️ Unable to map refund to a credit purchase context for charge:", charge.id);
             break;
@@ -1583,10 +1673,25 @@ router.post(
 
       res.json({ received: true });
     } catch (error) {
-      console.error("❌ Webhook handler error:", error);
+      console.error(`❌ Webhook handler error [${accountName}]:`, error);
       res.status(500).json({ error: "Webhook handler failed" });
     }
-  },
+  };
+}
+
+// NEW (US LLC) account — receives all new charges, subscriptions, and special-offer events.
+router.post(
+  "/",
+  express.raw({ type: "application/json" }),
+  buildWebhookHandler("new"),
+);
+
+// LEGACY (pre-USLLC) account — receives rebills/cancels/refunds for grandfathered subscriptions only.
+// Mounted at /api/stripe/webhook/legacy via server.js.
+router.post(
+  "/legacy",
+  express.raw({ type: "application/json" }),
+  buildWebhookHandler("legacy"),
 );
 
 export default router;

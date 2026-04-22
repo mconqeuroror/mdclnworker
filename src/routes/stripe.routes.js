@@ -1,6 +1,11 @@
 import express from 'express';
-import Stripe from 'stripe';
 import prisma from "../lib/prisma.js";
+import {
+  getStripeForAccount,
+  getStripeForUser,
+  accountForUser,
+  accountForUserSubscription,
+} from "../lib/stripeClients.js";
 import {
   setChunkedString,
   getChunkedString,
@@ -76,20 +81,73 @@ const debugStripe = (...args) => {
   if (STRIPE_DEBUG_LOGS) console.log(...args);
 };
 
-// Use TEST keys in development, LIVE keys in production
-const stripeSecretKey = process.env.NODE_ENV === 'production' 
-  ? process.env.STRIPE_SECRET_KEY 
-  : process.env.TESTING_STRIPE_SECRET_KEY;
+// Dual-Stripe routing: every "create-*" endpoint forces NEW (US LLC) account.
+// Account-aware endpoints (cancel, portal, status) use whichever account owns
+// the user's active subscription/customer.
+const NEW_ACCOUNT = "new";
+const LEGACY_ACCOUNT = "legacy";
 
-if (!stripeSecretKey) {
-  console.error('❌ Stripe secret key is not set');
+function stripeNew() {
+  const client = getStripeForAccount(NEW_ACCOUNT);
+  if (!client) {
+    throw new Error("Stripe NEW account is not configured (missing STRIPE_NEW_SECRET_KEY)");
+  }
+  return client;
 }
 
-console.log(`🔑 Using ${process.env.NODE_ENV === 'production' ? 'LIVE' : 'TEST'} Stripe keys`);
+function stripeLegacy() {
+  return getStripeForAccount(LEGACY_ACCOUNT);
+}
 
-const stripe = new Stripe(stripeSecretKey || 'sk_test_placeholder', {
-  apiVersion: '2024-11-20.acacia',
-});
+function stripeForUser(user) {
+  const client = getStripeForUser(user);
+  if (!client) {
+    throw new Error(`Stripe ${accountForUser(user)} account is not configured for this user`);
+  }
+  return client;
+}
+
+if (process.env.NODE_ENV === "production") {
+  if (!getStripeForAccount(NEW_ACCOUNT)) {
+    console.warn("⚠️ STRIPE_NEW_SECRET_KEY is not configured — new charges will fail until set.");
+  }
+  if (!getStripeForAccount(LEGACY_ACCOUNT)) {
+    console.warn("⚠️ STRIPE_LEGACY_SECRET_KEY (or STRIPE_SECRET_KEY) is not configured — legacy rebills will fail.");
+  }
+}
+
+/**
+ * Returns a customer id on the NEW (US LLC) Stripe account for this user.
+ * - If user is already on NEW and has a stripeCustomerId, returns it.
+ * - If user is on LEGACY, stashes their old IDs into legacy* fields and creates a fresh
+ *   NEW-account customer (legacy ids are not valid on the new account).
+ * - Persists the new id + flips stripeAccount to "new".
+ */
+async function ensureNewAccountCustomer(stripe, user) {
+  const wasLegacy = accountForUser(user) === LEGACY_ACCOUNT;
+  if (!wasLegacy && user.stripeCustomerId) return user.stripeCustomerId;
+
+  const customer = await stripe.customers.create({
+    email: user.email,
+    metadata: { userId: user.id },
+  });
+
+  const customerId = customer.id;
+  await prisma.user.update({
+    where: { id: user.id },
+    data: wasLegacy
+      ? {
+          legacyStripeCustomerId: user.legacyStripeCustomerId || user.stripeCustomerId,
+          legacyStripeSubscriptionId: user.legacyStripeSubscriptionId || user.stripeSubscriptionId,
+          stripeCustomerId: customerId,
+          stripeAccount: NEW_ACCOUNT,
+        }
+      : { stripeCustomerId: customerId, stripeAccount: NEW_ACCOUNT },
+  });
+  user.stripeCustomerId = customerId;
+  user.stripeAccount = NEW_ACCOUNT;
+  return customerId;
+}
 
 function sanitizeReferralId(rawReferralId) {
   if (typeof rawReferralId !== 'string') return null;
@@ -192,7 +250,7 @@ async function validateAndApplyDiscountCode(discountCode, purchaseType, amountCe
   };
 }
 
-async function createSingleCycleDiscountCoupon({
+async function createSingleCycleDiscountCoupon(stripe, {
   amountOffCents,
   customerId,
   codeLabel,
@@ -254,6 +312,12 @@ router.post('/create-checkout-session', authMiddleware, async (req, res) => {
     
     console.log('✅ User found:', user.email);
 
+    // Dual-account routing: all new charges go on NEW (US LLC) account.
+    // Existing-sub reads/cancels target the account that owns the user's current sub.
+    const stripe = stripeNew();
+    const stripeOwn = stripeForUser(user);
+    const wasLegacy = accountForUser(user) === LEGACY_ACCOUNT;
+
     // Referral code at checkout: validate and apply 5% discount (first purchase only)
     let referrerUserId = null;
     if (referralCode && typeof referralCode === 'string' && referralCode.trim()) {
@@ -269,7 +333,7 @@ router.post('/create-checkout-session', authMiddleware, async (req, res) => {
     // LIVE STRIPE SYNC: Prevent stale DB from blocking legitimate re-purchases
     if (user.stripeSubscriptionId) {
       try {
-        const stripeSubscription = await stripe.subscriptions.retrieve(user.stripeSubscriptionId);
+        const stripeSubscription = await stripeOwn.subscriptions.retrieve(user.stripeSubscriptionId);
         const isReallyActive = ['active', 'trialing'].includes(stripeSubscription.status);
         if (!isReallyActive) {
           console.log(`⚠️ Stale subscription detected for user ${user.id}. Stripe status: ${stripeSubscription.status}, DB status: ${user.subscriptionStatus}`);
@@ -324,7 +388,7 @@ router.post('/create-checkout-session', authMiddleware, async (req, res) => {
       if (!currentBilling) {
         try {
           console.log('⚠️ Billing cycle NULL - fetching from Stripe...');
-          const subscription = await stripe.subscriptions.retrieve(user.stripeSubscriptionId);
+          const subscription = await stripeOwn.subscriptions.retrieve(user.stripeSubscriptionId);
           const interval = subscription.items.data[0]?.plan?.interval;
           currentBilling = interval === 'year' ? 'annual' : 'monthly';
           
@@ -437,28 +501,11 @@ router.post('/create-checkout-session', authMiddleware, async (req, res) => {
       }
     }
 
-    // Create or retrieve Stripe customer
-    let customerId = user.stripeCustomerId;
-    
-    if (!customerId) {
-      const customer = await stripe.customers.create({
-        email: user.email,
-        metadata: {
-          userId: user.id,
-        },
-      });
-      customerId = customer.id;
-      
-      // Save customer ID to database
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { stripeCustomerId: customerId }
-      });
-    }
+    const customerId = await ensureNewAccountCustomer(stripe, user);
 
     const firstCycleDiscountCents = Math.max(recurringUnitAmountCents - firstInvoiceAmountCents, 0);
     const firstCycleCoupon = firstCycleDiscountCents > 0
-      ? await createSingleCycleDiscountCoupon({
+      ? await createSingleCycleDiscountCoupon(stripe, {
           amountOffCents: firstCycleDiscountCents,
           customerId,
           codeLabel: referrerUserId ? 'Referral first-cycle discount' : 'Discount code first-cycle discount',
@@ -541,6 +588,7 @@ router.post('/create-onetime-checkout', authMiddleware, async (req, res) => {
     const { creditAmount, referralId, referralCode, discountCode } = req.body;
     const safeReferralId = sanitizeReferralId(referralId);
     const userId = req.user.userId;
+    const stripe = stripeNew();
     
     if (
       !creditAmount ||
@@ -589,22 +637,7 @@ router.post('/create-onetime-checkout', authMiddleware, async (req, res) => {
       }
     }
     
-    let customerId = user.stripeCustomerId;
-    
-    if (!customerId) {
-      const customer = await stripe.customers.create({
-        email: user.email,
-        metadata: {
-          userId: user.id,
-        },
-      });
-      customerId = customer.id;
-      
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { stripeCustomerId: customerId }
-      });
-    }
+    const customerId = await ensureNewAccountCustomer(stripe, user);
     
     const frontendUrl = getTrustedFrontendUrl(req);
     
@@ -651,6 +684,7 @@ router.post('/create-payment-intent', authMiddleware, async (req, res) => {
     const { creditAmount, referralId, referralCode, discountCode } = req.body;
     const safeReferralId = sanitizeReferralId(referralId);
     const userId = req.user.userId;
+    const stripe = stripeNew();
     
     if (
       !creditAmount ||
@@ -698,20 +732,7 @@ router.post('/create-payment-intent', authMiddleware, async (req, res) => {
       }
     }
     
-    let customerId = user.stripeCustomerId;
-    
-    if (!customerId) {
-      const customer = await stripe.customers.create({
-        email: user.email,
-        metadata: { userId: user.id },
-      });
-      customerId = customer.id;
-      
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { stripeCustomerId: customerId }
-      });
-    }
+    const customerId = await ensureNewAccountCustomer(stripe, user);
     
     const paymentIntent = await stripe.paymentIntents.create({
       amount: totalAmount,
@@ -753,6 +774,7 @@ router.post('/create-embedded-subscription', authMiddleware, async (req, res) =>
     billingCycle = typeof billingCycle === 'string' ? billingCycle.trim().toLowerCase() : '';
     const safeReferralId = sanitizeReferralId(referralId);
     const userId = req.user?.userId ?? req.user?.id ?? req.user?.sub;
+    const stripe = stripeNew();
     
     const user = await prisma.user.findUnique({
       where: { id: userId }
@@ -761,6 +783,8 @@ router.post('/create-embedded-subscription', authMiddleware, async (req, res) =>
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
+
+    const stripeOwn = stripeForUser(user);
     
     let referrerUserId = null;
     if (referralCode && typeof referralCode === 'string' && referralCode.trim()) {
@@ -806,7 +830,7 @@ router.post('/create-embedded-subscription', authMiddleware, async (req, res) =>
     // LIVE STRIPE SYNC: Prevent stale DB from blocking legitimate re-purchases
     if (user.stripeSubscriptionId) {
       try {
-        const stripeSubscription = await stripe.subscriptions.retrieve(user.stripeSubscriptionId);
+        const stripeSubscription = await stripeOwn.subscriptions.retrieve(user.stripeSubscriptionId);
         const isReallyActive = ['active', 'trialing'].includes(stripeSubscription.status);
         if (!isReallyActive) {
           console.log(`⚠️ Stale subscription detected for user ${user.id}. Stripe status: ${stripeSubscription.status}, DB status: ${user.subscriptionStatus}`);
@@ -860,7 +884,7 @@ router.post('/create-embedded-subscription', authMiddleware, async (req, res) =>
       // Fetch billing cycle from Stripe if not in DB
       if (!currentBilling) {
         try {
-          const subscription = await stripe.subscriptions.retrieve(user.stripeSubscriptionId);
+          const subscription = await stripeOwn.subscriptions.retrieve(user.stripeSubscriptionId);
           const interval = subscription.items.data[0]?.plan?.interval;
           currentBilling = interval === 'year' ? 'annual' : 'monthly';
           
@@ -923,25 +947,11 @@ router.post('/create-embedded-subscription', authMiddleware, async (req, res) =>
       console.log(`🚀 UPGRADE detected: ${currentTier} (${currentBilling}) → ${tierId} (${billingCycle})`);
     }
 
-    // Create or retrieve Stripe customer
-    let customerId = user.stripeCustomerId;
-    
-    if (!customerId) {
-      const customer = await stripe.customers.create({
-        email: user.email,
-        metadata: { userId: user.id },
-      });
-      customerId = customer.id;
-      
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { stripeCustomerId: customerId }
-      });
-    }
+    const customerId = await ensureNewAccountCustomer(stripe, user);
     
     const firstCycleDiscountCents = Math.max(recurringUnitAmountCents - firstInvoiceAmountCents, 0);
     const firstCycleCoupon = firstCycleDiscountCents > 0
-      ? await createSingleCycleDiscountCoupon({
+      ? await createSingleCycleDiscountCoupon(stripe, {
           amountOffCents: firstCycleDiscountCents,
           customerId,
           codeLabel: referrerUserId ? 'Referral first-cycle discount' : 'Discount code first-cycle discount',
@@ -1030,6 +1040,7 @@ router.post('/confirm-payment', authMiddleware, async (req, res) => {
   try {
     const { paymentIntentId } = req.body;
     const userId = req.user.userId;
+    const stripe = stripeNew(); // payment intents created via /create-payment-intent live on NEW account
     
     console.log('💳 Confirming payment...', { paymentIntentId, userId });
     
@@ -1133,6 +1144,7 @@ router.post('/confirm-subscription', authMiddleware, async (req, res) => {
   try {
     const { subscriptionId } = req.body;
     const userId = req.user.userId;
+    const stripe = stripeNew(); // embedded subscriptions are created on the NEW account only
     
     console.log('💳 Confirming embedded subscription...', { subscriptionId, userId });
     
@@ -1324,11 +1336,20 @@ router.post('/confirm-subscription', authMiddleware, async (req, res) => {
       }
     }
 
-    // Cancel old subscription ONLY AFTER new subscription is fully confirmed
+    // Cancel old subscription ONLY AFTER new subscription is fully confirmed.
+    // Old sub may live on the LEGACY account (if user is migrating from legacy → new),
+    // so route the cancel to the correct Stripe instance.
     if (oldSubscriptionId) {
+      const cancelStripe = getStripeForAccount(
+        accountForUserSubscription(user, oldSubscriptionId),
+      );
       try {
         console.log('🔄 Cancelling previous subscription (after new is active):', oldSubscriptionId);
-        await stripe.subscriptions.cancel(oldSubscriptionId);
+        if (cancelStripe) {
+          await cancelStripe.subscriptions.cancel(oldSubscriptionId);
+        } else {
+          console.warn('⚠️ No Stripe client configured for old subscription account');
+        }
       } catch (cancelError) {
         // Non-fatal - log but don't fail
         console.warn('⚠️ Could not cancel previous subscription:', cancelError.message);
@@ -1356,6 +1377,7 @@ router.post('/create-special-offer-intent', authMiddleware, async (req, res) => 
     const { referenceUrl, aiConfig, referralId } = req.body;
     const safeReferralId = sanitizeReferralId(referralId);
     const userId = req.user.userId;
+    const stripe = stripeNew();
     
     if (!referenceUrl) {
       return res.status(400).json({ error: 'Reference image URL is required' });
@@ -1388,21 +1410,7 @@ router.post('/create-special-offer-intent', authMiddleware, async (req, res) => 
     const specialOfferPrice = 600; // in cents
     const bonusCredits = 250; // Bonus credits with special offer
     
-    // Create or retrieve Stripe customer
-    let customerId = user.stripeCustomerId;
-    
-    if (!customerId) {
-      const customer = await stripe.customers.create({
-        email: user.email,
-        metadata: { userId: user.id },
-      });
-      customerId = customer.id;
-      
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { stripeCustomerId: customerId }
-      });
-    }
+    const customerId = await ensureNewAccountCustomer(stripe, user);
     
     const soMetadata = {
       userId: user.id,
@@ -1442,6 +1450,7 @@ router.post('/confirm-special-offer', authMiddleware, async (req, res) => {
   try {
     const { paymentIntentId } = req.body;
     const userId = req.user.userId;
+    const stripe = stripeNew(); // special-offer PI is created on the NEW account
     
     console.log('💳 Confirming special offer payment...', { paymentIntentId, userId });
     
@@ -1654,6 +1663,7 @@ router.post('/create-special-offer-checkout', authMiddleware, async (req, res) =
     const { referenceUrl, aiConfig, referralId } = req.body;
     const safeReferralId = sanitizeReferralId(referralId);
     const userId = req.user.userId;
+    const stripe = stripeNew();
     
     if (!referenceUrl) {
       return res.status(400).json({ error: 'Reference image URL is required' });
@@ -1687,23 +1697,7 @@ router.post('/create-special-offer-checkout', authMiddleware, async (req, res) =
     const specialOfferPrice = 600; // in cents
     const bonusCredits = 250; // Bonus credits with special offer
     
-    // Create or retrieve Stripe customer
-    let customerId = user.stripeCustomerId;
-    
-    if (!customerId) {
-      const customer = await stripe.customers.create({
-        email: user.email,
-        metadata: {
-          userId: user.id,
-        },
-      });
-      customerId = customer.id;
-      
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { stripeCustomerId: customerId }
-      });
-    }
+    const customerId = await ensureNewAccountCustomer(stripe, user);
     
     // Auto-detect correct frontend URL
     const frontendUrl = getTrustedFrontendUrl(req);
@@ -1753,6 +1747,7 @@ router.post('/verify-special-offer', authMiddleware, async (req, res) => {
   try {
     const { sessionId } = req.body;
     const userId = req.user.userId;
+    const stripe = stripeNew(); // special offer hosted checkout runs on the NEW account
 
     if (!sessionId) {
       return res.status(400).json({ error: 'Session ID is required' });
@@ -1965,7 +1960,7 @@ router.get('/subscription-status', authMiddleware, async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    if (!user.stripeSubscriptionId) {
+    if (!user.stripeSubscriptionId && !user.legacyStripeSubscriptionId) {
       return res.json({ 
         hasSubscription: false,
         status: null,
@@ -1973,7 +1968,13 @@ router.get('/subscription-status', authMiddleware, async (req, res) => {
       });
     }
 
-    const subscription = await stripe.subscriptions.retrieve(user.stripeSubscriptionId);
+    // Subscription may live on the legacy account (grandfathered) — route accordingly.
+    const activeSubId = user.stripeSubscriptionId || user.legacyStripeSubscriptionId;
+    const stripe = getStripeForAccount(accountForUserSubscription(user, activeSubId));
+    if (!stripe) {
+      return res.status(500).json({ error: 'Stripe is not configured for this user account' });
+    }
+    const subscription = await stripe.subscriptions.retrieve(activeSubId);
 
     res.json({
       hasSubscription: true,
@@ -2004,16 +2005,23 @@ router.post('/cancel-subscription', authMiddleware, async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    console.log('📋 User subscription ID:', user.stripeSubscriptionId);
+    const activeSubId = user.stripeSubscriptionId || user.legacyStripeSubscriptionId;
+    console.log('📋 User subscription ID:', activeSubId);
 
-    if (!user.stripeSubscriptionId) {
+    if (!activeSubId) {
       console.log('❌ No subscription ID found');
       return res.status(400).json({ error: 'No active subscription found' });
     }
 
+    // Route cancel to the account that owns this subscription (legacy or new)
+    const stripe = getStripeForAccount(accountForUserSubscription(user, activeSubId));
+    if (!stripe) {
+      return res.status(500).json({ error: 'Stripe is not configured for this user account' });
+    }
+
     // Cancel at period end (don't immediately revoke access)
-    console.log('🔄 Calling Stripe to cancel subscription:', user.stripeSubscriptionId);
-    const subscription = await stripe.subscriptions.update(user.stripeSubscriptionId, {
+    console.log('🔄 Calling Stripe to cancel subscription:', activeSubId);
+    const subscription = await stripe.subscriptions.update(activeSubId, {
       cancel_at_period_end: true
     });
 
@@ -2036,7 +2044,10 @@ router.post('/cancel-subscription', authMiddleware, async (req, res) => {
   }
 });
 
-// Create Customer Portal session for subscription management
+// Create Customer Portal session for subscription management.
+// Routes to the account that owns the user's CURRENT primary customer:
+//   - legacy account → opens portal for grandfathered subscription
+//   - new account    → opens portal for current US LLC customer
 router.post('/create-portal-session', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
@@ -2049,10 +2060,17 @@ router.post('/create-portal-session', authMiddleware, async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
+    const account = accountForUser(user);
+    const stripe = getStripeForAccount(account);
+    if (!stripe) {
+      return res.status(500).json({ error: 'Stripe is not configured for this user account' });
+    }
+
     let customerId = user.stripeCustomerId;
 
     // Make billing portal available to every tier:
-    // recover existing Stripe customer by email, or create one if missing.
+    // recover existing Stripe customer by email, or create one if missing — within
+    // whichever account the user currently belongs to.
     if (!customerId) {
       const existingByEmail = await stripe.customers.list({
         email: user.email,
@@ -2082,7 +2100,7 @@ router.post('/create-portal-session', authMiddleware, async (req, res) => {
       return_url: `${returnUrl}/dashboard?tab=settings&billing=updated`,
     });
 
-    console.log('✅ Customer Portal session created:', portalSession.url);
+    console.log(`✅ Customer Portal session created on ${account} account:`, portalSession.url);
     res.json({ url: portalSession.url });
   } catch (error) {
     console.error('❌ Error creating portal session:', error.message);
@@ -2095,6 +2113,7 @@ router.post('/verify-session', authMiddleware, async (req, res) => {
   try {
     const { sessionId } = req.body;
     const userId = req.user.userId;
+    const stripe = stripeNew(); // hosted checkout sessions are created on the NEW account only
 
     if (!sessionId) {
       return res.status(400).json({ error: 'Session ID is required' });
@@ -2281,11 +2300,17 @@ router.post('/verify-session', authMiddleware, async (req, res) => {
           sourceId: sessionId,
         });
 
-        // NOW cancel the old subscription (AFTER new payment succeeded)
+        // NOW cancel the old subscription (AFTER new payment succeeded).
+        // Old sub may live on the LEGACY account when migrating off the legacy platform.
         if (oldSubscriptionId) {
+          const cancelStripe = getStripeForAccount(
+            accountForUserSubscription(user, oldSubscriptionId),
+          );
           try {
-            await stripe.subscriptions.cancel(oldSubscriptionId);
-            console.log(`✅ Cancelled old subscription ${oldSubscriptionId} after successful upgrade`);
+            if (cancelStripe) {
+              await cancelStripe.subscriptions.cancel(oldSubscriptionId);
+              console.log(`✅ Cancelled old subscription ${oldSubscriptionId} after successful upgrade`);
+            }
           } catch (cancelError) {
             console.error(`⚠️ Failed to cancel old subscription ${oldSubscriptionId}:`, cancelError.message);
             // Don't fail the response - the new subscription is already active
@@ -2327,7 +2352,8 @@ router.get('/sync-subscription', authMiddleware, async (req, res) => {
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    if (!user.stripeSubscriptionId) {
+    const activeSubId = user.stripeSubscriptionId || user.legacyStripeSubscriptionId;
+    if (!activeSubId) {
       return res.json({
         synced: true,
         subscriptionStatus: user.subscriptionStatus,
@@ -2336,8 +2362,13 @@ router.get('/sync-subscription', authMiddleware, async (req, res) => {
       });
     }
 
+    const stripe = getStripeForAccount(accountForUserSubscription(user, activeSubId));
+    if (!stripe) {
+      return res.status(500).json({ error: 'Stripe is not configured for this user account' });
+    }
+
     try {
-      const stripeSubscription = await stripe.subscriptions.retrieve(user.stripeSubscriptionId);
+      const stripeSubscription = await stripe.subscriptions.retrieve(activeSubId);
       const isReallyActive = ['active', 'trialing'].includes(stripeSubscription.status);
 
       if (!isReallyActive) {
@@ -2401,6 +2432,7 @@ router.post('/recover-special-offer', authMiddleware, async (req, res) => {
   try {
     const { paymentIntentId } = req.body;
     const userId = req.user.userId;
+    const stripe = stripeNew(); // special-offer payments live on the NEW account
 
     if (!paymentIntentId) {
       return res.status(400).json({ error: 'paymentIntentId is required' });

@@ -22,6 +22,15 @@ model User {
   subscriptionBillingCycle      String?
   stripeCustomerId              String?                 @unique
   stripeSubscriptionId          String?                 @unique
+  /// Which Stripe account currently owns this user's primary customer + subscription.
+  /// Values: "legacy" (old pre-USLLC account), "new" (US LLC account). Default "new" for fresh users.
+  stripeAccount                 String                  @default("new")
+  /// Old-account customer id, preserved when a legacy customer migrates to the new account.
+  /// Webhooks from the legacy account also resolve users via this column.
+  legacyStripeCustomerId        String?                 @unique
+  /// Old-account subscription id, preserved while a legacy subscription is being grandfathered
+  /// (rebills via legacy webhook). Cleared when the legacy sub is cancelled / deleted.
+  legacyStripeSubscriptionId    String?                 @unique
   maxModels                     Int                     @default(999)
   subscriptionCredits           Int                     @default(0)
   purchasedCredits              Int                     @default(0)
@@ -151,12 +160,16 @@ model CreditTransaction {
   description      String?
   paymentSessionId String?   @unique
   emailSentAt      DateTime?
+  /// Which Stripe account this transaction was processed through.
+  /// "legacy" | "new" | null (null for non-Stripe e.g. crypto, manual admin grants).
+  stripeAccount    String?
   createdAt        DateTime  @default(now())
   user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([paymentSessionId])
   @@index([userId, createdAt])
+  @@index([stripeAccount])
 }
 
 model Generation {

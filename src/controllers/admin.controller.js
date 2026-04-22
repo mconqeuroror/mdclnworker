@@ -1,7 +1,11 @@
 import { randomBytes } from "node:crypto";
 import bcrypt from "bcryptjs";
 import prisma from "../lib/prisma.js";
-import Stripe from "stripe";
+import {
+  getStripeForAccount,
+  getStripeForUser,
+  accountForUser,
+} from "../lib/stripeClients.js";
 import { recordReferralCommissionFromPayment } from "../services/referral.service.js";
 import { deleteElevenLabsVoice } from "../services/elevenlabs.service.js";
 import { purgeAllBlobAndR2ForUser } from "../utils/userStoragePurge.js";
@@ -18,11 +22,51 @@ import {
 } from "../services/voice-monthly-billing.service.js";
 import { decryptApiKey, encryptApiKey } from "../utils/apiKeyVault.js";
 
-const stripeSecretKey = process.env.STRIPE_SECRET_KEY || process.env.TESTING_STRIPE_SECRET_KEY;
+/**
+ * Dual-Stripe admin helpers.
+ * - `stripe` defaults to the NEW (US LLC) account for new lookups.
+ * - For operations on a SPECIFIC payment we resolve the owning account from
+ *   the user/transaction record and use the matching Stripe client.
+ * - When account is unknown, `tryStripeBothAccounts` calls a function with NEW
+ *   first and falls back to LEGACY on `resource_missing` so admin refund/lookup
+ *   works seamlessly across the two accounts.
+ */
+const stripe = getStripeForAccount("new");
 
-const stripe = stripeSecretKey
-  ? new Stripe(stripeSecretKey, { apiVersion: "2024-11-20.acacia", timeout: 30_000, maxNetworkRetries: 1 })
-  : null;
+async function tryStripeBothAccounts(call) {
+  const newClient = getStripeForAccount("new");
+  const legacyClient = getStripeForAccount("legacy");
+  let lastErr = null;
+  for (const client of [newClient, legacyClient]) {
+    if (!client) continue;
+    try {
+      return await call(client);
+    } catch (err) {
+      if (err?.code === "resource_missing" || err?.statusCode === 404) {
+        lastErr = err;
+        continue;
+      }
+      throw err;
+    }
+  }
+  if (lastErr) throw lastErr;
+  throw new Error("No Stripe accounts are configured");
+}
+
+async function getStripeForPaymentSession(paymentSessionId) {
+  if (!paymentSessionId) return stripe;
+  // Match against credit_transactions → user → account.
+  const tx = await prisma.creditTransaction.findUnique({
+    where: { paymentSessionId },
+    select: {
+      stripeAccount: true,
+      user: { select: { stripeAccount: true, legacyStripeSubscriptionId: true, stripeSubscriptionId: true } },
+    },
+  });
+  if (tx?.stripeAccount) return getStripeForAccount(tx.stripeAccount);
+  if (tx?.user) return getStripeForUser(tx.user);
+  return stripe;
+}
 
 const PURCHASE_ID_PREFIX = "purchase_";
 
@@ -46,13 +90,16 @@ function inferPurchaseBucket(tx) {
 }
 
 async function refundByPaymentSessionId(paymentSessionId, idempotencyKey = null) {
-  if (!stripe) throw new Error("Stripe not configured");
-
   const sid = String(paymentSessionId || "").trim();
   if (!sid) throw new Error("Missing paymentSessionId");
 
+  // Resolve which Stripe account owns this payment (legacy or new) so refunds work
+  // for grandfathered legacy charges AND new US-LLC charges.
+  const stripeForSession = (await getStripeForPaymentSession(sid)) || stripe;
+  if (!stripeForSession) throw new Error("Stripe not configured");
+
   if (sid.startsWith("pi_")) {
-    return await stripe.refunds.create(
+    return await stripeForSession.refunds.create(
       {
         payment_intent: sid,
         reason: "requested_by_customer",
@@ -62,9 +109,9 @@ async function refundByPaymentSessionId(paymentSessionId, idempotencyKey = null)
   }
 
   if (sid.startsWith("cs_")) {
-    const session = await stripe.checkout.sessions.retrieve(sid);
+    const session = await stripeForSession.checkout.sessions.retrieve(sid);
     if (session.payment_intent) {
-      return await stripe.refunds.create(
+      return await stripeForSession.refunds.create(
         {
           payment_intent: String(session.payment_intent),
           reason: "requested_by_customer",
@@ -74,7 +121,7 @@ async function refundByPaymentSessionId(paymentSessionId, idempotencyKey = null)
     }
     if (session.subscription) {
       const subId = String(session.subscription);
-      const sub = await stripe.subscriptions.retrieve(subId, {
+      const sub = await stripeForSession.subscriptions.retrieve(subId, {
         expand: ["latest_invoice.payment_intent"],
       });
       const latestPi = sub.latest_invoice?.payment_intent;
@@ -85,7 +132,7 @@ async function refundByPaymentSessionId(paymentSessionId, idempotencyKey = null)
             ? latestPi?.id
             : null;
       if (!latestPiId) throw new Error(`No refundable payment intent found for checkout session ${sid}`);
-      return await stripe.refunds.create(
+      return await stripeForSession.refunds.create(
         {
           payment_intent: latestPiId,
           reason: "requested_by_customer",
@@ -97,11 +144,11 @@ async function refundByPaymentSessionId(paymentSessionId, idempotencyKey = null)
   }
 
   if (sid.startsWith("in_")) {
-    const invoice = await stripe.invoices.retrieve(sid);
+    const invoice = await stripeForSession.invoices.retrieve(sid);
     const pi = invoice.payment_intent;
     const piId = typeof pi === "string" ? pi : typeof pi === "object" ? pi?.id : null;
     if (!piId) throw new Error(`No payment intent found for invoice ${sid}`);
-    return await stripe.refunds.create(
+    return await stripeForSession.refunds.create(
       {
         payment_intent: piId,
         reason: "requested_by_customer",
@@ -111,7 +158,7 @@ async function refundByPaymentSessionId(paymentSessionId, idempotencyKey = null)
   }
 
   if (sid.startsWith("sub_")) {
-    const sub = await stripe.subscriptions.retrieve(sid, {
+    const sub = await stripeForSession.subscriptions.retrieve(sid, {
       expand: ["latest_invoice.payment_intent"],
     });
     const latestPi = sub.latest_invoice?.payment_intent;
@@ -122,7 +169,7 @@ async function refundByPaymentSessionId(paymentSessionId, idempotencyKey = null)
           ? latestPi?.id
           : null;
     if (!latestPiId) throw new Error(`No refundable payment intent found for subscription ${sid}`);
-    const refund = await stripe.refunds.create(
+    const refund = await stripeForSession.refunds.create(
       {
         payment_intent: latestPiId,
         reason: "requested_by_customer",
@@ -130,7 +177,7 @@ async function refundByPaymentSessionId(paymentSessionId, idempotencyKey = null)
       idempotencyKey ? { idempotencyKey } : undefined,
     );
     if (["active", "trialing", "past_due"].includes(sub.status)) {
-      await stripe.subscriptions.update(sid, { cancel_at_period_end: true });
+      await stripeForSession.subscriptions.update(sid, { cancel_at_period_end: true });
     }
     return refund;
   }
