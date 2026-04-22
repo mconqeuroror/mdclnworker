@@ -44,9 +44,26 @@ if (!process.env.JWT_SECRET) {
 
 // Production-only: Stripe + crypto secrets (main web app / checkout). API-only deployments
 // (same codebase, no payment routes needed) set REQUIRE_PAYMENT_SECRETS=false in env.
+//
+// Dual-Stripe aware: any of the legacy or new account env names satisfies the requirement.
+// At least one Stripe secret + at least one Stripe webhook secret must be present.
 if (isProduction && process.env.REQUIRE_PAYMENT_SECRETS !== 'false') {
-  const productionSecrets = ['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'NOWPAYMENTS_IPN_SECRET'];
-  const missingProdSecrets = productionSecrets.filter((key) => !process.env[key]);
+  const stripeSecretConfigured = Boolean(
+    process.env.STRIPE_NEW_SECRET_KEY ||
+      process.env.STRIPE_LEGACY_SECRET_KEY ||
+      process.env.STRIPE_SECRET_KEY,
+  );
+  const stripeWebhookConfigured = Boolean(
+    process.env.STRIPE_NEW_WEBHOOK_SECRET ||
+      process.env.STRIPE_LEGACY_WEBHOOK_SECRET ||
+      process.env.STRIPE_WEBHOOK_SECRET,
+  );
+
+  const missingProdSecrets = [];
+  if (!stripeSecretConfigured) missingProdSecrets.push('STRIPE_SECRET_KEY (or STRIPE_NEW_SECRET_KEY / STRIPE_LEGACY_SECRET_KEY)');
+  if (!stripeWebhookConfigured) missingProdSecrets.push('STRIPE_WEBHOOK_SECRET (or STRIPE_NEW_WEBHOOK_SECRET / STRIPE_LEGACY_WEBHOOK_SECRET)');
+  if (!process.env.NOWPAYMENTS_IPN_SECRET) missingProdSecrets.push('NOWPAYMENTS_IPN_SECRET');
+
   if (missingProdSecrets.length > 0) {
     console.error('❌ FATAL: Missing production secrets:', missingProdSecrets.join(', '));
     console.error(
