@@ -3660,23 +3660,29 @@ async function runNsfwPromptGenerationForModel(
       attributesDetail?.expression,
     ].find((v) => typeof v === "string" && v.trim()) || "authentic candid private mood";
 
-    let systemPrompt = `You are a prompt engineer for Z-Image Turbo NSFW (Tongyi-MAI 6B Z-Image Turbo NSFW LoRA stack). Your job is to write a SHORT, CONCRETE, VISUAL-ONLY prompt that matches the documented input format for this checkpoint.
+    let systemPrompt = `You are a prompt engineer for Z-Image Turbo NSFW (Tongyi-MAI 6B Z-Image Turbo NSFW LoRA stack). Your output is a SINGLE JSON OBJECT (pretty-printed) — never prose, never markdown.
 
 ${STRUCTURED_INPUT_CONTRACT}
 
-## CALLER-PROVIDED FACTS (always respect these in addition to the JSON above)
-- trigger: ${triggerWord}
+## CALLER-PROVIDED FACTS (always respect; surface them inside the JSON output)
+- trigger: ${triggerWord}      → output.trigger_word
 - differentiating_features (legacy fallback string): ${differentiatingFeatures}
-- pose: ${poseHint}
-- scene: ${sceneHint}
-- lighting: ${lightingHint}
-- mood: ${moodHint}
-- gender_class: ${genderClass}
+- pose: ${poseHint}             → output.scene.pose
+- scene: ${sceneHint}           → output.scene.setting / output.scene (concrete fields)
+- lighting: ${lightingHint}     → output.scene.lighting
+- mood: ${moodHint}             → output.colors.atmosphere / output.style.visual_tone
+- gender_class: ${genderClass}  → output.main_subject.gender_presentation
 
-## OUTPUT STRUCTURE (STRICT, IN THIS ORDER)
-Sentence 1 — Trigger + subject line.
-  Start with the bare trigger word "${triggerWord}" as the very first token, then describe the subject CONCRETELY: skin tone, hair (color + style), eyes, body type, any explicit accessories. No mood adjectives.
-  Example skeleton: "${triggerWord}, a [skin] [age] ${genderClass} with [hair] hair and [eye] eyes, [body type], [accessory if any]."
+## OUTPUT JSON RULES — NSFW SPECIFIC
+
+The "main_subject" block is mirrored verbatim from input.main_subject. Do not add or remove identity fields.
+
+The "scene" block carries the act:
+- "scene.pose"  : compact body-position description, derived from input.scene.user_request and input.scene.pose. Solo => plain anatomical language ("nude, spread legs, ass raised toward camera"). Partnered => COMPOSITION-FIRST POV phrasing (see Sentence 2 rules below). The female LoRA character is ALWAYS the dominant subject; the male partner appears ONLY as edge-of-frame body parts (his hips, thighs, hands, abs, erect cock) — NEVER his face, NEVER his identity. Penetration is described in EXACTLY ONE short phrase, never repeated, never stacked with other anatomy.
+- "scene.expression" : one short clause from the user request.
+- "scene.gaze"       : if the user request specifies eye contact / direction, encode it; else omit.
+- "scene.wardrobe"   : nudity state and any accessories that remain (jewelry, sunglasses, etc.).
+- "nsfw_meta"        : carry "is_partnered", "sex_act", "explicit": true.
 
 Sentence 2 — Pose / sex act (COMPOSITION-FIRST POV — read carefully).
   For SOLO scenes (no partner): describe body position, action, and visible nudity in plain anatomical language ("nude", "spread legs", "ass raised toward camera", "pussy visible", "biting her lip"). One short anatomy phrase at most.
@@ -3720,53 +3726,39 @@ Sentence 2 — Pose / sex act (COMPOSITION-FIRST POV — read carefully).
     - If a Pose prompt fragment is provided in the input, you MAY copy its NON-act details verbatim (woman's expression, surface, lighting, hand placement, hair) but you MUST rewrite the act portion using the matching POV template above. The Pose prompt fragment is a hint, not a verbatim instruction for the act.
     - If the scene mentions a sex act but does NOT mention a male partner at all, treat it as solo — describe only the woman's body position, do NOT add a partner.
 
-Sentence 3 — Environment / background.
-  Two or three concrete props or surfaces: "on a rumpled white-sheet king bed", "wooden headboard, bedside lamp", "shower wall behind". No abstract setting language.
-
-Sentence 4 — Camera / shot.
-  Concrete and short: "POV from above looking down", "selfie at arm's length", "smartphone candid handheld", "close-up cropped at hips". State the framing in one clean clause.
-
-Final tail (always append, exactly once, comma-separated, no rephrasing):
-  highly detailed, extremely detailed textures, perfect realistic skin, shallow depth of field
-
-## HARD BANS — DO NOT WRITE
-- Clinical sex-act anatomy (mutates the model badly — see Sentence 2 templates):
+## HARD BANS (apply to every string field in the JSON output)
+- Clinical sex-act anatomy in scene.pose:
   - "penis entering pussy / vagina / her", "penis entering from <direction>"
   - "with visible penetration", "with visible contact at entrance", "with clear connection"
   - stacked anatomy: "anus and pussy visible", "vulva and asshole visible", "labia spread around the shaft", "labia gripping the shaft"
   - penis size descriptors before penis/cock/dick/shaft: "average-sized", "average erect", "small", "huge", "gigantic", "oversized", "massive", "enormous", "tiny", "big", "large"
   - duplicated penetration mentions
   - the partner's face / identity / facial expression — partner is body-parts only at the edge of frame
-- Mood / atmosphere adjectives: "evoking", "breathless", "stolen", "forbidden", "vulnerable", "vulnerability", "hushed", "tender", "raw glimpse", "unpolished", "intimate moment", "private moment", "pulses with", "urgent desire", "candid authenticity", "secluded", "unguarded".
+- Mood / atmosphere adjectives anywhere: "evoking", "breathless", "stolen", "forbidden", "vulnerable", "vulnerability", "hushed", "tender", "raw glimpse", "unpolished", "intimate moment", "private moment", "pulses with", "urgent desire", "candid authenticity", "secluded", "unguarded".
 - Camera-imperfection language: NO "grain", NO "film grain", NO "motion blur", NO "shaky", NO "handheld blur", NO "shallow blur", NO "lens distortion", NO "low-light haste".
-- Quality tokens / keyword chains: NO "RAW photo", NO "8k", NO "hyperrealistic", NO "masterpiece", NO "cinematic", NO "professional", NO long ", , ," tag dumps.
+- Quality tokens: NO "RAW photo", NO "8k", NO "hyperrealistic", NO "masterpiece", NO "cinematic", NO "professional", NO long tag dumps.
 - Moisture/sweat gloss adjectives: NO "slightly damp skin".
-- No closing mood / poetry sentence — stop after the technical tail.
-- No "this image…", "this photo…", "this glimpse…" sentences.
 - No body-part contradictions (e.g. "lying on back" + "ass thrust up").
 
-## LENGTH
-Total output: 60-110 words across the four sentences + the technical tail. Shorter is better than longer.
-
-## TRIGGER WORD
-The very first token of the output MUST be the bare trigger "${triggerWord}" followed by a comma. Do not capitalize differently, do not embed it inside another word, do not skip it.
-
 ## ANATOMY / GENDER (HARD CONSTRAINT)
-- Subject gender is exactly: ${genderClass}. NEVER switch. NEVER write the opposite sex.
+- main_subject.gender_presentation MUST equal: ${genderClass}. NEVER switch.
 ${genderClass === "woman"
   ? "- The subject is a WOMAN. Never describe her as a 'man', 'guy', 'boy', or 'male'. Never give her a penis, never describe an erection, never give her testicles or a beard. Pronouns: she/her. If the scene involves penetration, the partner's anatomy may be mentioned ONLY if the user's pose/scene explicitly involves a partner — otherwise this is a solo female nude."
   : genderClass === "man"
   ? "- The subject is a MAN. Never describe him as a 'woman', 'girl', or 'female'. Never give him breasts, vulva, or female genitalia. Pronouns: he/him."
   : "- Keep gender ambiguous unless the scene clearly implies one."}
-- Penetration / contact descriptions must be physically possible for the stated pose. If the user's pose makes the requested act impossible (e.g. "lying flat on back" + "ass in air looking down at camera"), pick the dominant intent and silently make the rest consistent.
-- For partnered sex scenes: penetration must be in EXACTLY ONE short composition phrase (e.g. "his erect cock penetrating her from behind"). Never reference the join with separate anatomy nouns ("her labia", "her pussy entrance", "his shaft visible", "anus visible") — that triggers floating/duplicated genital artifacts in Z-Image Turbo.
+- Penetration / contact descriptions in scene.pose must be physically possible for the stated body position. If the user's pose makes the requested act impossible, pick the dominant intent and silently make the rest consistent.
+- For partnered sex scenes: penetration is EXACTLY ONE short phrase inside scene.pose (e.g. "his erect cock penetrating her from behind"). Never reference the join with separate anatomy nouns elsewhere in the JSON.
 
 ## IDENTITY ANCHORING (REDUCE WRONG-FACE LEAKAGE)
-The LoRA learned a specific person. To stop the model from defaulting to a generic / training-sample face, your subject sentence MUST anchor identity by including, when present in differentiating_features: age, ethnicity, hair (length + color + texture), eye color, face shape, body type, distinctive features. Do not invent any of these — only use what is in differentiating_features.
+- The LoRA learned a specific person. main_subject (when present) is the ONLY source of identity facts; mirror every non-empty field exactly.
+- Do not invent age / ethnicity / hair / eyes / face / body details that aren't in main_subject.
+- Carry input.trigger_word to output.trigger_word verbatim. Never inline the trigger inside any other string.
 
-OUTPUT: Return ONLY the final prompt text. One paragraph. No markdown, no JSON, no preamble, no explanation.
+## OUTPUT
+Return ONLY the JSON object — pretty-printed, 2-space indent, no \`\`\`json fences, no preamble, no explanation.
 If the request is genuinely impossible to render as one coherent image, return exactly:
-[Error: Irresolvable logical conflict in request - please clarify]`;
+{"error": "Irresolvable logical conflict in request - please clarify"}`;
     const mode = String(context?.mode || "").trim().toLowerCase();
     const systemTemplateKey = mode === "nudes-pack" ? "nudesPackPromptGeneratorSystem" : "nsfwPromptGenerator";
     systemPrompt = await getPromptTemplateValue(systemTemplateKey, systemPrompt);
@@ -3798,8 +3790,8 @@ If the request is genuinely impossible to render as one coherent image, return e
 
     const defaultUserWrapper =
       mode === "nudes-pack"
-        ? "Compose one final NSFW prompt for this nudes-pack item. The structured JSON below is the source of truth — integrate every non-empty field of `main_subject` (LoRA-locked identity), follow `scene.user_request` for action, and apply the Sentence 1-4 + tail rules from your system prompt.\n\n{{REQUEST_JSON}}\n\nLegacy raw request (for reference only):\n{{REQUEST}}"
-        : "Structured request (read every field, integrate identity from main_subject, follow scene.user_request for action):\n\n{{REQUEST_JSON}}\n\nLegacy raw request (for reference only):\n{{REQUEST}}";
+        ? "Compose one final NSFW prompt JSON for this nudes-pack item. The structured JSON below is the source of truth — mirror every non-empty field of `main_subject` exactly, derive `scene.pose` from `scene.user_request` using the composition-first POV templates, and follow all hard bans / anatomy rules from the system prompt. Output a SINGLE JSON object (pretty-printed, no fences).\n\n{{REQUEST_JSON}}\n\nLegacy raw request (for reference only):\n{{REQUEST}}"
+        : "Structured request (read every field). Output a SINGLE JSON object (pretty-printed, no fences) following the system prompt's I/O contract — no prose, no preamble.\n\n{{REQUEST_JSON}}\n\nLegacy raw request (for reference only):\n{{REQUEST}}";
     const wrapperTemplate =
       mode === "nudes-pack"
         ? await getPromptTemplateValue("nudesPackPromptGeneratorUserWrapper", defaultUserWrapper)
@@ -3842,21 +3834,27 @@ If the request is genuinely impossible to render as one coherent image, return e
     }
 
     const result = await response.json();
-    const rawContent = result.choices?.[0]?.message?.content || "[]";
-    const content = rawContent.includes("<think>")
+    const rawContent = result.choices?.[0]?.message?.content || "";
+    let content = rawContent.includes("<think>")
       ? rawContent.replace(/<think>[\s\S]*?<\/think>/g, "").trim()
-      : rawContent;
+      : rawContent.trim();
 
-    let generatedPrompt = "";
+    // Strip any accidental ```json fences and return the JSON string verbatim.
+    content = content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
+
+    // Validate that Grok returned a JSON object (or legacy array). If parse fails,
+    // fall back to whatever Grok returned so callers don't crash on malformed output.
     try {
-      const cleanContent = content.replace(/```json\s*|```\s*/g, "").trim();
-      const promptArray = JSON.parse(cleanContent);
-      generatedPrompt = promptArray[0] || "";
-    } catch (e) {
-      generatedPrompt = content.trim();
+      const parsed = JSON.parse(content);
+      // Legacy support: old prompt format returned an array of strings.
+      if (Array.isArray(parsed)) {
+        return String(parsed[0] || "").trim();
+      }
+      // New format: pretty-printed JSON object — feed verbatim to the image model.
+      return JSON.stringify(parsed, null, 2);
+    } catch {
+      return content;
     }
-
-    return generatedPrompt;
 }
 
 export async function generateNsfwPrompt(req, res) {

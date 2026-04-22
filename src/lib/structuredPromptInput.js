@@ -297,28 +297,83 @@ export function buildStructuredPromptInput({
 }
 
 /**
- * Standardized SYSTEM-prompt section that explains the JSON contract to Grok.
- * Both NSFW and ModelClone-X system prompts append this block so the LLM knows how to
- * read the structured input it will receive in the user message.
+ * Standardized SYSTEM-prompt section that explains the JSON I/O contract to Grok.
+ *
+ * Both NSFW and ModelClone-X system prompts include this block so the LLM knows
+ * exactly what JSON shape it receives AND must produce as output.
+ *
+ * IMPORTANT: The OUTPUT of the LLM is the JSON itself (pretty-printed). It is then
+ * stringified and fed to the downstream image model (Z-Image Turbo etc.) as the prompt
+ * — JSON formatting is preserved verbatim because the diffusion model conditions on
+ * the structured tokens, and our UI / logs need it human-readable.
  */
-export const STRUCTURED_INPUT_CONTRACT = `## STRUCTURED JSON INPUT (READ ALL FIELDS)
-The user message is a JSON object describing the request. Top-level keys you may receive:
+export const STRUCTURED_INPUT_CONTRACT = `## STRUCTURED JSON I/O CONTRACT (READ CAREFULLY — INPUT *AND* OUTPUT ARE JSON)
 
-- "trigger_word"        — LoRA trigger token. If present, output MUST start with this exact token followed by ", ".
-- "main_subject"        — LORA-LOCKED IDENTITY. Present ONLY when a model/LoRA is selected. When present, you MUST integrate every non-empty field (gender, age, ethnicity, skin tone, face.shape, face.eyes.color, face.lips.size, hair.color/length/texture/style, body.type/bust_size/waist/hips, distinguishing_features, tattoos, piercings, …) as the subject's identity. NEVER invent identity facts that aren't here.
-- "main_subject" ABSENT — No model selected. DO NOT invent or describe identity (no hair color, no eye color, no body type, no ethnicity, no face shape). Describe action/wardrobe/composition only; let the image model freely choose the person's appearance.
+### INPUT
+The user message is a JSON object. Top-level keys you may receive:
+
+- "trigger_word"        — LoRA trigger token. If present, the output's "trigger_word" field MUST be set to this exact token (do NOT inline it inside any other string).
+- "main_subject"        — LORA-LOCKED IDENTITY. Present ONLY when a model/LoRA is selected. When present, you MUST keep every non-empty field exactly as given (gender, age, ethnicity, skin tone, face.shape, face.eyes.color, face.lips.size, hair.color/length/texture/style, body.type/bust_size/waist/hips, distinguishing_features, tattoos, piercings, …). NEVER invent identity facts that aren't here.
+- "main_subject" ABSENT — No model selected. DO NOT add a "main_subject" field. DO NOT describe identity (no hair color, no eye color, no body type, no ethnicity, no face shape). Only describe action/wardrobe/composition/scene; let the image model freely choose the person's appearance.
 - "scene"               — User's scene request + setting / lighting / pose / expression / props.
 - "composition"         — Shot framing, camera angle, lens, orientation, depth of field.
 - "colors"              — Color palette + atmosphere.
 - "style"               — Photo category + visual tone + render style.
 - "nsfw_meta"           — NSFW-only flags (mode, explicit, is_partnered, sex_act, …) when applicable.
 
-INTEGRATION RULES:
-1. Render the JSON into ONE flowing natural-language paragraph (no JSON, no bullets, no labels).
-2. EVERY non-empty leaf value in main_subject must be reflected in the prose when present.
-3. NEVER pull identity from "scene" or "composition" — only from main_subject.
-4. The user's "scene.user_request" is the source of truth for the action/setting; preserve all of its concrete details verbatim.
-5. NEVER include the literal field labels ("hair.color:", "main_subject", "scene") in the output.
-6. If main_subject is missing, the subject becomes "a person" / generic noun fitting the scene; do not describe their face, hair, eyes, body type, or ethnicity at all.`;
+### OUTPUT
+You MUST return a SINGLE JSON object (pretty-printed, 2-space indent) and NOTHING ELSE — no markdown fences, no preamble, no explanation, no code block.
+
+The output object MUST follow EXACTLY this top-level structure (omit a key entirely when not applicable; never emit empty strings or empty objects):
+
+{
+  "trigger_word": "<copied verbatim from input.trigger_word, OR omit if input had none>",
+  "main_subject": { /* mirror input.main_subject EXACTLY when input had it; OMIT this key entirely when input had no main_subject */ },
+  "scene": {
+    "setting": "...",
+    "environment_details": ["...", "..."],
+    "props": ["..."],
+    "weather": "...",
+    "time_of_day": "...",
+    "lighting": "...",
+    "color_mood": "...",
+    "pose": "concrete description of body position/action — derived from input.scene.user_request and input.scene.pose",
+    "expression": "...",
+    "gaze": "...",
+    "wardrobe": { /* clothing details — describe even when main_subject is omitted, since clothing is scene, not identity */
+      "top": "...",
+      "bottom": "...",
+      "footwear": "...",
+      "accessories": ["..."]
+    }
+  },
+  "composition": {
+    "framing": "close-up | cowboy | full-body | POV from behind | etc.",
+    "camera_angle": "eye-level | low | high | overhead | ...",
+    "camera_lens": "35mm f/1.8 | telephoto compression | smartphone POV | ...",
+    "orientation": "vertical | horizontal | square",
+    "focus": "subject sharp, background soft",
+    "depth_of_field": "shallow | moderate | deep"
+  },
+  "colors": {
+    "dominant_palette": ["...", "..."],
+    "atmosphere": "..."
+  },
+  "style": {
+    "photo_category": "street fashion | studio portrait | lifestyle | ...",
+    "visual_tone": "natural, crisp, modern | dramatic high-contrast | ...",
+    "render_style": "photorealistic"
+  },
+  "nsfw_meta": { /* OMIT entirely when not NSFW. Mirror input.nsfw_meta plus any new act-specific framing notes */ }
+}
+
+### INTEGRATION RULES
+1. The OUTPUT is JSON, full stop. No prose paragraphs, no preamble, no \`\`\`json fences.
+2. Every non-empty field in input.main_subject MUST appear in output.main_subject; do not add identity fields that weren't in the input.
+3. Pull all action/scene details from input.scene.user_request and resolve them into the concrete fields above (pose, expression, gaze, wardrobe, lighting, …).
+4. NEVER pull identity from "scene" or "composition" — identity only flows through "main_subject".
+5. If main_subject is missing, the OUTPUT must also OMIT main_subject. Use a generic subject implied by scene + wardrobe.
+6. Keep every string concise and concrete (no mood-poetry, no filler adjectives like "stunning", "breathtaking", "ethereal").
+7. Field values should be plain English phrases, not key:value strings — write "almond shaped dark brown eyes", not "eye_color: brown, eye_shape: almond".`;
 
 export default buildStructuredPromptInput;

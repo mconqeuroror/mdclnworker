@@ -2988,28 +2988,32 @@ router.use((req, res, next) => {
   next();
 });
 
-const MODELCLONE_X_SFW_SYSTEM_PROMPT = `You are a senior prompt director for Z-Image Turbo (Tongyi-MAI 6B S3-DiT Turbo) focused on SFW portrait/lifestyle outputs. Your job is to transform a user's rough idea into one polished, detailed POSITIVE prompt that produces stunning, photorealistic results.
+const MODELCLONE_X_SFW_SYSTEM_PROMPT = `You are a senior prompt director for Z-Image Turbo (Tongyi-MAI 6B S3-DiT Turbo) focused on SFW portrait/lifestyle outputs. Your output is a SINGLE JSON OBJECT (pretty-printed) — never prose, never markdown.
 
 ${STRUCTURED_INPUT_CONTRACT}
 
-Z-Image Turbo responds best to natural descriptive prose, not tag lists. Write one flowing paragraph that covers:
-1. Shot type + framing (close-up portrait, cowboy shot, full body, POV, etc.) — pull from "composition" when present.
-2. Subject description — when "main_subject" is present, weave EVERY non-empty identity field into the subject (gender, age, ethnicity, skin tone, face shape, eye color, hair color/length/texture/style, body type, distinguishing features, tattoos, piercings, …). When "main_subject" is ABSENT, do not describe the subject's face, hair, eyes, body type, or ethnicity at all — describe a generic person in the action only and let the image model freely choose appearance.
-3. Exact clothing and styling details — be precise and grounded; clothing is part of the scene, not identity, so describe it even when "main_subject" is absent.
-4. Action, pose, expression, eye contact — from "scene" (user_request, pose, expression, gaze).
-5. Environment and background — from "scene.setting", "scene.environment_details", "scene.props".
-6. Lighting setup — from "scene.lighting", "scene.time_of_day", "scene.color_mood".
-7. Camera feel — from "composition" (camera_angle, camera_lens, depth_of_field).
-8. Overall mood and color grading — from "colors" + "style".
+## OUTPUT JSON RULES — MODELCLONE-X SFW
+
+Field-by-field guidance for the JSON you return:
+
+- "main_subject" — Mirror input.main_subject EXACTLY when input had it; OMIT entirely when input had no main_subject. NEVER add identity fields (no hair color, no eye color, no body type, no ethnicity, no face shape) when input.main_subject is missing.
+- "scene.setting" / "scene.environment_details" / "scene.props" — concrete, grounded details derived from input.scene.user_request and input.scene.setting.
+- "scene.pose" — concrete body position / action from the user request. SFW only.
+- "scene.expression" / "scene.gaze" — match the user's described mood / eye contact.
+- "scene.wardrobe" — exact clothing and styling details. ALWAYS describe wardrobe (clothing is scene, not identity) even when main_subject is missing.
+- "scene.lighting" / "scene.time_of_day" / "scene.color_mood" — coherent single light source description.
+- "composition.framing" — close-up / cowboy / full-body / POV / etc.
+- "composition.camera_angle" / "composition.camera_lens" / "composition.depth_of_field" — concrete and short.
+- "colors.dominant_palette" — 3-5 colors max.
+- "style.photo_category" / "style.visual_tone" / "style.render_style" — single short phrase per field.
 
 Rules:
-- Output ONLY the final positive prompt — no preamble, no explanation, no headings, no code block, no JSON
-- NEVER include negative terms, quality disclaimers, or anatomy constraints — those are handled separately
-- If trigger_word is provided in the JSON, do NOT include it — it is injected automatically by the caller
-- Preserve every user-specified detail in scene.user_request; only add richness, never contradict or water down the request
-- Keep it under 200 words, one clean paragraph
-- STRICT SFW POLICY: no nudity, no explicit sexual acts, no exposed genitals, no explicit erotic phrasing
-- If user asks for explicit/NSFW content, rewrite to a tasteful SFW equivalent while preserving composition/mood`;
+- Output ONLY the final JSON object — no preamble, no explanation, no headings, no \`\`\`json fences.
+- NEVER include negative terms, quality disclaimers, or anatomy constraints — those are handled separately.
+- Carry input.trigger_word to output.trigger_word verbatim when present; never inline it inside any other string.
+- Preserve every user-specified detail from scene.user_request; resolve them into the matching JSON fields, never water them down.
+- STRICT SFW POLICY: no nudity, no explicit sexual acts, no exposed genitals, no explicit erotic phrasing.
+- If user asks for explicit/NSFW content, rewrite scene.pose / scene.wardrobe / scene.expression to a tasteful SFW equivalent while preserving composition/mood.`;
 
 function parseMaybeJsonObject(value) {
   if (!value) return {};
@@ -3028,12 +3032,24 @@ function extractPromptFromOptimizer(rawContent) {
   const raw = String(rawContent).replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
   if (!raw) return "";
 
+  // Strip optional ```json fences and stray legacy headers.
   const codeBlock = raw.match(/```(?:[a-zA-Z]+)?\s*([\s\S]*?)```/);
   let prompt = codeBlock ? codeBlock[1] : raw;
   prompt = prompt
     .replace(/^✅\s*Optimized Z-Image-Turbo Prompt \(ready to paste\):?/i, "")
     .replace(/^["'\s]+|["'\s]+$/g, "")
     .trim();
+
+  // New JSON-output format: validate and re-emit pretty-printed JSON so the image
+  // model sees a clean, deterministic prompt. Falls back to raw text on parse fail.
+  try {
+    const parsed = JSON.parse(prompt);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return JSON.stringify(parsed, null, 2);
+    }
+  } catch {
+    // Legacy prose output — return as-is.
+  }
   return prompt;
 }
 
@@ -3124,7 +3140,7 @@ async function optimizeModelCloneXPrompt({
     },
   });
 
-  const defaultUserWrapper = `Structured request (read every field; integrate identity ONLY from main_subject when present, otherwise describe a generic subject and let the model choose appearance):
+  const defaultUserWrapper = `Structured request (the OUTPUT must also be a JSON object following the same shape — see system prompt for field rules):
 
 {{REQUEST_JSON}}
 
@@ -3133,10 +3149,11 @@ Legacy raw user prompt (for reference only — scene.user_request inside the JSO
 "{{USER_PROMPT}}"
 
 Hard rules:
-- Final output must remain SFW (no nudity/explicit sexual content).
-- One flowing paragraph. No JSON, no labels, no preamble.
+- Final output is a SINGLE JSON OBJECT (pretty-printed). No prose, no preamble, no \`\`\`json fences.
+- main_subject must be OMITTED entirely when input had no main_subject.
+- SFW only.
 
-Generate the optimized prompt now.`;
+Return the optimized JSON prompt now.`;
   const userWrapperTemplate =
     (await getPromptTemplateValue("modelcloneXPromptOptimizerUserWrapper", defaultUserWrapper)).trim() ||
     defaultUserWrapper;
