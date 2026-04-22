@@ -11,9 +11,20 @@ import { sound } from '../utils/sounds';
 import { pollModelUntilReady } from '../utils/modelStatusPolling';
 import { isTelegram } from '../lib/telegram.js';
 
+// Dual-Stripe: every new PaymentIntent / Subscription is created on the NEW (US LLC)
+// account by the backend. Stripe.js MUST therefore initialize with the NEW publishable
+// key, otherwise the browser looks the PI up on the wrong account and shows
+// "No such payment_intent: pi_xxx".
+//
+// Fallback chain (production):
+//   VITE_STRIPE_NEW_PUBLIC_KEY  ← preferred (US LLC)
+//   VITE_STRIPE_PUBLIC_KEY      ← legacy single-account fallback
 const stripePublicKey = import.meta.env.MODE === 'production'
-  ? import.meta.env.VITE_STRIPE_PUBLIC_KEY
-  : (import.meta.env.VITE_STRIPE_TEST_PUBLIC_KEY || import.meta.env.VITE_STRIPE_PUBLIC_KEY);
+  ? (import.meta.env.VITE_STRIPE_NEW_PUBLIC_KEY || import.meta.env.VITE_STRIPE_PUBLIC_KEY)
+  : (import.meta.env.VITE_STRIPE_NEW_TEST_PUBLIC_KEY
+      || import.meta.env.VITE_STRIPE_TEST_PUBLIC_KEY
+      || import.meta.env.VITE_STRIPE_NEW_PUBLIC_KEY
+      || import.meta.env.VITE_STRIPE_PUBLIC_KEY);
 const stripeMerchantCountry = String(import.meta.env.VITE_STRIPE_MERCHANT_COUNTRY || 'US').toUpperCase();
 
 console.log('Stripe mode:', import.meta.env.MODE, 'Using key:', stripePublicKey?.substring(0, 12) + '...');
