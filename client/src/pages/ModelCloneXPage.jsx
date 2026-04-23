@@ -48,6 +48,8 @@ const DEFAULT_MODELCLONE_X_LIMITS = Object.freeze({
   defaultStepsNoModel: 20,
   defaultStepsWithModel: 50,
   defaultCfg: 2,
+  trainingImagesStandard: 15,
+  trainingImagesPro: 30,
 });
 const MODELCLONE_X_DEFAULT_CFG = 2;
 
@@ -339,6 +341,10 @@ function CharacterTab({ isDark, pricing }) {
   const [uploadedImages, setUploadedImages] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [training, setTraining] = useState(false);
+  const [poolLoading, setPoolLoading] = useState(false);
+  const [poolImages, setPoolImages] = useState([]);
+  const [selectedPoolImages, setSelectedPoolImages] = useState([]);
+  const [assigningSet, setAssigningSet] = useState(false);
   const fileInputRef = useRef(null);
 
   const allModels = Array.isArray(models) ? models : [];
@@ -355,7 +361,9 @@ function CharacterTab({ isDark, pricing }) {
       setCharacter(mcxChar);
       if (mcxChar) {
         setUploadedImages(mcxChar.trainingImages || []);
+        return;
       }
+      setUploadedImages([]);
     } catch {
       setCharacter(null);
     } finally {
@@ -366,6 +374,74 @@ function CharacterTab({ isDark, pricing }) {
   useEffect(() => {
     fetchCharacter(selectedModelId);
   }, [selectedModelId, fetchCharacter]);
+
+  const fetchTrainingPool = useCallback(async (modelId, loraId) => {
+    if (!modelId || !loraId) {
+      setPoolImages([]);
+      setSelectedPoolImages([]);
+      return;
+    }
+    setPoolLoading(true);
+    try {
+      const res = await axios.get(
+        `/api/modelclone-x/character/training-pool/${modelId}?loraId=${encodeURIComponent(loraId)}`,
+        { headers: authHeader() },
+      );
+      const gallery = Array.isArray(res.data?.galleryImages) ? res.data.galleryImages : [];
+      const trainingImages = Array.isArray(res.data?.trainingImages) ? res.data.trainingImages : [];
+
+      const seen = new Set();
+      const merged = [];
+      for (const item of gallery) {
+        const url = typeof item?.outputUrl === "string" ? item.outputUrl.trim() : "";
+        if (!url || seen.has(url)) continue;
+        seen.add(url);
+        merged.push({
+          id: item.id || `${item.generationId}-${merged.length}`,
+          outputUrl: url,
+          generationId: item.generationId || null,
+        });
+      }
+      for (const item of trainingImages) {
+        const url = typeof item?.imageUrl === "string" ? item.imageUrl.trim() : "";
+        if (!url || seen.has(url)) continue;
+        seen.add(url);
+        merged.push({
+          id: item.id || `training-${merged.length}`,
+          outputUrl: url,
+          generationId: item.generationId || null,
+          customImageId: item.id || null,
+          _training: true,
+        });
+      }
+      setPoolImages(merged);
+
+      const selected = trainingImages
+        .map((item) => {
+          const url = typeof item?.imageUrl === "string" ? item.imageUrl.trim() : "";
+          if (!url) return null;
+          const match = merged.find((m) => m.outputUrl === url);
+          return match || {
+            id: item.id || `training-selected-${url}`,
+            outputUrl: url,
+            generationId: item.generationId || null,
+            customImageId: item.id || null,
+            _training: true,
+          };
+        })
+        .filter(Boolean);
+      setSelectedPoolImages(selected);
+    } catch {
+      setPoolImages([]);
+      setSelectedPoolImages([]);
+    } finally {
+      setPoolLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchTrainingPool(selectedModelId, character?.id);
+  }, [selectedModelId, character?.id, fetchTrainingPool]);
 
   const handleCreate = async () => {
     if (!selectedModelId) { toast.error("Select a model first"); return; }
@@ -392,16 +468,69 @@ function CharacterTab({ isDark, pricing }) {
     for (const f of files) formData.append("photos", f);
     formData.append("loraId", character.id);
     formData.append("modelId", character.modelId);
+    formData.append("replaceExistingCustom", "false");
     try {
       const res = await axios.post("/api/modelclone-x/character/upload-images", formData, {
         headers: { ...authHeader(), "Content-Type": "multipart/form-data" },
       });
-      toast.success(`${res.data.uploadedUrls?.length || 0} photos uploaded`);
+      const uploadedCount = Number(res.data?.uploadedCount || 0);
+      const trimmed = Number(res.data?.trimmed || 0);
+      if (trimmed > 0) {
+        toast(`Uploaded ${uploadedCount} photo(s). ${trimmed} skipped (tier limit reached).`, { icon: "⚠️" });
+      } else {
+        toast.success(`${uploadedCount} photos uploaded`);
+      }
       fetchCharacter(selectedModelId);
+      fetchTrainingPool(selectedModelId, character.id);
     } catch (err) {
       toast.error(err.response?.data?.message || "Upload failed");
     } finally {
       setUploading(false);
+    }
+  };
+
+  const togglePoolImage = (image) => {
+    const required = activeRequiredTrainingImages;
+    const exists = selectedPoolImages.some((item) => item.id === image.id);
+    if (exists) {
+      setSelectedPoolImages((prev) => prev.filter((item) => item.id !== image.id));
+      return;
+    }
+    if (selectedPoolImages.length >= required) {
+      toast.error(`Maximum ${required} images for this tier`);
+      return;
+    }
+    setSelectedPoolImages((prev) => [...prev, image]);
+  };
+
+  const handleApplySelectedSet = async () => {
+    if (!character) return;
+    if (selectedPoolImages.length !== activeRequiredTrainingImages) {
+      toast.error(`Select exactly ${activeRequiredTrainingImages} images`);
+      return;
+    }
+    setAssigningSet(true);
+    try {
+      await axios.post(
+        "/api/modelclone-x/character/assign-images",
+        {
+          modelId: selectedModelId,
+          loraId: character.id,
+          images: selectedPoolImages.map((img) => ({
+            generationId: img.generationId || undefined,
+            customImageId: img.customImageId || undefined,
+            outputUrl: img.outputUrl,
+          })),
+        },
+        { headers: authHeader() },
+      );
+      toast.success("Training set updated");
+      await fetchCharacter(selectedModelId);
+      await fetchTrainingPool(selectedModelId, character.id);
+    } catch (err) {
+      toast.error(err.response?.data?.message || "Failed to save selected set");
+    } finally {
+      setAssigningSet(false);
     }
   };
 
@@ -459,6 +588,10 @@ function CharacterTab({ isDark, pricing }) {
   const stdCredits = pricing?.trainingStandard ?? DEFAULT_MODELCLONE_X_PRICING.trainingStandard;
   const proCredits = pricing?.trainingPro ?? DEFAULT_MODELCLONE_X_PRICING.trainingPro;
   const createCost = trainingMode === "pro" ? proCredits : stdCredits;
+  const activeRequiredTrainingImages =
+    character?.trainingMode === "pro"
+      ? DEFAULT_MODELCLONE_X_LIMITS.trainingImagesPro
+      : DEFAULT_MODELCLONE_X_LIMITS.trainingImagesStandard;
 
   return (
     <div className="space-y-5">
@@ -528,6 +661,9 @@ function CharacterTab({ isDark, pricing }) {
                         }`}
                     >
                       <span>{m.charAt(0).toUpperCase() + m.slice(1)}</span>
+                      <span className={`text-[10px] ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+                        {m === "pro" ? "30 photos" : "15 photos"}
+                      </span>
                       <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-violet-300/95">
                         {m === "pro" ? proCredits : stdCredits}
                         <Coins className="w-3 h-3 opacity-90" />
@@ -586,7 +722,7 @@ function CharacterTab({ isDark, pricing }) {
               <div className="mb-4">
                 <div className="flex items-center justify-between mb-2">
                   <span className={`text-xs font-semibold ${isDark ? "text-slate-400" : "text-slate-500"}`}>
-                    Training Photos ({uploadedImages.length})
+                    Training Photos ({uploadedImages.length}/{activeRequiredTrainingImages})
                   </span>
                   <button
                     onClick={() => fileInputRef.current?.click()}
@@ -641,19 +777,74 @@ function CharacterTab({ isDark, pricing }) {
                 )}
               </div>
 
+              {/* NSFW-style training pool selection */}
+              <div className="mb-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className={`text-xs font-semibold ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+                    Select Training Set ({selectedPoolImages.length}/{activeRequiredTrainingImages})
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleApplySelectedSet}
+                    disabled={assigningSet || selectedPoolImages.length !== activeRequiredTrainingImages}
+                    className={`text-xs px-2.5 py-1 rounded-lg border transition-colors disabled:opacity-40 ${
+                      isDark
+                        ? "border-white/15 text-slate-300 hover:bg-white/[0.08]"
+                        : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    {assigningSet ? "Saving…" : "Use selected set"}
+                  </button>
+                </div>
+                {poolLoading ? (
+                  <div className="flex items-center gap-2 py-2 text-slate-400 text-xs">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading image pool…
+                  </div>
+                ) : poolImages.length > 0 ? (
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {poolImages.slice(0, 24).map((img) => {
+                      const active = selectedPoolImages.some((x) => x.id === img.id);
+                      return (
+                        <button
+                          key={img.id}
+                          type="button"
+                          onClick={() => togglePoolImage(img)}
+                          className={`relative aspect-square rounded-lg overflow-hidden border transition-all ${
+                            active
+                              ? "border-emerald-400 ring-1 ring-emerald-400/60"
+                              : (isDark ? "border-white/10 hover:border-white/25" : "border-slate-200 hover:border-slate-300")
+                          }`}
+                        >
+                          <img src={img.outputUrl} alt="" className="w-full h-full object-cover" />
+                          {active && (
+                            <div className="absolute top-1 right-1">
+                              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className={`text-xs ${isDark ? "text-slate-500" : "text-slate-500"}`}>
+                    No model images in pool yet. Upload custom photos or generate more images first.
+                  </p>
+                )}
+              </div>
+
               {/* Train button */}
               {character.status !== "ready" && character.status !== "training" && (
                 <button
                   type="button"
                   onClick={handleTrain}
-                  disabled={training || uploadedImages.length < 5}
+                  disabled={training || uploadedImages.length < activeRequiredTrainingImages}
                   className="w-full py-2.5 rounded-xl text-white text-sm font-semibold transition-all flex flex-col items-center justify-center gap-0.5 disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-[0.97]"
-                  style={primaryBtnStyle(training || uploadedImages.length < 5)}
+                  style={primaryBtnStyle(training || uploadedImages.length < activeRequiredTrainingImages)}
                 >
                   <span className="inline-flex items-center gap-2">
                     {training ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
-                    {uploadedImages.length < 5
-                      ? `Need ${5 - uploadedImages.length} more photos`
+                    {uploadedImages.length < activeRequiredTrainingImages
+                      ? `Need ${activeRequiredTrainingImages - uploadedImages.length} more photos`
                       : (
                         <>
                           Start Training
@@ -671,7 +862,9 @@ function CharacterTab({ isDark, pricing }) {
               {character.status === "training" && (
                 <div className="flex items-center gap-2.5 p-3 rounded-xl bg-amber-500/10 border border-amber-500/25">
                   <Loader2 className="w-4 h-4 text-amber-400 animate-spin flex-shrink-0" />
-                  <p className="text-xs text-amber-400">Training in progress — typically 10–20 minutes.</p>
+                  <p className="text-xs text-amber-400">
+                    Training in progress — typically {character.trainingMode === "pro" ? "about 2 hours" : "about 1 hour"}.
+                  </p>
                 </div>
               )}
 

@@ -119,6 +119,7 @@ import {
   getAppearance,
   generateNsfwVideoFromImage,
   extendNsfwVideo,
+  generateNsfwMotionVideo,
   recoverStuckNsfwGenerations,
   adminRecoverFailedNsfwRunpod,
   recoverStaleLoraTrainings,
@@ -613,6 +614,7 @@ router.post("/nsfw/test-face-ref", authMiddleware, generationLimiter, testFaceRe
 router.get("/nsfw/test-face-ref-status/:requestId", authMiddleware, testFaceRefStatus);
 router.post("/nsfw/generate-video", authMiddleware, generationLimiter, generateNsfwVideoFromImage);
 router.post("/nsfw/extend-video", authMiddleware, generationLimiter, extendNsfwVideo);
+router.post("/nsfw/generate-motion-video", authMiddleware, generationLimiter, generateNsfwMotionVideo);
 
 // ============================================
 // AUTH ROUTES (with rate limiting and input validation)
@@ -3253,6 +3255,8 @@ router.get("/modelclone-x/config", authMiddleware, async (_req, res) => {
         defaultStepsNoModel: 20,
         defaultStepsWithModel: 50,
         defaultCfg: 2,
+        trainingImagesStandard: 15,
+        trainingImagesPro: 30,
       },
     });
   } catch (error) {
@@ -3480,7 +3484,7 @@ function isModelCloneXLoraCategory(category) {
 // POST /api/modelclone-x/character/create
 router.post("/modelclone-x/character/create", authMiddleware, generationLimiter, async (req, res) => {
   try {
-    const { modelId, name, trainingMode } = req.body;
+    const { modelId, name, trainingMode, defaultAppearance } = req.body;
     const userId = req.user.userId;
     const mode = trainingMode === "pro" ? "pro" : "standard";
 
@@ -3503,6 +3507,16 @@ router.post("/modelclone-x/character/create", authMiddleware, generationLimiter,
 
     const loraName = name?.trim() || `${model.name || "Character"} ModelClone-X`;
 
+    // Keep MCX LoRA appearance defaults aligned with NSFW LoRA flow.
+    const sourceAppearance = defaultAppearance && typeof defaultAppearance === "object"
+      ? defaultAppearance
+      : (model.savedAppearance && typeof model.savedAppearance === "object" ? model.savedAppearance : null);
+    const sanitizedAppearance = sourceAppearance && typeof sourceAppearance === "object"
+      ? Object.fromEntries(
+          Object.entries(sourceAppearance).filter(([, value]) => typeof value === "string" && value.trim()),
+        )
+      : null;
+
     const lora = await prisma.trainedLora.create({
       data: {
         modelId,
@@ -3510,6 +3524,7 @@ router.post("/modelclone-x/character/create", authMiddleware, generationLimiter,
         status: "awaiting_images",
         trainingMode: mode,
         category: MODELCLONE_X_CATEGORY,
+        defaultAppearance: sanitizedAppearance && Object.keys(sanitizedAppearance).length ? sanitizedAppearance : null,
       },
     });
 
@@ -3579,7 +3594,7 @@ router.post(
   authMiddleware,
   upload.array("photos", 30),
   async (req, res) => {
-    const { loraId, modelId } = req.body;
+    const { loraId } = req.body;
     const userId = req.user.userId;
 
     if (!loraId) return res.status(400).json({ success: false, message: "loraId required" });
@@ -3592,29 +3607,111 @@ router.post(
       if (!lora || lora.model.userId !== userId || !isModelCloneXLoraCategory(lora.category)) {
         return res.status(403).json({ success: false, message: "Not authorized" });
       }
+      if (lora.status === "training") {
+        return res.status(400).json({ success: false, message: "Cannot upload images while training is in progress." });
+      }
+      if (lora.status === "ready" && lora.loraUrl) {
+        return res.status(400).json({ success: false, message: "LoRA is already trained." });
+      }
 
       const files = req.files;
       if (!files || files.length === 0) {
         return res.status(400).json({ success: false, message: "No files uploaded" });
       }
 
-      const { uploadFileToR2 } = await import("../utils/r2.js");
-      const uploadedUrls = [];
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { allowCustomLoraTrainingPhotos: true },
+      });
+      if (!user?.allowCustomLoraTrainingPhotos) {
+        return res.status(403).json({
+          success: false,
+          message: "Custom LoRA training photo uploads are disabled for this account.",
+        });
+      }
 
-      for (const file of files) {
+      const isProMode = lora.trainingMode === "pro";
+      const maxImages = isProMode ? 30 : 15;
+      const requiredImages = isProMode ? 30 : 15;
+
+      const replaceExistingCustom =
+        String(req.body?.replaceExistingCustom ?? "true").toLowerCase() !== "false";
+      if (replaceExistingCustom) {
+        await prisma.loraTrainingImage.deleteMany({
+          where: {
+            loraId: lora.id,
+            generationId: null,
+          },
+        });
+      }
+
+      const existingCount = await prisma.loraTrainingImage.count({
+        where: { loraId: lora.id, status: "completed" },
+      });
+      const slotsRemaining = Math.max(0, maxImages - existingCount);
+      let filesToProcess = files;
+      let trimmed = 0;
+
+      if (filesToProcess.length > slotsRemaining) {
+        trimmed = filesToProcess.length - slotsRemaining;
+        filesToProcess = filesToProcess.slice(0, slotsRemaining);
+      }
+
+      if (filesToProcess.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: `This LoRA already has ${existingCount}/${maxImages} images. No more slots available.`,
+        });
+      }
+
+      if (!isR2Configured()) {
+        return res.status(503).json({
+          success: false,
+          message: "R2 storage is required for LoRA training uploads but is not configured.",
+        });
+      }
+
+      for (const file of filesToProcess) {
+        const check = validateGenerationUploadSync(file, "modelPhoto");
+        if (!check.ok) return sendUploadGuardResponse(res, check);
+      }
+
+      const uploadedUrls = [];
+      for (const file of filesToProcess) {
         const url = await uploadFileToR2(file, "training");
-        await prisma.loraTrainingImage.create({
+        uploadedUrls.push(url);
+      }
+
+      const createdImages = [];
+      for (const url of uploadedUrls) {
+        const img = await prisma.loraTrainingImage.create({
           data: {
             modelId: lora.modelId,
             loraId: lora.id,
             imageUrl: url,
             status: "completed",
           },
+          select: { id: true, imageUrl: true, status: true },
         });
-        uploadedUrls.push(url);
+        createdImages.push(img);
       }
 
-      return res.json({ success: true, uploadedUrls });
+      const totalImages = existingCount + createdImages.length;
+      if (totalImages >= requiredImages) {
+        await prisma.trainedLora.update({
+          where: { id: lora.id },
+          data: { status: "images_ready" },
+        });
+      }
+
+      return res.json({
+        success: true,
+        images: createdImages,
+        uploadedUrls,
+        uploadedCount: createdImages.length,
+        totalImages,
+        trimmed,
+      });
     } catch (err) {
       console.error("[ModelCloneX] upload images error:", err);
       return res.status(500).json({ success: false, message: err.message });
@@ -3643,6 +3740,235 @@ router.get("/modelclone-x/character/training-status/:loraId", authMiddleware, as
     return res.json({ success: true, lora });
   } catch (err) {
     console.error("[ModelCloneX] training status error:", err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// GET /api/modelclone-x/character/training-pool/:modelId
+router.get("/modelclone-x/character/training-pool/:modelId", authMiddleware, async (req, res) => {
+  try {
+    const { modelId } = req.params;
+    const { loraId } = req.query;
+    const userId = req.user.userId;
+
+    const model = await prisma.savedModel.findUnique({ where: { id: modelId } });
+    if (!model || model.userId !== userId) {
+      return res.status(403).json({ success: false, message: "Not authorized" });
+    }
+
+    let targetLoraId = null;
+    if (typeof loraId === "string" && loraId.trim()) {
+      const lora = await prisma.trainedLora.findUnique({
+        where: { id: loraId.trim() },
+      });
+      if (!lora || lora.modelId !== modelId || !isModelCloneXLoraCategory(lora.category)) {
+        return res.status(400).json({ success: false, message: "LoRA not found or does not belong to this model" });
+      }
+      targetLoraId = lora.id;
+    }
+
+    const generations = await prisma.generation.findMany({
+      where: {
+        userId,
+        modelId,
+        status: "completed",
+        outputUrl: { not: null },
+      },
+      select: { id: true, outputUrl: true, createdAt: true },
+      orderBy: { createdAt: "desc" },
+      take: 500,
+    });
+
+    const parseOutputUrls = (raw) => {
+      if (!raw) return [];
+      if (Array.isArray(raw)) return raw.filter(Boolean);
+      if (typeof raw !== "string") return [];
+      const trimmed = raw.trim();
+      if (!trimmed) return [];
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) return parsed.filter(Boolean);
+      } catch {
+        // outputUrl is a single URL string
+      }
+      return [trimmed];
+    };
+
+    const isLikelyVideoUrl = (url = "") =>
+      typeof url === "string" && /\.(mp4|webm|mov|m4v|avi|mkv)(\?|$)/i.test(url);
+
+    const galleryImages = generations.flatMap((g) =>
+      parseOutputUrls(g.outputUrl)
+        .filter((url) => url && !isLikelyVideoUrl(url))
+        .map((url, index) => ({
+          id: `${g.id}-${index}`,
+          generationId: g.id,
+          outputUrl: url,
+        })),
+    );
+
+    const trainingImages = await prisma.loraTrainingImage.findMany({
+      where: targetLoraId ? { loraId: targetLoraId } : { modelId, loraId: null },
+      select: { id: true, imageUrl: true, status: true, generationId: true },
+      orderBy: { createdAt: "desc" },
+    });
+
+    return res.json({
+      success: true,
+      galleryImages,
+      trainingImages,
+    });
+  } catch (err) {
+    console.error("[ModelCloneX] training pool error:", err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// POST /api/modelclone-x/character/assign-images
+// Body: { modelId, loraId, images: [{ generationId?, customImageId?, imageUrl?, outputUrl? }] }
+router.post("/modelclone-x/character/assign-images", authMiddleware, generationLimiter, async (req, res) => {
+  try {
+    const { modelId, loraId, images } = req.body;
+    const userId = req.user.userId;
+
+    if (!modelId || !loraId || !Array.isArray(images)) {
+      return res.status(400).json({ success: false, message: "modelId, loraId and images array are required" });
+    }
+
+    const model = await prisma.savedModel.findUnique({ where: { id: modelId } });
+    if (!model || model.userId !== userId) {
+      return res.status(403).json({ success: false, message: "Not authorized" });
+    }
+
+    const lora = await prisma.trainedLora.findUnique({ where: { id: loraId } });
+    if (!lora || lora.modelId !== modelId || !isModelCloneXLoraCategory(lora.category)) {
+      return res.status(400).json({ success: false, message: "LoRA not found or does not belong to this model" });
+    }
+    if (lora.status === "training") {
+      return res.status(400).json({ success: false, message: "LoRA training already in progress" });
+    }
+    if (lora.status === "ready" && lora.loraUrl) {
+      return res.status(400).json({ success: false, message: "LoRA already trained" });
+    }
+
+    const requiredImages = lora.trainingMode === "pro" ? 30 : 15;
+    if (images.length !== requiredImages) {
+      return res.status(400).json({
+        success: false,
+        message: `${lora.trainingMode === "pro" ? "Pro mode requires exactly" : "Standard mode requires exactly"} ${requiredImages} images. Got ${images.length}.`,
+      });
+    }
+
+    const normalizeGenerationId = (id) =>
+      (typeof id === "string" ? id.replace(/-\d+$/, "") : id) || id;
+
+    const galleryImages = images.filter((i) => i?.generationId);
+    const customImages = images.filter((i) => i?.customImageId || i?.imageUrl || i?.outputUrl);
+
+    const uniqueGenerationIds = [
+      ...new Set(galleryImages.map((i) => normalizeGenerationId(i.generationId)).filter(Boolean)),
+    ];
+    const generations = uniqueGenerationIds.length
+      ? await prisma.generation.findMany({
+          where: {
+            id: { in: uniqueGenerationIds },
+            userId,
+            modelId,
+            status: "completed",
+          },
+          select: { id: true, outputUrl: true },
+        })
+      : [];
+
+    if (generations.length !== uniqueGenerationIds.length) {
+      return res.status(403).json({
+        success: false,
+        message: "All selected gallery images must belong to this model and your account.",
+      });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { allowCustomLoraTrainingPhotos: true },
+    });
+    if (customImages.length > 0 && !user?.allowCustomLoraTrainingPhotos) {
+      return res.status(403).json({
+        success: false,
+        message: "Custom training photo uploads are not enabled for your account.",
+      });
+    }
+
+    const customIdsToResolve = customImages
+      .map((img) => (img?.customImageId ? String(img.customImageId).trim() : ""))
+      .filter(Boolean);
+    const resolvedCustom = customIdsToResolve.length
+      ? await prisma.loraTrainingImage.findMany({
+          where: { id: { in: customIdsToResolve } },
+          select: { id: true, imageUrl: true },
+        })
+      : [];
+    const customMap = new Map(resolvedCustom.map((row) => [row.id, row.imageUrl]));
+
+    const generationMap = new Map(generations.map((g) => [g.id, g.outputUrl]));
+    const rows = [];
+    for (const img of images) {
+      const generationId = normalizeGenerationId(img?.generationId);
+      if (generationId) {
+        rows.push({
+          modelId,
+          loraId,
+          imageUrl: generationMap.get(generationId),
+          generationId,
+          status: "completed",
+        });
+        continue;
+      }
+
+      const customId = img?.customImageId ? String(img.customImageId).trim() : "";
+      const customUrl =
+        (customId ? customMap.get(customId) : null) ||
+        (typeof img?.imageUrl === "string" ? img.imageUrl.trim() : "") ||
+        (typeof img?.outputUrl === "string" ? img.outputUrl.trim() : "");
+
+      if (!customUrl) {
+        return res.status(400).json({
+          success: false,
+          message: "Each custom training image must include imageUrl/outputUrl or a valid customImageId.",
+        });
+      }
+
+      rows.push({
+        modelId,
+        loraId,
+        imageUrl: customUrl,
+        generationId: null,
+        status: "completed",
+      });
+    }
+
+    if (rows.some((r) => !r.imageUrl)) {
+      return res.status(400).json({
+        success: false,
+        message: "One or more selected gallery images could not be resolved.",
+      });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.loraTrainingImage.deleteMany({ where: { loraId } });
+      await tx.loraTrainingImage.createMany({ data: rows });
+      await tx.trainedLora.update({
+        where: { id: loraId },
+        data: { status: "images_ready" },
+      });
+    });
+
+    return res.json({
+      success: true,
+      message: "Training image set saved.",
+      totalImages: rows.length,
+    });
+  } catch (err) {
+    console.error("[ModelCloneX] assign images error:", err);
     return res.status(500).json({ success: false, message: err.message });
   }
 });
