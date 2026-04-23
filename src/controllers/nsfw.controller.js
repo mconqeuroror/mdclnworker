@@ -5142,9 +5142,7 @@ export async function generateNsfwVideoFromImage(req, res) {
       });
     }
 
-    if (!validImage) {
-      return res.status(403).json({ success: false, message: "Image must be from your NSFW gallery" });
-    }
+    const isGallerySourceImage = Boolean(validImage);
 
     const user = await checkAndExpireCredits(userId);
     const totalCredits = getTotalCredits(user);
@@ -5172,7 +5170,11 @@ export async function generateNsfwVideoFromImage(req, res) {
         creditsCost: creditsNeeded,
         replicateModel: null,
         isNsfw: true,
-        inputImageUrl: JSON.stringify({ sourceImage: imageUrl, duration: videoDuration }),
+        inputImageUrl: JSON.stringify({
+          sourceImage: imageUrl,
+          duration: videoDuration,
+          sourceType: isGallerySourceImage ? "gallery" : "upload",
+        }),
       },
     });
     generationId = generation.id;
@@ -5451,12 +5453,7 @@ export async function generateNsfwMotionVideo(req, res) {
         },
       });
     }
-    if (!validImage) {
-      return res.status(403).json({
-        success: false,
-        message: "Reference image must be a completed image from your NSFW gallery",
-      });
-    }
+    const isGallerySourceImage = Boolean(validImage);
 
     const user = await checkAndExpireCredits(userId);
     const totalCredits = getTotalCredits(user);
@@ -5489,6 +5486,7 @@ export async function generateNsfwMotionVideo(req, res) {
           referenceImageUrl: imageUrl,
           duration: dur,
           skipSeconds: skip,
+          sourceType: isGallerySourceImage ? "gallery" : "upload",
           ...(Number.isFinite(Number(seed)) ? { seed: Math.trunc(Number(seed)) } : {}),
         }),
         inputVideoUrl: videoUrl,

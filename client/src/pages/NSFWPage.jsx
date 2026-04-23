@@ -1890,6 +1890,10 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
   const [extendPrompt, setExtendPrompt] = useState("");
   const [isSubmittingExtend, setIsSubmittingExtend] = useState(false);
   const [videoGenMode, setVideoGenMode] = useState("standard"); // "standard" | "motion"
+  const [sourceImageMode, setSourceImageMode] = useState("gallery"); // "gallery" | "upload"
+  const [uploadedSourceImageUrl, setUploadedSourceImageUrl] = useState("");
+  const [uploadedSourceImageName, setUploadedSourceImageName] = useState("");
+  const [isUploadingSourceImage, setIsUploadingSourceImage] = useState(false);
   const [drivingVideoUrl, setDrivingVideoUrl] = useState("");
   const [drivingVideoName, setDrivingVideoName] = useState("");
   const [isUploadingDrivingVideo, setIsUploadingDrivingVideo] = useState(false);
@@ -2015,14 +2019,15 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
   const standardCreditsNeeded = videoDuration === 8 ? 80 : 50;
   const effectiveMotionDuration = Math.max(1, Math.min(30, Math.round(Number(motionDerivedDuration) || 5)));
   const motionCreditsNeeded = Math.max(60, Math.round(effectiveMotionDuration * 30));
+  const effectiveSelectedImage = sourceImageMode === "upload" ? uploadedSourceImageUrl : videoSelectedImage;
 
   const handleSubmitVideo = async () => {
-    if (!videoSelectedImage || isSubmittingVideo) return;
+    if (!effectiveSelectedImage || isSubmittingVideo) return;
     setIsSubmittingVideo(true);
     try {
       const response = await api.post("/nsfw/generate-video", {
         modelId,
-        imageUrl: videoSelectedImage,
+        imageUrl: effectiveSelectedImage,
         prompt: videoPrompt || undefined,
         duration: videoDuration,
       });
@@ -2094,13 +2099,32 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
     }
   };
 
+  const handleSourceImageUpload = async (event) => {
+    const file = event?.target?.files?.[0];
+    if (!file) return;
+    setIsUploadingSourceImage(true);
+    try {
+      const uploadedUrl = await uploadFile(file);
+      setUploadedSourceImageUrl(uploadedUrl);
+      setUploadedSourceImageName(file.name || "source-image.jpg");
+      setSourceImageMode("upload");
+      toast.success("Custom source image uploaded");
+    } catch (err) {
+      const msg = err?.message || "Failed to upload source image";
+      toast.error(msg);
+    } finally {
+      setIsUploadingSourceImage(false);
+      event.target.value = "";
+    }
+  };
+
   const handleSubmitMotionVideo = async () => {
-    if (!videoSelectedImage || !drivingVideoUrl || isSubmittingMotionVideo) return;
+    if (!effectiveSelectedImage || !drivingVideoUrl || isSubmittingMotionVideo) return;
     setIsSubmittingMotionVideo(true);
     try {
       const response = await generationAPI.nsfwGenerateMotionVideo({
         modelId,
-        imageUrl: videoSelectedImage,
+        imageUrl: effectiveSelectedImage,
         videoUrl: drivingVideoUrl,
         prompt: videoPrompt || undefined,
         duration: effectiveMotionDuration,
@@ -2163,6 +2187,65 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
 
   return (
     <div className="mt-6 space-y-5">
+      {/* Primary Mode Selector (large / first visible) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <button
+          onClick={() => setVideoGenMode("motion")}
+          className={`relative text-left rounded-2xl border p-4 transition-all overflow-hidden ${
+            videoGenMode === "motion"
+              ? "border-fuchsia-400/60 bg-fuchsia-500/10"
+              : "border-white/10 bg-white/[0.02] hover:border-white/25"
+          }`}
+          data-testid="button-video-mode-motion"
+        >
+          {videoGenMode === "motion" && (
+            <>
+              <div className="absolute top-0 left-0 w-24 h-24 pointer-events-none" style={RED_CORNER_GLOW_STYLE} />
+              <div className="absolute left-0 top-3 bottom-3 w-1 rounded-full bg-gradient-to-b from-fuchsia-200 to-fuchsia-500" />
+            </>
+          )}
+          <div className="flex items-start gap-3 relative">
+            <div className="w-10 h-10 rounded-xl bg-fuchsia-500/20 border border-fuchsia-400/40 flex items-center justify-center">
+              <Video className="w-5 h-5 text-fuchsia-300" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-white">Motion Control</p>
+              <p className="text-[11px] text-slate-300 mt-1">
+                Upload first frame + driving video. Best for controllable, reference-driven animation.
+              </p>
+            </div>
+          </div>
+        </button>
+
+        <button
+          onClick={() => setVideoGenMode("standard")}
+          className={`relative text-left rounded-2xl border p-4 transition-all overflow-hidden ${
+            videoGenMode === "standard"
+              ? "border-blue-400/60 bg-blue-500/10"
+              : "border-white/10 bg-white/[0.02] hover:border-white/25"
+          }`}
+          data-testid="button-video-mode-standard"
+        >
+          {videoGenMode === "standard" && (
+            <>
+              <div className="absolute top-0 left-0 w-24 h-24 pointer-events-none" style={RED_CORNER_GLOW_STYLE} />
+              <div className="absolute left-0 top-3 bottom-3 w-1 rounded-full bg-gradient-to-b from-blue-100 to-blue-500" />
+            </>
+          )}
+          <div className="flex items-start gap-3 relative">
+            <div className="w-10 h-10 rounded-xl bg-blue-500/20 border border-blue-400/40 flex items-center justify-center">
+              <Sparkles className="w-5 h-5 text-blue-300" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-white">Standard Image-to-Video</p>
+              <p className="text-[11px] text-slate-300 mt-1">
+                Animate a single source image quickly. Choose duration and generate.
+              </p>
+            </div>
+          </div>
+        </button>
+      </div>
+
       {/* Step 1: Select Source Image */}
       <div>
         <div className="flex items-center gap-2 mb-3">
@@ -2172,8 +2255,69 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
           <span className="text-sm font-medium text-white">{copy.videoSectionSourceImage}</span>
           <span className="text-[10px] text-slate-500">{copy.videoAnimateHint}</span>
         </div>
+
+        <div className="flex items-center gap-2 mb-3">
+          <button
+            onClick={() => setSourceImageMode("gallery")}
+            className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${
+              sourceImageMode === "gallery"
+                ? "bg-white/[0.1] border-white/25 text-white"
+                : "bg-white/[0.03] border-white/10 text-slate-400 hover:text-white"
+            }`}
+            data-testid="button-video-source-mode-gallery"
+          >
+            <Grid3X3 className="w-3 h-3 inline mr-1" />
+            Gallery
+          </button>
+          <button
+            onClick={() => setSourceImageMode("upload")}
+            className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${
+              sourceImageMode === "upload"
+                ? "bg-white/[0.1] border-white/25 text-white"
+                : "bg-white/[0.03] border-white/10 text-slate-400 hover:text-white"
+            }`}
+            data-testid="button-video-source-mode-upload"
+          >
+            <Upload className="w-3 h-3 inline mr-1" />
+            Upload custom
+          </button>
+        </div>
+
         <div className="p-3 rounded-xl border border-white/[0.06] bg-white/[0.02]">
-          {imagesLoading ? (
+          {sourceImageMode === "upload" ? (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs text-slate-300 font-medium">Custom first frame</p>
+                  <p className="text-[11px] text-slate-500 truncate">
+                    {uploadedSourceImageUrl ? (uploadedSourceImageName || "Uploaded image ready") : "Upload JPG/PNG/WebP"}
+                  </p>
+                </div>
+                <label className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-white/15 bg-white/[0.04] hover:bg-white/[0.08] cursor-pointer text-xs text-white">
+                  {isUploadingSourceImage ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Upload className="w-3.5 h-3.5" />
+                  )}
+                  {isUploadingSourceImage ? "Uploading..." : "Upload image"}
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    className="hidden"
+                    onChange={handleSourceImageUpload}
+                    disabled={isUploadingSourceImage}
+                  />
+                </label>
+              </div>
+              {uploadedSourceImageUrl && (
+                <img
+                  src={uploadedSourceImageUrl}
+                  alt="Custom source frame"
+                  className="w-full max-h-56 object-contain rounded-lg border border-white/10 bg-black/20"
+                />
+              )}
+            </div>
+          ) : imagesLoading ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
             </div>
@@ -2234,12 +2378,14 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
         </div>
       </div>
 
-      {/* Selected Image Preview */}
-      {videoSelectedImage && (
+      {/* Selected Inputs Preview */}
+      {effectiveSelectedImage && (
         <div className="flex items-start gap-4 p-3 rounded-xl border border-red-500/20 bg-red-500/5">
-          <img src={videoSelectedImage} alt="" className="w-20 h-28 object-cover rounded-lg flex-shrink-0" />
+          <img src={effectiveSelectedImage} alt="" className="w-20 h-28 object-cover rounded-lg flex-shrink-0 border border-white/10" />
           <div className="flex-1 min-w-0">
-            <p className="text-xs text-red-400 font-medium mb-2">{copy.videoSectionSourceImage}</p>
+            <p className="text-xs text-red-400 font-medium mb-2">
+              {copy.videoSectionSourceImage} {sourceImageMode === "upload" ? "(custom upload)" : "(gallery)"}
+            </p>
             <textarea
               value={videoPrompt}
               onChange={(e) => setVideoPrompt(e.target.value)}
@@ -2247,42 +2393,24 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
               className="w-full h-16 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-slate-500 focus:outline-none focus:border-red-500/50 resize-none text-sm"
               data-testid="input-video-prompt"
             />
+            {videoGenMode === "motion" && drivingVideoUrl && (
+              <div className="mt-3">
+                <p className="text-[11px] text-fuchsia-300 mb-1">Driving video preview</p>
+                <video
+                  src={drivingVideoUrl}
+                  className="w-full max-h-40 rounded-lg border border-white/10 bg-black/30"
+                  controls
+                  playsInline
+                />
+                <p className="text-[10px] text-slate-500 mt-1 truncate">{drivingVideoName || "driving-video.mp4"}</p>
+              </div>
+            )}
           </div>
         </div>
       )}
 
       {/* Step 2: Duration & Generate */}
       <div>
-        <div className="flex items-center gap-2 mb-3">
-          <button
-            onClick={() => setVideoGenMode("standard")}
-            className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${
-              videoGenMode === "standard"
-                ? "bg-white/[0.1] border-white/25 text-white"
-                : "bg-white/[0.03] border-white/10 text-slate-400 hover:text-white"
-            }`}
-            data-testid="button-video-mode-standard"
-          >
-            Standard
-          </button>
-          <button
-            onClick={() => setVideoGenMode("motion")}
-            className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${
-              videoGenMode === "motion"
-                ? "bg-white/[0.1] border-white/25 text-white"
-                : "bg-white/[0.03] border-white/10 text-slate-400 hover:text-white"
-            }`}
-            data-testid="button-video-mode-motion"
-          >
-            Motion Control
-          </button>
-          <span className="text-[10px] text-slate-500">
-            {videoGenMode === "motion"
-              ? "Reference image + driving video"
-              : "Reference image only"}
-          </span>
-        </div>
-
         <div className="flex items-center gap-2 mb-3">
           <div className="w-6 h-6 rounded-full flex items-center justify-center bg-rose-500">
             <span className="text-[10px] font-bold text-white">2</span>
@@ -2372,17 +2500,17 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
           onClick={videoGenMode === "motion" ? handleSubmitMotionVideo : handleSubmitVideo}
           disabled={
             videoGenMode === "motion"
-              ? (!videoSelectedImage || !drivingVideoUrl || isSubmittingMotionVideo || isUploadingDrivingVideo)
-              : (!videoSelectedImage || isSubmittingVideo)
+              ? (!effectiveSelectedImage || !drivingVideoUrl || isSubmittingMotionVideo || isUploadingDrivingVideo)
+              : (!effectiveSelectedImage || isSubmittingVideo)
           }
           className="w-full py-3.5 rounded-xl font-semibold text-white flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           style={{
             background:
               videoGenMode === "motion"
-                ? (videoSelectedImage && drivingVideoUrl && !isSubmittingMotionVideo && !isUploadingDrivingVideo
+                ? (effectiveSelectedImage && drivingVideoUrl && !isSubmittingMotionVideo && !isUploadingDrivingVideo
                   ? "linear-gradient(135deg, #ef4444 0%, #9333ea 100%)"
                   : "rgba(255,255,255,0.1)")
-                : (videoSelectedImage && !isSubmittingVideo
+                : (effectiveSelectedImage && !isSubmittingVideo
               ? "linear-gradient(135deg, #3b82f6 0%, #6366f1 100%)"
               : "rgba(255,255,255,0.1)"),
           }}
