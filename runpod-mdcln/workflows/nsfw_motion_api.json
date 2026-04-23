@@ -350,7 +350,7 @@
   },
   "322": {
     "inputs": {
-      "sage_attention": "auto",
+      "sage_attention": "disabled",
       "allow_compile": false,
       "model": [
         "330",

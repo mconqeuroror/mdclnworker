@@ -235,6 +235,9 @@ export async function submitNsfwMotionVideo(opts, webhookUrl = null, generationI
   if (workflow["265"]?.inputs) workflow["265"].inputs.value = finalH;
   if (workflow["276"]?.inputs) workflow["276"].inputs.value = finalBlockSwap;
   if (workflow["296"]?.inputs) workflow["296"].inputs.value = !!torchCompile;
+  // PathchSageAttentionKJ (node 322): "auto" imports optional `sageattention` which is
+  // not installed in the motion worker image — force Comfy to use stock attention.
+  if (workflow["322"]?.inputs) workflow["322"].inputs.sage_attention = "disabled";
 
   if (typeof prompt === "string" && prompt.trim() && workflow["336"]?.inputs) {
     workflow["336"].inputs.text = prompt.trim();
