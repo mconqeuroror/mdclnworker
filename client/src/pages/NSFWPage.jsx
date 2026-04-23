@@ -76,6 +76,7 @@ import LazyVideo from "../components/LazyVideo";
 import CourseTipBanner from "../components/CourseTipBanner";
 import NudesPackModal from "../components/NudesPackModal";
 import TutorialInfoLink from "../components/TutorialInfoLink";
+import FileUpload from "../components/FileUpload";
 import { useTutorialCatalog } from "../hooks/useTutorialCatalog";
 import {
   getNudesPackTotalCredits,
@@ -1893,10 +1894,8 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
   const [sourceImageMode, setSourceImageMode] = useState("gallery"); // "gallery" | "upload"
   const [uploadedSourceImageUrl, setUploadedSourceImageUrl] = useState("");
   const [uploadedSourceImageName, setUploadedSourceImageName] = useState("");
-  const [isUploadingSourceImage, setIsUploadingSourceImage] = useState(false);
   const [drivingVideoUrl, setDrivingVideoUrl] = useState("");
   const [drivingVideoName, setDrivingVideoName] = useState("");
-  const [isUploadingDrivingVideo, setIsUploadingDrivingVideo] = useState(false);
   const [isSubmittingMotionVideo, setIsSubmittingMotionVideo] = useState(false);
   const [motionSkipSeconds, setMotionSkipSeconds] = useState(0);
   const [motionDerivedDuration, setMotionDerivedDuration] = useState(null); // seconds, derived from uploaded video (max 30)
@@ -2079,43 +2078,23 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
       video.src = objectUrl;
     });
 
-  const handleDrivingVideoUpload = async (event) => {
-    const file = event?.target?.files?.[0];
-    if (!file) return;
-    setIsUploadingDrivingVideo(true);
-    try {
-      const derivedDuration = await readVideoDuration(file);
-      const uploadedUrl = await uploadFile(file);
-      setDrivingVideoUrl(uploadedUrl);
-      setDrivingVideoName(file.name || "driving-video.mp4");
-      setMotionDerivedDuration(derivedDuration);
-      toast.success(`Driving video uploaded (${derivedDuration}s, max 30s)`);
-    } catch (err) {
-      const msg = err?.message || "Failed to upload driving video";
-      toast.error(msg);
-    } finally {
-      setIsUploadingDrivingVideo(false);
-      event.target.value = "";
-    }
+  const handleDrivingVideoUpload = async (payload) => {
+    const file = payload?.file || null;
+    const uploadedUrl = payload?.url || "";
+    if (!file || !uploadedUrl) return;
+    const derivedDuration = await readVideoDuration(file);
+    setDrivingVideoUrl(uploadedUrl);
+    setDrivingVideoName(file.name || "driving-video.mp4");
+    setMotionDerivedDuration(derivedDuration);
   };
 
-  const handleSourceImageUpload = async (event) => {
-    const file = event?.target?.files?.[0];
-    if (!file) return;
-    setIsUploadingSourceImage(true);
-    try {
-      const uploadedUrl = await uploadFile(file);
-      setUploadedSourceImageUrl(uploadedUrl);
-      setUploadedSourceImageName(file.name || "source-image.jpg");
-      setSourceImageMode("upload");
-      toast.success("Custom source image uploaded");
-    } catch (err) {
-      const msg = err?.message || "Failed to upload source image";
-      toast.error(msg);
-    } finally {
-      setIsUploadingSourceImage(false);
-      event.target.value = "";
-    }
+  const handleSourceImageUpload = async (payload) => {
+    const uploadedUrl = payload?.url || "";
+    const file = payload?.file || null;
+    if (!uploadedUrl) return;
+    setUploadedSourceImageUrl(uploadedUrl);
+    setUploadedSourceImageName(file?.name || "source-image.jpg");
+    setSourceImageMode("upload");
   };
 
   const handleSubmitMotionVideo = async () => {
@@ -2187,352 +2166,284 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
 
   return (
     <div className="mt-6 space-y-5">
-      {/* Primary Mode Selector (large / first visible) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      {/* Mode selector - same interaction style as Generate motion control */}
+      <div className="grid grid-cols-2 gap-2">
         <button
           onClick={() => setVideoGenMode("motion")}
-          className={`relative text-left rounded-2xl border p-4 transition-all overflow-hidden ${
-            videoGenMode === "motion"
-              ? "border-fuchsia-400/60 bg-fuchsia-500/10"
-              : "border-white/10 bg-white/[0.02] hover:border-white/25"
-          }`}
+          className={`rounded-xl px-3 py-2 text-xs font-semibold transition-all ${videoGenMode === "motion" ? "text-white" : "text-slate-400 hover:text-white"}`}
+          style={videoGenMode === "motion"
+            ? { background: "rgba(168,85,247,0.16)", border: "1px solid rgba(168,85,247,0.35)" }
+            : { background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}
           data-testid="button-video-mode-motion"
         >
-          {videoGenMode === "motion" && (
-            <>
-              <div className="absolute top-0 left-0 w-24 h-24 pointer-events-none" style={RED_CORNER_GLOW_STYLE} />
-              <div className="absolute left-0 top-3 bottom-3 w-1 rounded-full bg-gradient-to-b from-fuchsia-200 to-fuchsia-500" />
-            </>
-          )}
-          <div className="flex items-start gap-3 relative">
-            <div className="w-10 h-10 rounded-xl bg-fuchsia-500/20 border border-fuchsia-400/40 flex items-center justify-center">
-              <Video className="w-5 h-5 text-fuchsia-300" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-white">Motion Control</p>
-              <p className="text-[11px] text-slate-300 mt-1">
-                Upload first frame + driving video. Best for controllable, reference-driven animation.
-              </p>
-            </div>
-          </div>
+          Motion Control
         </button>
-
         <button
           onClick={() => setVideoGenMode("standard")}
-          className={`relative text-left rounded-2xl border p-4 transition-all overflow-hidden ${
-            videoGenMode === "standard"
-              ? "border-blue-400/60 bg-blue-500/10"
-              : "border-white/10 bg-white/[0.02] hover:border-white/25"
-          }`}
+          className={`rounded-xl px-3 py-2 text-xs font-semibold transition-all ${videoGenMode === "standard" ? "text-white" : "text-slate-400 hover:text-white"}`}
+          style={videoGenMode === "standard"
+            ? { background: "rgba(59,130,246,0.16)", border: "1px solid rgba(59,130,246,0.35)" }
+            : { background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}
           data-testid="button-video-mode-standard"
         >
-          {videoGenMode === "standard" && (
-            <>
-              <div className="absolute top-0 left-0 w-24 h-24 pointer-events-none" style={RED_CORNER_GLOW_STYLE} />
-              <div className="absolute left-0 top-3 bottom-3 w-1 rounded-full bg-gradient-to-b from-blue-100 to-blue-500" />
-            </>
-          )}
-          <div className="flex items-start gap-3 relative">
-            <div className="w-10 h-10 rounded-xl bg-blue-500/20 border border-blue-400/40 flex items-center justify-center">
-              <Sparkles className="w-5 h-5 text-blue-300" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-white">Standard Image-to-Video</p>
-              <p className="text-[11px] text-slate-300 mt-1">
-                Animate a single source image quickly. Choose duration and generate.
-              </p>
-            </div>
-          </div>
+          Standard Image-to-Video
         </button>
       </div>
 
-      {/* Step 1: Select Source Image */}
-      <div>
+      {videoGenMode === "motion" && (
+        <div className="mb-1 flex items-start gap-2.5 p-3 rounded-xl" style={{ background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.15)" }}>
+          <Info className="w-4 h-4 text-white flex-shrink-0 mt-0.5" />
+          <p className="text-[11px] text-slate-400 leading-relaxed">
+            <span className="text-white font-bold">Motion Control:</span> upload the first frame and a driving video. Duration is auto-derived from the video (max 30s).
+          </p>
+        </div>
+      )}
+
+      {/* Step 1: starting image */}
+      <div className="mb-1">
         <div className="flex items-center gap-2 mb-3">
-          <div className="w-6 h-6 rounded-full flex items-center justify-center bg-rose-500">
-            <span className="text-[10px] font-bold text-white">1</span>
-          </div>
-          <span className="text-sm font-medium text-white">{copy.videoSectionSourceImage}</span>
-          <span className="text-[10px] text-slate-500">{copy.videoAnimateHint}</span>
+          <div className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold" style={{ background: "rgba(203, 213, 225, 0.9)", color: "#0f172a", border: "1px solid rgba(255,255,255,0.2)" }}>1</div>
+          <label className="text-[11px] uppercase tracking-[0.15em] text-slate-400 font-medium">{copy.videoSectionSourceImage}</label>
         </div>
 
-        <div className="flex items-center gap-2 mb-3">
+        <div className="flex items-center gap-1.5 mb-2">
+          <button
+            onClick={() => setSourceImageMode("upload")}
+            className={`px-3 py-1.5 rounded-lg text-[11px] font-medium border transition-colors ${
+              sourceImageMode === "upload"
+                ? "text-white bg-white/[0.08] border-white/25"
+                : "text-slate-400 bg-transparent border-white/10 hover:text-white hover:border-white/20"
+            }`}
+            data-testid="button-video-source-mode-upload"
+          >
+            <Upload className="w-3 h-3 inline mr-1" />
+            Upload
+          </button>
           <button
             onClick={() => setSourceImageMode("gallery")}
-            className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${
+            className={`px-3 py-1.5 rounded-lg text-[11px] font-medium border transition-colors ${
               sourceImageMode === "gallery"
-                ? "bg-white/[0.1] border-white/25 text-white"
-                : "bg-white/[0.03] border-white/10 text-slate-400 hover:text-white"
+                ? "text-white bg-white/[0.08] border-white/25"
+                : "text-slate-400 bg-transparent border-white/10 hover:text-white hover:border-white/20"
             }`}
             data-testid="button-video-source-mode-gallery"
           >
             <Grid3X3 className="w-3 h-3 inline mr-1" />
             Gallery
           </button>
-          <button
-            onClick={() => setSourceImageMode("upload")}
-            className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${
-              sourceImageMode === "upload"
-                ? "bg-white/[0.1] border-white/25 text-white"
-                : "bg-white/[0.03] border-white/10 text-slate-400 hover:text-white"
-            }`}
-            data-testid="button-video-source-mode-upload"
-          >
-            <Upload className="w-3 h-3 inline mr-1" />
-            Upload custom
-          </button>
         </div>
 
-        <div className="p-3 rounded-xl border border-white/[0.06] bg-white/[0.02]">
-          {sourceImageMode === "upload" ? (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-xs text-slate-300 font-medium">Custom first frame</p>
-                  <p className="text-[11px] text-slate-500 truncate">
-                    {uploadedSourceImageUrl ? (uploadedSourceImageName || "Uploaded image ready") : "Upload JPG/PNG/WebP"}
-                  </p>
-                </div>
-                <label className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-white/15 bg-white/[0.04] hover:bg-white/[0.08] cursor-pointer text-xs text-white">
-                  {isUploadingSourceImage ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Upload className="w-3.5 h-3.5" />
-                  )}
-                  {isUploadingSourceImage ? "Uploading..." : "Upload image"}
-                  <input
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp,image/gif"
-                    className="hidden"
-                    onChange={handleSourceImageUpload}
-                    disabled={isUploadingSourceImage}
-                  />
-                </label>
+        {sourceImageMode === "upload" ? (
+          <div className="space-y-2">
+            <FileUpload
+              type="image"
+              onUpload={handleSourceImageUpload}
+              preview={uploadedSourceImageUrl ? { url: uploadedSourceImageUrl } : null}
+              large
+            />
+            {uploadedSourceImageUrl && (
+              <p className="text-[10px] text-slate-500 truncate">{uploadedSourceImageName || "source-image.jpg"}</p>
+            )}
+          </div>
+        ) : (
+          <div className="p-3 rounded-xl border border-white/[0.06] bg-white/[0.02]">
+            {imagesLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
               </div>
-              {uploadedSourceImageUrl && (
-                <img
-                  src={uploadedSourceImageUrl}
-                  alt="Custom source frame"
-                  className="w-full max-h-56 object-contain rounded-lg border border-white/10 bg-black/20"
-                />
-              )}
-            </div>
-          ) : imagesLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
-            </div>
-          ) : sourceImages.length === 0 ? (
-            <p className="text-center text-slate-500 py-8 text-sm">
-              No NSFW images yet. Generate some images first in the Generate tab.
-            </p>
-          ) : (
-            <>
-              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
-                {sourceImages.map((gen) => {
-                  const urls = parseUrls(gen.outputUrl);
-                  return urls.map((url, idx) => {
-                    const isSelected = videoSelectedImage === url;
-                    return (
-                      <button
-                        key={`${gen.id}-${idx}`}
-                        onClick={() => setVideoSelectedImage(isSelected ? null : url)}
-                        className={`relative aspect-[3/4] rounded-lg overflow-hidden border-2 transition-all ${
-                          isSelected
-                            ? "border-red-500 ring-2 ring-red-500/30 scale-[1.02]"
-                            : "border-transparent hover:border-white/20"
-                        }`}
-                        data-testid={`button-select-video-source-${gen.id}-${idx}`}
-                      >
-                        <img src={url} alt="" className="w-full h-full object-cover" loading="lazy" />
-                        {isSelected && (
-                          <div className="absolute inset-0 bg-red-500/20 flex items-center justify-center">
-                            <CheckCircle2 className="w-6 h-6 text-red-400" />
-                          </div>
-                        )}
-                      </button>
-                    );
-                  });
-                })}
-              </div>
-              {totalImagePages > 1 && (
-                <div className="flex items-center justify-center gap-2 mt-3">
-                  <button
-                    onClick={() => setVideoGalleryPage(p => Math.max(1, p - 1))}
-                    disabled={videoGalleryPage <= 1}
-                    className="p-1.5 rounded-lg bg-white/5 border border-white/10 disabled:opacity-30"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-                  <span className="text-xs text-slate-400">{videoGalleryPage} / {totalImagePages}</span>
-                  <button
-                    onClick={() => setVideoGalleryPage(p => Math.min(totalImagePages, p + 1))}
-                    disabled={videoGalleryPage >= totalImagePages}
-                    className="p-1.5 rounded-lg bg-white/5 border border-white/10 disabled:opacity-30"
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
+            ) : sourceImages.length === 0 ? (
+              <p className="text-center text-slate-500 py-8 text-sm">
+                No NSFW images yet. Generate some images first in the Generate tab.
+              </p>
+            ) : (
+              <>
+                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
+                  {sourceImages.map((gen) => {
+                    const urls = parseUrls(gen.outputUrl);
+                    return urls.map((url, idx) => {
+                      const isSelected = videoSelectedImage === url;
+                      return (
+                        <button
+                          key={`${gen.id}-${idx}`}
+                          onClick={() => setVideoSelectedImage(isSelected ? null : url)}
+                          className={`relative aspect-[3/4] rounded-lg overflow-hidden border-2 transition-all ${
+                            isSelected
+                              ? "border-fuchsia-400 ring-2 ring-fuchsia-500/30 scale-[1.02]"
+                              : "border-transparent hover:border-white/20"
+                          }`}
+                          data-testid={`button-select-video-source-${gen.id}-${idx}`}
+                        >
+                          <img src={url} alt="" className="w-full h-full object-cover" loading="lazy" />
+                          {isSelected && (
+                            <div className="absolute inset-0 bg-fuchsia-500/20 flex items-center justify-center">
+                              <CheckCircle2 className="w-6 h-6 text-fuchsia-300" />
+                            </div>
+                          )}
+                        </button>
+                      );
+                    });
+                  })}
                 </div>
-              )}
-            </>
-          )}
-        </div>
+                {totalImagePages > 1 && (
+                  <div className="flex items-center justify-center gap-2 mt-3">
+                    <button
+                      onClick={() => setVideoGalleryPage((p) => Math.max(1, p - 1))}
+                      disabled={videoGalleryPage <= 1}
+                      className="p-1.5 rounded-lg bg-white/5 border border-white/10 disabled:opacity-30"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <span className="text-xs text-slate-400">{videoGalleryPage} / {totalImagePages}</span>
+                    <button
+                      onClick={() => setVideoGalleryPage((p) => Math.min(totalImagePages, p + 1))}
+                      disabled={videoGalleryPage >= totalImagePages}
+                      className="p-1.5 rounded-lg bg-white/5 border border-white/10 disabled:opacity-30"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Selected Inputs Preview */}
-      {effectiveSelectedImage && (
-        <div className="flex items-start gap-4 p-3 rounded-xl border border-red-500/20 bg-red-500/5">
-          <img src={effectiveSelectedImage} alt="" className="w-20 h-28 object-cover rounded-lg flex-shrink-0 border border-white/10" />
-          <div className="flex-1 min-w-0">
-            <p className="text-xs text-red-400 font-medium mb-2">
-              {copy.videoSectionSourceImage} {sourceImageMode === "upload" ? "(custom upload)" : "(gallery)"}
-            </p>
-            <textarea
-              value={videoPrompt}
-              onChange={(e) => setVideoPrompt(e.target.value)}
-              placeholder={copy.videoSectionPrompt}
-              className="w-full h-16 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-slate-500 focus:outline-none focus:border-red-500/50 resize-none text-sm"
-              data-testid="input-video-prompt"
+      {/* Step 2: driving video / duration */}
+      {videoGenMode === "motion" ? (
+        <div className="mb-1">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold" style={{ background: "rgba(203, 213, 225, 0.9)", color: "#0f172a", border: "1px solid rgba(255,255,255,0.2)" }}>2</div>
+            <label className="text-[11px] uppercase tracking-[0.15em] text-slate-400 font-medium">Reference Video</label>
+          </div>
+          <FileUpload
+            type="video"
+            acceptOnlyMp4
+            onUpload={handleDrivingVideoUpload}
+            preview={drivingVideoUrl ? { url: drivingVideoUrl } : null}
+            large
+          />
+          {drivingVideoUrl && (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span className="px-2 py-0.5 text-[10px] font-medium rounded-full" style={{ background: "rgba(34,197,94,0.15)", color: "#22C55E" }}>
+                <span className="inline-flex items-center gap-0.5">
+                  {effectiveMotionDuration}s = {motionCreditsNeeded} <Coins className="w-2.5 h-2.5" />
+                </span>
+              </span>
+              <span className="text-[10px] text-slate-500 truncate">{drivingVideoName || "driving-video.mp4"}</span>
+            </div>
+          )}
+          <div className="mt-3 flex items-center gap-2">
+            <span className="text-[11px] text-slate-400 whitespace-nowrap">Skip first seconds</span>
+            <input
+              type="number"
+              min={0}
+              max={60}
+              value={motionSkipSeconds}
+              onChange={(e) => setMotionSkipSeconds(e.target.value)}
+              className="w-24 px-2 py-1.5 rounded-lg bg-white/[0.04] border border-white/10 text-white text-xs focus:outline-none focus:border-white/25"
+              data-testid="input-motion-skip-seconds"
             />
-            {videoGenMode === "motion" && drivingVideoUrl && (
-              <div className="mt-3">
-                <p className="text-[11px] text-fuchsia-300 mb-1">Driving video preview</p>
-                <video
-                  src={drivingVideoUrl}
-                  className="w-full max-h-40 rounded-lg border border-white/10 bg-black/30"
-                  controls
-                  playsInline
-                />
-                <p className="text-[10px] text-slate-500 mt-1 truncate">{drivingVideoName || "driving-video.mp4"}</p>
-              </div>
+            <span className="text-[11px] text-slate-500">0–60</span>
+          </div>
+          <div className="mt-3 rounded-xl px-3 py-2.5" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}>
+            <p className="text-[10px] text-slate-400 leading-relaxed">
+              <span className="text-slate-200 font-medium">Duration:</span> derived from input video, capped at 30s. Need higher limits? Contact administrator.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div className="mb-1">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold" style={{ background: "rgba(203, 213, 225, 0.9)", color: "#0f172a", border: "1px solid rgba(255,255,255,0.2)" }}>2</div>
+            <label className="text-[11px] uppercase tracking-[0.15em] text-slate-400 font-medium">{copy.videoSectionDuration}</label>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {[5, 8].map((dur) => (
+              <button
+                key={dur}
+                onClick={() => setVideoDuration(dur)}
+                className={`rounded-xl px-3 py-2 text-xs font-semibold transition-all ${videoDuration === dur ? "text-white" : "text-slate-400 hover:text-white"}`}
+                style={videoDuration === dur
+                  ? { background: "rgba(59,130,246,0.16)", border: "1px solid rgba(59,130,246,0.35)" }
+                  : { background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}
+                data-testid={`button-duration-${dur}`}
+              >
+                {dur}s
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Step 3: prompt and visible input preview */}
+      <div className="mb-1">
+        <div className="flex items-center gap-2 mb-3">
+          <div className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold" style={{ background: "rgba(203, 213, 225, 0.9)", color: "#0f172a", border: "1px solid rgba(255,255,255,0.2)" }}>3</div>
+          <label className="text-[11px] uppercase tracking-[0.15em] text-slate-400 font-medium">{copy.videoSectionPrompt}</label>
+        </div>
+        <textarea
+          value={videoPrompt}
+          onChange={(e) => setVideoPrompt(e.target.value)}
+          placeholder={copy.videoSectionPrompt}
+          className="w-full h-20 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-slate-500 focus:outline-none focus:border-fuchsia-500/40 resize-none text-sm"
+          data-testid="input-video-prompt"
+        />
+      </div>
+
+      {videoGenMode === "motion" && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-2.5">
+            <p className="text-[10px] uppercase tracking-[0.12em] text-slate-400 mb-2">First frame</p>
+            {effectiveSelectedImage ? (
+              <img src={effectiveSelectedImage} alt="" className="w-full h-40 object-contain rounded-lg bg-black/20 border border-white/10" />
+            ) : (
+              <div className="w-full h-40 rounded-lg border border-dashed border-white/20 flex items-center justify-center text-[11px] text-slate-500">No first frame selected</div>
+            )}
+          </div>
+          <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-2.5">
+            <p className="text-[10px] uppercase tracking-[0.12em] text-slate-400 mb-2">Source video</p>
+            {drivingVideoUrl ? (
+              <video src={drivingVideoUrl} className="w-full h-40 object-contain rounded-lg bg-black/20 border border-white/10" controls playsInline />
+            ) : (
+              <div className="w-full h-40 rounded-lg border border-dashed border-white/20 flex items-center justify-center text-[11px] text-slate-500">No source video uploaded</div>
             )}
           </div>
         </div>
       )}
 
-      {/* Step 2: Duration & Generate */}
-      <div>
-        <div className="flex items-center gap-2 mb-3">
-          <div className="w-6 h-6 rounded-full flex items-center justify-center bg-rose-500">
-            <span className="text-[10px] font-bold text-white">2</span>
-          </div>
-          <span className="text-sm font-medium text-white">{copy.videoSectionDuration}</span>
-        </div>
-        {videoGenMode !== "motion" ? (
-          <div className="flex items-center gap-3 mb-4">
-            {[5, 8].map((dur) => (
-              <button
-                key={dur}
-                onClick={() => setVideoDuration(dur)}
-                className={`relative px-4 py-2.5 rounded-xl text-sm font-medium transition-all border group ${
-                  videoDuration === dur
-                    ? "bg-white/[0.08] border-white/20 text-white"
-                    : "bg-white/[0.03] border-white/10 text-slate-400 hover:bg-white/[0.06] hover:text-white"
-                }`}
-                data-testid={`button-duration-${dur}`}
-              >
-                {videoDuration === dur && (
-                  <>
-                    <div className="absolute top-0 left-0 w-20 h-20 pointer-events-none" style={RED_CORNER_GLOW_STYLE} />
-                    <div className="absolute left-0 top-2 bottom-2 w-1 rounded-full bg-gradient-to-b from-white/90 to-white/45" />
-                  </>
-                )}
-                {dur}s
-              </button>
-            ))}
-          </div>
+      <button
+        onClick={videoGenMode === "motion" ? handleSubmitMotionVideo : handleSubmitVideo}
+        disabled={
+          videoGenMode === "motion"
+            ? (!effectiveSelectedImage || !drivingVideoUrl || isSubmittingMotionVideo)
+            : (!effectiveSelectedImage || isSubmittingVideo)
+        }
+        className={`w-full py-3.5 rounded-xl font-semibold transition-all flex items-center justify-center gap-2 disabled:opacity-100 disabled:cursor-not-allowed ${
+          ((videoGenMode === "motion" ? isSubmittingMotionVideo : isSubmittingVideo)
+            || !effectiveSelectedImage
+            || (videoGenMode === "motion" && !drivingVideoUrl))
+            ? "bg-white/10 text-white/40"
+            : "bg-white text-black hover:bg-white/90"
+        }`}
+        data-testid={videoGenMode === "motion" ? "button-generate-motion-video" : "button-generate-video"}
+      >
+        {(videoGenMode === "motion" ? isSubmittingMotionVideo : isSubmittingVideo) ? (
+          <>
+            <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+            {videoGenMode === "motion" ? "Generating motion video..." : copy.videoButtonGenerating}
+          </>
         ) : (
-          <div className="mb-4 p-3 rounded-xl border border-amber-500/20 bg-amber-500/5">
-            <div className="text-xs text-amber-200">
-              Duration is automatically derived from the uploaded driving video and capped at 30s.
-            </div>
-            <div className="text-[11px] text-amber-300 mt-1">
-              Current derived duration: <span className="font-semibold">{effectiveMotionDuration}s</span>
-            </div>
-            <div className="text-[11px] text-amber-400/90 mt-1">
-              Need higher length limits? Contact administrator.
-            </div>
-          </div>
+          <>
+            <Video className="w-5 h-5" />
+            {videoGenMode === "motion" ? "Generate Motion Video" : copy.videoButtonGenerate}
+            <span className="inline-flex items-center gap-1 text-yellow-500">
+              {videoGenMode === "motion" ? motionCreditsNeeded : standardCreditsNeeded}
+              <Coins className="w-3.5 h-3.5" />
+            </span>
+          </>
         )}
-
-        {videoGenMode === "motion" && (
-          <div className="mb-4 p-3 rounded-xl border border-white/[0.08] bg-white/[0.02] space-y-3">
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-xs text-slate-300 font-medium">Driving video</p>
-                <p className="text-[11px] text-slate-500 truncate">
-                  {drivingVideoUrl ? (drivingVideoName || "Uploaded video ready") : "Upload an MP4/MOV/WebM file"}
-                </p>
-              </div>
-              <label className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-white/15 bg-white/[0.04] hover:bg-white/[0.08] cursor-pointer text-xs text-white">
-                {isUploadingDrivingVideo ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <Upload className="w-3.5 h-3.5" />
-                )}
-                {isUploadingDrivingVideo ? "Uploading..." : "Upload video"}
-                <input
-                  type="file"
-                  accept="video/mp4,video/quicktime,video/webm"
-                  className="hidden"
-                  onChange={handleDrivingVideoUpload}
-                  disabled={isUploadingDrivingVideo}
-                />
-              </label>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] text-slate-400 whitespace-nowrap">Skip first seconds</span>
-              <input
-                type="number"
-                min={0}
-                max={60}
-                value={motionSkipSeconds}
-                onChange={(e) => setMotionSkipSeconds(e.target.value)}
-                className="w-24 px-2 py-1.5 rounded-lg bg-white/[0.04] border border-white/10 text-white text-xs focus:outline-none focus:border-white/25"
-                data-testid="input-motion-skip-seconds"
-              />
-              <span className="text-[11px] text-slate-500">0–60</span>
-            </div>
-          </div>
-        )}
-
-        <button
-          onClick={videoGenMode === "motion" ? handleSubmitMotionVideo : handleSubmitVideo}
-          disabled={
-            videoGenMode === "motion"
-              ? (!effectiveSelectedImage || !drivingVideoUrl || isSubmittingMotionVideo || isUploadingDrivingVideo)
-              : (!effectiveSelectedImage || isSubmittingVideo)
-          }
-          className="w-full py-3.5 rounded-xl font-semibold text-white flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-          style={{
-            background:
-              videoGenMode === "motion"
-                ? (effectiveSelectedImage && drivingVideoUrl && !isSubmittingMotionVideo && !isUploadingDrivingVideo
-                  ? "linear-gradient(135deg, #ef4444 0%, #9333ea 100%)"
-                  : "rgba(255,255,255,0.1)")
-                : (effectiveSelectedImage && !isSubmittingVideo
-              ? "linear-gradient(135deg, #3b82f6 0%, #6366f1 100%)"
-              : "rgba(255,255,255,0.1)"),
-          }}
-          data-testid={videoGenMode === "motion" ? "button-generate-motion-video" : "button-generate-video"}
-        >
-          {(videoGenMode === "motion" ? isSubmittingMotionVideo : isSubmittingVideo) ? (
-            <>
-              <Loader2 className="w-5 h-5 animate-spin" />
-              {videoGenMode === "motion" ? "Generating motion video..." : copy.videoButtonGenerating}
-            </>
-          ) : (
-            <>
-              <Video className="w-5 h-5" />
-              {videoGenMode === "motion" ? "Generate Motion Video" : copy.videoButtonGenerate} {videoGenMode === "motion" ? effectiveMotionDuration : videoDuration}s
-              <span className="px-2 py-0.5 rounded-full bg-white/20 text-xs inline-flex items-center gap-1.5">
-                <Coins className="w-3 h-3 text-yellow-400" />
-                <span>{videoGenMode === "motion" ? motionCreditsNeeded : standardCreditsNeeded}</span>
-              </span>
-            </>
-          )}
-        </button>
-      </div>
+      </button>
 
       {/* Processing Videos Banner */}
       {processingVideos.length > 0 && (
