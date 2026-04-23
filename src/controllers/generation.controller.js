@@ -4675,11 +4675,28 @@ async function processCreatorStudioInBackground(
       const sourceInputs = refs.length > 0
         ? refs
         : (normalizedInputImage ? [normalizedInputImage] : []);
-      const kieInputUrls = sourceInputs.length
-        ? await Promise.all(
-            sourceInputs.slice(0, 16).map((u, i) => ensureKieAccessibleUrl(u, `gpt-image-2-input-${i + 1}`)),
-          ).catch(() => sourceInputs.slice(0, 16))
-        : [];
+      let kieInputUrls = [];
+      if (sourceInputs.length) {
+        const prepared = await Promise.all(
+          sourceInputs.slice(0, 16).map(async (u, i) => {
+            try {
+              const mirrored = await ensureKieAccessibleUrl(u, `gpt-image-2-input-${i + 1}`);
+              return (typeof mirrored === "string" && mirrored.startsWith("http")) ? mirrored : null;
+            } catch (err) {
+              console.warn(
+                `⚠️ [Creator Studio] GPT Image 2 input ${i + 1} mirror failed: ${err?.message || err}`,
+              );
+              return null;
+            }
+          }),
+        );
+        kieInputUrls = prepared.filter((u) => typeof u === "string" && u.startsWith("http"));
+        if (kieInputUrls.length === 0) {
+          throw new Error(
+            "Could not prepare the input image for GPT Image 2. Please re-upload the image and try again.",
+          );
+        }
+      }
       result = await requestQueue.enqueue(() =>
         generateGptImage2Kie({
           prompt: promptText,
