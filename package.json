@@ -25,7 +25,9 @@
     "figma:export:html": "node scripts/export-figma-html.mjs",
     "figma:export:html:auth": "node scripts/export-figma-html.mjs --include-auth --storage-state scripts/figma-auth-state.json",
     "openapi:generate": "node scripts/generate-openapi.mjs",
-    "openapi:routes": "node scripts/openapi-extract-routes.mjs"
+    "docs:api-full-integrator": "node scripts/build-api-full-integrator-doc.mjs",
+    "openapi:routes": "node scripts/openapi-extract-routes.mjs",
+    "reel-worker:sync": "node scripts/sync-easypanel-reel-worker.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.965.0",
@@ -76,7 +78,7 @@
     "@vercel/analytics": "^1.5.0",
     "@vercel/blob": "^2.3.1",
     "@vercel/functions": "^3.4.3",
-    "apify-client": "^2.22.2",
+    "apify-client": "^2.23.0",
     "archiver": "^7.0.1",
     "axios": "^1.13.0",
     "bcryptjs": "^3.0.2",

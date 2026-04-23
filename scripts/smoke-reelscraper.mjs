@@ -1,19 +1,19 @@
 #!/usr/bin/env node
 /**
- * Smoke test for the JS-only Instagram scraper. Runs both entrypoints
- * against well-known public Instagram content and prints a compact summary.
+ * Smoke test for the Apify-backed Instagram reel scraper. Runs both
+ * entrypoints against well-known public Instagram content and prints a
+ * compact summary. Requires APIFY_API_TOKEN.
  *
- *   node scripts/smoke-reelscraper.mjs
- *   node scripts/smoke-reelscraper.mjs <username> <reel-url>
+ *   APIFY_API_TOKEN=... node scripts/smoke-reelscraper.mjs
+ *   APIFY_API_TOKEN=... node scripts/smoke-reelscraper.mjs <username> <reel-url>
  *
- * No DB / no env required. Prints normalized records to stdout.
+ * Each invocation costs 1-2 paid Apify actor runs.
  */
 
 import {
   scrapeProfileReels,
   scrapeSingleReelByUrl,
   isReelScraperConfigured,
-  shortcodeFromUrl,
 } from "../src/lib/reelscraper-runner.js";
 
 const USERNAME = process.argv[2] || "instagram";
@@ -37,7 +37,6 @@ function summarize(rec) {
 
 async function main() {
   console.log(`isReelScraperConfigured() => ${isReelScraperConfigured()}`);
-  console.log(`shortcodeFromUrl('${REEL_URL}') => ${shortcodeFromUrl(REEL_URL)}`);
   console.log("");
 
   console.log(`──── scrapeSingleReelByUrl('${REEL_URL}') ────`);

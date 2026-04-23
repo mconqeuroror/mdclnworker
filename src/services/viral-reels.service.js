@@ -1,31 +1,35 @@
 /**
  * Reel Finder — scraper service.
- * Apify actor: xMc5Ga1oCONPmWJIa (instagram-reel-scraper)
+ *
+ * Backend: Apify `apify/instagram-reel-scraper` actor (see reelscraper-runner.js).
+ *
+ * Cost-control rules (do not relax without owner approval):
+ *   - All scraping runs through the cron pipeline / admin triggers; there is
+ *     NO on-demand video URL refresh path. Expired CDN URLs return
+ *     `video_expired` so the frontend can render a graceful fallback instead
+ *     of triggering a paid Apify run on every play/click.
+ *   - User-facing list is filtered by recency (postedAt + lastScrapedAt) and
+ *     sorted newest-first so old high-score reels can no longer sit on top.
  */
 
-import { ApifyClient } from "apify-client";
 import prisma from "../lib/prisma.js";
+import { scrapeProfileReels } from "../lib/reelscraper-runner.js";
 import { isR2Configured, mirrorToR2 } from "../utils/r2.js";
 
 // ── Config ──────────────────────────────────────────────────────────────────
-const APIFY_RESULTS_LIMIT = Math.max(1, Math.min(50, parseInt(process.env.REEL_SCRAPE_RESULTS_LIMIT || "27", 10)));
+const REEL_SCRAPE_RESULTS_LIMIT = Math.max(1, Math.min(50, parseInt(process.env.REEL_SCRAPE_RESULTS_LIMIT || "27", 10)));
 const SCRAPE_DELAY_MS     = Math.max(500, Math.min(15_000, parseInt(process.env.REEL_SCRAPE_DELAY_MS || "1500", 10)));
 const CACHE_TTL_HOURS     = Math.max(1, Math.min(720, parseInt(process.env.REEL_CACHE_TTL_HOURS || "96", 10)));
 const STALE_LOG_HOURS     = Math.max(1, Math.min(168, parseInt(process.env.REEL_STALE_RUNNING_LOG_HOURS || "6", 10)));
 
+// Public list freshness:
+//  - Only show reels POSTED in the last POSTED_LOOKBACK_DAYS days
+//  - AND scraped (refreshed) in the last SCRAPED_LOOKBACK_DAYS days
+// Defaults: posted ≤ 14d, scraped ≤ 7d. Tunable via env without redeploy.
+const POSTED_LOOKBACK_DAYS  = Math.max(1, Math.min(90, parseInt(process.env.REEL_POSTED_LOOKBACK_DAYS  || "14", 10)));
+const SCRAPED_LOOKBACK_DAYS = Math.max(1, Math.min(90, parseInt(process.env.REEL_SCRAPED_LOOKBACK_DAYS || "7", 10)));
+
 let pipelineRunning = false;
-
-// ── Apify helpers ────────────────────────────────────────────────────────────
-
-function getClient() {
-  const token = process.env.APIFY_API_TOKEN;
-  if (!token) throw new Error("APIFY_API_TOKEN not set");
-  return new ApifyClient({ token });
-}
-
-function getActorId() {
-  return process.env.APIFY_REEL_ACTOR_ID || "xMc5Ga1oCONPmWJIa";
-}
 
 function extractInstagramUsername(url) {
   if (!url || typeof url !== "string") return null;
@@ -43,53 +47,7 @@ function extractInstagramUsername(url) {
   }
 }
 
-/** Call Apify with multiple input formats; return first non-empty dataset. */
-async function callApify(input) {
-  const client = getClient();
-  const actorIds = Array.from(new Set([
-    getActorId(),
-    "xMc5Ga1oCONPmWJIa",
-    "apify/instagram-reel-scraper",
-  ]));
-
-  // Build input variants for a single username
-  const variants = [input];
-  if (Array.isArray(input?.username) && input.username.length === 1) {
-    const u = String(input.username[0]).replace(/^@/, "").trim();
-    if (u) {
-      variants.push({ ...input, username: u });
-      variants.push({ ...input, directUrls: [`https://www.instagram.com/${u}/`, `https://www.instagram.com/${u}/reels/`] });
-    }
-  }
-  if (Array.isArray(input?.directUrls) && input.directUrls.length > 0) {
-    const username = extractInstagramUsername(String(input.directUrls[0] || ""));
-    if (username) {
-      // Some actor variants require `username` even when directUrls is present.
-      variants.push({ ...input, username: [username] });
-      variants.push({ ...input, username });
-    }
-  }
-
-  let lastErr = null;
-  for (const actorId of actorIds) {
-    for (const payload of variants) {
-      try {
-        const run = await client.actor(actorId).call(payload, { waitSecs: 120 });
-        if (!run?.defaultDatasetId) continue;
-        const { items } = await client.dataset(run.defaultDatasetId).listItems({ clean: true });
-        if (Array.isArray(items) && items.length > 0) {
-          console.log(`[ReelFinder] actor ${actorId} returned ${items.length} items`);
-          return items;
-        }
-      } catch (err) {
-        lastErr = err;
-        console.warn(`[ReelFinder] actor ${actorId} failed:`, err?.message);
-      }
-    }
-  }
-  if (lastErr) throw lastErr;
-  return [];
-}
+export { isReelScraperConfigured } from "../lib/reelscraper-runner.js";
 
 // ── Field mapping ────────────────────────────────────────────────────────────
 
@@ -224,18 +182,29 @@ async function mirrorMedia(rowId, type, url) {
 // ── Public API ───────────────────────────────────────────────────────────────
 
 export async function getTopReels(limit = 100) {
-  // Show reels scraped in the last 30 days so stale/expired content
-  // doesn't permanently outrank fresh results from a new scrape.
-  const lookback = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  // Strict freshness:
+  //  - Posted in last POSTED_LOOKBACK_DAYS days (so old viral content can't
+  //    permanently outrank fresh results)
+  //  - AND scraped in last SCRAPED_LOOKBACK_DAYS days (so we don't surface
+  //    rows whose CDN URLs are likely already expired)
+  // Sort newest-first by `postedAt` so the feed reads as a timeline; viralScore
+  // is a tiebreaker only.
+  const postedAfter  = new Date(Date.now() - POSTED_LOOKBACK_DAYS  * 24 * 60 * 60 * 1000);
+  const scrapedAfter = new Date(Date.now() - SCRAPED_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
   const reels = await prisma.reel.findMany({
     where: {
-      OR: [
-        { lastScrapedAt: { gte: lookback } },
-        { lastScrapedAt: null, createdAt: { gte: lookback } },
+      AND: [
+        { postedAt: { gte: postedAfter } },
+        {
+          OR: [
+            { lastScrapedAt: { gte: scrapedAfter } },
+            { lastScrapedAt: null, createdAt: { gte: scrapedAfter } },
+          ],
+        },
       ],
     },
     include: { profile: { select: { username: true, followerCount: true, avgViews: true } } },
-    orderBy: [{ viralScore: "desc" }, { lastScrapedAt: "desc" }, { createdAt: "desc" }],
+    orderBy: [{ postedAt: "desc" }, { viralScore: "desc" }, { lastScrapedAt: "desc" }],
     take: Math.max(1, Math.min(500, Number(limit) || 100)),
   });
   return reels.map((r) => ({
@@ -265,20 +234,17 @@ export async function getTopReels(limit = 100) {
   }));
 }
 
-export async function fetchFreshVideoUrl(reelPageUrl) {
-  if (!reelPageUrl) return null;
-  try {
-    const username = extractInstagramUsername(reelPageUrl);
-    const items = await callApify({
-      directUrls: [reelPageUrl],
-      ...(username ? { username: [username] } : {}),
-      resultsLimit: 1,
-    });
-    const mapped = mapItem(items[0] || {}, "tmp");
-    return mapped?.videoUrl || null;
-  } catch {
-    return null;
-  }
+/**
+ * On-demand video URL refresh is intentionally disabled.
+ *
+ * Previously this called the scraper (Apify) on every expired-CDN play, which
+ * meant any user could drain credits by clicking play repeatedly on stale
+ * reels. Refreshes now happen ONLY through the cron pipeline / admin scrape
+ * triggers. Callers should treat `null` as "ask the user to wait for the next
+ * scheduled scrape" and surface `video_expired` to the client.
+ */
+export async function fetchFreshVideoUrl(_reelPageUrl) {
+  return null;
 }
 
 export async function cacheReelToR2InBackground(reelId, cdnUrl) {
@@ -304,14 +270,8 @@ export async function scrapeProfile(profileId) {
     throw new Error("Profile has an invalid Instagram username");
   }
 
-  const items = await callApify({
-    username: [username],
-    resultsLimit: APIFY_RESULTS_LIMIT,
-    skipPinnedPosts: false,
-    includeSharesCount: true,
-    includeTranscript: false,
-    includeDownloadedVideo: false,
-  });
+  const items = await scrapeProfileReels(username, REEL_SCRAPE_RESULTS_LIMIT);
+  console.log(`[ReelFinder] reelscraper returned ${items.length} items for @${username}`);
 
   const mapped = items.map((i) => mapItem(i, profile.id)).filter(Boolean);
   const now = new Date();

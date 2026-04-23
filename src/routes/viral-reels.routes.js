@@ -7,11 +7,11 @@ import { authMiddleware } from "../middleware/auth.middleware.js";
 import { adminMiddleware } from "../middleware/admin.middleware.js";
 import {
   getTopReels,
-  fetchFreshVideoUrl,
   cacheReelToR2InBackground,
   runScraperPipeline,
   runScraperPipelineWithMode,
   isScraperPipelineRunning,
+  isReelScraperConfigured,
   scrapeProfile,
   cleanupStaleLogs,
 } from "../services/viral-reels.service.js";
@@ -231,58 +231,43 @@ router.get("/:id/stream-token", authMiddleware, requireSub, (req, res) => {
 });
 
 // Stream video
-// Flow: try existing videoUrl → if CDN returns 403 (expired), fetch fresh via
-// Apify → if still unavailable, clear stale URL from DB and return video_expired.
+// Flow: try the cached videoUrl → if CDN returns 403/expired, clear the URL
+// and return `video_expired`. We intentionally do NOT trigger an on-demand
+// scraper refresh here — every refresh costs a paid Apify run and used to be
+// drained by users clicking play on stale reels. Fresh URLs come exclusively
+// from the cron pipeline / admin scrape triggers.
 router.get("/:id/stream", mediaAuth, requireSub, async (req, res) => {
   const reel = await prisma.reel.findUnique({ where: { id: req.params.id } });
   if (!reel) return res.status(404).end();
 
-  let videoUrl = reel.videoUrl;
-
-  // Try the cached URL first
+  const videoUrl = reel.videoUrl;
   if (videoUrl) {
     if (isR2(videoUrl)) return res.redirect(302, videoUrl);
     try {
       await pipeStream(videoUrl, res, () => cacheReelToR2InBackground(reel.id, videoUrl));
       return; // success
     } catch (upErr) {
-      // Upstream returned 4xx (e.g. 403 expired CDN) — fall through to Apify refresh
-      console.warn(`[ReelFinder] stream upstream ${upErr?.status} for ${reel.id.slice(0, 8)} — trying Apify refresh`);
-      // Clear the stale URL so future requests skip straight to Apify
+      console.warn(`[ReelFinder] stream upstream ${upErr?.status} for ${reel.id.slice(0, 8)} — clearing stale URL`);
       prisma.reel.update({ where: { id: reel.id }, data: { videoUrl: null } }).catch(() => {});
-      videoUrl = null;
-    }
-  }
-
-  // Attempt Apify refresh to get a fresh video URL
-  if (reel.reelUrl) {
-    try {
-      const freshUrl = await fetchFreshVideoUrl(reel.reelUrl);
-      if (freshUrl) {
-        prisma.reel.update({ where: { id: reel.id }, data: { videoUrl: freshUrl } }).catch(() => {});
-        if (isR2(freshUrl)) return res.redirect(302, freshUrl);
-        try {
-          await pipeStream(freshUrl, res, () => cacheReelToR2InBackground(reel.id, freshUrl));
-          return;
-        } catch { /* fall through to video_expired */ }
-      }
-    } catch (err) {
-      console.error("[ReelFinder] Apify refresh failed:", err?.message);
     }
   }
 
   if (!res.headersSent) {
-    res.status(502).json({ error: "video_expired", message: "Video URL expired. Trigger a rescrape." });
+    res.status(502).json({
+      error: "video_expired",
+      message: "Video URL expired. It will be refreshed by the next scheduled scrape.",
+    });
   }
 });
 
 // Download
+// Same cost-control rule as /stream: if the cached URL fails, return
+// `video_expired` rather than triggering a paid Apify refresh.
 router.get("/:id/download", mediaAuth, requireSub, async (req, res) => {
   const reel = await prisma.reel.findUnique({ where: { id: req.params.id } });
   if (!reel) return res.status(404).json({ error: "Not found" });
 
-  let videoUrl = reel.videoUrl;
-
+  const videoUrl = reel.videoUrl;
   if (videoUrl) {
     try {
       res.setHeader("Content-Disposition", `attachment; filename="reel_${reel.instagramReelId || reel.id}.mp4"`);
@@ -290,24 +275,14 @@ router.get("/:id/download", mediaAuth, requireSub, async (req, res) => {
       return;
     } catch {
       prisma.reel.update({ where: { id: reel.id }, data: { videoUrl: null } }).catch(() => {});
-      videoUrl = null;
     }
   }
 
-  if (reel.reelUrl) {
-    try {
-      const freshUrl = await fetchFreshVideoUrl(reel.reelUrl);
-      if (freshUrl) {
-        prisma.reel.update({ where: { id: reel.id }, data: { videoUrl: freshUrl } }).catch(() => {});
-        res.setHeader("Content-Disposition", `attachment; filename="reel_${reel.instagramReelId || reel.id}.mp4"`);
-        await pipeStream(freshUrl, res, () => cacheReelToR2InBackground(reel.id, freshUrl)).catch(() => {});
-        return;
-      }
-    } catch (err) { console.error("[ReelFinder] download refresh:", err?.message); }
-  }
-
   if (!res.headersSent) {
-    res.status(502).json({ error: "video_expired", message: "Video URL expired. Trigger a rescrape." });
+    res.status(502).json({
+      error: "video_expired",
+      message: "Video URL expired. It will be refreshed by the next scheduled scrape.",
+    });
   }
 });
 
@@ -365,7 +340,12 @@ router.delete("/admin/profiles/:id", authMiddleware, adminMiddleware, async (req
 });
 
 router.post("/admin/profiles/:id/scrape", authMiddleware, adminMiddleware, async (req, res) => {
-  if (!process.env.APIFY_API_TOKEN) return res.status(500).json({ success: false, error: "APIFY_API_TOKEN not set" });
+  if (!isReelScraperConfigured()) {
+    return res.status(503).json({
+      success: false,
+      error: "Reel scraper disabled (REEL_SCRAPER_DISABLED). Remove it to run scrapes.",
+    });
+  }
   try {
     const found = await scrapeProfile(req.params.id);
     return res.json({ success: true, found, message: `Saved ${found} reels` });
@@ -388,12 +368,12 @@ router.post("/admin/clear-reels", authMiddleware, adminMiddleware, async (req, r
         message: `Deleted ${del.count} cached reel(s). Rescrape skipped.`,
       });
     }
-    if (!process.env.APIFY_API_TOKEN) {
+    if (!isReelScraperConfigured()) {
       return res.json({
         success: true,
         deletedCount: del.count,
         rescrapeStarted: false,
-        message: `Deleted ${del.count} cached reel(s). APIFY_API_TOKEN not set — rescrape skipped.`,
+        message: `Deleted ${del.count} cached reel(s). Reel scraper disabled — rescrape skipped.`,
       });
     }
     if (isScraperPipelineRunning()) {
@@ -418,21 +398,27 @@ router.post("/admin/clear-reels", authMiddleware, adminMiddleware, async (req, r
 });
 
 router.post("/admin/trigger-scrape", authMiddleware, adminMiddleware, (req, res) => {
-  if (!process.env.APIFY_API_TOKEN) return res.status(500).json({ success: false, error: "APIFY_API_TOKEN not set" });
+  if (!isReelScraperConfigured()) {
+    return res.status(503).json({ success: false, error: "Reel scraper disabled (REEL_SCRAPER_DISABLED)" });
+  }
   if (isScraperPipelineRunning()) return res.json({ started: false, message: "Already running" });
   res.json({ started: true, message: "Full scrape started" });
   runScraperPipeline().catch((e) => console.error("[ReelFinder] pipeline:", e?.message));
 });
 
 router.post("/admin/trigger-hot", authMiddleware, adminMiddleware, (req, res) => {
-  if (!process.env.APIFY_API_TOKEN) return res.status(500).json({ success: false, error: "APIFY_API_TOKEN not set" });
+  if (!isReelScraperConfigured()) {
+    return res.status(503).json({ success: false, error: "Reel scraper disabled (REEL_SCRAPER_DISABLED)" });
+  }
   if (isScraperPipelineRunning()) return res.json({ started: false, message: "Already running" });
   res.json({ started: true, message: "Hot scrape started" });
   runScraperPipelineWithMode("hot").catch((e) => console.error("[ReelFinder] hot:", e?.message));
 });
 
 router.post("/admin/trigger-warm", authMiddleware, adminMiddleware, (req, res) => {
-  if (!process.env.APIFY_API_TOKEN) return res.status(500).json({ success: false, error: "APIFY_API_TOKEN not set" });
+  if (!isReelScraperConfigured()) {
+    return res.status(503).json({ success: false, error: "Reel scraper disabled (REEL_SCRAPER_DISABLED)" });
+  }
   if (isScraperPipelineRunning()) return res.json({ started: false, message: "Already running" });
   res.json({ started: true, message: "Warm scrape started" });
   runScraperPipelineWithMode("warm").catch((e) => console.error("[ReelFinder] warm:", e?.message));
@@ -449,7 +435,9 @@ router.get("/admin/logs", authMiddleware, adminMiddleware, async (_req, res) => 
 router.get("/cron-scrape", (req, res) => {
   const secret = req.headers.authorization?.replace(/^Bearer\s+/i, "") || req.query?.secret;
   if (process.env.CRON_SECRET && secret !== process.env.CRON_SECRET) return res.status(401).json({ error: "Unauthorized" });
-  if (!process.env.APIFY_API_TOKEN) return res.status(500).json({ error: "APIFY_API_TOKEN not set" });
+  if (!isReelScraperConfigured()) {
+    return res.status(503).json({ error: "Reel scraper disabled (REEL_SCRAPER_DISABLED)" });
+  }
   if (isScraperPipelineRunning()) return res.json({ started: false });
   res.json({ started: true });
   runScraperPipeline().catch((e) => console.error("[ReelFinder] cron:", e?.message));
