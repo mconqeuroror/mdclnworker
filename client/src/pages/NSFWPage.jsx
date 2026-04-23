@@ -2166,28 +2166,57 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
 
   return (
     <div className="mt-6 space-y-5">
-      {/* Mode selector - same interaction style as Generate motion control */}
-      <div className="grid grid-cols-2 gap-2">
+      {/* Mode selector - matched to Generate video method cards */}
+      <div className="generate-page">
+        <p className="text-[10px] uppercase tracking-[0.25em] text-slate-500 font-medium mb-3">Select Mode</p>
+        <div className="grid grid-cols-2 gap-2">
         <button
           onClick={() => setVideoGenMode("motion")}
-          className={`rounded-xl px-3 py-2 text-xs font-semibold transition-all ${videoGenMode === "motion" ? "text-white" : "text-slate-400 hover:text-white"}`}
+          className={`relative p-3 rounded-xl group overflow-hidden text-center ${
+            videoGenMode === "motion" ? "text-[color:var(--text-primary)]" : "text-[color:var(--text-muted)] hover:text-[color:var(--text-primary)]"
+          }`}
           style={videoGenMode === "motion"
-            ? { background: "rgba(168,85,247,0.16)", border: "1px solid rgba(168,85,247,0.35)" }
-            : { background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}
+            ? { background: "var(--bg-glass-strong)", border: "1px solid var(--border-strong)", boxShadow: "inset 0 1px 0 var(--mc-glass-inset-strong)" }
+            : { background: "var(--bg-glass)", border: "1px solid var(--border-subtle)", boxShadow: "inset 0 1px 0 var(--mc-glass-inset)" }}
           data-testid="button-video-mode-motion"
         >
-          Motion Control
+          {videoGenMode === "motion" && (
+            <>
+              <span className="absolute top-0 left-0 w-20 h-20 pointer-events-none" style={RED_CORNER_GLOW_STYLE} />
+              <span className="absolute left-0 top-2 bottom-2 w-1 rounded-full bg-gradient-to-b from-white/90 to-white/45" />
+            </>
+          )}
+          <div className="relative">
+            <p className="font-semibold text-xs">Motion Control</p>
+            <span className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-fuchsia-500/10 border border-fuchsia-500/20 text-[9px] font-medium text-fuchsia-300">
+              Recommended
+            </span>
+          </div>
         </button>
         <button
           onClick={() => setVideoGenMode("standard")}
-          className={`rounded-xl px-3 py-2 text-xs font-semibold transition-all ${videoGenMode === "standard" ? "text-white" : "text-slate-400 hover:text-white"}`}
+          className={`relative p-3 rounded-xl group overflow-hidden text-center ${
+            videoGenMode === "standard" ? "text-[color:var(--text-primary)]" : "text-[color:var(--text-muted)] hover:text-[color:var(--text-primary)]"
+          }`}
           style={videoGenMode === "standard"
-            ? { background: "rgba(59,130,246,0.16)", border: "1px solid rgba(59,130,246,0.35)" }
-            : { background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}
+            ? { background: "var(--bg-glass-strong)", border: "1px solid var(--border-strong)", boxShadow: "inset 0 1px 0 var(--mc-glass-inset-strong)" }
+            : { background: "var(--bg-glass)", border: "1px solid var(--border-subtle)", boxShadow: "inset 0 1px 0 var(--mc-glass-inset)" }}
           data-testid="button-video-mode-standard"
         >
-          Standard Image-to-Video
+          {videoGenMode === "standard" && (
+            <>
+              <span className="absolute top-0 left-0 w-20 h-20 pointer-events-none" style={RED_CORNER_GLOW_STYLE} />
+              <span className="absolute left-0 top-2 bottom-2 w-1 rounded-full bg-gradient-to-b from-white/90 to-white/45" />
+            </>
+          )}
+          <div className="relative">
+            <p className="font-semibold text-xs">Standard I2V</p>
+            <span className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-[9px] font-medium text-blue-300">
+              5s / 8s
+            </span>
+          </div>
         </button>
+      </div>
       </div>
 
       {videoGenMode === "motion" && (
