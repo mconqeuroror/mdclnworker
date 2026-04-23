@@ -39,6 +39,7 @@ export const DEFAULT_GENERATION_PRICING = Object.freeze({
   creatorStudioIdeogramBalanced: 14,
   creatorStudioIdeogramQuality: 20,
   creatorStudioSeedream45Edit: 10,
+  creatorStudioGptImage2: 10,
   creatorStudioAssetCreate: 100,
   nanoBananaFlash1K: 4,
   nanoBanana2Flash4K: 8,

@@ -10,6 +10,7 @@ import {
   generateWan27ImageProKie,
   generateWan27ImageKie,
   generateIdeogramV3Kie,
+  generateGptImage2Kie,
   createVolcanicAssetKie,
   generateVideoWithMotionKie,
   generateVideoWithKling26Kie,
@@ -4037,7 +4038,15 @@ const CREATOR_STUDIO_MODELS = [
   "ideogram-v3-edit",
   "ideogram-v3-remix",
   "seedream-v4-5-edit",
+  // GPT Image 2 — single model id, mode is selected automatically by the
+  // dispatcher (text-to-image when no input images, image-to-image otherwise).
+  "gpt-image-2",
 ];
+
+/** Aspect ratios accepted by the GPT Image 2 KIE endpoint. Anything else is coerced to "auto". */
+const GPT_IMAGE_2_ASPECT_RATIOS = new Set([
+  "auto", "1:1", "9:16", "16:9", "4:3", "3:4",
+]);
 const CREATOR_STUDIO_VIDEO_FAMILIES = ["sora2", "kling26", "kling30", "veo31", "wan22", "wan26", "wan27", "seedance2"];
 const CREATOR_STUDIO_VIDEO_FAMILY_ALIASES = Object.freeze({
   veo3: "veo31",
@@ -4345,8 +4354,16 @@ export async function generateCreatorStudio(req, res) {
     }
     const modelName = CREATOR_STUDIO_MODELS.includes(generationModel) ? generationModel : "nano-banana-pro";
     const requestedAspectRatio = String(aspectRatio || "").trim();
-    const resolvedAspectRatio = requestedAspectRatio || (modelName.startsWith("flux-kontext") ? "16:9" : "1:1");
-    if (!CREATOR_STUDIO_ASPECT_RATIOS.includes(resolvedAspectRatio)) {
+    const resolvedAspectRatio = requestedAspectRatio
+      || (modelName === "gpt-image-2" ? "auto"
+      : modelName.startsWith("flux-kontext") ? "16:9"
+      : "1:1");
+    // GPT Image 2 has its own short list of allowed aspect ratios (incl. "auto").
+    // For all other models keep the existing CREATOR_STUDIO_ASPECT_RATIOS allow-list.
+    const aspectAllowed = modelName === "gpt-image-2"
+      ? GPT_IMAGE_2_ASPECT_RATIOS.has(resolvedAspectRatio)
+      : CREATOR_STUDIO_ASPECT_RATIOS.includes(resolvedAspectRatio);
+    if (!aspectAllowed) {
       return res.status(400).json({ success: false, message: `Invalid aspect ratio.` });
     }
     if (!CREATOR_STUDIO_RESOLUTIONS.includes(resolution)) {
@@ -4418,6 +4435,8 @@ export async function generateCreatorStudio(req, res) {
       creditsNeeded = rate * clampedNumImages;
     } else if (modelName === "seedream-v4-5-edit") {
       creditsNeeded = pricing.creatorStudioSeedream45Edit || 10;
+    } else if (modelName === "gpt-image-2") {
+      creditsNeeded = pricing.creatorStudioGptImage2 || 10;
     }
     creditsNeeded = Math.ceil(Number(creditsNeeded) || 0);
     if (creditsNeeded <= 0) {
@@ -4647,6 +4666,26 @@ async function processCreatorStudioInBackground(
           strength: Number(payload?.ideogramStrength ?? 0.8),
           numImages: normalizedNumImages,
           expandPrompt: payload?.ideogramExpandPrompt !== false,
+          onTaskCreated,
+        }),
+      );
+    } else if (normalizedModel === "gpt-image-2") {
+      // Mode is auto-selected: any input image (refs OR primary input) routes
+      // to gpt-image-2-image-to-image; pure prompts route to gpt-image-2-text-to-image.
+      const sourceInputs = refs.length > 0
+        ? refs
+        : (normalizedInputImage ? [normalizedInputImage] : []);
+      const kieInputUrls = sourceInputs.length
+        ? await Promise.all(
+            sourceInputs.slice(0, 16).map((u, i) => ensureKieAccessibleUrl(u, `gpt-image-2-input-${i + 1}`)),
+          ).catch(() => sourceInputs.slice(0, 16))
+        : [];
+      result = await requestQueue.enqueue(() =>
+        generateGptImage2Kie({
+          prompt: promptText,
+          inputUrls: kieInputUrls,
+          aspectRatio,
+          nsfwChecker: payload?.nsfwChecker === true,
           onTaskCreated,
         }),
       );

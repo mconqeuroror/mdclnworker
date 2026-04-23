@@ -233,6 +233,22 @@ const IMAGE_MODELS = [
   { id: "wan-2-7-image", label: "Wan 2.7 Image" },
   { id: "wan-2-7-image-pro", label: "Wan 2.7 Image Pro" },
   { id: "seedream-v4-5-edit", label: "Seedream v4.5 Edit" },
+  // GPT Image 2 — single id; backend auto-routes to text-to-image or
+  // image-to-image based on whether input refs are present.
+  { id: "gpt-image-2", label: "GPT Image 2" },
+];
+
+/**
+ * GPT Image 2 supports a strict short list of aspect ratios via the KIE
+ * endpoint; "auto" lets the model pick the best fit for the input.
+ */
+const GPT_IMAGE_2_ASPECT_RATIOS = [
+  { value: "auto", label: "Auto", hint: "Auto" },
+  { value: "1:1",  label: "1:1",  hint: "1:1" },
+  { value: "16:9", label: "16:9", hint: null },
+  { value: "9:16", label: "9:16", hint: null },
+  { value: "4:3",  label: "4:3",  hint: null },
+  { value: "3:4",  label: "3:4",  hint: null },
 ];
 const VIDEO_FAMILIES = [
   { id: "sora2", label: "Sora 2 Pro" },
@@ -1848,22 +1864,27 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
   /** @type {{ assetType: "image"|"video"|"audio", onPick: (asset: any) => void } | null} */
   const [assetPickerCfg, setAssetPickerCfg] = useState(null);
   const openAssetPicker = useCallback((cfg) => setAssetPickerCfg(cfg), []);
+  const [gptImage2NsfwChecker, setGptImage2NsfwChecker] = useState(false);
   const isFluxImageModel = imageModel.startsWith("flux-kontext");
   const isIdeogramImageModel = imageModel.startsWith("ideogram-v3");
   const isWanImageModel = imageModel === "wan-2-7-image" || imageModel === "wan-2-7-image-pro";
   const isSeedreamImageModel = imageModel === "seedream-v4-5-edit";
+  const isGptImage2Model = imageModel === "gpt-image-2";
   const showSingleInputUploader =
     isFluxImageModel
     || imageModel === "ideogram-v3-edit"
     || imageModel === "ideogram-v3-remix"
-    || isSeedreamImageModel;
+    || isSeedreamImageModel
+    || isGptImage2Model; // GPT Image 2 uses optional input image (image-to-image mode)
   const supportsReferenceSlots =
     imageModel === "nano-banana-pro"
     || isWanImageModel
-    || isSeedreamImageModel;
+    || isSeedreamImageModel
+    || isGptImage2Model; // GPT Image 2 accepts up to 16 input refs
   const singleInputRequired =
     imageModel === "ideogram-v3-edit"
     || imageModel === "ideogram-v3-remix";
+  const aspectRatioOptions = isGptImage2Model ? GPT_IMAGE_2_ASPECT_RATIOS : ASPECT_RATIOS;
 
   const { isLoading: histLoading } = useQuery({
     queryKey: ["creator-studio-history"],
@@ -1912,6 +1933,18 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
       setFluxSafetyTolerance(2);
     }
   }, [isFluxImageModel, fluxSafetyTolerance]);
+
+  // GPT Image 2: aspect ratios are restricted to {auto, 1:1, 9:16, 16:9, 4:3, 3:4}.
+  // Coerce to "auto" when the user switches into the model with a now-invalid value
+  // and snap back to "1:1" when leaving (the default for every other image model).
+  useEffect(() => {
+    if (isGptImage2Model) {
+      const allowed = GPT_IMAGE_2_ASPECT_RATIOS.some((ar) => ar.value === aspectRatio);
+      if (!allowed) setAspectRatio("auto");
+    } else if (aspectRatio === "auto") {
+      setAspectRatio("1:1");
+    }
+  }, [isGptImage2Model, aspectRatio]);
 
   const handleAddRef = useCallback(async (file, slotIdx) => {
     setUploadingIdx(slotIdx);
@@ -1998,6 +2031,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
         thinkingMode: isWanImageModel ? wanThinkingMode : undefined,
         colorPalette: isWanImageModel ? parsedColorPalette : undefined,
         bboxList: isWanImageModel ? parsedBboxList : undefined,
+        nsfwChecker: isGptImage2Model ? gptImage2NsfwChecker : undefined,
         aspectRatio,
         resolution,
       });
@@ -2152,6 +2186,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
     if (imageModel === "wan-2-7-image") return Math.ceil((generationPricing?.creatorStudioWan27Image || 5) * qty);
     if (imageModel === "wan-2-7-image-pro") return Math.ceil((generationPricing?.creatorStudioWan27ImagePro || 10) * qty);
     if (imageModel === "seedream-v4-5-edit") return Math.ceil(generationPricing?.creatorStudioSeedream45Edit || 10);
+    if (imageModel === "gpt-image-2") return Math.ceil(generationPricing?.creatorStudioGptImage2 || 10);
     if (imageModel === "ideogram-v3-text" || imageModel === "ideogram-v3-edit" || imageModel === "ideogram-v3-remix") {
       const speed = String(ideogramRenderingSpeed || "BALANCED").toUpperCase();
       const rate = speed === "TURBO"
@@ -2630,11 +2665,24 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                     </div>
                   </div>
                 )}
+                {isGptImage2Model && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Safety</span>
+                    <button
+                      type="button"
+                      onClick={() => setGptImage2NsfwChecker((v) => !v)}
+                      className={`px-3 py-1.5 rounded-lg text-xs ${gptImage2NsfwChecker ? "bg-violet-600 text-white" : "bg-white/10 text-slate-300"}`}
+                      title="When ON, KIE filters NSFW results. When OFF, the model returns results directly without filtering."
+                    >
+                      NSFW filter: {gptImage2NsfwChecker ? "On" : "Off"}
+                    </button>
+                  </div>
+                )}
                 <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 min-w-0">
                   <div className="flex items-center gap-2 min-w-0 overflow-x-auto pb-1 -mx-1 px-1 [scrollbar-width:thin]">
                     <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">{copy.aspect}</span>
                     <div className="flex items-center gap-1 shrink-0">
-                      {ASPECT_RATIOS.map((ar) => (
+                      {aspectRatioOptions.map((ar) => (
                         <Chip key={ar.value} active={aspectRatio === ar.value} onClick={() => setAspectRatio(ar.value)}>
                           {ar.hint ?? ar.label}
                         </Chip>
@@ -2938,10 +2986,22 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                     </div>
                   </div>
                 )}
+                {isGptImage2Model && (
+                  <div>
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 block mb-2">Safety</span>
+                    <button
+                      type="button"
+                      onClick={() => setGptImage2NsfwChecker((v) => !v)}
+                      className={`w-full min-h-[40px] px-3 py-2 rounded-lg text-xs font-semibold transition-all border ${gptImage2NsfwChecker ? "bg-violet-600 text-white border-violet-500 shadow-[0_4px_12px_-4px_rgba(124,58,237,0.5)]" : "bg-white/[0.03] text-slate-300 border-white/[0.08] hover:bg-white/[0.06]"}`}
+                    >
+                      NSFW filter · {gptImage2NsfwChecker ? "On" : "Off"}
+                    </button>
+                  </div>
+                )}
                 <div>
                   <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 block mb-2">{copy.aspect}</span>
                   <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-0.5 px-0.5 snap-x [scrollbar-width:thin]">
-                    {ASPECT_RATIOS.map((ar) => (
+                    {aspectRatioOptions.map((ar) => (
                       <Chip key={ar.value} active={aspectRatio === ar.value} onClick={() => setAspectRatio(ar.value)}>
                         <span className="whitespace-nowrap">{ar.hint ?? ar.label}</span>
                       </Chip>

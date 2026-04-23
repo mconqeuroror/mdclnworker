@@ -1972,6 +1972,71 @@ async function generateIdeogramV3KieInternal(payload = {}) {
   throw new Error(`Unsupported ideogram variant: ${variant}`);
 }
 
+/**
+ * GPT Image 2 (KIE) — supports both text-to-image and image-to-image via the
+ * unified /api/v1/jobs/createTask endpoint. Mode is selected by passing
+ * `inputUrls`: when one or more URLs are supplied we route to the
+ * `gpt-image-2-image-to-image` model, otherwise `gpt-image-2-text-to-image`.
+ *
+ * Allowed `aspect_ratio` values: auto, 1:1, 9:16, 16:9, 4:3, 3:4. Anything
+ * else is coerced to "auto" (KIE rejects unknown values).
+ */
+const GPT_IMAGE_2_ALLOWED_ASPECT_RATIOS = new Set([
+  "auto",
+  "1:1",
+  "9:16",
+  "16:9",
+  "4:3",
+  "3:4",
+]);
+
+async function generateGptImage2KieInternal(payload = {}) {
+  const {
+    prompt = "",
+    inputUrls = [],
+    aspectRatio = "auto",
+    nsfwChecker = false,
+  } = payload;
+
+  const normalizedPrompt = String(prompt || "").trim();
+  if (!normalizedPrompt) {
+    throw new Error("Prompt is required for GPT Image 2.");
+  }
+  if (normalizedPrompt.length > 20_000) {
+    throw new Error("GPT Image 2 prompt must be 20,000 characters or fewer.");
+  }
+
+  const cleanInputUrls = (Array.isArray(inputUrls) ? inputUrls : [])
+    .filter((u) => typeof u === "string" && u.trim().length > 0)
+    .map((u) => u.trim())
+    .slice(0, 16); // KIE limit per OpenAPI spec
+
+  const ratioRaw = String(aspectRatio || "auto").trim();
+  const normalizedAspectRatio = GPT_IMAGE_2_ALLOWED_ASPECT_RATIOS.has(ratioRaw)
+    ? ratioRaw
+    : "auto";
+
+  const isImageToImage = cleanInputUrls.length > 0;
+  const modelId = isImageToImage
+    ? "gpt-image-2-image-to-image"
+    : "gpt-image-2-text-to-image";
+  const label = isImageToImage ? "gpt-image-2-i2i" : "gpt-image-2-t2i";
+
+  const reqBody = {
+    model: modelId,
+    input: {
+      prompt: normalizedPrompt,
+      ...(isImageToImage ? { input_urls: cleanInputUrls } : {}),
+      aspect_ratio: normalizedAspectRatio,
+      nsfw_checker: nsfwChecker === true,
+    },
+  };
+
+  return kieRun(reqBody, label, KIE_POLL_TIMEOUT_IMAGE_MS, {
+    onTaskCreated: payload.onTaskCreated,
+  });
+}
+
 async function generateSeedance2KieInternal(payload = {}) {
   const {
     variant = "seedance-2-preview",
@@ -2108,6 +2173,9 @@ export function generateWan27ImageKie(...args) {
 }
 export function generateIdeogramV3Kie(...args) {
   return enqueueKieJob(() => generateIdeogramV3KieInternal(...args));
+}
+export function generateGptImage2Kie(...args) {
+  return enqueueKieJob(() => generateGptImage2KieInternal(...args));
 }
 export function generateSeedance2Kie(...args) {
   return enqueueKieJob(() => generateSeedance2KieInternal(...args));
