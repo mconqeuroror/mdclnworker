@@ -2375,7 +2375,7 @@ function buildComfyWorkflowLegacy(params) {
       class_type: "KSampler",
     },
     "289": { inputs: { filename_prefix: "modelclone", images: ["28", 0] }, class_type: "SaveImage" },
-    "304": { inputs: { ckpt_name: "pornworksRealPorn_Illustrious_v4_04.safetensors" }, class_type: "CheckpointLoaderSimple" },
+    "304": { inputs: { ckpt_name: "zImageTurboNSFW_20BF16AIO.safetensors" }, class_type: "CheckpointLoaderSimple" },
   };
   return workflow;
 }

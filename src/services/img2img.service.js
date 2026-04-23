@@ -168,7 +168,7 @@ const NSFW_TXT2IMG_WORKFLOW = {
   "284": { inputs: { density: 0.06, intensity: 0.1, highlights: 1, supersample_factor: 1, image: ["28", 0] }, class_type: "Image Film Grain" },
   "286": { inputs: { blur_radius: 2, sigma: 0.3, image: ["284", 0] }, class_type: "ImageBlur" },
   "289": { inputs: { filename_prefix: "modelclone", images: ["286", 0] }, class_type: "SaveImage" },
-  "304": { inputs: { ckpt_name: "pornworksRealPorn_Illustrious_v4_04.safetensors" }, class_type: "CheckpointLoaderSimple" },
+  "304": { inputs: { ckpt_name: "zImageTurboNSFW_20BF16AIO.safetensors" }, class_type: "CheckpointLoaderSimple" },
 };
 
 // Deep-clone so every call gets a fresh mutable copy
