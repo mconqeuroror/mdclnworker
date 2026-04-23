@@ -85,7 +85,10 @@ function loadMotionWorkflow() {
   for (const p of candidates) {
     if (fs.existsSync(p)) {
       try {
-        const parsed = JSON.parse(fs.readFileSync(p, "utf8"));
+        // Some exported workflow files include UTF-8 BOM (U+FEFF), which
+        // breaks JSON.parse in production if not stripped first.
+        const raw = fs.readFileSync(p, "utf8").replace(/^\uFEFF/, "");
+        const parsed = JSON.parse(raw);
         cachedWorkflow = parsed;
         return JSON.parse(JSON.stringify(parsed));
       } catch (e) {
