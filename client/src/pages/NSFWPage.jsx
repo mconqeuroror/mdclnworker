@@ -62,7 +62,7 @@ import { ScrollArea } from "../components/ui/scroll-area";
 import { cn } from "../lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import toast from "react-hot-toast";
-import api, { pricingAPI, uploadFile } from "../services/api";
+import api, { generationAPI, pricingAPI, uploadFile } from "../services/api";
 import { downloadFromPublicUrl } from "../utils/directDownload";
 import { useAuthStore } from "../store";
 import { sound } from "../utils/sounds";
@@ -1889,6 +1889,12 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
   const [extendDuration, setExtendDuration] = useState(5);
   const [extendPrompt, setExtendPrompt] = useState("");
   const [isSubmittingExtend, setIsSubmittingExtend] = useState(false);
+  const [videoGenMode, setVideoGenMode] = useState("standard"); // "standard" | "motion"
+  const [drivingVideoUrl, setDrivingVideoUrl] = useState("");
+  const [drivingVideoName, setDrivingVideoName] = useState("");
+  const [isUploadingDrivingVideo, setIsUploadingDrivingVideo] = useState(false);
+  const [isSubmittingMotionVideo, setIsSubmittingMotionVideo] = useState(false);
+  const [motionSkipSeconds, setMotionSkipSeconds] = useState(0);
   const [videoModal, setVideoModal] = useState(null); // { url, title, chain }
   const [viewingSegment, setViewingSegment] = useState({}); // { [chainRootId]: 'original' | 'extended' }
   const pageSize = 12;
@@ -1932,7 +1938,15 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
       const extendResponse = await api.get(`/generations?${extendParams}`);
       const extendVideos = extendResponse.data.generations || [];
 
-      return [...nsfwVideos, ...extendVideos].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      const motionParams = new URLSearchParams({
+        type: "nsfw-video-motion",
+        limit: "50",
+      });
+      if (modelId) motionParams.set("modelId", modelId);
+      const motionResponse = await api.get(`/generations?${motionParams}`);
+      const motionVideos = motionResponse.data.generations || [];
+
+      return [...nsfwVideos, ...extendVideos, ...motionVideos].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     },
     enabled: !!modelId,
     refetchInterval: 5000,
@@ -1947,6 +1961,7 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
 
   const originals = videos.filter(v => v.type === "nsfw-video");
   const extendsList = videos.filter(v => v.type === "nsfw-video-extend");
+  const motionVideos = videos.filter(v => v.type === "nsfw-video-motion");
 
   const extendsBySource = {};
   extendsList.forEach(v => {
@@ -1996,7 +2011,8 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
     return [outputUrl];
   };
 
-  const creditsNeeded = videoDuration === 8 ? 80 : 50;
+  const standardCreditsNeeded = videoDuration === 8 ? 80 : 50;
+  const motionCreditsNeeded = Math.max(60, Math.round((Number(videoDuration) || 5) * 30));
 
   const handleSubmitVideo = async () => {
     if (!videoSelectedImage || isSubmittingVideo) return;
@@ -2023,6 +2039,54 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
       toast.error(msg);
     } finally {
       setIsSubmittingVideo(false);
+    }
+  };
+
+  const handleDrivingVideoUpload = async (event) => {
+    const file = event?.target?.files?.[0];
+    if (!file) return;
+    setIsUploadingDrivingVideo(true);
+    try {
+      const uploadedUrl = await uploadFile(file);
+      setDrivingVideoUrl(uploadedUrl);
+      setDrivingVideoName(file.name || "driving-video.mp4");
+      toast.success("Driving video uploaded");
+    } catch (err) {
+      const msg = err?.message || "Failed to upload driving video";
+      toast.error(msg);
+    } finally {
+      setIsUploadingDrivingVideo(false);
+      event.target.value = "";
+    }
+  };
+
+  const handleSubmitMotionVideo = async () => {
+    if (!videoSelectedImage || !drivingVideoUrl || isSubmittingMotionVideo) return;
+    setIsSubmittingMotionVideo(true);
+    try {
+      const response = await generationAPI.nsfwGenerateMotionVideo({
+        modelId,
+        imageUrl: videoSelectedImage,
+        videoUrl: drivingVideoUrl,
+        prompt: videoPrompt || undefined,
+        duration: videoDuration,
+        skipSeconds: Math.max(0, Math.min(60, Number(motionSkipSeconds) || 0)),
+      });
+      if (response?.success) {
+        toast.success(`Motion video generating! ${response.creditsUsed} 🪙 used`);
+        sound.playSuccess();
+        await refreshUserCredits();
+      } else {
+        toast.error(response?.message || "Motion video generation failed");
+      }
+    } catch (err) {
+      const errData = err.response?.data;
+      const msg = errData?.errors?.length
+        ? errData.errors.map(e => e.field ? `${e.field}: ${e.message}` : e.message).join("; ")
+        : (errData?.message || "Motion video generation failed");
+      toast.error(msg);
+    } finally {
+      setIsSubmittingMotionVideo(false);
     }
   };
 
@@ -2156,13 +2220,43 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
       {/* Step 2: Duration & Generate */}
       <div>
         <div className="flex items-center gap-2 mb-3">
+          <button
+            onClick={() => setVideoGenMode("standard")}
+            className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${
+              videoGenMode === "standard"
+                ? "bg-white/[0.1] border-white/25 text-white"
+                : "bg-white/[0.03] border-white/10 text-slate-400 hover:text-white"
+            }`}
+            data-testid="button-video-mode-standard"
+          >
+            Standard
+          </button>
+          <button
+            onClick={() => setVideoGenMode("motion")}
+            className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${
+              videoGenMode === "motion"
+                ? "bg-white/[0.1] border-white/25 text-white"
+                : "bg-white/[0.03] border-white/10 text-slate-400 hover:text-white"
+            }`}
+            data-testid="button-video-mode-motion"
+          >
+            Motion Control
+          </button>
+          <span className="text-[10px] text-slate-500">
+            {videoGenMode === "motion"
+              ? "Reference image + driving video"
+              : "Reference image only"}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2 mb-3">
           <div className="w-6 h-6 rounded-full flex items-center justify-center bg-rose-500">
             <span className="text-[10px] font-bold text-white">2</span>
           </div>
           <span className="text-sm font-medium text-white">{copy.videoSectionDuration}</span>
         </div>
         <div className="flex items-center gap-3 mb-4">
-          {[5, 8].map((dur) => (
+          {(videoGenMode === "motion" ? [5, 8, 12, 15] : [5, 8]).map((dur) => (
             <button
               key={dur}
               onClick={() => setVideoDuration(dur)}
@@ -2184,29 +2278,80 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
           ))}
         </div>
 
+        {videoGenMode === "motion" && (
+          <div className="mb-4 p-3 rounded-xl border border-white/[0.08] bg-white/[0.02] space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs text-slate-300 font-medium">Driving video</p>
+                <p className="text-[11px] text-slate-500 truncate">
+                  {drivingVideoUrl ? (drivingVideoName || "Uploaded video ready") : "Upload an MP4/MOV/WebM file"}
+                </p>
+              </div>
+              <label className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-white/15 bg-white/[0.04] hover:bg-white/[0.08] cursor-pointer text-xs text-white">
+                {isUploadingDrivingVideo ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Upload className="w-3.5 h-3.5" />
+                )}
+                {isUploadingDrivingVideo ? "Uploading..." : "Upload video"}
+                <input
+                  type="file"
+                  accept="video/mp4,video/quicktime,video/webm"
+                  className="hidden"
+                  onChange={handleDrivingVideoUpload}
+                  disabled={isUploadingDrivingVideo}
+                />
+              </label>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-slate-400 whitespace-nowrap">Skip first seconds</span>
+              <input
+                type="number"
+                min={0}
+                max={60}
+                value={motionSkipSeconds}
+                onChange={(e) => setMotionSkipSeconds(e.target.value)}
+                className="w-24 px-2 py-1.5 rounded-lg bg-white/[0.04] border border-white/10 text-white text-xs focus:outline-none focus:border-white/25"
+                data-testid="input-motion-skip-seconds"
+              />
+              <span className="text-[11px] text-slate-500">0–60</span>
+            </div>
+          </div>
+        )}
+
         <button
-          onClick={handleSubmitVideo}
-          disabled={!videoSelectedImage || isSubmittingVideo}
+          onClick={videoGenMode === "motion" ? handleSubmitMotionVideo : handleSubmitVideo}
+          disabled={
+            videoGenMode === "motion"
+              ? (!videoSelectedImage || !drivingVideoUrl || isSubmittingMotionVideo || isUploadingDrivingVideo)
+              : (!videoSelectedImage || isSubmittingVideo)
+          }
           className="w-full py-3.5 rounded-xl font-semibold text-white flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           style={{
-            background: videoSelectedImage && !isSubmittingVideo
+            background:
+              videoGenMode === "motion"
+                ? (videoSelectedImage && drivingVideoUrl && !isSubmittingMotionVideo && !isUploadingDrivingVideo
+                  ? "linear-gradient(135deg, #ef4444 0%, #9333ea 100%)"
+                  : "rgba(255,255,255,0.1)")
+                : (videoSelectedImage && !isSubmittingVideo
               ? "linear-gradient(135deg, #3b82f6 0%, #6366f1 100%)"
-              : "rgba(255,255,255,0.1)",
+              : "rgba(255,255,255,0.1)"),
           }}
-          data-testid="button-generate-video"
+          data-testid={videoGenMode === "motion" ? "button-generate-motion-video" : "button-generate-video"}
         >
-          {isSubmittingVideo ? (
+          {(videoGenMode === "motion" ? isSubmittingMotionVideo : isSubmittingVideo) ? (
             <>
               <Loader2 className="w-5 h-5 animate-spin" />
-              {copy.videoButtonGenerating}
+              {videoGenMode === "motion" ? "Generating motion video..." : copy.videoButtonGenerating}
             </>
           ) : (
             <>
               <Video className="w-5 h-5" />
-              {copy.videoButtonGenerate} {videoDuration}s
+              {videoGenMode === "motion" ? "Generate Motion Video" : copy.videoButtonGenerate} {videoDuration}s
               <span className="px-2 py-0.5 rounded-full bg-white/20 text-xs inline-flex items-center gap-1.5">
                 <Coins className="w-3 h-3 text-yellow-400" />
-                <span>{creditsNeeded}</span>
+                <span>{videoGenMode === "motion" ? motionCreditsNeeded : standardCreditsNeeded}</span>
               </span>
             </>
           )}
@@ -2221,6 +2366,66 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
             <span className="text-xs text-red-400 font-medium">
               {processingVideos.length} generating...
             </span>
+          </div>
+        </div>
+      )}
+
+      {/* Motion Control Videos Gallery */}
+      {motionVideos.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <Video className="w-4 h-4 text-fuchsia-400" />
+            <h3 className="text-[11px] uppercase tracking-[0.15em] text-slate-400 font-medium">Motion Control Videos</h3>
+            <span className="px-2 py-0.5 rounded-full text-[9px] font-medium" style={{ background: "rgba(217,70,239,0.15)", color: "#E879F9" }}>
+              {motionVideos.length}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            {motionVideos.map((motion) => (
+              <div key={motion.id} className="rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
+                <div
+                  className="relative w-full bg-black overflow-hidden cursor-pointer group"
+                  style={{ height: "9rem" }}
+                  onClick={() => {
+                    if (motion.outputUrl) {
+                      setVideoModal({ url: motion.outputUrl, title: motion.prompt, chain: [motion], totalDuration: 0 });
+                    }
+                  }}
+                  data-testid={`motion-video-thumbnail-${motion.id}`}
+                >
+                  {motion.outputUrl ? (
+                    <LazyVideo
+                      src={motion.outputUrl}
+                      muted
+                      loop
+                      playsInline
+                      videoClassName="object-contain"
+                      className="w-full h-full"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center">
+                      <Loader2 className="w-5 h-5 animate-spin text-fuchsia-400" />
+                    </div>
+                  )}
+                </div>
+                <div className="p-2.5 space-y-1.5">
+                  <div className="flex items-center justify-between text-[10px] text-slate-400">
+                    <span>{new Date(motion.createdAt).toLocaleDateString()}</span>
+                    <span className="text-fuchsia-300">{motion.status}</span>
+                  </div>
+                  {motion.outputUrl && (
+                    <button
+                      onClick={() => handleDownload(motion.outputUrl, motion.id)}
+                      className="w-full py-1.5 rounded-lg text-[11px] bg-white/[0.05] hover:bg-white/[0.1] border border-white/10 text-white"
+                      data-testid={`button-download-motion-${motion.id}`}
+                    >
+                      Download
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}

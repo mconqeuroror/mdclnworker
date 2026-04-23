@@ -480,6 +480,11 @@ export const generationAPI = {
     return response.data;
   },
 
+  nsfwGenerateMotionVideo: async (data) => {
+    const response = await api.post("/nsfw/generate-motion-video", data);
+    return response.data;
+  },
+
   faceSwap: async (data) => {
     const response = await api.post("/generate/face-swap", data);
     return response.data;
@@ -856,6 +861,13 @@ export const adminAPI = {
     const response = await api.post("/admin/lost-generations/reconcile-all", {
       limit,
       dryRun,
+    });
+    return response.data;
+  },
+  runRunpodBatchReconcile: async ({ limit = 200, includeTimedOutFailed = true } = {}) => {
+    const response = await api.post("/admin/runpod/batch-reconcile", {
+      limit,
+      includeTimedOutFailed,
     });
     return response.data;
   },

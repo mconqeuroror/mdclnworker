@@ -11,6 +11,7 @@ import { refundGeneration } from "../services/credit.service.js";
 import { getErrorMessageForDb } from "../lib/userError.js";
 import { extractUpscalerImage } from "../services/upscaler.service.js";
 import { extractModelCloneXImages } from "../services/modelcloneX.service.js";
+import { extractNsfwMotionVideo } from "../services/nsfw-motion.service.js";
 import { uploadBufferToBlobOrR2 } from "../utils/kieUpload.js";
 
 const router = express.Router();
@@ -270,6 +271,81 @@ async function handleRunpodCallback(req, res) {
       `outKeys=${rawOut && typeof rawOut === "object" ? Object.keys(rawOut).slice(0, 8).join(",") : typeof rawOut}`,
     );
 
+    // ── RunPod motion-control video (NSFW Wan 2.2 Animate) ─────────────────
+    const motionGen = await findGenerationForWebhook(
+      jobId,
+      generationId,
+      ["nsfw-video-motion"],
+    );
+    if (motionGen) {
+      await backfillRunpodCorrelation(motionGen, jobId);
+
+      if (st === "FAILED" || st === "CANCELLED") {
+        const msg = extractRunpodErrorMessage(rawOut, body);
+        const ageMs = Date.now() - new Date(motionGen.createdAt).getTime();
+        if (isTransientRunpodNotFoundPayload(msg, rawOut, body)) {
+          console.warn(
+            `[RunPod webhook] ignoring transient not-found for nsfw-video-motion ${jobId} (age=${Math.round(ageMs / 1000)}s): ${String(msg).slice(0, 200)}`,
+          );
+          return res.status(200).json({ ok: true, skipped: true, type: motionGen.type, reason: "transient_not_found" });
+        }
+        await refundGeneration(motionGen.id).catch(() => {});
+        await prisma.generation.updateMany({
+          where: { id: motionGen.id, status: { in: ["queued", "processing", "pending"] } },
+          data: { status: "failed", errorMessage: getErrorMessageForDb(String(msg)), completedAt: new Date() },
+        });
+        console.log(`[RunPod webhook] motion-video job ${motionGen.id} failed: ${msg}`);
+        return res.status(200).json({ ok: true, type: motionGen.type, failed: true });
+      }
+
+      if (st === "COMPLETED") {
+        const video = extractNsfwMotionVideo(rawOut);
+        if (!video || !video.base64) {
+          const msg = "RunPod motion job completed but returned no video";
+          console.warn(`[RunPod webhook] motion-video COMPLETED but no video in output for ${jobId}`);
+          await refundGeneration(motionGen.id).catch(() => {});
+          await prisma.generation.updateMany({
+            where: { id: motionGen.id, status: { in: ["queued", "processing", "pending"] } },
+            data: { status: "failed", errorMessage: msg, completedAt: new Date() },
+          });
+          return res.status(200).json({ ok: true, type: motionGen.type, failed: true, reason: "no_video" });
+        }
+
+        let outputUrl;
+        try {
+          if (typeof video.base64 === "string" && video.base64.startsWith("http")) {
+            outputUrl = video.base64;
+          } else {
+            const buf = Buffer.from(video.base64, "base64");
+            // VHS_VideoCombine output is MP4 (h264). Worker labels format "video/h264-mp4".
+            const isPng = (video.format || "").toLowerCase().startsWith("image/");
+            if (isPng) {
+              outputUrl = await uploadBufferToBlobOrR2(buf, "nsfw-video-motion", "png", "image/png");
+            } else {
+              outputUrl = await uploadBufferToBlobOrR2(buf, "nsfw-video-motion", "mp4", "video/mp4");
+            }
+          }
+        } catch (uploadErr) {
+          console.error(`[RunPod webhook] motion-video upload error:`, uploadErr.message);
+          await refundGeneration(motionGen.id).catch(() => {});
+          await prisma.generation.updateMany({
+            where: { id: motionGen.id, status: { in: ["queued", "processing", "pending"] } },
+            data: { status: "failed", errorMessage: `Upload failed: ${uploadErr.message}`, completedAt: new Date() },
+          });
+          return res.status(200).json({ ok: true, type: motionGen.type, failed: true, reason: "upload_failed" });
+        }
+
+        await prisma.generation.update({
+          where: { id: motionGen.id },
+          data: { status: "completed", outputUrl, completedAt: new Date() },
+        });
+        console.log(`✅ [RunPod webhook] motion-video job ${motionGen.id} completed → ${outputUrl.slice(0, 80)}`);
+        return res.status(200).json({ ok: true, type: motionGen.type });
+      }
+
+      return res.status(200).json({ ok: true, skipped: true, type: motionGen.type, status: st });
+    }
+
     // ── RunPod image generations (exact same callback flow for MCX + NSFW) ──
     const imageGen = await findGenerationForWebhook(
       jobId,
@@ -351,7 +427,7 @@ async function handleRunpodCallback(req, res) {
     console.warn(
       `[runpod-callback] UNMATCHED jobId=${jobId} status=${st || "?"} ` +
       `generationId=${generationId || "(none)"} — no upscale / ` +
-      `modelclone-x / soulx / nsfw row found in last 48h. ` +
+      `modelclone-x / soulx / nsfw / nsfw-video-motion row found in last 48h. ` +
       `This may indicate a webhook arriving at the wrong deployment, ` +
       `or a generation row that was deleted before the webhook fired.`,
     );

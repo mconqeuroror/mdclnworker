@@ -34,6 +34,10 @@ import {
   isFalConfigured,
 } from "../services/fal.service.js";
 import { submitNsfwVideo, pollNsfwVideo, submitNsfwVideoExtend } from "../services/wavespeed.service.js";
+import {
+  submitNsfwMotionVideo,
+  isNsfwMotionConfigured,
+} from "../services/nsfw-motion.service.js";
 import { generateImageWithNanoBananaKie } from "../services/kie.service.js";
 import { generateImageWithSeedreamWaveSpeed } from "../services/wavespeed.service.js";
 import requestQueue from "../services/queue.service.js";
@@ -5347,6 +5351,241 @@ export async function extendNsfwVideo(req, res) {
   }
 }
 
+// =====================================================================
+// NSFW Motion Control Video (Wan 2.2 Animate, dedicated RunPod worker)
+// =====================================================================
+
+const MOTION_BASE_CREDITS_PER_SEC = 30; // 5s ≈ 150, 8s ≈ 240, 15s ≈ 450
+
+/** Drop-in helpers shared with the WaveSpeed video flow. */
+function clampMotionDuration(input, fallback) {
+  const n = Math.round(Number(input));
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(2, Math.min(15, n));
+}
+
+function isAcceptableMotionVideoUrl(url) {
+  if (!url || typeof url !== "string") return false;
+  if (!/^https?:\/\//i.test(url)) return false;
+  try {
+    const u = new URL(url);
+    if (!u.hostname || u.hostname === "localhost") return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * POST /api/nsfw/generate-motion-video
+ * Body: {
+ *   modelId,
+ *   imageUrl,           // reference image (must be a completed NSFW gallery image)
+ *   videoUrl,           // driving video (uploaded blob/r2 URL)
+ *   prompt?,            // optional positive prompt
+ *   duration?,          // total seconds (2..15, default 5)
+ *   skipSeconds?,       // seconds of driving video to skip from start (default 0)
+ *   seed?               // optional fixed seed
+ * }
+ */
+export async function generateNsfwMotionVideo(req, res) {
+  let creditsDeducted = 0;
+  let generationId = null;
+
+  try {
+    const { modelId, imageUrl, videoUrl, prompt, duration, skipSeconds, seed } = req.body || {};
+    const userId = req.user.userId;
+
+    if (!modelId || !imageUrl || !videoUrl) {
+      return res.status(400).json({
+        success: false,
+        message: "modelId, imageUrl and videoUrl are required",
+      });
+    }
+
+    if (!isNsfwMotionConfigured()) {
+      return res.status(503).json({
+        success: false,
+        message:
+          "NSFW Motion Control is not configured on this server (RUNPOD_MOTION_ENDPOINT_ID missing)",
+      });
+    }
+
+    const refCheck = validateImageUrl(imageUrl);
+    if (!refCheck.valid) {
+      return res.status(400).json({ success: false, message: refCheck.message });
+    }
+    if (!isAcceptableMotionVideoUrl(videoUrl)) {
+      return res.status(400).json({
+        success: false,
+        message: "videoUrl must be a public http(s) URL to your uploaded driving video",
+      });
+    }
+
+    const dur = clampMotionDuration(duration, 5);
+    const skip = Math.max(0, Math.min(60, Math.round(Number(skipSeconds) || 0)));
+    const creditsNeeded = dur * MOTION_BASE_CREDITS_PER_SEC;
+
+    const model = await prisma.savedModel.findUnique({ where: { id: modelId } });
+    if (!model || model.userId !== userId) {
+      return res.status(403).json({ success: false, message: "Not authorized for this model" });
+    }
+
+    let validImage = await prisma.generation.findFirst({
+      where: {
+        userId,
+        modelId,
+        outputUrl: imageUrl,
+        status: "completed",
+        type: { in: ["nsfw", "prompt-image", "image", "face-swap-image"] },
+      },
+    });
+    if (!validImage) {
+      validImage = await prisma.generation.findFirst({
+        where: {
+          userId,
+          modelId,
+          outputUrl: { contains: imageUrl },
+          status: "completed",
+          type: { in: ["nsfw", "prompt-image", "image", "face-swap-image"] },
+        },
+      });
+    }
+    if (!validImage) {
+      return res.status(403).json({
+        success: false,
+        message: "Reference image must be a completed image from your NSFW gallery",
+      });
+    }
+
+    const user = await checkAndExpireCredits(userId);
+    const totalCredits = getTotalCredits(user);
+    if (totalCredits < creditsNeeded) {
+      return res.status(403).json({
+        success: false,
+        message: `Need ${creditsNeeded} credits for ${dur}s motion video. You have ${totalCredits}.`,
+      });
+    }
+
+    await deductCredits(userId, creditsNeeded);
+    creditsDeducted = creditsNeeded;
+
+    const finalPrompt =
+      (typeof prompt === "string" && prompt.trim())
+        ? prompt.trim().slice(0, 1500)
+        : "natural cinematic motion, subtle weight shift, soft skin lighting, smooth and continuous animation, photorealistic";
+
+    const generation = await prisma.generation.create({
+      data: {
+        userId,
+        modelId,
+        type: "nsfw-video-motion",
+        prompt: finalPrompt,
+        status: "processing",
+        creditsCost: creditsNeeded,
+        replicateModel: null,
+        isNsfw: true,
+        inputImageUrl: JSON.stringify({
+          referenceImageUrl: imageUrl,
+          duration: dur,
+          skipSeconds: skip,
+          ...(Number.isFinite(Number(seed)) ? { seed: Math.trunc(Number(seed)) } : {}),
+        }),
+        inputVideoUrl: videoUrl,
+      },
+    });
+    generationId = generation.id;
+
+    const runpodWebhook = resolveRunpodWebhookUrl({
+      generationId: String(generation.id),
+      kind: "nsfw-video-motion",
+    });
+
+    const submission = await submitNsfwMotionVideo(
+      {
+        referenceImageUrl: imageUrl,
+        drivingVideoUrl: videoUrl,
+        prompt: finalPrompt,
+        durationSecs: dur,
+        skipSecs: skip,
+        seed: Number.isFinite(Number(seed)) ? Math.trunc(Number(seed)) : undefined,
+      },
+      runpodWebhook,
+      generation.id,
+    );
+
+    if (!submission.success) {
+      await refundGeneration(generation.id);
+      await prisma.generation.update({
+        where: { id: generation.id },
+        data: {
+          status: "failed",
+          errorMessage: getErrorMessageForDb(submission.error || "Motion submission failed"),
+          completedAt: new Date(),
+        },
+      });
+      return res.status(500).json({
+        success: false,
+        message: submission.error || "Motion video submission failed",
+      });
+    }
+
+    await prisma.generation.update({
+      where: { id: generation.id },
+      data: {
+        replicateModel: submission.requestId,
+        providerTaskId: submission.requestId,
+        provider: "runpod-motion",
+        inputImageUrl: JSON.stringify({
+          referenceImageUrl: imageUrl,
+          duration: dur,
+          skipSeconds: skip,
+          seed: submission.seed,
+          runpodJobId: submission.requestId,
+        }),
+      },
+    });
+
+    console.log(
+      `🎬 NSFW motion video submitted gen=${generation.id} runpod=${submission.requestId} dur=${dur}s seed=${submission.seed}`,
+    );
+
+    const updatedUser = await prisma.user.findUnique({ where: { id: userId } });
+    return res.json({
+      success: true,
+      generationId: generation.id,
+      creditsUsed: creditsNeeded,
+      creditsRemaining: getTotalCredits(updatedUser),
+      duration: dur,
+      seed: submission.seed,
+    });
+  } catch (error) {
+    console.error("❌ NSFW motion video error:", error);
+    try {
+      if (creditsDeducted > 0 && generationId) {
+        await refundGeneration(generationId);
+      } else if (creditsDeducted > 0) {
+        await refundCredits(req.user.userId, creditsDeducted);
+      }
+    } catch (refundErr) {
+      console.error("🚨 NSFW motion refund failed:", refundErr.message);
+    }
+    if (generationId) {
+      try {
+        await prisma.generation.update({
+          where: { id: generationId },
+          data: {
+            status: "failed",
+            errorMessage: getErrorMessageForDb(error.message || "Motion generation failed"),
+            completedAt: new Date(),
+          },
+        });
+      } catch {}
+    }
+    return res.status(500).json({ success: false, message: "Motion video generation failed" });
+  }
+}
+
 export default {
   createLora,
   getModelLoras,
@@ -5373,6 +5612,7 @@ export default {
   startNsfwPoller,
   generateNsfwVideoFromImage,
   extendNsfwVideo,
+  generateNsfwMotionVideo,
 };
 
 // NSFW poller/watchdog removed — NSFW now uses the exact same callback-only
