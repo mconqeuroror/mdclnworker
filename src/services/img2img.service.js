@@ -338,6 +338,18 @@ function buildNsfwImg2ImgV2ApiPrompt({ positivePrompt, loraUrl, loraStrength, se
     api["289"].inputs.filename_prefix = "modelclone_img2img";
   }
 
+  // Force currently deployed model names so stale desktop workflow exports
+  // (or embedded subgraphs) cannot submit unavailable checkpoint/unet values.
+  for (const node of Object.values(api)) {
+    if (!node?.inputs) continue;
+    if (node.class_type === "UNETLoader") {
+      node.inputs.unet_name = "zImageTurboNSFW_20BF16AIO.safetensors";
+    }
+    if (node.class_type === "CheckpointLoaderSimple") {
+      node.inputs.ckpt_name = "zImageTurboNSFW_20BF16AIO.safetensors";
+    }
+  }
+
   return api;
 }
 
