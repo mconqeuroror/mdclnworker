@@ -43,11 +43,12 @@ async function callTelegramApi(method, payload = {}, _retryCount = 0) {
   return data.result;
 }
 
-export function sendMessage(chatId, text, replyMarkup) {
+export function sendMessage(chatId, text, replyMarkup, extra = {}) {
   return callTelegramApi("sendMessage", {
     chat_id: chatId,
     text,
     ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+    ...extra,
   });
 }
 
@@ -69,6 +70,18 @@ export function sendVideo(chatId, videoUrl, options = {}) {
     chat_id: chatId,
     video: videoUrl,
     supports_streaming: true,
+    ...(caption ? { caption } : {}),
+    ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+  });
+}
+
+/** Sends as a downloadable file (no in-chat recompression like photos/videos). URL must be ≤ ~50MB for Telegram. */
+export function sendDocument(chatId, documentUrl, options = {}) {
+  const caption = options?.caption ? String(options.caption) : undefined;
+  const replyMarkup = options?.replyMarkup;
+  return callTelegramApi("sendDocument", {
+    chat_id: chatId,
+    document: documentUrl,
     ...(caption ? { caption } : {}),
     ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
   });
@@ -118,6 +131,16 @@ export function deleteMessage(chatId, messageId) {
   return callTelegramApi("deleteMessage", {
     chat_id: chatId,
     message_id: messageId,
+  });
+}
+
+/** Edit text + inline keyboard on an existing message (menu transitions). */
+export function editMessageText(chatId, messageId, text, replyMarkup) {
+  return callTelegramApi("editMessageText", {
+    chat_id: chatId,
+    message_id: messageId,
+    text,
+    ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
   });
 }
 

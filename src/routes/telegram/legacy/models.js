@@ -1,7 +1,7 @@
 import prisma from "../../../lib/prisma.js";
 import { getFlow, setFlow, clearFlow } from "./state.js";
-import { send, sendImg, inlineKbd, formatDate, isHttpUrl } from "./helpers.js";
-import { resolveImage } from "./media.js";
+import { send, sendImg, inlineKbd, formatDate, isHttpUrl, chunkInlineButtons, formatModelButtonText } from "./helpers.js";
+import { resolveImage, mediaMismatchHint } from "./media.js";
 import { cancelKbd, mainKbd, modelsHomeKbd, modelPickerKbd, openAppKbd } from "./keyboards.js";
 import { ensureAuth } from "./auth.js";
 import {
@@ -19,7 +19,11 @@ export async function renderModelsList(chatId, userId, page = 0) {
     prisma.savedModel.count({ where: { userId } }),
   ]);
   const pages = Math.ceil(total / PAGE_SIZE) || 1;
-  const rows = models.map((m) => [{ text: `${m.name} (${m.status || "ready"})`, callback_data: `models:view:${m.id}:${page}` }]);
+  const modelBtns = models.map((m) => ({
+    text: formatModelButtonText(`${m.name} · ${m.status || "ready"}`, 26),
+    callback_data: `models:view:${m.id}:${page}`,
+  }));
+  const rows = chunkInlineButtons(modelBtns, 2);
   const nav = [];
   if (page > 0) nav.push({ text: "⬅️ Prev", callback_data: `models:page:${page - 1}` });
   nav.push({ text: `${page + 1}/${pages}`, callback_data: "noop" });
@@ -119,12 +123,7 @@ async function finishLooksAndContinue(chatId, flow) {
 
     // AI-generated model path: no photos yet — generate them via /models/generate-ai
     if (aiGenerate) {
-      const rawGender = String(looks.gender || "female").toLowerCase();
-      const gender = /\b(female|woman|girl|lady|f)\b/.test(rawGender)
-        ? "female"
-        : /\b(male|man|boy|guy|m)\b/.test(rawGender)
-          ? "male"
-          : "female";
+      const gender = String(looks.gender || "female").toLowerCase().includes("male") ? "male" : "female";
       await send(chatId, `⏳ Generating AI ${gender} model "${name}" from your looks definition…`, null);
       const result = await apiGenerateAiModel(uid, { name, gender, style: "photorealistic" });
       clearFlow(chatId);
@@ -191,7 +190,8 @@ export async function handleModelsMessage(chatId, message, text) {
     if (!url || !isHttpUrl(url)) {
       const num = flow.step.slice(-1);
       const labels = { "1": "Close-up Selfie", "2": "Face Portrait", "3": "Full Body Shot" };
-      await send(chatId, `Please send Photo ${num} (${labels[num] || "photo"}) as a photo or image file:`, cancelKbd());
+      const fb = mediaMismatchHint("image", message) || `Please send Photo ${num} (${labels[num] || "photo"}) as a photo or image file:`;
+      await send(chatId, fb, cancelKbd());
       return true;
     }
     if (flow.step === "model_create_photo1") {
@@ -247,7 +247,10 @@ export async function handleModelsMessage(chatId, message, text) {
   if (flow.step === "model_swap_photo") {
     if (cancel) { clearFlow(chatId); await send(chatId, "Cancelled.", modelsHomeKbd()); return true; }
     const url = await resolveImage(message).catch(() => null);
-    if (!url || !isHttpUrl(url)) { await send(chatId, "Send the new photo as a photo or image file:", cancelKbd()); return true; }
+    if (!url || !isHttpUrl(url)) {
+      await send(chatId, mediaMismatchHint("image", message) || "Send the new photo as a photo or image file:", cancelKbd());
+      return true;
+    }
     const slot = flow.slot;
     await apiUpdateModel(session.userId, flow.modelId, { [`photo${slot}Url`]: url });
     clearFlow(chatId);
@@ -259,7 +262,8 @@ export async function handleModelsMessage(chatId, message, text) {
     if (cancel) { clearFlow(chatId); await send(chatId, "Cancelled.", modelsHomeKbd()); return true; }
     const url = await resolveImage(message).catch(() => null);
     if (!url || !isHttpUrl(url)) {
-      await send(chatId, `Send a photo for analysis (${flow.collectedUrls?.length || 0}/3 uploaded).\nTap "Analyze now" when ready.`, inlineKbd([
+      const fb = mediaMismatchHint("image", message) || `Send a photo for analysis (${flow.collectedUrls?.length || 0}/3 uploaded).\nTap "Analyze now" when ready.`;
+      await send(chatId, fb, inlineKbd([
         [{ text: "🔍 Analyze now", callback_data: `models:analyze:run:${flow.modelId}:${flow.fromPage || 0}` }],
         [{ text: "Cancel", callback_data: "nav:home" }],
       ]));

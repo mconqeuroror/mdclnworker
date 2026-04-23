@@ -5,21 +5,21 @@ import { send, answerCb, toCmd, normalizeLegacyAction, inlineKbd, removeKbd } fr
 import { COMMANDS, MODE_LEGACY, MINI_APP_BASE } from "./legacy/config.js";
 import { getMode, setMode } from "./legacy/state.js";
 import { detectMediaTypes } from "./legacy/media.js";
-import { mainKbd, loginKbd, dashboardKbd } from "./legacy/keyboards.js";
+import { mainKbd, loginKbd, dashboardKbd, nsfwHubMenuKbd } from "./legacy/keyboards.js";
 
 // ── Import section handlers ───────────────────────────────────
 import { renderDashboard } from "./legacy/dashboard.js";
-import { handleAuthCallback, handleAuthMessage, sendLoginPrompt, handleLogout, parseInlineLogin, handleInlineLogin, attemptTelegramAuth, ensureAuth } from "./legacy/auth.js";
+import { handleAuthCallback, handleAuthMessage, sendLoginPrompt, handleLogout, parseInlineLogin, handleInlineLogin, ensureAuth } from "./legacy/auth.js";
 import { handleModelsCallback, handleModelsMessage } from "./legacy/models.js";
 import { handleGenerateCallback, handleGenerateMessage, refreshGeneration } from "./legacy/generate.js";
 import { handleNsfwCallback, handleNsfwMessage } from "./legacy/nsfw.js";
 import { handleToolsCallback, handleToolsMessage } from "./legacy/tools.js";
-import { handleHistoryCallback, renderHistory, renderQueue } from "./legacy/history.js";
+import { handleHistoryCallback, renderHistoryModelPicker, renderQueue } from "./legacy/history.js";
 import { handleVoiceCallback, handleVoiceMessage, renderVoiceStudio } from "./legacy/voice.js";
-import { handleAvatarsCallback, handleAvatarsMessage, renderAvatarMenu } from "./legacy/avatars.js";
 import { handleSettingsCallback, handleSettingsMessage, renderSettings, renderPricing, renderAppHub } from "./legacy/settings.js";
 import { handleMcxCallback, handleMcxMessage, renderMcxMenu } from "./legacy/mcx.js";
 import { handleReferralCallback, handleReferralMessage, renderReferral } from "./legacy/referral.js";
+import { handleJorgeeeCallback, handleJorgeeeMessage, renderJorgeeeWorkflowsMenu } from "./legacy/jorgeee-workflows.js";
 
 const router = Router();
 let commandsReady = false;
@@ -30,7 +30,7 @@ async function handleCommand(chatId, command, firstName = "", telegramUserId = n
 
   if (command === "start" || command === "menu") {
     if (!session?.userId) {
-      await send(chatId, `👋 Welcome${firstName ? " " + firstName : ""} to ModelClone!\n\nCreate AI model content — photos, videos, voice clones, avatars and more.\n\n📱 Full studio in the Mini App\n🤖 Chat bot for quick access`, loginKbd());
+      await send(chatId, `👋 Welcome${firstName ? " " + firstName : ""} to ModelClone!\n\nCreate AI model content — photos, videos, voice clones, and more.\n\n📱 Full studio in the Mini App\n🤖 Chat bot for quick access`, loginKbd());
     } else {
       await renderDashboard(chatId, session.userId);
     }
@@ -81,10 +81,9 @@ async function handleCommand(chatId, command, firstName = "", telegramUserId = n
     home:      () => renderDashboard(chatId, userId),
     models:    () => handleModelsCallback(chatId, "nav:models"),
     generate:  () => handleGenerateCallback(chatId, "nav:generate"),
-    history:   () => renderHistory(chatId, userId, 0),
+    history:   () => renderHistoryModelPicker(chatId, userId),
     queue:     () => renderQueue(chatId, userId),
     voice:     () => renderVoiceStudio(chatId, userId),
-    avatars:   () => renderAvatarMenu(chatId, userId),
     settings:  () => renderSettings(chatId, userId),
     pricing:   () => renderPricing(chatId, userId),
     upscaler:  () => handleToolsCallback(chatId, "tools:upscaler"),
@@ -92,6 +91,7 @@ async function handleCommand(chatId, command, firstName = "", telegramUserId = n
     repurposer: () => handleToolsCallback(chatId, "tools:repurposer"),
     mcx:       () => renderMcxMenu(chatId),
     referral:  () => renderReferral(chatId, session?.userId || ""),
+    jorgeee:   () => renderJorgeeeWorkflowsMenu(chatId),
   };
 
   if (navMap[command]) { await navMap[command](); return; }
@@ -126,21 +126,22 @@ async function handleCallback(callbackQuery) {
   // Route to section handlers in priority order
   const handlers = [
     handleAuthCallback,
+    handleJorgeeeCallback,
     handleModelsCallback,
     handleGenerateCallback,
     handleNsfwCallback,
     handleToolsCallback,
     handleHistoryCallback,
     handleVoiceCallback,
-    handleAvatarsCallback,
     handleSettingsCallback,
     handleMcxCallback,
     handleReferralCallback,
   ];
 
+  const callbackMessage = callbackQuery?.message || null;
   for (const handler of handlers) {
     try {
-      const handled = await handler(chatId, data, callbackId);
+      const handled = await handler(chatId, data, callbackId, callbackMessage);
       if (handled) return;
     } catch (e) {
       console.error(`[callback:handler] ${e?.message}`);
@@ -189,14 +190,31 @@ async function handlePlainMessage(message) {
     return true;
   }
 
+  // Reply keyboard: "🔞 NSFW Studio" → bot NSFW hub (Full studio = Mini App button inside)
+  if (session?.userId && text && !flow) {
+    const norm = normalizeLegacyAction(text);
+    if (
+      text.includes("NSFW Studio") ||
+      norm === "nsfw studio" ||
+      (norm.startsWith("nsfw") && norm.includes("studio"))
+    ) {
+      await send(
+        chatId,
+        "🔞 NSFW — quick paths in chat, or Full studio for every chip & category from the website.",
+        nsfwHubMenuKbd(),
+      );
+      return true;
+    }
+  }
+
   // Route message to section flow handlers
   const msgHandlers = [
+    handleJorgeeeMessage,
     handleModelsMessage,
     handleGenerateMessage,
     handleNsfwMessage,
     handleToolsMessage,
     handleVoiceMessage,
-    handleAvatarsMessage,
     handleSettingsMessage,
     handleMcxMessage,
     handleReferralMessage,
@@ -213,7 +231,7 @@ async function handlePlainMessage(message) {
 
   // No flow matched — nudge user
   if (session?.userId) {
-    await send(chatId, "Use the buttons or type /menu for navigation.", inlineKbd([[{ text: "🏠 Home", callback_data: "nav:home" }]]));
+    await send(chatId, "Use the buttons, tap Menu on the keyboard, or type /menu.", inlineKbd([[{ text: "🏠 Home", callback_data: "nav:home" }]]));
   } else {
     await sendLoginPrompt(chatId);
   }

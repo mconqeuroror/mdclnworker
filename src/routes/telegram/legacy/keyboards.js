@@ -1,19 +1,23 @@
-import { appUrl, MINI_APP_BASE } from "./config.js";
-import { inlineKbd } from "./helpers.js";
+import { appUrl, MINI_APP_BASE, miniAppGenerateAdvancedUrl } from "./config.js";
+import { inlineKbd, modelListToInlineRows, formatModelButtonText } from "./helpers.js";
+import { jorgeeeQuickPromptButtonRows } from "./jorgeee-prompts.js";
 
 // ── Main navigation keyboard (reply keyboard) ─────────────────
 export function mainKbd() {
   return {
     keyboard: [
+      ["🏠 Menu"],
       ["🧬 Models", "🎬 Generate"],
       ["🔞 NSFW Studio", "🔧 Tools"],
       ["🕘 History", "📥 Queue"],
-      ["🎤 Voice", "🧍 Avatars"],
+      ["🎤 Voice"],
       ["⚙️ Settings", "💳 Pricing"],
+      ["🎨 Jorgeee workflows"],
       ["🌐 App Hub", "❓ Help"],
     ],
     resize_keyboard: true,
     one_time_keyboard: false,
+    is_persistent: true,
   };
 }
 
@@ -39,9 +43,27 @@ export function dashboardKbd() {
     [{ text: "🧬 Models", callback_data: "nav:models" }, { text: "🎬 Generate", callback_data: "nav:generate" }],
     [{ text: "🔞 NSFW Studio", callback_data: "nav:nsfw" }, { text: "🔧 Tools", callback_data: "nav:tools" }],
     [{ text: "🕘 History", callback_data: "nav:history" }, { text: "📥 Queue", callback_data: "nav:queue" }],
-    [{ text: "🎤 Voice", callback_data: "nav:voice" }, { text: "🧍 Avatars", callback_data: "nav:avatars" }],
+    [{ text: "🎤 Voice", callback_data: "nav:voice" }],
     [{ text: "⚙️ Settings", callback_data: "nav:settings" }, { text: "💳 Pricing", callback_data: "nav:pricing" }],
     [{ text: "🎁 Referral", callback_data: "nav:referral" }, { text: "🌐 App Hub", callback_data: "nav:apphub" }],
+    [{ text: "🎨 Jorgeee workflows", callback_data: "nav:jorgeee" }],
+  ]);
+}
+
+// ── Jorgeee workflows (Mini App deep links) ────────────────────
+export function jorgeeeWorkflowsRootKbd() {
+  return inlineKbd([
+    [{ text: "🧩 Create AI model", callback_data: "jorgeee:create" }],
+    [{ text: "⬅️ Home", callback_data: "nav:home" }],
+  ]);
+}
+
+export function jorgeeeCreateModelKbd() {
+  return inlineKbd([
+    ...jorgeeeQuickPromptButtonRows(),
+    [{ text: "Seedream v4.5 · Uncensored+", web_app: { url: miniAppGenerateAdvancedUrl("seedream") } }],
+    [{ text: "Nano Banana Pro · Ultra Realism", web_app: { url: miniAppGenerateAdvancedUrl("nano-banana") } }],
+    [{ text: "⬅️ Back", callback_data: "nav:jorgeee" }],
   ]);
 }
 
@@ -97,37 +119,68 @@ export function durationNsfw5_8(prefix) {
 
 // ── Model picker ──────────────────────────────────────────────
 export function modelPickerKbd(models, callbackPrefix, backCb = "nav:home") {
-  const rows = models.map((m) => [{ text: m.name, callback_data: `${callbackPrefix}:${m.id}` }]);
+  const rows = modelListToInlineRows(models, (m) => `${callbackPrefix}:${m.id}`);
   rows.push([{ text: "⬅️ Back", callback_data: backCb }]);
   return inlineKbd(rows);
 }
 
 export function nsfwModelPickerKbd(models, callbackPrefix, backCb = "nav:nsfw") {
-  const rows = models.map((m) => [{
-    text: `${m.name}${m.nsfwUnlocked ? " ✅" : " ⏳"}`,
-    callback_data: `${callbackPrefix}:${m.id}`,
-  }]);
+  const rows = modelListToInlineRows(models, (m) => `${callbackPrefix}:${m.id}`, {
+    maxLabelLen: 20,
+    labelFor: (m) => {
+      const base = formatModelButtonText(m.name, 20);
+      return `${base}${m.nsfwUnlocked ? " ✓" : " ⏳"}`;
+    },
+  });
   rows.push([{ text: "⬅️ Back", callback_data: backCb }]);
   return inlineKbd(rows);
 }
 
-// ── Generate menu — simplified (8 core + More) ───────────────
-export function generateMenuKbd() {
+// ── Generate: step 1 — four pillars (matches web nav) ────────
+export function generateRootKbd() {
   return inlineKbd([
-    [{ text: "🖼 AI Photo", callback_data: "gen:aiphoto" }, { text: "🎬 AI Video", callback_data: "gen:aivideo" }],
-    [{ text: "🪪 Identity Recreation", callback_data: "gen:identity" }],
-    [{ text: "🎭 Face Swap (Video)", callback_data: "gen:faceswapvid" }, { text: "🪞 Face Swap (Image)", callback_data: "gen:faceswapimg" }],
-    [{ text: "🗣 Talking Head", callback_data: "gen:talkinghead" }],
-    [{ text: "🎨 ModelClone-X", callback_data: "nav:mcx" }, { text: "🌟 Advanced AI", callback_data: "gen:advanced" }],
-    [{ text: "⚙️ More tools…", callback_data: "gen:more" }],
+    [{ text: "🖼 Picture", callback_data: "gen:root:picture" }, { text: "🎬 Video", callback_data: "gen:root:video" }],
+    [{ text: "🧬 ModelClone-X", callback_data: "gen:root:mcx" }, { text: "🎛 Creator Studio", callback_data: "gen:root:cstudio" }],
     [{ text: "⬅️ Back", callback_data: "nav:home" }],
   ]);
+}
+
+// ── Generate: picture — same pillars as web Generate → Image ─
+export function generatePictureSubmenuKbd() {
+  return inlineKbd([
+    [{ text: "📝 Prompt photo", callback_data: "gen:aiphoto" }, { text: "🪪 Identity recreate", callback_data: "gen:identity" }],
+    [{ text: "🪞 Face swap (image)", callback_data: "gen:faceswapimg" }],
+    [{ text: "⬅️ Back", callback_data: "nav:generate" }],
+  ]);
+}
+
+// ── Generate: video — matches web Generate → Video methods ──
+export function generateVideoSubmenuKbd() {
+  return inlineKbd([
+    [{ text: "🎬 Recreate video", callback_data: "gen:motion" }, { text: "📝 Prompt video", callback_data: "gen:aivideo" }],
+    [{ text: "🗣 Talking head", callback_data: "gen:talkinghead" }, { text: "🎭 Face swap (video)", callback_data: "gen:faceswapvid" }],
+    [{ text: "⬅️ Back", callback_data: "nav:generate" }],
+  ]);
+}
+
+// ── Generate: Creator Studio bucket (image / video / advanced) ─
+export function generateCreatorStudioSubmenuKbd() {
+  return inlineKbd([
+    [{ text: "🎨 Image engines", callback_data: "gen:csimg" }, { text: "🎬 Video engines", callback_data: "gen:csvid" }],
+    [{ text: "🌟 Advanced AI", callback_data: "gen:advanced" }],
+    [{ text: "📎 CS assets", callback_data: "gen:assets" }],
+    [{ text: "⬅️ Back", callback_data: "nav:generate" }],
+  ]);
+}
+
+/** @deprecated Use generateRootKbd + submenus */
+export function generateMenuKbd() {
+  return generateRootKbd();
 }
 
 // ── Generate "More" submenu — advanced / niche tools ─────────
 export function generateMoreKbd() {
   return inlineKbd([
-    [{ text: "🎨 CS Image", callback_data: "gen:csimg" }, { text: "🎬 CS Video", callback_data: "gen:csvid" }],
     [{ text: "⚡ Quick Video", callback_data: "gen:quickvid" }, { text: "🎞 Motion Transfer", callback_data: "gen:motion" }],
     [{ text: "🔁 Full Recreation", callback_data: "gen:fullrec" }, { text: "🎞 Pipeline Prep", callback_data: "gen:pipeline" }],
     [{ text: "🎞 Frame Extractor", callback_data: "gen:extract" }],
@@ -137,17 +190,46 @@ export function generateMoreKbd() {
   ]);
 }
 
-// ── NSFW menu ─────────────────────────────────────────────────
-export function nsfwMenuKbd() {
+// ── NSFW: hub (bot-first; full chips = Mini App) ───────────────
+export function nsfwHubMenuKbd() {
   return inlineKbd([
-    [{ text: "🖼 Generate Image", callback_data: "nsfw:genimg" }, { text: "🎬 Generate Video", callback_data: "nsfw:genvid" }],
-    [{ text: "⏩ Extend Video", callback_data: "nsfw:extend" }, { text: "✨ Advanced AI", callback_data: "nsfw:advanced" }],
-    [{ text: "💄 Nudes Pack", callback_data: "nsfw:nudes" }],
-    [{ text: "🤖 AI Prompt Helper", callback_data: "nsfw:prompt" }, { text: "🧠 Plan Generation", callback_data: "nsfw:plan" }],
-    [{ text: "🎯 Auto-Select Chips", callback_data: "nsfw:autoselect" }, { text: "🧪 Test Face-Ref", callback_data: "nsfw:tface" }],
-    [{ text: "🧬 Training", callback_data: "nsfw:training" }],
-    [{ text: "🗂 LoRA Manager", callback_data: "nsfw:lora:menu" }, { text: "💾 Appearances", callback_data: "nsfw:appearance:menu" }],
-    [{ text: "⬅️ Back", callback_data: "nav:home" }],
+    [
+      { text: "🖼 Quick image", callback_data: "nsfw:genimg" },
+      { text: "🎬 Quick video", callback_data: "nsfw:genvid" },
+    ],
+    [
+      { text: "🧠 AI scene plan", callback_data: "nsfw:plan" },
+      { text: "🎯 Auto chips", callback_data: "nsfw:autoselect" },
+    ],
+    [
+      { text: "✨ Advanced", callback_data: "nsfw:advanced" },
+      { text: "💄 Nudes pack", callback_data: "nsfw:nudes" },
+    ],
+    [
+      { text: "📍 Scene presets", callback_data: "nsfw:pre" },
+      { text: "🤖 AI prompt", callback_data: "nsfw:prompt" },
+    ],
+    [
+      { text: "🧬 Training", callback_data: "nsfw:training" },
+      { text: "🗂 LoRA", callback_data: "nsfw:lora:menu" },
+    ],
+    [
+      { text: "💾 Looks", callback_data: "nsfw:appearance:menu" },
+      { text: "🧪 Face-ref test", callback_data: "nsfw:tface" },
+    ],
+    [
+      { text: "⏩ Extend video", callback_data: "nsfw:extend" },
+      { text: "🔞 Full studio (web)", web_app: { url: appUrl("nsfw") } },
+    ],
+    [{ text: "⬅️ Home", callback_data: "nav:home" }],
+  ]);
+}
+
+// ── NSFW Studio → Mini App (primary entry) ────────────────────
+export function nsfwStudioMiniAppKbd() {
+  return inlineKbd([
+    [{ text: "🔞 Open NSFW Studio", web_app: { url: appUrl("nsfw") } }],
+    [{ text: "⬅️ Home", callback_data: "nav:home" }],
   ]);
 }
 
@@ -184,7 +266,6 @@ export function openAppKbd(label = "📱 Open Mini App", section = null) {
 // ── Login ─────────────────────────────────────────────────────
 export function loginKbd() {
   return inlineKbd([
-    [{ text: "Telegram Login", callback_data: "auth:telegram" }],
     [{ text: "Email + Password", callback_data: "auth:email" }],
     [{ text: "🔵 Google Login", web_app: { url: `${MINI_APP_BASE}/login?method=google` } }],
     [{ text: "📱 Open Mini App", web_app: { url: MINI_APP_BASE } }],

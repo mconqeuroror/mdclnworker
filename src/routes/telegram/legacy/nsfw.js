@@ -1,9 +1,9 @@
 import prisma from "../../../lib/prisma.js";
 import { getFlow, setFlow, clearFlow } from "./state.js";
-import { send, sendImg, inlineKbd, isHttpUrl } from "./helpers.js";
-import { resolveImage } from "./media.js";
-import { cancelKbd, nsfwMenuKbd, nsfwModelPickerKbd, durationNsfw5_8 } from "./keyboards.js";
-import { sendGenerationResult } from "./generate.js";
+import { send, sendImg, inlineKbd, isHttpUrl, modelListToInlineRows, formatModelButtonText } from "./helpers.js";
+import { resolveImage, mediaMismatchHint } from "./media.js";
+import { cancelKbd, nsfwModelPickerKbd, nsfwHubMenuKbd, nsfwStudioMiniAppKbd, durationNsfw5_8 } from "./keyboards.js";
+import { sendGenerationResult, scheduleTelegramGenCompletionPush } from "./generate.js";
 import { ensureAuth } from "./auth.js";
 import {
   apiNsfwImage, apiNsfwVideo, apiNsfwExtendVideo, apiNsfwAdvanced, apiNsfwNudesPack,
@@ -14,6 +14,29 @@ import {
   apiNsfwGetLoras, apiNsfwSetActiveLora, apiNsfwDeleteLora, apiNsfwAutoAppearance,
   apiNsfwGetAppearance, apiNsfwSaveAppearance, apiNsfwGetPoses,
 } from "./api.js";
+
+/** Short scene starters merged into quick image prompts (no web chip UI). */
+const NSFW_PRESET_SNIPPETS = {
+  bed: "cozy bedroom, soft warm lamp light, rumpled sheets, candid smartphone photo aesthetic",
+  bath: "bathroom mirror, steamy atmosphere, phone camera selfie vibe",
+  mirror: "full-length mirror reflection, bedroom interior, casual candid pose",
+  out: "outdoor golden hour, soft natural light, handheld phone snapshot",
+  selfie: "close-up selfie angle, arm extended, natural clutter in background, phone flash optional",
+  night: "dim room at night, bedside lamp only, moody smartphone shot",
+  gym: "home workout space, athletic energy, mirror selfie composition",
+};
+
+/** API often omits per-row creditsCost; derive from creditsUsed / creditsPerImage. */
+function nsfwCreditsPerItem(r) {
+  const n = Math.max(1, (r.generations || []).length);
+  if (r.creditsPerImage != null && Number.isFinite(Number(r.creditsPerImage))) {
+    return Math.round(Number(r.creditsPerImage));
+  }
+  if (r.creditsUsed != null && Number.isFinite(Number(r.creditsUsed))) {
+    return Math.round(Number(r.creditsUsed) / n);
+  }
+  return undefined;
+}
 
 async function getNsfwModels(userId) {
   return prisma.savedModel.findMany({
@@ -32,11 +55,20 @@ export async function handleNsfwMessage(chatId, message, text) {
   if (!session) return true;
   const { userId } = session;
   const t = String(text || "").trim();
-  if (t.toLowerCase() === "cancel") { clearFlow(chatId); await send(chatId, "Cancelled.", nsfwMenuKbd()); return true; }
+  if (t.toLowerCase() === "cancel") { clearFlow(chatId); await send(chatId, "Cancelled.", nsfwHubMenuKbd()); return true; }
 
   if (flow.step === "nsfw_genimg_prompt") {
-    if (t.length < 2) { await send(chatId, "Describe the scene:", cancelKbd()); return true; }
-    setFlow(chatId, { ...flow, step: "nsfw_genimg_qty", prompt: t });
+    const preset = typeof flow.presetFragment === "string" ? flow.presetFragment.trim() : "";
+    if (t === ".") {
+      if (!preset) { await send(chatId, "No preset loaded — describe the scene in text:", cancelKbd()); return true; }
+      setFlow(chatId, { ...flow, step: "nsfw_genimg_qty", prompt: preset });
+    } else if (t.length < 2) {
+      await send(chatId, preset ? "Add details to the scene, or send . for preset only:" : "Describe the scene:", cancelKbd());
+      return true;
+    } else {
+      const merged = preset ? `${preset}, ${t}` : t;
+      setFlow(chatId, { ...flow, step: "nsfw_genimg_qty", prompt: merged });
+    }
     await send(chatId, "How many images?", inlineKbd([
       [{ text: "1 image", callback_data: "nsfw:genimg:qty:1" }, { text: "2 images", callback_data: "nsfw:genimg:qty:2" }],
     ]));
@@ -45,7 +77,10 @@ export async function handleNsfwMessage(chatId, message, text) {
 
   if (flow.step === "nsfw_genvid_img") {
     const url = await resolveImage(message).catch(() => null);
-    if (!url) { await send(chatId, "Send an image for the NSFW video as a photo or file:", cancelKbd()); return true; }
+    if (!url) {
+      await send(chatId, mediaMismatchHint("image", message) || "Send an image for the NSFW video as a photo or file:", cancelKbd());
+      return true;
+    }
     setFlow(chatId, { ...flow, step: "nsfw_genvid_prompt", imageUrl: url });
     await send(chatId, "✅ Image received. Enter your prompt:", cancelKbd()); return true;
   }
@@ -73,7 +108,8 @@ export async function handleNsfwMessage(chatId, message, text) {
     const r = await apiNsfwAdvanced(userId, flow.modelId, t, flow.style === "seedream" ? "seedream" : "nano-banana");
     if (!r.ok) { await send(chatId, `❌ Failed: ${r.message}`); return true; }
     const gens = r.generations || [];
-    for (const g of gens) await sendGenerationResult(chatId, g.id, g.status, g.outputUrl, "nsfw", g.creditsCost);
+    const cc = nsfwCreditsPerItem(r) ?? r.creditsUsed;
+    for (const g of gens) await sendGenerationResult(chatId, g.id, g.status, g.outputUrl, "nsfw", cc ?? g.creditsCost);
     return true;
   }
 
@@ -112,12 +148,13 @@ export async function handleNsfwMessage(chatId, message, text) {
       await send(chatId, "⏳ Starting LoRA training...", null);
       const r = await apiNsfwTrainLora(userId, flow.modelId);
       if (!r.ok) { await send(chatId, `❌ Training failed to start: ${r.message}`); return true; }
-      await send(chatId, `✅ LoRA training started!\nTrigger word: ${r.triggerWord || "n/a"}\n\nCheck training status from NSFW → Training.`, nsfwMenuKbd());
+      await send(chatId, `✅ LoRA training started!\nTrigger word: ${r.triggerWord || "n/a"}\n\nCheck training status in the Mini App (NSFW Studio).`, nsfwStudioMiniAppKbd());
       return true;
     }
     const url = await resolveImage(message).catch(() => null);
     if (!url) {
-      await send(chatId, `Send a photo (${flow.count || 0} uploaded so far). Type "done" when finished (min 15).`, inlineKbd([
+      const fb = mediaMismatchHint("image", message) || `Send a photo (${flow.count || 0} uploaded so far). Type "done" when finished (min 15).`;
+      await send(chatId, fb, inlineKbd([
         [{ text: "✅ Done uploading", callback_data: `nsfw:train:done:${flow.modelId}` }],
         [{ text: "Cancel", callback_data: "nav:nsfw" }],
       ]));
@@ -182,15 +219,100 @@ export async function handleNsfwCallback(chatId, data, callbackId = "") {
   if (!session) return true;
   const { userId } = session;
 
-  if (data === "nav:nsfw") { await send(chatId, "🔞 NSFW Studio — Choose action:", nsfwMenuKbd()); return true; }
+  if (data === "nav:nsfw" || data === "nav:nsfw:legacy" || data === "nsfw:hub") {
+    await send(
+      chatId,
+      "🔞 NSFW — quick paths\n\n" +
+        "Buttons below match what the bot can do fast. Every chip & category from the website is under Full studio (web).\n\n" +
+        "• Quick image / video — your prompt\n" +
+        "• AI scene plan / Auto chips — plain-language description\n" +
+        "• Scene presets — short starter text (edit on the next step)\n" +
+        "• Training / LoRA / Looks — same account as the web app",
+      nsfwHubMenuKbd(),
+    );
+    return true;
+  }
+
+  if (data === "nsfw:pre") {
+    await send(
+      chatId,
+      "📍 Scene preset — pick a starter. On the next step you choose a model, then add your own words (or send . for preset only).",
+      inlineKbd([
+        [
+          { text: "🛏 Bedroom", callback_data: "nsfw:pr:bed" },
+          { text: "🛁 Bath", callback_data: "nsfw:pr:bath" },
+        ],
+        [
+          { text: "🪞 Mirror", callback_data: "nsfw:pr:mirror" },
+          { text: "🌅 Outdoor", callback_data: "nsfw:pr:out" },
+        ],
+        [
+          { text: "🤳 Selfie", callback_data: "nsfw:pr:selfie" },
+          { text: "🌙 Night", callback_data: "nsfw:pr:night" },
+        ],
+        [
+          { text: "🏋 Gym", callback_data: "nsfw:pr:gym" },
+          { text: "✏️ No preset", callback_data: "nsfw:pr:custom" },
+        ],
+        [{ text: "⬅️ Back", callback_data: "nav:nsfw" }],
+      ]),
+    );
+    return true;
+  }
+
+  if (data.startsWith("nsfw:pr:")) {
+    const presetId = data.split(":")[2] || "";
+    const nsfwModels = await getNsfwModels(userId);
+    if (!nsfwModels.length) {
+      await send(
+        chatId,
+        "No NSFW-eligible models. Create an AI model first.",
+        inlineKbd([
+          [{ text: "🧬 Models", callback_data: "nav:models" }],
+          [{ text: "⬅️ NSFW menu", callback_data: "nav:nsfw" }],
+        ]),
+      );
+      return true;
+    }
+    if (presetId === "custom") {
+      await send(chatId, "🖼 Quick image — pick model (no preset):", nsfwModelPickerKbd(nsfwModels, "nsfw:genimg:model"));
+      return true;
+    }
+    if (!NSFW_PRESET_SNIPPETS[presetId]) {
+      await send(chatId, "Unknown preset.", nsfwHubMenuKbd());
+      return true;
+    }
+    await send(
+      chatId,
+      `🖼 Quick image — pick model (preset: ${presetId})`,
+      nsfwModelPickerKbd(nsfwModels, `nsfw:pm:${presetId}`),
+    );
+    return true;
+  }
+
+  if (data.startsWith("nsfw:pm:")) {
+    const parts = data.split(":");
+    if (parts.length < 4) return false;
+    const presetId = parts[2];
+    const modelId = parts.slice(3).join(":");
+    const snippet = NSFW_PRESET_SNIPPETS[presetId];
+    if (!snippet || !modelId) return false;
+    setFlow(chatId, { step: "nsfw_genimg_prompt", modelId, presetFragment: snippet });
+    await send(
+      chatId,
+      `Starter:\n${snippet}\n\nSend your prompt (details, mood, pose). Send a single . to use only this starter.`,
+      cancelKbd(),
+    );
+    return true;
+  }
 
   // ── LoRA Manager ─────────────────────────────────────────────
   if (data === "nsfw:lora:menu") {
     const models = await prisma.savedModel.findMany({ where: { userId, OR: [{ isAIGenerated: true }, { nsfwOverride: true }] }, select: { id: true, name: true }, orderBy: { createdAt: "desc" }, take: 20 });
     if (!models.length) { await send(chatId, "No NSFW-eligible models."); return true; }
-    const rows = models.map((m) => [{ text: m.name, callback_data: `nsfw:lora:model:${m.id}` }]);
+    const rows = modelListToInlineRows(models, (m) => `nsfw:lora:model:${m.id}`);
     rows.push([{ text: "⬅️ Back", callback_data: "nav:nsfw" }]);
-    await send(chatId, "🗂 LoRA Manager — Select model:", inlineKbd(rows)); return true;
+    await send(chatId, `🗂 LoRA manager — pick model (${models.length}):`, inlineKbd(rows)); return true;
   }
   if (data.startsWith("nsfw:lora:model:")) {
     const modelId = data.split(":").pop();
@@ -268,9 +390,9 @@ export async function handleNsfwCallback(chatId, data, callbackId = "") {
   if (data === "nsfw:appearance:menu") {
     const models = await prisma.savedModel.findMany({ where: { userId, OR: [{ isAIGenerated: true }, { nsfwOverride: true }] }, select: { id: true, name: true }, orderBy: { createdAt: "desc" }, take: 20 });
     if (!models.length) { await send(chatId, "No NSFW-eligible models."); return true; }
-    const rows = models.map((m) => [{ text: m.name, callback_data: `nsfw:appearance:model:${m.id}` }]);
+    const rows = modelListToInlineRows(models, (m) => `nsfw:appearance:model:${m.id}`);
     rows.push([{ text: "⬅️ Back", callback_data: "nav:nsfw" }]);
-    await send(chatId, "💾 NSFW Appearances — Select model:", inlineKbd(rows)); return true;
+    await send(chatId, `💾 NSFW appearances — pick model (${models.length}):`, inlineKbd(rows)); return true;
   }
   if (data.startsWith("nsfw:appearance:model:")) {
     const modelId = data.split(":").pop();
@@ -325,7 +447,10 @@ export async function handleNsfwCallback(chatId, data, callbackId = "") {
     await send(chatId, "⏳ Generating NSFW image...", null);
     const r = await apiNsfwImage(userId, flow.modelId, flow.prompt, qty);
     if (!r.ok) { await send(chatId, `❌ Failed: ${r.message}`); return true; }
-    for (const g of r.generations || []) await sendGenerationResult(chatId, g.id, g.status, g.outputUrl, "nsfw", g.creditsCost);
+    const cc = nsfwCreditsPerItem(r);
+    for (const g of r.generations || []) {
+      await sendGenerationResult(chatId, g.id, g.status, g.outputUrl, "nsfw", cc ?? g.creditsCost);
+    }
     return true;
   }
 
@@ -349,6 +474,7 @@ export async function handleNsfwCallback(chatId, data, callbackId = "") {
       [{ text: "🔄 Check status", callback_data: `gen:refresh:${r.generationId}:0` }],
       [{ text: "⬅️ Back", callback_data: "nav:nsfw" }],
     ]));
+    scheduleTelegramGenCompletionPush(chatId, r.generationId, 0);
     return true;
   }
 
@@ -365,6 +491,7 @@ export async function handleNsfwCallback(chatId, data, callbackId = "") {
     const r = await apiNsfwExtendVideo(userId, flow.sourceGenId, dur === 8 ? 8 : 5, flow.prompt || "");
     if (!r.ok) { await send(chatId, `❌ Failed: ${r.message}`); return true; }
     await send(chatId, `✅ NSFW video extended!\nID: ${r.generationId}\nDuration: ${r.extendDuration ?? dur}s`, inlineKbd([[{ text: "⬅️ Back", callback_data: "nav:nsfw" }]]));
+    scheduleTelegramGenCompletionPush(chatId, r.generationId, 0);
     return true;
   }
 
@@ -418,12 +545,15 @@ export async function handleNsfwCallback(chatId, data, callbackId = "") {
   if (data === "nsfw:nudes:go") {
     const flow = getFlow(chatId);
     const { modelId } = flow || {};
-    if (!modelId) { await send(chatId, "Session expired. Start from NSFW → Nudes Pack.", nsfwMenuKbd()); return true; }
+    if (!modelId) { await send(chatId, "Session expired. Open NSFW Studio in the Mini App and run Nudes Pack there.", nsfwStudioMiniAppKbd()); return true; }
     clearFlow(chatId);
     await send(chatId, "⏳ Generating nudes pack...", null);
     const r = await apiNsfwNudesPack(userId, modelId, flow?.selectedPoses || []);
     if (!r.ok) { await send(chatId, `❌ Failed: ${r.message}`); return true; }
-    for (const g of r.generations || []) await sendGenerationResult(chatId, g.id, g.status, g.outputUrl, "nsfw", g.creditsCost);
+    const cc = nsfwCreditsPerItem(r);
+    for (const g of r.generations || []) {
+      await sendGenerationResult(chatId, g.id, g.status, g.outputUrl, "nsfw", cc ?? g.creditsCost);
+    }
     return true;
   }
 
@@ -467,9 +597,9 @@ export async function handleNsfwCallback(chatId, data, callbackId = "") {
       await send(chatId, "No LoRA-trained models found. Train a model first in NSFW Training.", inlineKbd([[{ text: "🧬 Training", callback_data: "nsfw:training" }]]));
       return true;
     }
-    const rows = loraModels.map((m) => [{ text: m.name, callback_data: `nsfw:tface:model:${m.id}` }]);
+    const rows = modelListToInlineRows(loraModels, (m) => `nsfw:tface:model:${m.id}`);
     rows.push([{ text: "Cancel", callback_data: "nav:nsfw" }]);
-    await send(chatId, "🧪 Test Face-Ref (LoRA)\n\nSelect a model with trained LoRA:", inlineKbd(rows)); return true;
+    await send(chatId, `🧪 Test face-ref (LoRA)\n${loraModels.length} models — pick one:`, inlineKbd(rows)); return true;
   }
   if (data.startsWith("nsfw:tface:model:")) {
     const modelId = data.split(":").pop();
@@ -481,9 +611,12 @@ export async function handleNsfwCallback(chatId, data, callbackId = "") {
   if (data === "nsfw:training") {
     const allModels = await prisma.savedModel.findMany({ where: { userId, OR: [{ isAIGenerated: true }, { nsfwOverride: true }] }, select: { id: true, name: true, loraStatus: true }, orderBy: { createdAt: "desc" }, take: 20 });
     if (!allModels.length) { await send(chatId, "No AI-generated models found. NSFW training requires an AI-generated model.", inlineKbd([[{ text: "⬅️ Back", callback_data: "nav:nsfw" }]])); return true; }
-    const rows = allModels.map((m) => [{ text: `${m.name} [LoRA: ${m.loraStatus || "none"}]`, callback_data: `nsfw:train:model:${m.id}` }]);
+    const rows = modelListToInlineRows(allModels, (m) => `nsfw:train:model:${m.id}`, {
+      maxLabelLen: 24,
+      labelFor: (m) => formatModelButtonText(`${m.name} · ${m.loraStatus || "none"}`, 24),
+    });
     rows.push([{ text: "⬅️ Back", callback_data: "nav:nsfw" }]);
-    await send(chatId, "🧬 NSFW Training\n\nSelect model:", inlineKbd(rows)); return true;
+    await send(chatId, `🧬 NSFW training — pick model (${allModels.length}):`, inlineKbd(rows)); return true;
   }
   if (data.startsWith("nsfw:train:model:")) {
     const modelId = data.split(":").pop();
@@ -530,7 +663,7 @@ export async function handleNsfwCallback(chatId, data, callbackId = "") {
     await send(chatId, "⏳ Starting LoRA training...", null);
     const r = await apiNsfwTrainLora(userId, modelId, loraId);
     if (!r.ok) { await send(chatId, `❌ Failed: ${r.message}`); return true; }
-    await send(chatId, `✅ LoRA training started!\nTrigger word: ${r.triggerWord || "n/a"}`, nsfwMenuKbd());
+    await send(chatId, `✅ LoRA training started!\nTrigger word: ${r.triggerWord || "n/a"}`, nsfwStudioMiniAppKbd());
     return true;
   }
 

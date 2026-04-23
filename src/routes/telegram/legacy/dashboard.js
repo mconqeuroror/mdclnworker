@@ -12,20 +12,25 @@ export async function renderDashboard(chatId, userId) {
       prisma.generation.count({ where: { userId, status: { in: ["pending", "processing"] } } }),
     ]);
     if (!user) return;
-    const credits = Number(user.credits ?? 0);
-    const sub = Number(user.subscriptionCredits ?? 0);
-    const purchased = Number(user.purchasedCredits ?? 0);
+    const total = Math.max(
+      0,
+      Number(user.credits ?? 0) +
+        Number(user.subscriptionCredits ?? 0) +
+        Number(user.purchasedCredits ?? 0),
+    );
     const name = user.name || user.email || "there";
     const plan = user.subscriptionTier ? `(${user.subscriptionTier})` : "(free)";
     const text =
       `👋 Hey ${name}!\n\n` +
-      `💰 Credits: ${credits} ${plan}\n` +
-      `   ↳ Subscription: ${sub} · Purchased: ${purchased}\n` +
+      `💰 Credits: ${total.toLocaleString("en-US")} ${plan}\n` +
       `⏳ Active jobs: ${pendingCount}\n\n` +
-      `What would you like to do?`;
+      `What would you like to do?\n\n` +
+      `⌨️ Tap Menu on the keyboard below anytime (same as /menu) — no need for /start.`;
     await send(chatId, text, dashboardKbd());
+    await send(chatId, "\u2060", mainKbd());
   } catch (e) {
     console.error("[dashboard]", e?.message);
     await send(chatId, "Welcome! Choose an action:", dashboardKbd());
+    await send(chatId, "\u2060", mainKbd());
   }
 }

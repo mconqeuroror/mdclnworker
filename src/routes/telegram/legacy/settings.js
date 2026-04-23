@@ -1,11 +1,11 @@
 import prisma from "../../../lib/prisma.js";
 import { getFlow, setFlow, clearFlow } from "./state.js";
-import { send, inlineKbd, formatDate } from "./helpers.js";
-import { cancelKbd, appHubKbd, openAppKbd } from "./keyboards.js";
-import { ensureAuth, handleLogout } from "./auth.js";
+import { send, inlineKbd } from "./helpers.js";
+import { cancelKbd, appHubKbd } from "./keyboards.js";
+import { ensureAuth } from "./auth.js";
 import {
-  api2FAStatus, apiApiKeySummaries, apiUpdateProfile, apiGetProfile,
-  apiCreateCheckout, apiRequestEmailChange, apiVerifyEmailChange,
+  api2FAStatus, apiApiKeySummaries, apiUpdateProfile,
+  apiRequestEmailChange, apiVerifyEmailChange,
 } from "./api.js";
 import { MINI_APP_BASE } from "./config.js";
 
@@ -32,15 +32,25 @@ export async function renderSettings(chatId, userId) {
 }
 
 export async function renderPricing(chatId, userId) {
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { credits: true, subscriptionTier: true } });
-  const credits = Number(user?.credits ?? 0);
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { credits: true, subscriptionCredits: true, purchasedCredits: true, subscriptionTier: true },
+  });
+  const total = Math.max(
+    0,
+    Number(user?.credits ?? 0) +
+      Number(user?.subscriptionCredits ?? 0) +
+      Number(user?.purchasedCredits ?? 0),
+  );
   const plan = user?.subscriptionTier || "free";
-  await send(chatId, `💳 Pricing & Credits\n\nPlan: ${plan}\nCredits: ${credits}`, inlineKbd([
-    [{ text: "💰 Buy Credits", callback_data: "pricing:credits" }],
-    [{ text: "📋 Buy a Plan", callback_data: "pricing:plan" }],
-    [{ text: "📱 Open Full Pricing", web_app: { url: `${MINI_APP_BASE}/dashboard?openCredits=true` } }],
-    [{ text: "⬅️ Home", callback_data: "nav:home" }],
-  ]));
+  await send(
+    chatId,
+    `💳 Credits & subscriptions\n\nPlan: ${plan}\nCredits: ${total.toLocaleString("en-US")}\n\nUse the Mini App to buy credits or choose a plan (subscriptions + one-time).`,
+    inlineKbd([
+      [{ text: "📱 Open Credits & Subscriptions", web_app: { url: `${MINI_APP_BASE}/dashboard?openCredits=true` } }],
+      [{ text: "⬅️ Home", callback_data: "nav:home" }],
+    ]),
+  );
 }
 
 export async function renderAppHub(chatId) {
@@ -49,7 +59,7 @@ export async function renderAppHub(chatId) {
 
 export async function handleSettingsMessage(chatId, message, text) {
   const flow = getFlow(chatId);
-  if (!flow?.step?.startsWith("settings_") && !flow?.step?.startsWith("pricing_")) return false;
+  if (!flow?.step?.startsWith("settings_")) return false;
   const session = await ensureAuth(chatId);
   if (!session) return true;
   const { userId } = session;
@@ -88,16 +98,6 @@ export async function handleSettingsMessage(chatId, message, text) {
     return true;
   }
 
-  if (flow.step === "pricing_credits_amount") {
-    const amount = Number.parseInt(t, 10);
-    if (!Number.isFinite(amount) || amount < 2000) { await send(chatId, "Enter an amount ≥ 2000:", cancelKbd()); return true; }
-    clearFlow(chatId);
-    const r = await apiCreateCheckout(userId, amount);
-    if (!r.ok) { await send(chatId, `❌ Failed to create checkout: ${r.message}`); return true; }
-    await send(chatId, `✅ Checkout ready for ${amount} credits.`, inlineKbd([[{ text: "💳 Pay now", url: r.url }]]));
-    return true;
-  }
-
   return false;
 }
 
@@ -118,19 +118,6 @@ export async function handleSettingsCallback(chatId, data, callbackId = "") {
   if (data === "settings:email") {
     setFlow(chatId, { step: "settings_email_new" });
     await send(chatId, "📧 Change Email\n\n⚠️ A verification code will be sent to the new address.\n\nEnter your new email address:", cancelKbd());
-    return true;
-  }
-
-  if (data === "pricing:credits") {
-    setFlow(chatId, { step: "pricing_credits_amount" });
-    await send(chatId, "Enter the number of credits to buy (minimum 2000):", cancelKbd()); return true;
-  }
-  if (data === "pricing:plan") {
-    await send(chatId, "Choose plan billing period:", inlineKbd([
-      [{ text: "📅 Monthly Plans", web_app: { url: `${MINI_APP_BASE}/dashboard?openCredits=true&tab=plans` } }],
-      [{ text: "📆 Yearly Plans (save more)", web_app: { url: `${MINI_APP_BASE}/dashboard?openCredits=true&tab=plans&yearly=1` } }],
-      [{ text: "⬅️ Back", callback_data: "nav:pricing" }],
-    ]));
     return true;
   }
 

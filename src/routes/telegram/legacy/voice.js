@@ -1,7 +1,7 @@
 import prisma from "../../../lib/prisma.js";
 import { getFlow, setFlow, clearFlow } from "./state.js";
-import { send, sendImg, inlineKbd, isHttpUrl, formatDate } from "./helpers.js";
-import { resolveAudio } from "./media.js";
+import { send, sendImg, inlineKbd, isHttpUrl, formatDate, modelListToInlineRows, chunkInlineButtons, formatModelButtonText } from "./helpers.js";
+import { resolveAudio, mediaMismatchHint } from "./media.js";
 import { cancelKbd } from "./keyboards.js";
 import { ensureAuth } from "./auth.js";
 import {
@@ -59,7 +59,7 @@ export async function handleVoiceMessage(chatId, message, text) {
   if (flow.step === "voice_clone_audio") {
     const audio = await resolveAudio(message).catch(() => null);
     if (!audio) {
-      await send(chatId, "Send an audio file (mp3, wav, or voice message — 5–60s of clear speech):", cancelKbd());
+      await send(chatId, mediaMismatchHint("audio", message) || "Send an audio file (mp3, wav, or voice message — 5–60s of clear speech):", cancelKbd());
       return true;
     }
     clearFlow(chatId);
@@ -133,9 +133,9 @@ export async function handleVoiceCallback(chatId, data, callbackId = "") {
   if (data === "voice:tts") {
     const models = await prisma.savedModel.findMany({ where: { userId }, select: { id: true, name: true }, orderBy: { createdAt: "desc" }, take: 20 });
     if (!models.length) { await send(chatId, "No models yet."); return true; }
-    const rows = models.map((m) => [{ text: m.name, callback_data: `voice:tts:model:${m.id}` }]);
+    const rows = modelListToInlineRows(models, (m) => `voice:tts:model:${m.id}`);
     rows.push([{ text: "Cancel", callback_data: "nav:voice" }]);
-    await send(chatId, "🔊 TTS — Select model:", inlineKbd(rows)); return true;
+    await send(chatId, `🔊 TTS — pick model (${models.length}):`, inlineKbd(rows)); return true;
   }
   if (data.startsWith("voice:tts:model:")) {
     const modelId = data.split(":").pop();
@@ -150,7 +150,11 @@ export async function handleVoiceCallback(chatId, data, callbackId = "") {
     }
     // Store modelId in flow so voice script step can pass it to generate-audio endpoint
     setFlow(chatId, { ...(getFlow(chatId) || {}), ttsModelId: modelId });
-    const rows = voices.voices.map((v) => [{ text: `${v.name || v.id} (${v.status || "ready"})`, callback_data: `voice:tts:voice:${v.id}` }]);
+    const vBtns = voices.voices.map((v) => ({
+      text: formatModelButtonText(`${v.name || v.id} · ${v.status || "ready"}`, 26),
+      callback_data: `voice:tts:voice:${v.id}`,
+    }));
+    const rows = chunkInlineButtons(vBtns, 2);
     rows.push([{ text: "⬅️ Back", callback_data: "nav:voice" }]);
     await send(chatId, "Select voice:", inlineKbd(rows)); return true;
   }
@@ -165,9 +169,9 @@ export async function handleVoiceCallback(chatId, data, callbackId = "") {
   if (data === "voice:clone") {
     const models = await prisma.savedModel.findMany({ where: { userId }, select: { id: true, name: true }, orderBy: { createdAt: "desc" }, take: 20 });
     if (!models.length) { await send(chatId, "Create a model first."); return true; }
-    const rows = models.map((m) => [{ text: m.name, callback_data: `voice:clone:model:${m.id}` }]);
+    const rows = modelListToInlineRows(models, (m) => `voice:clone:model:${m.id}`);
     rows.push([{ text: "Cancel", callback_data: "nav:voice" }]);
-    await send(chatId, "🎙 Clone Voice — Select model:", inlineKbd(rows)); return true;
+    await send(chatId, `🎙 Clone voice — pick model (${models.length}):`, inlineKbd(rows)); return true;
   }
   if (data.startsWith("voice:clone:model:")) {
     const modelId = data.split(":").pop();
@@ -179,9 +183,9 @@ export async function handleVoiceCallback(chatId, data, callbackId = "") {
   if (data === "voice:design") {
     const models = await prisma.savedModel.findMany({ where: { userId }, select: { id: true, name: true }, orderBy: { createdAt: "desc" }, take: 20 });
     if (!models.length) { await send(chatId, "Create a model first."); return true; }
-    const rows = models.map((m) => [{ text: m.name, callback_data: `voice:design:model:${m.id}` }]);
+    const rows = modelListToInlineRows(models, (m) => `voice:design:model:${m.id}`);
     rows.push([{ text: "Cancel", callback_data: "nav:voice" }]);
-    await send(chatId, "🎨 Design Voice — Select model to attach the voice to:", inlineKbd(rows)); return true;
+    await send(chatId, `🎨 Design voice — attach to model (${models.length}):`, inlineKbd(rows)); return true;
   }
   if (data.startsWith("voice:design:model:")) {
     const modelId = data.split(":").pop();
@@ -233,9 +237,9 @@ export async function handleVoiceCallback(chatId, data, callbackId = "") {
   if (data === "voice:manage") {
     const models = await prisma.savedModel.findMany({ where: { userId }, select: { id: true, name: true }, orderBy: { createdAt: "desc" }, take: 20 });
     if (!models.length) { await send(chatId, "No models yet."); return true; }
-    const rows = models.map((m) => [{ text: m.name, callback_data: `voice:manage:model:${m.id}` }]);
+    const rows = modelListToInlineRows(models, (m) => `voice:manage:model:${m.id}`);
     rows.push([{ text: "⬅️ Back", callback_data: "nav:voice" }]);
-    await send(chatId, "📋 Select model to manage voices:", inlineKbd(rows)); return true;
+    await send(chatId, `📋 Manage voices — pick model (${models.length}):`, inlineKbd(rows)); return true;
   }
   if (data.startsWith("voice:manage:model:")) {
     const modelId = data.split(":").pop();

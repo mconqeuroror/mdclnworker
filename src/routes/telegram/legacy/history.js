@@ -1,21 +1,48 @@
 import prisma from "../../../lib/prisma.js";
+import { getFlow, setFlow, clearFlow } from "./state.js";
 import { send, sendImg, sendMedia, inlineKbd, formatDate, isHttpUrl } from "./helpers.js";
-import { refreshGeneration, retryGeneration } from "./generate.js";
 import { ensureAuth } from "./auth.js";
 import { apiDeleteGenerations } from "./api.js";
-import { RETRYABLE_TYPES } from "./config.js";
+import { RETRYABLE_TYPES, appUrl } from "./config.js";
 
 const PAGE_SIZE = 8;
 
-const HISTORY_TYPES = [
-  "all", "prompt-video", "prompt-image", "image-identity",
-  "creator-studio", "creator-studio-video", "advanced-image",
-  "face-swap", "face-swap-image", "talking-head",
-  "video", "nsfw", "modelclone-x", "upscale",
+/** Prisma filter: only generations with no SavedModel linked */
+const NO_MODEL_SENTINEL = "__NO_MODEL__";
+
+/** Image / still outputs */
+const PHOTO_TYPES = [
+  "prompt-image",
+  "image-identity",
+  "creator-studio",
+  "advanced-image",
+  "face-swap-image",
+  "modelclone-x",
+  "upscale",
+  "image",
+  "nsfw",
+  "img2img-describe",
+  "creator-studio-mask",
+  "creator-studio-asset",
+  "advanced-model",
+  "model-poses",
+];
+
+/** Video outputs */
+const VIDEO_TYPES = [
+  "prompt-video",
+  "creator-studio-video",
+  "face-swap",
+  "talking-head",
+  "video",
+  "nsfw-video",
+  "nsfw-video-extend",
 ];
 
 const TYPE_LABELS = {
   all: "All",
+  __photo__: "Photos",
+  __video__: "Videos",
   "prompt-video": "AI Video",
   "prompt-image": "AI Photo",
   "image-identity": "Identity",
@@ -31,10 +58,58 @@ const TYPE_LABELS = {
   upscale: "Upscale",
 };
 
-export async function renderHistory(chatId, userId, page = 0, typeFilter = "all", statusFilter = "all") {
+function mediaToTypeFilter(media) {
+  if (media === "photo") return "__photo__";
+  if (media === "video") return "__video__";
+  return "all";
+}
+
+function buildHistoryWhere(userId, typeFilter, statusFilter, modelId) {
   const where = { userId };
-  if (typeFilter !== "all") where.type = typeFilter;
-  if (statusFilter !== "all") where.status = statusFilter;
+  if (statusFilter && statusFilter !== "all") where.status = statusFilter;
+  if (modelId === NO_MODEL_SENTINEL) {
+    where.modelId = null;
+  } else if (modelId) {
+    where.modelId = modelId;
+  }
+
+  if (typeFilter === "__photo__") {
+    where.type = { in: PHOTO_TYPES };
+  } else if (typeFilter === "__video__") {
+    where.type = { in: VIDEO_TYPES };
+  } else if (typeFilter && typeFilter !== "all") {
+    where.type = typeFilter;
+  }
+  return where;
+}
+
+function describeFilterLine(typeFilter, statusFilter, modelId, modelName) {
+  const typeLabel = TYPE_LABELS[typeFilter] || typeFilter;
+  let modelPart = "";
+  if (modelId === NO_MODEL_SENTINEL) {
+    modelPart = " · Model: (no model linked)";
+  } else if (modelId) {
+    modelPart = ` · Model: ${(modelName || modelId).slice(0, 24)}`;
+  }
+  return `Type: ${typeLabel}${modelPart} · Status: ${statusFilter || "all"}`;
+}
+
+function persistHistBrowseState(chatId, page, typeFilter, statusFilter, modelId, modelName) {
+  const media = typeFilter === "__photo__" ? "photo" : typeFilter === "__video__" ? "video" : "all";
+  setFlow(chatId, {
+    step: "hist_browse",
+    page,
+    histFilter: {
+      media,
+      modelId: modelId || null,
+      modelName: modelName || null,
+      statusFilter: statusFilter || "all",
+    },
+  });
+}
+
+export async function renderHistory(chatId, userId, page = 0, typeFilter = "all", statusFilter = "all", modelId = null, modelName = null) {
+  const where = buildHistoryWhere(userId, typeFilter, statusFilter, modelId);
 
   const [items, total] = await Promise.all([
     prisma.generation.findMany({
@@ -48,10 +123,13 @@ export async function renderHistory(chatId, userId, page = 0, typeFilter = "all"
   ]);
 
   const pages = Math.ceil(total / PAGE_SIZE) || 1;
-  const filterLine = `Type: ${TYPE_LABELS[typeFilter] || typeFilter} · Status: ${statusFilter}`;
+  const filterLine = describeFilterLine(typeFilter, statusFilter, modelId, modelName);
+
+  persistHistBrowseState(chatId, page, typeFilter, statusFilter, modelId, modelName);
 
   if (!items.length) {
     await send(chatId, `No generations found.\n${filterLine}`, inlineKbd([
+      [{ text: "🧬 Change model", callback_data: "hist:reentry" }],
       [{ text: "🔍 Change filter", callback_data: `hist:filter:${page}` }],
       [{ text: "🎬 Generate", callback_data: "nav:generate" }, { text: "🏠 Home", callback_data: "nav:home" }],
     ]));
@@ -65,14 +143,43 @@ export async function renderHistory(chatId, userId, page = 0, typeFilter = "all"
   }]);
 
   const nav = [];
-  if (page > 0) nav.push({ text: "⬅️ Prev", callback_data: `hist:page:${page - 1}:${typeFilter}:${statusFilter}` });
+  if (page > 0) nav.push({ text: "⬅️ Prev", callback_data: `hist:navp:${page - 1}` });
   nav.push({ text: `${page + 1}/${pages}`, callback_data: "noop" });
-  if ((page + 1) * PAGE_SIZE < total) nav.push({ text: "Next ➡️", callback_data: `hist:page:${page + 1}:${typeFilter}:${statusFilter}` });
+  if ((page + 1) * PAGE_SIZE < total) nav.push({ text: "Next ➡️", callback_data: `hist:navp:${page + 1}` });
   if (nav.length > 1) rows.push(nav);
+  rows.push([{ text: "🧬 Change model", callback_data: "hist:reentry" }]);
   rows.push([{ text: "🔍 Filter", callback_data: `hist:filter:${page}` }]);
   rows.push([{ text: "⬅️ Home", callback_data: "nav:home" }]);
 
   await send(chatId, `🕘 History — ${total} result(s)\n${filterLine}\nPage ${page + 1}/${pages}`, inlineKbd(rows));
+}
+
+/** First step: pick which model’s history to open (then list is filtered). */
+export async function renderHistoryModelPicker(chatId, userId) {
+  const models = await prisma.savedModel.findMany({
+    where: { userId },
+    select: { id: true, name: true },
+    orderBy: { createdAt: "desc" },
+    take: 28,
+  });
+  setFlow(chatId, {
+    step: "hist_pick_entry",
+    modelRows: models.map((m) => ({ id: m.id, name: m.name })),
+  });
+  const rows = [
+    [{ text: "📂 All models — everything", callback_data: "hist:entry:all" }],
+    [{ text: "📎 Other (no model linked)", callback_data: "hist:entry:none" }],
+  ];
+  models.forEach((m, i) => {
+    const label = `🧬 ${(m.name || "Model").slice(0, 36)}`;
+    rows.push([{ text: label, callback_data: `hist:entry:${i}` }]);
+  });
+  rows.push([{ text: "⬅️ Home", callback_data: "nav:home" }]);
+  await send(
+    chatId,
+    "🕘 History\n\nWhich model do you want to open?\n(Then you’ll see only that model’s generations — or pick All / Other.)",
+    inlineKbd(rows),
+  );
 }
 
 async function renderHistoryItem(chatId, userId, genId, fromPage = 0) {
@@ -90,19 +197,17 @@ async function renderHistoryItem(chatId, userId, genId, fromPage = 0) {
   if (gen.status === "processing" || gen.status === "pending") rows.push([{ text: "🔄 Refresh", callback_data: `hist:item:${genId}:${fromPage}` }]);
   if (gen.outputUrl && isHttpUrl(gen.outputUrl)) rows.push([{ text: "▶️ View output", url: gen.outputUrl }]);
   if (canRetry) rows.push([{ text: "♻️ Retry", callback_data: `gen:retry:${genId}:${fromPage}` }]);
-  // CS Video upgrade options
   if (isCsVideo && isVeo && gen.providerTaskId) {
     rows.push([
       { text: "🔼 4K Upgrade", callback_data: `hist:veo4k:${genId}` },
       { text: "🔼 1080p Render", callback_data: `hist:veo1080p:${genId}` },
     ]);
   }
-  // CS Video extend (VEO only)
   if (isCsVideo && gen.providerFamily === "veo31") {
     rows.push([{ text: "⏩ Extend video (VEO)", callback_data: `hist:csextend:${genId}` }]);
   }
   rows.push([{ text: "🗑 Delete", callback_data: `hist:delete:${genId}:${fromPage}` }]);
-  rows.push([{ text: "⬅️ Back to history", callback_data: `hist:page:${fromPage}:all:all` }]);
+  rows.push([{ text: "⬅️ Back to history", callback_data: `hist:navp:${fromPage}` }]);
 
   if (gen.outputUrl && isHttpUrl(gen.outputUrl) && gen.status === "completed") {
     const sent = await sendMedia(chatId, gen.outputUrl, gen.type, { caption: text, replyMarkup: inlineKbd(rows) });
@@ -120,12 +225,29 @@ export async function renderQueue(chatId, userId) {
   ]);
   const rows = [];
   for (const g of activeGens) rows.push([{ text: `${g.status === "pending" ? "⏳" : "⚙️"} ${g.type} #${g.id.slice(0, 8)}`, callback_data: `hist:item:${g.id}:0` }]);
-  for (const v of activeAvatars) rows.push([{ text: `${v.status === "pending" ? "⏳" : "⚙️"} Avatar ${v.avatar?.name || "#" + v.id.slice(0, 8)}`, callback_data: `avatars:vid:${v.id}` }]);
+  if (activeAvatars.length) {
+    rows.push([
+      {
+        text: `🧍 Avatar video jobs (${activeAvatars.length}) — open Creator Studio`,
+        web_app: { url: appUrl("creator") },
+      },
+    ]);
+  }
   for (const f of failedGens.filter((g) => RETRYABLE_TYPES.has(g.type))) rows.push([{ text: `♻️ Retry ${(TYPE_LABELS[f.type] || f.type)} #${f.id.slice(0, 8)}`, callback_data: `gen:retry:${f.id}:0` }]);
   rows.push([{ text: "🔄 Refresh", callback_data: "nav:queue" }, { text: "🕘 History", callback_data: "nav:history" }]);
   rows.push([{ text: "⬅️ Home", callback_data: "nav:home" }]);
   const total = activeGens.length + activeAvatars.length;
-  await send(chatId, `📥 Queue\nActive: ${total} (gen: ${activeGens.length}, avatar: ${activeAvatars.length})\nFailed recently: ${failedGens.length}`, inlineKbd(rows));
+  await send(chatId, `📥 Queue\nActive: ${total} (gen: ${activeGens.length}, avatar video: ${activeAvatars.length})\nFailed recently: ${failedGens.length}`, inlineKbd(rows));
+}
+
+async function sendStatusPickKeyboard(chatId, page) {
+  await send(chatId, "Filter by status:", inlineKbd([
+    [{ text: "All", callback_data: `hist:st:${page}:all` }],
+    [{ text: "✅ Completed", callback_data: `hist:st:${page}:completed` }],
+    [{ text: "❌ Failed", callback_data: `hist:st:${page}:failed` }],
+    [{ text: "⏳ Processing", callback_data: `hist:st:${page}:processing` }],
+    [{ text: "⬅️ Cancel", callback_data: `hist:navp:${page}` }],
+  ]));
 }
 
 export async function handleHistoryCallback(chatId, data, callbackId = "") {
@@ -133,44 +255,162 @@ export async function handleHistoryCallback(chatId, data, callbackId = "") {
   if (!session) return true;
   const { userId } = session;
 
-  if (data === "nav:history") { await renderHistory(chatId, userId, 0); return true; }
+  if (data === "nav:history") {
+    clearFlow(chatId);
+    await renderHistoryModelPicker(chatId, userId);
+    return true;
+  }
+  if (data === "hist:reentry") {
+    await renderHistoryModelPicker(chatId, userId);
+    return true;
+  }
+
+  if (data.startsWith("hist:entry:")) {
+    const suffix = data.slice("hist:entry:".length);
+    const flow = getFlow(chatId);
+    const mrows = flow?.modelRows || [];
+    let modelId = null;
+    let modelName = null;
+    if (suffix === "all") {
+      modelId = null;
+      modelName = null;
+    } else if (suffix === "none") {
+      modelId = NO_MODEL_SENTINEL;
+      modelName = "Other (no model)";
+    } else {
+      const idx = Number.parseInt(suffix, 10);
+      if (!Number.isFinite(idx) || !mrows[idx]) {
+        await send(chatId, "Pick expired — open History again.", inlineKbd([[{ text: "🕘 History", callback_data: "nav:history" }]]));
+        return true;
+      }
+      modelId = mrows[idx].id;
+      modelName = mrows[idx].name;
+    }
+    setFlow(chatId, {
+      step: "hist_browse",
+      histFilter: { media: "all", modelId, modelName, statusFilter: "all" },
+    });
+    await renderHistory(chatId, userId, 0, "all", "all", modelId, modelName);
+    return true;
+  }
   if (data === "nav:queue") { await renderQueue(chatId, userId); return true; }
+
+  if (data.startsWith("hist:navp:")) {
+    const page = Number(data.split(":").pop()) || 0;
+    const flow = getFlow(chatId);
+    const hf = flow?.histFilter;
+    if (!hf) {
+      await renderHistory(chatId, userId, page, "all", "all", null, null);
+      return true;
+    }
+    const typeFilter = mediaToTypeFilter(hf.media);
+    await renderHistory(chatId, userId, page, typeFilter, hf.statusFilter || "all", hf.modelId || null, hf.modelName || null);
+    return true;
+  }
 
   if (data.startsWith("hist:page:")) {
     const parts = data.split(":");
     const page = Number(parts[2]) || 0;
     const typeFilter = parts[3] || "all";
     const statusFilter = parts[4] || "all";
-    await renderHistory(chatId, userId, page, typeFilter, statusFilter); return true;
+    await renderHistory(chatId, userId, page, typeFilter, statusFilter, null, null);
+    return true;
   }
   if (data.startsWith("hist:item:")) {
     const [, , genId, page] = data.split(":");
     await renderHistoryItem(chatId, userId, genId, Number(page) || 0); return true;
   }
+
   if (data.startsWith("hist:filter:")) {
     const page = Number(data.split(":").pop()) || 0;
-    await send(chatId, "Filter by type:", inlineKbd([
-      ...Object.entries(TYPE_LABELS).map(([k, v]) => [{ text: v, callback_data: `hist:settype:${page}:${k}` }]),
+    await send(chatId, "What do you want to see?", inlineKbd([
+      [{ text: "🖼 Photos", callback_data: `hist:fm:${page}:photo` }],
+      [{ text: "🎬 Videos", callback_data: `hist:fm:${page}:video` }],
+      [{ text: "📋 All types", callback_data: `hist:fm:${page}:all` }],
+      [{ text: "⬅️ Back", callback_data: `hist:navp:${page}` }],
     ]));
     return true;
   }
-  if (data.startsWith("hist:settype:")) {
+
+  if (data.startsWith("hist:fm:")) {
     const parts = data.split(":");
     const page = Number(parts[2]) || 0;
-    const type = parts[3] || "all";
-    await send(chatId, "Filter by status:", inlineKbd([
-      [{ text: "All", callback_data: `hist:page:${page}:${type}:all` }],
-      [{ text: "✅ Completed", callback_data: `hist:page:${page}:${type}:completed` }],
-      [{ text: "❌ Failed", callback_data: `hist:page:${page}:${type}:failed` }],
-      [{ text: "⏳ Processing", callback_data: `hist:page:${page}:${type}:processing` }],
+    const media = parts[3] || "all";
+    if (media === "all") {
+      setFlow(chatId, { step: "hist_pick_status", page, histFilter: { media: "all", modelId: null, modelName: null } });
+      await sendStatusPickKeyboard(chatId, page);
+      return true;
+    }
+    const models = await prisma.savedModel.findMany({
+      where: { userId },
+      select: { id: true, name: true },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+    });
+    const rows = [[{ text: "All models", callback_data: `hist:msel:${page}:${media}:all` }]];
+    models.forEach((m, i) => {
+      const label = (m.name || "Model").slice(0, 28);
+      rows.push([{ text: label, callback_data: `hist:msel:${page}:${media}:${i}` }]);
+    });
+    rows.push([{ text: "⬅️ Back", callback_data: `hist:filter:${page}` }]);
+    const title = media === "photo" ? "Photos — choose model:" : "Videos — choose model:";
+    setFlow(chatId, { step: "hist_pick_model", page, media, modelRows: models.map((m) => ({ id: m.id, name: m.name })) });
+    await send(chatId, title, inlineKbd(rows));
+    return true;
+  }
+
+  if (data.startsWith("hist:msel:")) {
+    const parts = data.split(":");
+    const page = Number(parts[2]) || 0;
+    const media = parts[3] || "photo";
+    const sel = parts[4];
+    const flow = getFlow(chatId);
+    let modelId = null;
+    let modelName = null;
+    if (sel === "all") {
+      modelId = null;
+      modelName = null;
+    } else {
+      const idx = Number(sel);
+      const row = flow?.modelRows?.[idx];
+      if (!row) {
+        await send(chatId, "Pick expired — open Filter again.", inlineKbd([[{ text: "🕘 History", callback_data: "nav:history" }]]));
+        return true;
+      }
+      modelId = row.id;
+      modelName = row.name;
+    }
+    setFlow(chatId, { step: "hist_pick_status", page, histFilter: { media, modelId, modelName } });
+    await sendStatusPickKeyboard(chatId, page);
+    return true;
+  }
+
+  if (data.startsWith("hist:st:")) {
+    const parts = data.split(":");
+    const page = Number(parts[2]) || 0;
+    const statusFilter = parts[3] || "all";
+    const flow = getFlow(chatId);
+    const hf = flow?.histFilter || { media: "all", modelId: null, modelName: null };
+    const merged = { ...hf, statusFilter };
+    setFlow(chatId, { step: "hist_pick_status", page, histFilter: merged });
+    const typeFilter = mediaToTypeFilter(merged.media);
+    await renderHistory(chatId, userId, page, typeFilter, statusFilter, merged.modelId || null, merged.modelName || null);
+    return true;
+  }
+
+  if (data.startsWith("hist:settype:")) {
+    const page = Number(data.split(":")[2]) || 0;
+    await send(chatId, "This filter menu is outdated. Use the new filter:", inlineKbd([
+      [{ text: "🔍 Open filters", callback_data: `hist:filter:${page}` }],
+      [{ text: "🕘 History", callback_data: "nav:history" }],
     ]));
     return true;
   }
-  // confirm MUST be checked before the generic delete: prefix
+
   if (data.startsWith("hist:delete:confirm:")) {
     const [, , , genId, page] = data.split(":");
     await apiDeleteGenerations(userId, [genId]);
-    await send(chatId, "✅ Deleted.", inlineKbd([[{ text: "🕘 History", callback_data: `hist:page:${Number(page) || 0}:all:all` }]]));
+    await send(chatId, "✅ Deleted.", inlineKbd([[{ text: "🕘 History", callback_data: `hist:navp:${Number(page) || 0}` }]]));
     return true;
   }
   if (data.startsWith("hist:delete:")) {
@@ -183,7 +423,6 @@ export async function handleHistoryCallback(chatId, data, callbackId = "") {
     return true;
   }
 
-  // VEO 4K upgrade
   if (data.startsWith("hist:veo4k:")) {
     const genId = data.split(":").pop();
     const gen = await prisma.generation.findFirst({ where: { id: genId, userId }, select: { providerTaskId: true } });
@@ -195,7 +434,6 @@ export async function handleHistoryCallback(chatId, data, callbackId = "") {
     await send(chatId, "✅ 4K upgrade requested! Check back soon.", inlineKbd([[{ text: "⬅️ Back", callback_data: `hist:item:${genId}:0` }]]));
     return true;
   }
-  // VEO 1080p render
   if (data.startsWith("hist:veo1080p:")) {
     const genId = data.split(":").pop();
     const gen = await prisma.generation.findFirst({ where: { id: genId, userId }, select: { providerTaskId: true } });
@@ -207,7 +445,6 @@ export async function handleHistoryCallback(chatId, data, callbackId = "") {
     await send(chatId, "✅ 1080p render requested!", inlineKbd([[{ text: "⬅️ Back", callback_data: `hist:item:${genId}:0` }]]));
     return true;
   }
-  // CS Video extend
   if (data.startsWith("hist:csextend:")) {
     const genId = data.split(":").pop();
     const gen = await prisma.generation.findFirst({ where: { id: genId, userId }, select: { providerTaskId: true, prompt: true } });

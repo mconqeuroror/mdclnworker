@@ -69,6 +69,15 @@ export async function resolveVideo(message) {
   return null;
 }
 
+/** Telegram "video" messages include duration in seconds; video-as-document does not. */
+export function telegramVideoDurationSeconds(message) {
+  const d = message?.video?.duration;
+  if (typeof d === "number" && Number.isFinite(d) && d > 0) {
+    return Math.min(Math.max(1, Math.ceil(d)), 600);
+  }
+  return null;
+}
+
 // ── Resolve any media (image or video) ────────────────────────
 export async function resolveMedia(message, { allowImages = true, allowVideos = true } = {}) {
   if (allowImages) {
@@ -134,6 +143,65 @@ export function detectMediaTypes(message) {
       Boolean(message?.voice?.file_id) ||
       (hasDoc && (docMime.startsWith("audio/") || /\.(mp3|wav|ogg|m4a)$/i.test(docName))),
   };
+}
+
+const DOC_TIP = " Tip: use Attach → File to send full-quality originals.";
+
+/**
+ * When resolveImage/resolveVideo returned null but the user sent something else — explain clearly.
+ * @param {"image"|"video"|"audio"} expected
+ */
+export function mediaMismatchHint(expected, message) {
+  if (!message) return null;
+  const d = detectMediaTypes(message);
+  if (message.sticker) {
+    if (expected === "video") return `That’s a sticker — please send a video (video message or video file).${DOC_TIP}`;
+    if (expected === "image") return `That’s a sticker — please send a photo or image file.${DOC_TIP}`;
+  }
+  if (message.animation && expected === "video" && !d.hasVideo) {
+    return `That’s a GIF/animation — please send a normal video (e.g. MP4) as a video message or file.${DOC_TIP}`;
+  }
+  if (expected === "video") {
+    if (d.hasImage && !d.hasVideo) {
+      return `You sent a photo — this step needs a video. Send a video message or a video file (MP4/MOV), not a picture.${DOC_TIP}`;
+    }
+    if ((d.hasAudio || message.voice) && !d.hasVideo) {
+      return "You sent audio — this step needs a video file.";
+    }
+    return null;
+  }
+  if (expected === "image") {
+    if (d.hasVideo && !d.hasImage) {
+      return `You sent a video — this step needs an image. Send a photo or an image file, not a video.${DOC_TIP}`;
+    }
+    if ((d.hasAudio || message.voice) && !d.hasImage) {
+      return "You sent audio — this step needs a photo or image file.";
+    }
+    return null;
+  }
+  if (expected === "audio") {
+    if (d.hasImage && !d.hasAudio && !message.voice) {
+      return "You sent a photo — this step needs audio (file or voice message).";
+    }
+    if (d.hasVideo && !d.hasAudio && !message.voice) {
+      return "You sent a video — this step needs an audio file or voice message.";
+    }
+    return null;
+  }
+  return null;
+}
+
+/** When both image and video are accepted (e.g. reformatter, repurposer source). */
+export function mediaMismatchHintImageOrVideo(message) {
+  if (!message) return null;
+  const d = detectMediaTypes(message);
+  if (message.sticker) {
+    return `That's a sticker — send a photo, video, or media file.${DOC_TIP}`;
+  }
+  if ((d.hasAudio || message.voice) && !d.hasImage && !d.hasVideo) {
+    return "You sent audio — this step needs a photo or video file.";
+  }
+  return null;
 }
 
 // ── Upscale: download R2 URL → post as multipart ─────────────

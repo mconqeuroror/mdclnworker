@@ -34,14 +34,6 @@ export async function sendLoginPrompt(chatId, greeting = "") {
 
 // ── Handle auth callbacks ─────────────────────────────────────
 export async function handleAuthCallback(chatId, data, firstName = "", callbackId = "") {
-  if (data === "auth:telegram") {
-    await answerCb(callbackId);
-    // Don't restart if already mid-login
-    const existingFlow = getFlow(chatId);
-    if (existingFlow?.step?.startsWith("auth_")) return true;
-    await attemptTelegramAuth(chatId);
-    return true;
-  }
   if (data === "auth:email") {
     await answerCb(callbackId);
     // Don't restart if already mid-login (prevents double-tap race condition)
@@ -57,32 +49,6 @@ export async function handleAuthCallback(chatId, data, firstName = "", callbackI
     return true;
   }
   return false;
-}
-
-// ── Telegram login (link Telegram user ID to ModelClone account) ─
-export async function attemptTelegramAuth(chatId) {
-  try {
-    const telegramId = String(chatId);
-    const user = await prisma.user.findFirst({
-      where: { telegramId },
-      select: { id: true, name: true, email: true, credits: true },
-    });
-    if (user) {
-      setSession(chatId, { userId: user.id, email: user.email });
-      clearFlow(chatId);
-      await send(chatId, `✅ Logged in as ${user.name || user.email}.`, removeKbd());
-      await renderDashboard(chatId, user.id);
-      return;
-    }
-    await send(
-      chatId,
-      "No ModelClone account is linked to this Telegram account.\n\nLog in with Email + Password to link it, or create an account in the app.",
-      loginKbd(),
-    );
-  } catch (e) {
-    console.error("[auth:telegram]", e?.message);
-    await send(chatId, "Login failed. Please try again.", loginKbd());
-  }
 }
 
 // ── Handle flow message steps for email/password/2FA ─────────

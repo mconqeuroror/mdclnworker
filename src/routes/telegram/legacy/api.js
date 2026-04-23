@@ -35,18 +35,26 @@ function ok(res, data, field) {
 
 // ── Generate ──────────────────────────────────────────────────
 export async function apiPromptVideo(userId, imageUrl, prompt, duration = 5) {
-  const { res, data } = await call(userId, "/api/generate/prompt-video", "POST", { imageUrl, prompt, duration });
+  const { res, data } = await call(userId, "/api/generate/video-prompt", "POST", { imageUrl, prompt, duration });
   if (!res.ok || !data?.success) return { ok: false, message: data?.message || `Failed (${res.status})` };
   return { ok: true, generation: data.generation, creditsUsed: data.creditsUsed };
 }
 
 export async function apiPromptImage(userId, modelId, prompt, opts = {}) {
+  const useNsfw = Boolean(opts.useNsfw);
+  const contentRating =
+    opts.contentRating != null && String(opts.contentRating).trim() !== ""
+      ? opts.contentRating
+      : useNsfw
+        ? "sexy"
+        : "pg13";
   const { res, data } = await call(userId, "/api/generate/prompt-image", "POST", {
-    modelId, prompt,
+    modelId,
+    prompt,
     quantity: opts.quantity ?? 1,
     style: opts.style || "amateur",
-    contentRating: opts.contentRating || "sexy",
-    useNsfw: Boolean(opts.useNsfw),
+    contentRating,
+    useNsfw,
     useCustomPrompt: Boolean(opts.useCustomPrompt),
   });
   if (!res.ok || !data?.success) return { ok: false, message: data?.message || `Failed (${res.status})` };
@@ -77,8 +85,11 @@ export async function apiVideoDirectly(userId, payload) {
   return { ok: true, generation: data.generation, creditsUsed: data.creditsUsed };
 }
 
-export async function apiFaceSwapVideo(userId, sourceVideoUrl, modelId, videoDuration = 10) {
-  const { res, data } = await call(userId, "/api/generate/face-swap", "POST", { sourceVideoUrl, modelId, videoDuration: Math.max(1, Number(videoDuration) || 10) });
+export async function apiFaceSwapVideo(userId, sourceVideoUrl, modelId, videoDuration) {
+  const body = { sourceVideoUrl, modelId };
+  const n = Number(videoDuration);
+  if (Number.isFinite(n) && n > 0) body.videoDuration = Math.ceil(n);
+  const { res, data } = await call(userId, "/api/generate/face-swap", "POST", body);
   if (!res.ok || !data?.success) return { ok: false, message: data?.message || `Failed (${res.status})` };
   return { ok: true, generation: data.generation, creditsUsed: data.creditsUsed };
 }
@@ -186,13 +197,25 @@ export async function apiNsfwAdvanced(userId, modelId, prompt, engine = "nano-ba
   // Controller reads `model` not `engine`
   const { res, data } = await call(userId, "/api/nsfw/generate-advanced", "POST", { modelId, prompt, model: engine });
   if (!res.ok || !data?.success) return { ok: false, message: data?.message || `Failed (${res.status})` };
-  return { ok: true, generations: data.generations || [], creditsUsed: data.creditsUsed };
+  const generations =
+    Array.isArray(data.generations) && data.generations.length > 0
+      ? data.generations
+      : data.generation
+        ? [data.generation]
+        : [];
+  return { ok: true, generations, creditsUsed: data.creditsUsed };
 }
 
 export async function apiNsfwNudesPack(userId, modelId, poses = []) {
   const { res, data } = await call(userId, "/api/nsfw/nudes-pack", "POST", { modelId, poses });
   if (!res.ok || !data?.success) return { ok: false, message: data?.message || `Failed (${res.status})` };
-  return { ok: true, generations: data.generations || [], creditsUsed: data.creditsUsed, poseCount: data.poseCount };
+  return {
+    ok: true,
+    generations: data.generations || [],
+    creditsUsed: data.creditsUsed,
+    poseCount: data.poseCount,
+    creditsPerImage: data.creditsPerImage,
+  };
 }
 
 export async function apiNsfwGeneratePrompt(userId, modelId) {
@@ -291,32 +314,62 @@ export async function apiSubmitUpscale(userId, imageBuffer, mimeType, fileName) 
   });
   let data = null;
   try { data = await res.json(); } catch { data = null; }
-  if (!res.ok || !data?.success) return { ok: false, message: data?.error || data?.message || `Failed (${res.status})` };
-  return { ok: true, generationId: data.generationId };
+  if (!res.ok || !data?.success) {
+    const msg = data?.error || data?.message || `Failed (${res.status})`;
+    return { ok: false, message: msg };
+  }
+  return { ok: true, generationId: data.generationId, creditsUsed: data.creditsUsed };
 }
 
 export async function apiSubmitReformatter(userId, inputUrl, originalFileName = "upload") {
-  // URL-based approach: same endpoint as repurposer but uses inputUrl key (original bot behaviour)
-  const { res, data } = await call(userId, "/api/video-repurpose", "POST", {
+  const { res, data } = await call(userId, "/api/reformatter/convert-with-worker", "POST", {
     inputUrl,
     originalFileName,
   });
-  if (!res.ok || !data?.ok) return { ok: false, message: data?.message || `Failed (${res.status})` };
-  return { ok: true, jobId: data.job_id };
+  if (!res.ok || !data?.success) {
+    return { ok: false, message: data?.message || data?.error || `Failed (${res.status})` };
+  }
+  return { ok: true, jobId: data.jobId };
 }
 
-export async function apiSubmitRepurposer(userId, videoUrl, watermarkUrl = null) {
-  const { res, data } = await call(userId, "/api/video-repurpose", "POST", {
-    videoUrl, ...(watermarkUrl ? { watermarkUrl } : {}),
-  });
-  if (!res.ok || !data?.ok) return { ok: false, message: data?.message || `Failed (${res.status})` };
-  return { ok: true, jobId: data.job_id };
+export async function apiReformatterStatus(userId, jobId) {
+  const { res, data } = await call(userId, `/api/reformatter/status/${encodeURIComponent(jobId)}`, "GET");
+  if (!res.ok || !data?.success) {
+    return { ok: false, message: data?.message || `Failed (${res.status})` };
+  }
+  const job = data.job || {};
+  return {
+    ok: true,
+    status: job.status,
+    outputUrl: job.outputUrl,
+    error: job.errorMessage,
+  };
+}
+
+export async function apiSubmitRepurposer(userId, videoUrl, watermarkUrl = null, settings = null) {
+  const body = {
+    videoUrl,
+    ...(watermarkUrl ? { watermarkUrl } : {}),
+    ...(settings && typeof settings === "object" ? { settings } : {}),
+  };
+  const { res, data } = await call(userId, "/api/video-repurpose/generate-with-worker", "POST", body);
+  if (!res.ok || !data?.ok) {
+    return { ok: false, message: data?.error || `Failed (${res.status})` };
+  }
+  return { ok: true, jobId: data.job_id, outputs: Array.isArray(data.outputs) ? data.outputs : [] };
 }
 
 export async function apiRepurposerStatus(userId, jobId) {
   const { res, data } = await call(userId, `/api/video-repurpose/jobs/${encodeURIComponent(jobId)}`, "GET");
-  if (!res.ok) return { ok: false, message: `Failed (${res.status})` };
-  return { ok: true, status: data?.status, outputs: data?.outputs };
+  if (!res.ok) return { ok: false, message: data?.error || `Failed (${res.status})` };
+  const job = data?.job;
+  return {
+    ok: true,
+    status: job?.status,
+    outputs: job?.outputs,
+    message: job?.message,
+    error: job?.error,
+  };
 }
 
 // ── Voices ────────────────────────────────────────────────────
@@ -346,19 +399,6 @@ export async function apiCloneVoice(userId, modelId, audioBuffer, fileName, mime
   try { data = await res.json(); } catch { data = null; }
   if (!res.ok || !data?.success) return { ok: false, message: data?.message || `Failed (${res.status})` };
   return { ok: true, voiceId: data.voiceId, url: data.url };
-}
-
-// ── Avatars ───────────────────────────────────────────────────
-export async function apiCreateAvatar(userId, modelId, name, photoUrl) {
-  const { res, data } = await call(userId, "/api/avatars", "POST", { modelId, name, photoUrl });
-  if (!res.ok || !data?.success) return { ok: false, message: data?.message || `Failed (${res.status})` };
-  return { ok: true, avatar: data.avatar };
-}
-
-export async function apiGenerateAvatarVideo(userId, avatarId, script) {
-  const { res, data } = await call(userId, `/api/avatars/${encodeURIComponent(avatarId)}/generate`, "POST", { script });
-  if (!res.ok || !data?.success) return { ok: false, message: data?.message || data?.error || `Failed (${res.status})` };
-  return { ok: true, video: data.video, estimatedSecs: data.estimatedSecs, creditsCost: data.creditsCost };
 }
 
 // ── Models ────────────────────────────────────────────────────
@@ -536,13 +576,6 @@ export async function apiModelVoiceList(userId, modelId) {
   if (!res.ok) return { ok: false, voices: [] };
   const raw = data?.voices || data?.modelVoices || data;
   return { ok: true, voices: Array.isArray(raw) ? raw : [] };
-}
-
-// ── Avatar management ─────────────────────────────────────────
-export async function apiDeleteAvatar(userId, avatarId) {
-  const { res, data } = await call(userId, `/api/avatars/${encodeURIComponent(avatarId)}`, "DELETE");
-  if (!res.ok || !data?.success) return { ok: false, message: data?.message || `Failed (${res.status})` };
-  return { ok: true };
 }
 
 // ── Creator Studio upgrades ───────────────────────────────────

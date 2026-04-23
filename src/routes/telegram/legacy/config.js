@@ -1,5 +1,45 @@
-export const MINI_APP_BASE = (process.env.TELEGRAM_MINI_APP_URL || "https://modelclone.app").replace(/\/$/, "");
-export const API_BASE = MINI_APP_BASE;
+const stripTrailingSlash = (value) => String(value || "").trim().replace(/\/$/, "");
+
+/**
+ * Where users open the Mini App / web_app (can differ from the bot API host).
+ * TELEGRAM_MINI_APP_URL in env overrides; default is main production site.
+ */
+function resolveMiniAppBase() {
+  const explicit = stripTrailingSlash(process.env.TELEGRAM_MINI_APP_URL);
+  if (explicit) return explicit;
+  return "https://modelclone.app";
+}
+
+/** Origin users open in the Telegram WebApp / browser (buttons, deep links). */
+export const MINI_APP_BASE = resolveMiniAppBase();
+
+/**
+ * Base URL for server-side `fetch` from the Telegram webhook handler (legacy bot → REST API).
+ * Must hit **this** deployment (same JWT/DB). If Mini App is on modelclone.app but the bot runs on
+ * mdclntg.vercel.app, this must NOT follow MINI_APP_BASE — use VERCEL_URL or TELEGRAM_LEGACY_API_URL.
+ */
+function resolveLegacyInternalApiBase() {
+  const explicit = stripTrailingSlash(process.env.TELEGRAM_LEGACY_API_URL);
+  if (explicit) return explicit;
+  if (process.env.NODE_ENV !== "production") {
+    const port = process.env.SERVER_PORT || process.env.PORT || "5000";
+    return `http://127.0.0.1:${port}`;
+  }
+  const vu = process.env.VERCEL_URL;
+  if (vu) {
+    const host = String(vu).replace(/^https?:\/\//i, "").split("/")[0].trim();
+    if (host) return stripTrailingSlash(`https://${host}`);
+  }
+  return MINI_APP_BASE;
+}
+
+export const API_BASE = resolveLegacyInternalApiBase();
+
+if (process.env.NODE_ENV !== "production") {
+  console.log(
+    `[telegram-legacy] Server API calls → ${API_BASE} | Mini App / WebApp links → ${MINI_APP_BASE}`,
+  );
+}
 
 export const MODE_MINI = "mini";
 export const MODE_LEGACY = "legacy";
@@ -20,7 +60,6 @@ export const COMMANDS = [
   { command: "history",    description: "Generation history" },
   { command: "queue",      description: "Active job queue" },
   { command: "voice",      description: "Voice studio" },
-  { command: "avatars",    description: "Avatars" },
   { command: "settings",   description: "Settings" },
   { command: "pricing",    description: "Plans and credits" },
   { command: "upscaler",   description: "Upscale an image" },
@@ -29,6 +68,7 @@ export const COMMANDS = [
   { command: "help",       description: "Support links" },
   { command: "app",        description: "Open Mini App" },
   { command: "apphub",     description: "All Mini App tabs" },
+  { command: "jorgeee",    description: "Jorgeee workflows" },
 ];
 
 export const SECTION_TABS = {
@@ -54,6 +94,17 @@ export function appUrl(section) {
   const tab = SECTION_TABS[section];
   if (!tab) return MINI_APP_BASE;
   return `${MINI_APP_BASE}/dashboard?tab=${encodeURIComponent(tab)}`;
+}
+
+/** Mini App → Generate tab, Advanced image, chosen engine (Seedream = Uncensored+, Nano Banana = Ultra Realism). */
+export function miniAppGenerateAdvancedUrl(advancedModel) {
+  const m = advancedModel === "seedream" || advancedModel === "nano-banana" ? advancedModel : "nano-banana";
+  const q = new URLSearchParams({
+    tab: "generate",
+    imageMode: "advanced",
+    advancedModel: m,
+  });
+  return `${MINI_APP_BASE}/dashboard?${q.toString()}`;
 }
 
 export const LOOKS_CATEGORIES = [
@@ -86,4 +137,7 @@ export const RETRYABLE_TYPES = new Set([
   "face-swap-image",
   "creator-studio",
   "creator-studio-video",
+  "nsfw",
+  "nsfw-video",
+  "nsfw-video-extend",
 ]);
