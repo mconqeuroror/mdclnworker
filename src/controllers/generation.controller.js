@@ -4681,7 +4681,17 @@ async function processCreatorStudioInBackground(
           sourceInputs.slice(0, 16).map(async (u, i) => {
             try {
               const mirrored = await ensureKieAccessibleUrl(u, `gpt-image-2-input-${i + 1}`);
-              return (typeof mirrored === "string" && mirrored.startsWith("http")) ? mirrored : null;
+              // GPT Image 2 is strict about remote accessibility. Do not pass through
+              // arbitrary external URLs when mirroring falls back to source — these can
+              // trigger "Image fetch failed" from the provider.
+              if (!(typeof mirrored === "string" && mirrored.startsWith("http"))) return null;
+              if (!isPersistedOutputStorageUrl(mirrored)) {
+                console.warn(
+                  `⚠️ [Creator Studio] GPT Image 2 input ${i + 1} is not persisted storage, dropping: ${String(mirrored).slice(0, 120)}`,
+                );
+                return null;
+              }
+              return mirrored;
             } catch (err) {
               console.warn(
                 `⚠️ [Creator Studio] GPT Image 2 input ${i + 1} mirror failed: ${err?.message || err}`,
@@ -4693,7 +4703,7 @@ async function processCreatorStudioInBackground(
         kieInputUrls = prepared.filter((u) => typeof u === "string" && u.startsWith("http"));
         if (kieInputUrls.length === 0) {
           throw new Error(
-            "Could not prepare the input image for GPT Image 2. Please re-upload the image and try again.",
+            "Could not prepare accessible reference image URLs for GPT Image 2. Please re-upload references and try again.",
           );
         }
       }
