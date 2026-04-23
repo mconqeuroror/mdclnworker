@@ -2821,6 +2821,8 @@ router.get("/download", authMiddleware, downloadLimiter, async (req, res) => {
 // ── Upscaler ──────────────────────────────────────────────────────────────────
 import {
   submitUpscalerJob,
+  pollUpscalerJob,
+  extractUpscalerImage,
 } from "../services/upscaler.service.js";
 import { resolveRunpodWebhookUrl } from "../lib/runpodWebhookUrl.js";
 
@@ -2969,9 +2971,76 @@ router.get("/upscale/status/:generationId", authMiddleware, async (req, res) => 
       });
     }
 
-    // Callback-only mode: no direct RunPod polling here.
-    // Stuck rows are reconciled by watchdog (>= 30 min).
-    return res.json({ success: true, status: "processing" });
+    // Fallback path: if webhook is delayed/missed, poll RunPod on-demand when
+    // client asks for status. This keeps upscaler UX responsive and avoids
+    // waiting for watchdog reconciliation.
+    let runpodJobId = (gen.providerTaskId || "").trim();
+    if (!runpodJobId) {
+      try {
+        const meta = JSON.parse(gen.inputImageUrl || "{}");
+        runpodJobId = String(meta?.runpodJobId || "").trim();
+      } catch {
+        runpodJobId = "";
+      }
+    }
+    if (!runpodJobId) {
+      return res.json({ success: true, status: "processing" });
+    }
+
+    let rp;
+    try {
+      rp = await pollUpscalerJob(runpodJobId);
+    } catch (pollErr) {
+      // Transient poll errors should not fail the generation immediately.
+      console.warn(`[Upscaler/status] poll failed for ${generationId}: ${pollErr.message}`);
+      return res.json({ success: true, status: "processing" });
+    }
+
+    const rpStatus = String(rp?.status || "").toLowerCase();
+    if (["failed", "error", "timed_out", "timed-out", "cancelled", "canceled"].includes(rpStatus)) {
+      const errMsg =
+        rp?.error ||
+        rp?.output?.error ||
+        (typeof rp?.output === "string" ? rp.output : null) ||
+        "Upscaler generation failed";
+      await prisma.generation.update({
+        where: { id: generationId },
+        data: {
+          status: "failed",
+          errorMessage: String(errMsg).slice(0, 500),
+          completedAt: new Date(),
+        },
+      }).catch(() => {});
+      return res.json({ success: true, status: "failed", imageUrl: null, error: String(errMsg) });
+    }
+
+    if (rpStatus !== "completed") {
+      return res.json({ success: true, status: "processing" });
+    }
+
+    const imageData = extractUpscalerImage(rp);
+    if (!imageData) {
+      return res.json({ success: true, status: "processing" });
+    }
+
+    let outputUrl = imageData;
+    if (!String(imageData).startsWith("http")) {
+      try {
+        const { uploadBufferToBlobOrR2 } = await import("../utils/kieUpload.js");
+        const buf = Buffer.from(imageData, "base64");
+        outputUrl = await uploadBufferToBlobOrR2(buf, "upscale", "png", "image/png");
+      } catch (uploadErr) {
+        console.warn(`[Upscaler/status] upload fallback failed for ${generationId}: ${uploadErr.message}`);
+        outputUrl = `data:image/png;base64,${imageData}`;
+      }
+    }
+
+    await prisma.generation.update({
+      where: { id: generationId },
+      data: { status: "completed", outputUrl, completedAt: new Date() },
+    }).catch(() => {});
+
+    return res.json({ success: true, status: "completed", imageUrl: outputUrl, error: null });
   } catch (err) {
     console.error("[Upscaler] status error:", err.message);
     return res.status(500).json({ success: false, error: err.message });
