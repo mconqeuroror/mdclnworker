@@ -5361,7 +5361,7 @@ const MOTION_BASE_CREDITS_PER_SEC = 30; // 5s ≈ 150, 8s ≈ 240, 15s ≈ 450
 function clampMotionDuration(input, fallback) {
   const n = Math.round(Number(input));
   if (!Number.isFinite(n)) return fallback;
-  return Math.max(2, Math.min(15, n));
+  return Math.max(1, Math.min(30, n));
 }
 
 function isAcceptableMotionVideoUrl(url) {
@@ -5463,7 +5463,7 @@ export async function generateNsfwMotionVideo(req, res) {
     if (totalCredits < creditsNeeded) {
       return res.status(403).json({
         success: false,
-        message: `Need ${creditsNeeded} credits for ${dur}s motion video. You have ${totalCredits}.`,
+        message: `Need ${creditsNeeded} credits for ${dur}s motion video (max 30s). You have ${totalCredits}.`,
       });
     }
 

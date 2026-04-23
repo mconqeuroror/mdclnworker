@@ -1895,6 +1895,7 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
   const [isUploadingDrivingVideo, setIsUploadingDrivingVideo] = useState(false);
   const [isSubmittingMotionVideo, setIsSubmittingMotionVideo] = useState(false);
   const [motionSkipSeconds, setMotionSkipSeconds] = useState(0);
+  const [motionDerivedDuration, setMotionDerivedDuration] = useState(null); // seconds, derived from uploaded video (max 30)
   const [videoModal, setVideoModal] = useState(null); // { url, title, chain }
   const [viewingSegment, setViewingSegment] = useState({}); // { [chainRootId]: 'original' | 'extended' }
   const pageSize = 12;
@@ -2012,7 +2013,8 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
   };
 
   const standardCreditsNeeded = videoDuration === 8 ? 80 : 50;
-  const motionCreditsNeeded = Math.max(60, Math.round((Number(videoDuration) || 5) * 30));
+  const effectiveMotionDuration = Math.max(1, Math.min(30, Math.round(Number(motionDerivedDuration) || 5)));
+  const motionCreditsNeeded = Math.max(60, Math.round(effectiveMotionDuration * 30));
 
   const handleSubmitVideo = async () => {
     if (!videoSelectedImage || isSubmittingVideo) return;
@@ -2042,15 +2044,47 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
     }
   };
 
+  const readVideoDuration = (file) =>
+    new Promise((resolve) => {
+      if (!file || !file.type?.startsWith("video/")) {
+        resolve(5);
+        return;
+      }
+      const objectUrl = URL.createObjectURL(file);
+      const video = document.createElement("video");
+      const cleanup = () => {
+        try {
+          URL.revokeObjectURL(objectUrl);
+        } catch {}
+      };
+      video.preload = "metadata";
+      video.onloadedmetadata = () => {
+        const d = Number(video.duration);
+        cleanup();
+        if (!Number.isFinite(d) || d <= 0) {
+          resolve(5);
+          return;
+        }
+        resolve(Math.max(1, Math.min(30, Math.round(d))));
+      };
+      video.onerror = () => {
+        cleanup();
+        resolve(5);
+      };
+      video.src = objectUrl;
+    });
+
   const handleDrivingVideoUpload = async (event) => {
     const file = event?.target?.files?.[0];
     if (!file) return;
     setIsUploadingDrivingVideo(true);
     try {
+      const derivedDuration = await readVideoDuration(file);
       const uploadedUrl = await uploadFile(file);
       setDrivingVideoUrl(uploadedUrl);
       setDrivingVideoName(file.name || "driving-video.mp4");
-      toast.success("Driving video uploaded");
+      setMotionDerivedDuration(derivedDuration);
+      toast.success(`Driving video uploaded (${derivedDuration}s, max 30s)`);
     } catch (err) {
       const msg = err?.message || "Failed to upload driving video";
       toast.error(msg);
@@ -2069,7 +2103,7 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
         imageUrl: videoSelectedImage,
         videoUrl: drivingVideoUrl,
         prompt: videoPrompt || undefined,
-        duration: videoDuration,
+        duration: effectiveMotionDuration,
         skipSeconds: Math.max(0, Math.min(60, Number(motionSkipSeconds) || 0)),
       });
       if (response?.success) {
@@ -2255,28 +2289,42 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
           </div>
           <span className="text-sm font-medium text-white">{copy.videoSectionDuration}</span>
         </div>
-        <div className="flex items-center gap-3 mb-4">
-          {(videoGenMode === "motion" ? [5, 8, 12, 15] : [5, 8]).map((dur) => (
-            <button
-              key={dur}
-              onClick={() => setVideoDuration(dur)}
-              className={`relative px-4 py-2.5 rounded-xl text-sm font-medium transition-all border group ${
-                videoDuration === dur
-                  ? "bg-white/[0.08] border-white/20 text-white"
-                  : "bg-white/[0.03] border-white/10 text-slate-400 hover:bg-white/[0.06] hover:text-white"
-              }`}
-              data-testid={`button-duration-${dur}`}
-            >
-              {videoDuration === dur && (
-                <>
-                  <div className="absolute top-0 left-0 w-20 h-20 pointer-events-none" style={RED_CORNER_GLOW_STYLE} />
-                  <div className="absolute left-0 top-2 bottom-2 w-1 rounded-full bg-gradient-to-b from-white/90 to-white/45" />
-                </>
-              )}
-              {dur}s
-            </button>
-          ))}
-        </div>
+        {videoGenMode !== "motion" ? (
+          <div className="flex items-center gap-3 mb-4">
+            {[5, 8].map((dur) => (
+              <button
+                key={dur}
+                onClick={() => setVideoDuration(dur)}
+                className={`relative px-4 py-2.5 rounded-xl text-sm font-medium transition-all border group ${
+                  videoDuration === dur
+                    ? "bg-white/[0.08] border-white/20 text-white"
+                    : "bg-white/[0.03] border-white/10 text-slate-400 hover:bg-white/[0.06] hover:text-white"
+                }`}
+                data-testid={`button-duration-${dur}`}
+              >
+                {videoDuration === dur && (
+                  <>
+                    <div className="absolute top-0 left-0 w-20 h-20 pointer-events-none" style={RED_CORNER_GLOW_STYLE} />
+                    <div className="absolute left-0 top-2 bottom-2 w-1 rounded-full bg-gradient-to-b from-white/90 to-white/45" />
+                  </>
+                )}
+                {dur}s
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="mb-4 p-3 rounded-xl border border-amber-500/20 bg-amber-500/5">
+            <div className="text-xs text-amber-200">
+              Duration is automatically derived from the uploaded driving video and capped at 30s.
+            </div>
+            <div className="text-[11px] text-amber-300 mt-1">
+              Current derived duration: <span className="font-semibold">{effectiveMotionDuration}s</span>
+            </div>
+            <div className="text-[11px] text-amber-400/90 mt-1">
+              Need higher length limits? Contact administrator.
+            </div>
+          </div>
+        )}
 
         {videoGenMode === "motion" && (
           <div className="mb-4 p-3 rounded-xl border border-white/[0.08] bg-white/[0.02] space-y-3">
@@ -2348,7 +2396,7 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
           ) : (
             <>
               <Video className="w-5 h-5" />
-              {videoGenMode === "motion" ? "Generate Motion Video" : copy.videoButtonGenerate} {videoDuration}s
+              {videoGenMode === "motion" ? "Generate Motion Video" : copy.videoButtonGenerate} {videoGenMode === "motion" ? effectiveMotionDuration : videoDuration}s
               <span className="px-2 py-0.5 rounded-full bg-white/20 text-xs inline-flex items-center gap-1.5">
                 <Coins className="w-3 h-3 text-yellow-400" />
                 <span>{videoGenMode === "motion" ? motionCreditsNeeded : standardCreditsNeeded}</span>
