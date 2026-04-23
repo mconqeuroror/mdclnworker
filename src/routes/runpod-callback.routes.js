@@ -240,7 +240,9 @@ async function handleRunpodCallback(req, res) {
     if (!st) {
       const rawError = body?.error || rawOut?.error || rawOut?.message || "";
       const inferredImgs = extractModelCloneXImages(rawOut);
-      if (inferredImgs.length > 0) {
+      const inferredUpscaleImg = extractUpscalerImage(rawOut);
+      const inferredMotionVideo = extractNsfwMotionVideo(rawOut);
+      if (inferredImgs.length > 0 || inferredUpscaleImg || inferredMotionVideo?.base64) {
         st = "COMPLETED";
       } else if (String(rawError).trim()) {
         st = "FAILED";
