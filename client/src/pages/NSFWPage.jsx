@@ -2165,14 +2165,14 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
   };
 
   return (
-    <div className="mt-6 space-y-5">
+    <div className="mt-6 space-y-4">
       {/* Mode selector - matched to Generate video method cards */}
       <div className="generate-page">
-        <p className="text-[10px] uppercase tracking-[0.25em] text-slate-500 font-medium mb-3">Select Mode</p>
+        <p className="text-[10px] uppercase tracking-[0.25em] text-slate-500 font-medium mb-2.5">Select Mode</p>
         <div className="grid grid-cols-2 gap-2">
         <button
           onClick={() => setVideoGenMode("motion")}
-          className={`relative p-3 rounded-xl group overflow-hidden text-center ${
+          className={`relative h-[72px] p-3 rounded-xl group overflow-hidden text-center ${
             videoGenMode === "motion" ? "text-[color:var(--text-primary)]" : "text-[color:var(--text-muted)] hover:text-[color:var(--text-primary)]"
           }`}
           style={videoGenMode === "motion"
@@ -2195,7 +2195,7 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
         </button>
         <button
           onClick={() => setVideoGenMode("standard")}
-          className={`relative p-3 rounded-xl group overflow-hidden text-center ${
+          className={`relative h-[72px] p-3 rounded-xl group overflow-hidden text-center ${
             videoGenMode === "standard" ? "text-[color:var(--text-primary)]" : "text-[color:var(--text-muted)] hover:text-[color:var(--text-primary)]"
           }`}
           style={videoGenMode === "standard"
@@ -2220,7 +2220,7 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
       </div>
 
       {videoGenMode === "motion" && (
-        <div className="mb-1 flex items-start gap-2.5 p-3 rounded-xl" style={{ background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.15)" }}>
+        <div className="mb-0.5 flex items-start gap-2.5 p-3 rounded-xl" style={{ background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.15)" }}>
           <Info className="w-4 h-4 text-white flex-shrink-0 mt-0.5" />
           <p className="text-[11px] text-slate-400 leading-relaxed">
             <span className="text-white font-bold">Motion Control:</span> upload the first frame and a driving video. Duration is auto-derived from the video (max 30s).
@@ -2229,8 +2229,8 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
       )}
 
       {/* Step 1: starting image */}
-      <div className="mb-1">
-        <div className="flex items-center gap-2 mb-3">
+      <div className="mb-0.5">
+        <div className="flex items-center gap-2 mb-2.5">
           <div className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold" style={{ background: "rgba(203, 213, 225, 0.9)", color: "#0f172a", border: "1px solid rgba(255,255,255,0.2)" }}>1</div>
           <label className="text-[11px] uppercase tracking-[0.15em] text-slate-400 font-medium">{copy.videoSectionSourceImage}</label>
         </div>
@@ -2238,7 +2238,7 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
         <div className="flex items-center gap-1.5 mb-2">
           <button
             onClick={() => setSourceImageMode("upload")}
-            className={`px-3 py-1.5 rounded-lg text-[11px] font-medium border transition-colors ${
+            className={`h-8 px-3 rounded-lg text-[11px] font-medium border transition-colors ${
               sourceImageMode === "upload"
                 ? "text-white bg-white/[0.08] border-white/25"
                 : "text-slate-400 bg-transparent border-white/10 hover:text-white hover:border-white/20"
@@ -2250,7 +2250,7 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
           </button>
           <button
             onClick={() => setSourceImageMode("gallery")}
-            className={`px-3 py-1.5 rounded-lg text-[11px] font-medium border transition-colors ${
+            className={`h-8 px-3 rounded-lg text-[11px] font-medium border transition-colors ${
               sourceImageMode === "gallery"
                 ? "text-white bg-white/[0.08] border-white/25"
                 : "text-slate-400 bg-transparent border-white/10 hover:text-white hover:border-white/20"
@@ -2340,8 +2340,8 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
 
       {/* Step 2: driving video / duration */}
       {videoGenMode === "motion" ? (
-        <div className="mb-1">
-          <div className="flex items-center gap-2 mb-3">
+        <div className="mb-0.5">
+          <div className="flex items-center gap-2 mb-2.5">
             <div className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold" style={{ background: "rgba(203, 213, 225, 0.9)", color: "#0f172a", border: "1px solid rgba(255,255,255,0.2)" }}>2</div>
             <label className="text-[11px] uppercase tracking-[0.15em] text-slate-400 font-medium">Reference Video</label>
           </div>
@@ -2382,8 +2382,8 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
           </div>
         </div>
       ) : (
-        <div className="mb-1">
-          <div className="flex items-center gap-2 mb-3">
+        <div className="mb-0.5">
+          <div className="flex items-center gap-2 mb-2.5">
             <div className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold" style={{ background: "rgba(203, 213, 225, 0.9)", color: "#0f172a", border: "1px solid rgba(255,255,255,0.2)" }}>2</div>
             <label className="text-[11px] uppercase tracking-[0.15em] text-slate-400 font-medium">{copy.videoSectionDuration}</label>
           </div>
@@ -2392,7 +2392,7 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
               <button
                 key={dur}
                 onClick={() => setVideoDuration(dur)}
-                className={`rounded-xl px-3 py-2 text-xs font-semibold transition-all ${videoDuration === dur ? "text-white" : "text-slate-400 hover:text-white"}`}
+                className={`h-9 rounded-xl px-3 text-xs font-semibold transition-all ${videoDuration === dur ? "text-white" : "text-slate-400 hover:text-white"}`}
                 style={videoDuration === dur
                   ? { background: "rgba(59,130,246,0.16)", border: "1px solid rgba(59,130,246,0.35)" }
                   : { background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}
@@ -2406,8 +2406,8 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
       )}
 
       {/* Step 3: prompt and visible input preview */}
-      <div className="mb-1">
-        <div className="flex items-center gap-2 mb-3">
+      <div className="mb-0.5">
+        <div className="flex items-center gap-2 mb-2.5">
           <div className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold" style={{ background: "rgba(203, 213, 225, 0.9)", color: "#0f172a", border: "1px solid rgba(255,255,255,0.2)" }}>3</div>
           <label className="text-[11px] uppercase tracking-[0.15em] text-slate-400 font-medium">{copy.videoSectionPrompt}</label>
         </div>
@@ -2448,7 +2448,7 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
             ? (!effectiveSelectedImage || !drivingVideoUrl || isSubmittingMotionVideo)
             : (!effectiveSelectedImage || isSubmittingVideo)
         }
-        className={`w-full py-3.5 rounded-xl font-semibold transition-all flex items-center justify-center gap-2 disabled:opacity-100 disabled:cursor-not-allowed ${
+        className={`w-full h-12 rounded-xl font-semibold transition-all flex items-center justify-center gap-2 disabled:opacity-100 disabled:cursor-not-allowed ${
           ((videoGenMode === "motion" ? isSubmittingMotionVideo : isSubmittingVideo)
             || !effectiveSelectedImage
             || (videoGenMode === "motion" && !drivingVideoUrl))
