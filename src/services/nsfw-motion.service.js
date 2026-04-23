@@ -18,7 +18,7 @@
  *       both to be safe.
  *
  *   - extractNsfwMotionSeed(rawOut)
- *       Best-effort lift of the workflow seed (workflow node "249") from the
+ *       Best-effort lift of the workflow seed (KSampler node "353") from the
  *       worker's echo, useful for "extend" flows in the future.
  */
 
@@ -176,7 +176,7 @@ async function fetchAsBase64(url, label, expectedKind /* "image" | "video" */) {
  * @param {number} [opts.fps]                  — output FPS; node "257"
  * @param {number} [opts.width]                — generation width; node "264"
  * @param {number} [opts.height]               — generation height; node "265"
- * @param {number} [opts.seed]                 — workflow seed; node "249"
+ * @param {number} [opts.seed]                 — workflow seed; KSampler node "353"
  * @param {boolean} [opts.torchCompile]        — enable torch.compile path; node "296"
  * @param {number} [opts.blockSwap]            — block-swap count for low-VRAM GPUs; node "276"
  * @param {string|null} [webhookUrl]
@@ -227,7 +227,7 @@ export async function submitNsfwMotionVideo(opts, webhookUrl = null, generationI
     ? Math.trunc(Math.abs(Number(seed))) % 2 ** 53
     : Math.floor(Math.random() * 2 ** 53);
 
-  if (workflow["249"]?.inputs) workflow["249"].inputs.seed = finalSeed;
+  if (workflow["353"]?.inputs) workflow["353"].inputs.seed = finalSeed;
   if (workflow["254"]?.inputs) workflow["254"].inputs.value = finalSkip;
   if (workflow["255"]?.inputs) workflow["255"].inputs.value = finalDuration;
   if (workflow["257"]?.inputs) workflow["257"].inputs.value = finalFps;
@@ -445,6 +445,8 @@ export function extractNsfwMotionSeed(raw) {
     const o = typeof raw === "string" ? JSON.parse(raw) : raw;
     const inner = o?.output ?? o;
     const seedNode =
+      inner?.workflow?.["353"]?.inputs?.seed ??
+      inner?.prompt?.["353"]?.inputs?.seed ??
       inner?.workflow?.["249"]?.inputs?.seed ??
       inner?.prompt?.["249"]?.inputs?.seed ??
       null;
