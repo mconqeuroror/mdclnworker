@@ -2858,14 +2858,8 @@ export async function generateNsfwImage(req, res) {
       (req.body.width && req.body.height ? `${req.body.width}x${req.body.height}` : undefined);
     const resSpec = resolveNsfwResolution(resolutionPreset);
     const postProcessing = {
-      blur: {
-        enabled: options?.postProcessing?.blur?.enabled !== false,
-        strength: Number(options?.postProcessing?.blur?.strength ?? 0.3),
-      },
-      grain: {
-        enabled: options?.postProcessing?.grain?.enabled !== false,
-        strength: Number(options?.postProcessing?.grain?.strength ?? 0.06),
-      },
+      blur: { enabled: false, strength: 0 },
+      grain: { enabled: false, strength: 0 },
     };
     let firstGeneration = null;
 
@@ -3114,14 +3108,8 @@ export async function generateNudesPack(req, res) {
     // Nudes pack is always 9:16 portrait (IG story / vertical format) — resolution override is ignored
     const resSpec = resolveNsfwResolution("768x1344");
     const postProcessing = {
-      blur: {
-        enabled: options?.postProcessing?.blur?.enabled !== false,
-        strength: Number(options?.postProcessing?.blur?.strength ?? 0.3),
-      },
-      grain: {
-        enabled: options?.postProcessing?.grain?.enabled !== false,
-        strength: Number(options?.postProcessing?.grain?.strength ?? 0.06),
-      },
+      blur: { enabled: false, strength: 0 },
+      grain: { enabled: false, strength: 0 },
     };
 
     /** @type {{ idx: number, poseId: string, pose: { id: string, title: string, summary: string, category: string, promptFragment: string }, thisCreditCost: number }[]} */
@@ -3306,10 +3294,10 @@ export async function generateNudesPack(req, res) {
                 sampler: rp.sampler ?? "dpmpp_2m",
                 scheduler: rp.scheduler ?? "beta",
                 builtPrompt: rp.prompt || null,
-                blurEnabled: rp?.postProcessing?.blur?.enabled ?? true,
-                blurStrength: rp?.postProcessing?.blur?.strength ?? 0.3,
-                grainEnabled: rp?.postProcessing?.grain?.enabled ?? true,
-                grainStrength: rp?.postProcessing?.grain?.strength ?? 0.06,
+                blurEnabled: rp?.postProcessing?.blur?.enabled ?? false,
+                blurStrength: rp?.postProcessing?.blur?.strength ?? 0,
+                grainEnabled: rp?.postProcessing?.grain?.enabled ?? false,
+                grainStrength: rp?.postProcessing?.grain?.strength ?? 0,
               }),
             },
           });
@@ -3764,7 +3752,9 @@ Return ONLY the JSON object — pretty-printed, 2-space indent, no \`\`\`json fe
 If the request is genuinely impossible to render as one coherent image, return exactly:
 {"error": "Irresolvable logical conflict in request - please clarify"}`;
     const mode = String(context?.mode || "").trim().toLowerCase();
-    const systemTemplateKey = mode === "nudes-pack" ? "nudesPackPromptGeneratorSystem" : "nsfwPromptGenerator";
+    // Nudes pack uses the same system prompt as single-image NSFW (structured JSON I/O + POV rules).
+    // Admin override key: `nsfwPromptGenerator` (not the legacy `nudesPackPromptGeneratorSystem`).
+    const systemTemplateKey = "nsfwPromptGenerator";
     systemPrompt = await getPromptTemplateValue(systemTemplateKey, systemPrompt);
 
     // Guarantee the structured-JSON contract is always in the system prompt, even when

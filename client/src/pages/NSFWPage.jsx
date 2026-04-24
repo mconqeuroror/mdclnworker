@@ -218,6 +218,8 @@ const NSFW_COPY = {
     creditsPanelLoraTraining: "LoRA Training",
     creditsPanelNsfwImage: "NSFW Image",
     creditsPanelFaceSwap: "+ Face Swap",
+    nudesPackCta: "Nudes pack",
+    nudesPackCtaSub: "30 curated poses — one approval, same JSON prompt engine as Generate",
     creditsPanelNsfwVideo: "NSFW Video",
     creditsPanelRetryFailed: "Retry Failed",
     yourVideos: "Your Videos",
@@ -227,8 +229,10 @@ const NSFW_COPY = {
     trainingStatusChecking: "Checking training status...",
     trainingHintCreateLora: "Click \"New LoRA\" above to start training",
     trainingHintAwaitingImages: "Or click an existing LoRA in \"Awaiting Images\" status to add images",
-    faceSwapGalleryHint: "Generate images first, then select one for face swap",
+    faceSwapGalleryHint: "Upload a face above, or generate images to pick from here",
     faceSwapSelectSource: "Select source image for face swap:",
+    faceSwapUploadSource: "Upload source face photo",
+    faceSwapOrGallery: "Or choose from your gallery",
     galleryGenerateFirstAbove: "Generate your first image above",
     videoAnimateHint: "Choose an NSFW image to animate",
     trainingInProgressTitle: "Training in Progress",
@@ -433,6 +437,8 @@ const NSFW_COPY = {
     creditsPanelLoraTraining: "Обучение LoRA",
     creditsPanelNsfwImage: "NSFW изображение",
     creditsPanelFaceSwap: "+ Замена лица",
+    nudesPackCta: "Набор ню",
+    nudesPackCtaSub: "30 поз — одно подтверждение, тот же JSON-движок промптов, что и в генерации",
     creditsPanelNsfwVideo: "NSFW видео",
     creditsPanelRetryFailed: "Повтор ошибки",
     yourVideos: "Ваши видео",
@@ -442,8 +448,10 @@ const NSFW_COPY = {
     trainingStatusChecking: "Проверяем статус обучения...",
     trainingHintCreateLora: "Нажмите \"New LoRA\" выше, чтобы начать обучение",
     trainingHintAwaitingImages: "Или выберите существующую LoRA в статусе \"Awaiting Images\", чтобы добавить изображения",
-    faceSwapGalleryHint: "Сначала сгенерируйте изображения, затем выберите одно для замены лица",
+    faceSwapGalleryHint: "Загрузите лицо выше или сгенерируйте картинки, чтобы выбрать отсюда",
     faceSwapSelectSource: "Выберите исходное изображение для замены лица:",
+    faceSwapUploadSource: "Загрузите фото лица-источника",
+    faceSwapOrGallery: "Или выберите из галереи",
     galleryGenerateFirstAbove: "Сначала сгенерируйте первое изображение выше",
     videoAnimateHint: "Выберите NSFW-изображение для анимации",
     trainingInProgressTitle: "Обучение в процессе",
@@ -601,8 +609,8 @@ function useMainViewportBounds() {
 
 
 // ============================================
-// Gallery Picker for NSFW Face Swap
-// SECURITY: Only shows images generated for the selected model
+// Gallery Picker for NSFW Face Swap (optional — or user-uploaded source face)
+// Only shows images generated for the selected model
 // ============================================
 function NsfwFaceSwapGalleryPicker({ modelId, selectedImage, onSelect }) {
   const copy = NSFW_COPY[resolveLocale()] || NSFW_COPY.en;
@@ -627,7 +635,7 @@ function NsfwFaceSwapGalleryPicker({ modelId, selectedImage, onSelect }) {
 
   return (
     <div className="mt-3">
-      <p className="text-[10px] text-slate-500 mb-2">{copy.faceSwapSelectSource}</p>
+      <p className="text-[10px] text-slate-500 mb-2">{copy.faceSwapOrGallery}</p>
       <div className="grid grid-cols-5 sm:grid-cols-6 gap-1.5">
         {modelImages.slice(0, 18).map((gen) => (
           <button
@@ -4360,22 +4368,25 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
   // Skip face swap toggle (generate raw LoRA output without face swap)
   const [skipFaceSwap, setSkipFaceSwap] = useState(true);
   
-  // Selected face swap image from gallery (SECURITY: only gallery images allowed)
+  // Source face for optional face swap: gallery pick ({ id, url }) or user upload ({ id: 'upload', url })
   const [faceSwapImage, setFaceSwapImage] = useState(null);
 
   const GENERATION_CONFIG_KEY = "nsfw_generation_config";
   const DEFAULT_CONFIG = {
     loraStrength: 0.65,
-    blurEnabled: true,
-    blurStrength: 0.3,
-    grainEnabled: true,
-    grainStrength: 0.06,
   };
 
   const loadSavedConfig = () => {
     try {
       const saved = localStorage.getItem(GENERATION_CONFIG_KEY);
-      if (saved) return { ...DEFAULT_CONFIG, ...JSON.parse(saved) };
+      if (saved) {
+        const p = JSON.parse(saved);
+        const lr = Number(p.loraStrength);
+        return {
+          loraStrength:
+            Number.isFinite(lr) && lr >= 0.1 && lr <= 0.9 ? lr : DEFAULT_CONFIG.loraStrength,
+        };
+      }
     } catch (e) {}
     return DEFAULT_CONFIG;
   };
@@ -4389,37 +4400,6 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
   });
   const [showGenSettings, setShowGenSettings] = useState(false);
   const [configSaved, setConfigSaved] = useState(false);
-  const POST_PROCESSING_PRESETS = [
-    { id: "balanced", label: "Balanced", blurEnabled: true, blurStrength: 0.3, grainEnabled: true, grainStrength: 0.06 },
-    { id: "soft", label: "Soft Blur", blurEnabled: true, blurStrength: 0.55, grainEnabled: false, grainStrength: 0.06 },
-    { id: "film", label: "Film Grain", blurEnabled: false, blurStrength: 0.3, grainEnabled: true, grainStrength: 0.45 },
-    { id: "off", label: "Raw", blurEnabled: false, blurStrength: 0.3, grainEnabled: false, grainStrength: 0.06 },
-  ];
-
-  const getActivePostPreset = () => {
-    const bOn = genConfig.blurEnabled !== false;
-    const gOn = genConfig.grainEnabled !== false;
-    const b = Number(genConfig.blurStrength ?? 0.3);
-    const g = Number(genConfig.grainStrength ?? 0.06);
-    return (
-      POST_PROCESSING_PRESETS.find((p) =>
-        p.blurEnabled === bOn &&
-        p.grainEnabled === gOn &&
-        Math.abs(p.blurStrength - b) < 0.001 &&
-        Math.abs(p.grainStrength - g) < 0.001
-      )?.id || null
-    );
-  };
-
-  const applyPostPreset = (preset) => {
-    setGenConfig((prev) => ({
-      ...prev,
-      blurEnabled: preset.blurEnabled,
-      blurStrength: preset.blurStrength,
-      grainEnabled: preset.grainEnabled,
-      grainStrength: preset.grainStrength,
-    }));
-  };
 
   const handleSaveConfig = () => {
     try {
@@ -4465,7 +4445,12 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
     if (d.customPrompt !== undefined && typeof d.customPrompt === "string") setCustomPrompt(d.customPrompt);
     if (d.skipFaceSwap !== undefined) setSkipFaceSwap(d.skipFaceSwap);
     if (d.faceSwapImage) setFaceSwapImage(d.faceSwapImage);
-    if (d.genConfig && typeof d.genConfig === "object") setGenConfig(prev => ({ ...prev, ...d.genConfig }));
+    if (d.genConfig && typeof d.genConfig === "object") {
+      const lr = Number(d.genConfig.loraStrength);
+      if (Number.isFinite(lr) && lr >= 0.1 && lr <= 0.9) {
+        setGenConfig((prev) => ({ ...prev, loraStrength: lr }));
+      }
+    }
     if (d.adminSamplerTest && typeof d.adminSamplerTest === "object") {
       setAdminSamplerTest((prev) => ({ ...prev, ...d.adminSamplerTest }));
     }
@@ -5137,16 +5122,6 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
         options: {
           quickFlow: nsfwGenerateMode === "simple",
           loraStrength: genConfig.loraStrength || null,
-          postProcessing: {
-            blur: {
-              enabled: genConfig.blurEnabled !== false,
-              strength: Number(genConfig.blurStrength ?? 0.3),
-            },
-            grain: {
-              enabled: genConfig.grainEnabled !== false,
-              strength: Number(genConfig.grainStrength ?? 0.06),
-            },
-          },
           ...(user?.role === "admin" && adminSamplerTest.enabled
             ? {
                 adminNsfwOverrides: {
@@ -5230,16 +5205,6 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
           options: {
             quickFlow: nsfwGenerateMode === "simple",
             loraStrength: genConfig.loraStrength || null,
-            postProcessing: {
-              blur: {
-                enabled: genConfig.blurEnabled !== false,
-                strength: Number(genConfig.blurStrength ?? 0.3),
-              },
-              grain: {
-                enabled: genConfig.grainEnabled !== false,
-                strength: Number(genConfig.grainStrength ?? 0.06),
-              },
-            },
             ...(user?.role === "admin" && adminSamplerTest.enabled
               ? {
                   adminNsfwOverrides: {
@@ -5406,7 +5371,15 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
           sidebarCollapsed={layoutSidebarNarrow}
         />
 
-        {/* NudesPackModal — disabled */}
+        <NudesPackModal
+          isOpen={nudesPackModalOpen}
+          onClose={() => setNudesPackModalOpen(false)}
+          onApprove={handleNudesPackApprove}
+          submitting={isSubmittingNudesPack}
+          sidebarCollapsed={layoutSidebarNarrow}
+          poses={nudesPackPoses}
+          nudesPackPricing={nudesPackPricing}
+        />
 
         {/* Header */}
         <div className="mb-6">
@@ -5850,7 +5823,26 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
                     : "Paste or type the full prompt yourself (Danbooru-style tags work best). Your LoRA trigger is added automatically if missing. Same resolution & quality settings as Advanced."}
                 </p>
 
-                {/* Nudes Pack — temporarily disabled */}
+                {isLoraReady && selectedModel && (
+                  <div className="mb-5 p-3 rounded-xl border border-rose-500/20 bg-rose-500/[0.06] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 text-white font-medium text-sm">
+                        <Layers className="w-4 h-4 text-rose-400 shrink-0" />
+                        {copy.nudesPackCta}
+                        <span className="text-[10px] text-slate-500 font-normal">({nudesPackPoseCount} poses)</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-1">{copy.nudesPackCtaSub}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setNudesPackModalOpen(true)}
+                      className="shrink-0 px-4 py-2.5 rounded-xl bg-white text-black text-sm font-semibold border border-white/30 hover:bg-white/90 transition-colors"
+                      data-testid="button-open-nudes-pack"
+                    >
+                      {copy.nudesPackCta}
+                    </button>
+                  </div>
+                )}
 
                 {nsfwGenerateMode === "simple" && !simplePlanReady && (
                   <>
@@ -6269,34 +6261,6 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
 
                   {showGenSettings && (
                     <div className="px-4 pb-4 space-y-5">
-                      {/* Post-processing presets */}
-                      <div>
-                        <div className="flex items-center justify-between mb-2">
-                          <label className="text-xs font-medium text-slate-300">Blur + Grain Presets</label>
-                          <span className="text-[10px] text-slate-500">One tap setup</span>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2">
-                          {POST_PROCESSING_PRESETS.map((preset) => {
-                            const activePreset = getActivePostPreset();
-                            const isActive = activePreset === preset.id;
-                            return (
-                              <button
-                                key={preset.id}
-                                onClick={() => applyPostPreset(preset)}
-                                className={`px-2.5 py-2 rounded-lg text-[11px] font-medium transition-colors ${
-                                  isActive
-                                    ? "bg-white text-black border border-white/40"
-                                    : "bg-white/5 text-slate-300 border border-white/10 hover:bg-white/10 hover:text-white"
-                                }`}
-                                data-testid={`preset-post-processing-${preset.id}`}
-                              >
-                                {preset.label}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-
                       {/* LoRA Strength */}
                       <div>
                         <div className="flex items-center justify-between mb-2">
@@ -6326,74 +6290,6 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
                           <span className="text-[10px] text-slate-600">0.10</span>
                           <span className="text-[10px] text-slate-600">0.90</span>
                         </div>
-                      </div>
-
-                      {/* Blur Controls */}
-                      <div className="rounded-lg border border-white/10 p-3 bg-white/[0.02]">
-                        <div className="flex items-center justify-between mb-2">
-                          <label className="text-xs font-medium text-slate-300">Post Blur</label>
-                          <button
-                            onClick={() => setGenConfig(prev => ({ ...prev, blurEnabled: !(prev.blurEnabled !== false) }))}
-                            className={`relative w-10 h-5 rounded-full transition-colors ${genConfig.blurEnabled !== false ? "bg-white" : "bg-slate-600"}`}
-                            data-testid="toggle-post-blur"
-                          >
-                            <span
-                              className={`absolute top-0.5 w-4 h-4 rounded-full transition-transform ${genConfig.blurEnabled !== false ? "bg-black translate-x-5" : "bg-white translate-x-0.5"}`}
-                            />
-                          </button>
-                        </div>
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-[11px] text-slate-500">Strength</span>
-                          <span className="text-xs font-mono text-white">{Number(genConfig.blurStrength ?? 0.3).toFixed(2)}</span>
-                        </div>
-                        <input
-                          type="range"
-                          min="0"
-                          max="1"
-                          step="0.05"
-                          value={Number(genConfig.blurStrength ?? 0.3)}
-                          onChange={(e) => {
-                            const val = Math.max(0, Math.min(1, parseFloat(e.target.value) || 0));
-                            setGenConfig(prev => ({ ...prev, blurStrength: val }));
-                          }}
-                          disabled={genConfig.blurEnabled === false}
-                          className="w-full h-1.5 rounded-full appearance-none cursor-pointer bg-slate-700 accent-white disabled:opacity-40 disabled:cursor-not-allowed"
-                          data-testid="slider-post-blur-strength"
-                        />
-                      </div>
-
-                      {/* Grain Controls */}
-                      <div className="rounded-lg border border-white/10 p-3 bg-white/[0.02]">
-                        <div className="flex items-center justify-between mb-2">
-                          <label className="text-xs font-medium text-slate-300">Film Grain</label>
-                          <button
-                            onClick={() => setGenConfig(prev => ({ ...prev, grainEnabled: !(prev.grainEnabled !== false) }))}
-                            className={`relative w-10 h-5 rounded-full transition-colors ${genConfig.grainEnabled !== false ? "bg-white" : "bg-slate-600"}`}
-                            data-testid="toggle-post-grain"
-                          >
-                            <span
-                              className={`absolute top-0.5 w-4 h-4 rounded-full transition-transform ${genConfig.grainEnabled !== false ? "bg-black translate-x-5" : "bg-white translate-x-0.5"}`}
-                            />
-                          </button>
-                        </div>
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-[11px] text-slate-500">Strength</span>
-                          <span className="text-xs font-mono text-white">{Number(genConfig.grainStrength ?? 0.06).toFixed(2)}</span>
-                        </div>
-                        <input
-                          type="range"
-                          min="0"
-                          max="1"
-                          step="0.02"
-                          value={Number(genConfig.grainStrength ?? 0.06)}
-                          onChange={(e) => {
-                            const val = Math.max(0, Math.min(1, parseFloat(e.target.value) || 0));
-                            setGenConfig(prev => ({ ...prev, grainStrength: val }));
-                          }}
-                          disabled={genConfig.grainEnabled === false}
-                          className="w-full h-1.5 rounded-full appearance-none cursor-pointer bg-slate-700 accent-white disabled:opacity-40 disabled:cursor-not-allowed"
-                          data-testid="slider-post-grain-strength"
-                        />
                       </div>
 
                       {user?.role === "admin" && (
@@ -6528,19 +6424,33 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
                     </button>
                   </div>
                   <p className="text-xs text-slate-400 mt-2">
-                    {skipFaceSwap 
+                    {skipFaceSwap
                       ? "Face swap disabled - generating raw LoRA output only"
-                      : "Face swap enabled - select source image from your gallery"
-                    }
+                      : "Face swap enabled — upload a source face photo, or pick from your gallery below."}
                   </p>
-                  
-                  {/* Gallery Picker for Face Swap - SECURITY: Only gallery images for this model */}
+
                   {!skipFaceSwap && (
-                    <NsfwFaceSwapGalleryPicker
-                      modelId={selectedModel}
-                      selectedImage={faceSwapImage}
-                      onSelect={setFaceSwapImage}
-                    />
+                    <>
+                      <div className="mt-3">
+                        <p className="text-[10px] text-slate-500 mb-2">{copy.faceSwapUploadSource}</p>
+                        <FileUpload
+                          type="image"
+                          preview={
+                            faceSwapImage?.id === "upload" && faceSwapImage?.url
+                              ? { url: faceSwapImage.url }
+                              : null
+                          }
+                          onUpload={(payload) => {
+                            if (payload?.url) setFaceSwapImage({ id: "upload", url: payload.url });
+                          }}
+                        />
+                      </div>
+                      <NsfwFaceSwapGalleryPicker
+                        modelId={selectedModel}
+                        selectedImage={faceSwapImage}
+                        onSelect={setFaceSwapImage}
+                      />
+                    </>
                   )}
                 </div>
 
