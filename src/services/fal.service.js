@@ -19,6 +19,7 @@ import { sanitizeLoraDownloadUrl } from "../utils/loraUrl.js";
 import { resolveNsfwResolution } from "../utils/nsfwResolution.js";
 import { resolveRunpodWebhookUrl } from "../lib/runpodWebhookUrl.js";
 import { getPromptTemplateValue } from "./prompt-template-config.service.js";
+import { NSFW_ZIMAGE_UNET_BASENAME } from "../config/nsfwZImageModel.js";
 // dynamicPoll removed — inline polling used directly
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -1986,7 +1987,19 @@ export function applyCompactLoraStackToNode250(node250, entries) {
       node250.inputs[p + "clip_strength"] = 0;
     }
   }
-  node250.inputs.num_loras = Math.min(10, Math.max(0, n));
+  // LoadLoraFromUrlOrPath: schema requires num_loras >= 1. With an empty stack, use toggle off + num_loras 1
+  // so validation passes; CR Apply LoRA stack receives a no-op stack (MCX / img2img no-LoRA path).
+  if (n === 0) {
+    if ("toggle" in node250.inputs) {
+      node250.inputs.toggle = false;
+    }
+    node250.inputs.num_loras = 1;
+  } else {
+    if ("toggle" in node250.inputs) {
+      node250.inputs.toggle = true;
+    }
+    node250.inputs.num_loras = Math.min(10, n);
+  }
   if ("mode" in node250.inputs) {
     node250.inputs.mode = n <= 1 ? "simple" : "advanced";
   }
@@ -2336,13 +2349,13 @@ function buildComfyWorkflowLegacy(params) {
     "1": { inputs: { text: negativePrompt, clip: prevClipRef }, class_type: "CLIPTextEncode" },
     "2": { inputs: { text: prompt, clip: prevClipRef }, class_type: "CLIPTextEncode" },
     "7": { inputs: { conditioning: ["8", 0] }, class_type: "ConditioningZeroOut" },
-    "8": { inputs: { text: negativePrompt, clip: ["304", 1] }, class_type: "CLIPTextEncode" },
-    "21": { inputs: { pixels: ["25", 0], vae: ["304", 2] }, class_type: "VAEEncode" },
+    "8": { inputs: { text: negativePrompt, clip: ["248", 0] }, class_type: "CLIPTextEncode" },
+    "21": { inputs: { pixels: ["25", 0], vae: ["246", 0] }, class_type: "VAEEncode" },
     "25": { inputs: { samples: ["276", 0], vae: ["246", 0] }, class_type: "VAEDecode" },
-    "28": { inputs: { samples: ["45", 0], vae: ["304", 2] }, class_type: "VAEDecode" },
+    "28": { inputs: { samples: ["45", 0], vae: ["246", 0] }, class_type: "VAEDecode" },
     "36": { inputs: { images: ["286", 0] }, class_type: "PreviewImage" },
-    "42": { inputs: { text: prompt, clip: ["304", 1] }, class_type: "CLIPTextEncode" },
-    "45": { inputs: { seed: ["57", 0], steps: 8, cfg: 0, sampler_name: "dpmpp_2m", scheduler: "karras", denoise: 0.09, model: ["304", 0], positive: ["42", 0], negative: ["7", 0], latent_image: ["21", 0] }, class_type: "KSampler" },
+    "42": { inputs: { text: prompt, clip: ["248", 0] }, class_type: "CLIPTextEncode" },
+    "45": { inputs: { seed: ["57", 0], steps: 8, cfg: 0, sampler_name: "dpmpp_2m", scheduler: "karras", denoise: 0.09, model: ["247", 0], positive: ["42", 0], negative: ["7", 0], latent_image: ["21", 0] }, class_type: "KSampler" },
     "50": {
       inputs: {
         width,
@@ -2356,7 +2369,7 @@ function buildComfyWorkflowLegacy(params) {
     },
     "57": { inputs: { seed }, class_type: "Seed (rgthree)" },
     "246": { inputs: { vae_name: "ae.safetensors" }, class_type: "VAELoader" },
-    "247": { inputs: { unet_name: "zImageTurboNSFW_20BF16AIO.safetensors", weight_dtype: "default" }, class_type: "UNETLoader" },
+    "247": { inputs: { unet_name: NSFW_ZIMAGE_UNET_BASENAME, weight_dtype: "default" }, class_type: "UNETLoader" },
     "248": { inputs: { clip_name: "qwen_3_4b.safetensors", type: "qwen_image", device: "default" }, class_type: "CLIPLoader" },
     ...loraNodes,
     "276": {
@@ -2375,7 +2388,6 @@ function buildComfyWorkflowLegacy(params) {
       class_type: "KSampler",
     },
     "289": { inputs: { filename_prefix: "modelclone", images: ["28", 0] }, class_type: "SaveImage" },
-    "304": { inputs: { ckpt_name: "zImageTurboNSFW_20BF16AIO.safetensors" }, class_type: "CheckpointLoaderSimple" },
   };
   return workflow;
 }

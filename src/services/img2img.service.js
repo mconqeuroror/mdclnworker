@@ -141,12 +141,12 @@ const NSFW_TXT2IMG_WORKFLOW = {
   "1": { inputs: { text: "__NEGATIVE_PROMPT__", clip: ["264", 1] }, class_type: "CLIPTextEncode" },
   "2": { inputs: { text: "__POSITIVE_PROMPT__", clip: ["264", 1] }, class_type: "CLIPTextEncode" },
   "7": { inputs: { conditioning: ["8", 0] }, class_type: "ConditioningZeroOut" },
-  "8": { inputs: { text: "__NEGATIVE_PROMPT__", clip: ["304", 1] }, class_type: "CLIPTextEncode" },
-  "21": { inputs: { pixels: ["25", 0], vae: ["304", 2] }, class_type: "VAEEncode" },
+  "8": { inputs: { text: "__NEGATIVE_PROMPT__", clip: ["248", 0] }, class_type: "CLIPTextEncode" },
+  "21": { inputs: { pixels: ["25", 0], vae: ["246", 0] }, class_type: "VAEEncode" },
   "25": { inputs: { samples: ["276", 0], vae: ["246", 0] }, class_type: "VAEDecode" },
-  "28": { inputs: { samples: ["45", 0], vae: ["304", 2] }, class_type: "VAEDecode" },
-  "42": { inputs: { text: "__POSITIVE_PROMPT__", clip: ["304", 1] }, class_type: "CLIPTextEncode" },
-  "45": { inputs: { seed: ["57", 0], steps: 8, cfg: 0, sampler_name: "dpmpp_2m", scheduler: "karras", denoise: 0.09, model: ["304", 0], positive: ["42", 0], negative: ["7", 0], latent_image: ["21", 0] }, class_type: "KSampler" },
+  "28": { inputs: { samples: ["45", 0], vae: ["246", 0] }, class_type: "VAEDecode" },
+  "42": { inputs: { text: "__POSITIVE_PROMPT__", clip: ["248", 0] }, class_type: "CLIPTextEncode" },
+  "45": { inputs: { seed: ["57", 0], steps: 8, cfg: 0, sampler_name: "dpmpp_2m", scheduler: "karras", denoise: 0.09, model: ["247", 0], positive: ["42", 0], negative: ["7", 0], latent_image: ["21", 0] }, class_type: "KSampler" },
   "50": { inputs: { width: 1024, height: 1024, aspect_ratio: "16:9 landscape 1344x768", swap_dimensions: "On", upscale_factor: 1, batch_size: 1 }, class_type: "CR SDXL Aspect Ratio" },
   "57": { inputs: { seed: 0 }, class_type: "Seed (rgthree)" },
   "246": { inputs: { vae_name: "ae.safetensors" }, class_type: "VAELoader" },
@@ -169,7 +169,6 @@ const NSFW_TXT2IMG_WORKFLOW = {
   "284": { inputs: { density: 0.06, intensity: 0.1, highlights: 1, supersample_factor: 1, image: ["28", 0] }, class_type: "Image Film Grain" },
   "286": { inputs: { blur_radius: 2, sigma: 0.3, image: ["284", 0] }, class_type: "ImageBlur" },
   "289": { inputs: { filename_prefix: "modelclone", images: ["286", 0] }, class_type: "SaveImage" },
-  "304": { inputs: { ckpt_name: NSFW_ZIMAGE_UNET_BASENAME }, class_type: "CheckpointLoaderSimple" },
 };
 
 // Deep-clone so every call gets a fresh mutable copy
@@ -281,12 +280,59 @@ function pruneDeadPreviewBranchFromApiPrompt(api) {
 }
 
 /**
- * RunPod API prompt from `attached_assets/nsfw_img2img_v2promax_workflow.json` (ZIT img encode → refiner ckpt).
+ * RunPod API prompt from `attached_assets/nsfw_img2img_v2promax_workflow.json` (ZIT → refiner uses same UNET/CLIP/VAE as stage 1).
  * SaveImage is pointed at VAEDecode 28 so the handler output skips grain/blur; all other nodes from the JSON remain in the prompt (same worker serves multiple workflows).
  *
  * LoadLoraFromUrlOrPath (250): identity LoRA when `loraUrl` is set. When omitted (e.g. ModelClone-X
  * no-character img2img), `num_loras` is set to 0 and the stack is cleared.
  */
+/**
+ * Refiner (legacy CheckpointLoaderSimple or embedded-subgraph → ckpt) must use the same UNet+CLIP+VAE
+ * on the volume as txt2img (no separate `models/checkpoints` bundle).
+ */
+function rewireCheckpointLoadersToUnetClipVae(api) {
+  const findFirst = (classType) => {
+    for (const [id, node] of Object.entries(api)) {
+      if (node?.class_type === classType) return id;
+    }
+    return null;
+  };
+  const unetId =
+    api["247"]?.class_type === "UNETLoader" ? "247" : findFirst("UNETLoader");
+  const clipId =
+    api["248"]?.class_type === "CLIPLoader" ? "248" : findFirst("CLIPLoader");
+  const vaeId =
+    api["246"]?.class_type === "VAELoader" ? "246" : findFirst("VAELoader");
+  if (!unetId || !clipId || !vaeId) {
+    console.warn(
+      "[img2img] rewireCheckpointLoadersToUnetClipVae: missing UNETLoader / CLIPLoader / VAELoader; skipping rewire",
+    );
+    return;
+  }
+  const bySlot = {
+    0: [unetId, 0],
+    1: [clipId, 0],
+    2: [vaeId, 0],
+  };
+  const ckptIds = Object.entries(api)
+    .filter(([, n]) => n?.class_type === "CheckpointLoaderSimple")
+    .map(([id]) => id);
+  for (const cid of ckptIds) {
+    for (const node of Object.values(api)) {
+      if (!node?.inputs) continue;
+      for (const k of Object.keys(node.inputs)) {
+        const v = node.inputs[k];
+        if (!Array.isArray(v) || v.length < 2) continue;
+        if (String(v[0]) !== String(cid)) continue;
+        const slot = Number(v[1]);
+        const rep = bySlot[slot];
+        if (rep) node.inputs[k] = rep;
+      }
+    }
+    delete api[cid];
+  }
+}
+
 function buildNsfwImg2ImgV2ApiPrompt({
   positivePrompt,
   loraUrl = null,
@@ -356,15 +402,12 @@ function buildNsfwImg2ImgV2ApiPrompt({
     api["289"].inputs.filename_prefix = "modelclone_img2img";
   }
 
-  // Force currently deployed model names so stale desktop workflow exports
-  // (or embedded subgraphs) cannot submit unavailable checkpoint/unet values.
+  rewireCheckpointLoadersToUnetClipVae(api);
+
   for (const node of Object.values(api)) {
     if (!node?.inputs) continue;
     if (node.class_type === "UNETLoader") {
       node.inputs.unet_name = NSFW_ZIMAGE_UNET_BASENAME;
-    }
-    if (node.class_type === "CheckpointLoaderSimple") {
-      node.inputs.ckpt_name = NSFW_ZIMAGE_UNET_BASENAME;
     }
   }
 
@@ -1058,7 +1101,7 @@ const DEFAULT_NEGATIVE_PROMPT =
  *   CR SDXL Aspect Ratio 50 (empty latent) →
  *   Base KSampler 276 (50 steps, cfg 3, beta, denoise 1.0) →
  *   VAEDecode 25 → VAEEncode 21 →
- *   Refiner CheckpointLoaderSimple 304 → KSampler 45 (8 steps, cfg 0, karras, denoise 0.09) →
+ *   Refiner KSampler 45 (same 247/248/246, 8 steps, cfg 0, karras, denoise 0.09) →
  *   VAEDecode 28 → Image Film Grain 284 → ImageBlur 286 → SaveImage 289
  *
  * @param {object} params
