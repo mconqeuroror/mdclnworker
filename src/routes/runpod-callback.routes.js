@@ -190,6 +190,18 @@ function extractRunpodErrorMessage(rawOut, body) {
   return "RunPod job failed";
 }
 
+/** Map alternate RunPod / worker labels so completed jobs are not `skipped` as unknown status. */
+function normalizeRunpodJobStatus(st) {
+  const s = String(st || "").toUpperCase().trim();
+  if (["SUCCESS", "SUCCEEDED", "DONE", "COMPLETE", "FINISHED", "OK", "COMPLETED_OK"].includes(s)) {
+    return "COMPLETED";
+  }
+  if (["ERROR", "ERRORED", "FAILURE"].includes(s)) {
+    return "FAILED";
+  }
+  return s;
+}
+
 async function handleRunpodCallback(req, res) {
   console.log(
     `[runpod-callback] ${req.method} ${req.originalUrl} from ${req.ip} ` +
@@ -253,6 +265,8 @@ async function handleRunpodCallback(req, res) {
         console.warn(`[RunPod webhook] missing status for job ${jobId}; topKeys=${JSON.stringify(topKeys)} outKeys=${JSON.stringify(outKeys)}`);
       }
     }
+
+    st = normalizeRunpodJobStatus(st);
 
     if (!jobId) {
       // Health/probe style callback with only secret in query — acknowledge.

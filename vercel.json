@@ -15,7 +15,7 @@
   ],
   "functions": {
     "api/index.js": {
-      "maxDuration": 300,
+      "maxDuration": 800,
       "excludeFiles": "node_modules/{ffmpeg-static,ffprobe-static,@ffmpeg-installer}/**",
       "includeFiles": "attached_assets/**,runpod-mdcln/workflows/**"
     }

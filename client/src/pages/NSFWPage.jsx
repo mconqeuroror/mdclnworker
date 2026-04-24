@@ -60,7 +60,7 @@ import {
 import { Badge } from "../components/ui/badge";
 import { ScrollArea } from "../components/ui/scroll-area";
 import { cn } from "../lib/utils";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import api, { generationAPI, pricingAPI, uploadFile } from "../services/api";
 import { downloadFromPublicUrl } from "../utils/directDownload";
@@ -1893,8 +1893,42 @@ function NsfwImg2ImgTab({ modelId, activeLoraObj, chipSelections = {}, nsfwImage
 // ============================================
 // NSFW Video Tab - Image-to-Video generation
 // ============================================
+/** Complements 5s gallery refetch: toast when long motion (RunPod) jobs finish, without implying failure. */
+async function pollNsfwMotionJobUntilComplete(generationId, modelId, queryClient) {
+  if (!generationId || !queryClient) return;
+  const pollInterval = 5000;
+  const deadline = Date.now() + 120 * 60 * 1000;
+  const toastId = "nsfw-motion-job";
+  while (Date.now() < deadline) {
+    try {
+      const { data } = await api.get(`/generations/${generationId}`);
+      const g = data?.generation;
+      if (g?.status === "completed" && g?.outputUrl) {
+        await queryClient.invalidateQueries({ queryKey: ["nsfw-videos", modelId] });
+        toast.success("Motion video is ready in your gallery.", { id: toastId, duration: 5000 });
+        return;
+      }
+      if (g?.status === "failed") {
+        await queryClient.invalidateQueries({ queryKey: ["nsfw-videos", modelId] });
+        toast.error(g.errorMessage || "Motion video failed", { id: toastId, duration: 8000 });
+        return;
+      }
+    } catch (e) {
+      console.error("[motion poll]", e);
+    }
+    await new Promise((r) => setTimeout(r, pollInterval));
+  }
+  await queryClient.invalidateQueries({ queryKey: ["nsfw-videos", modelId] });
+  toast("Motion may still be processing — check the gallery. Long RunPod runs are normal (30+ min).", {
+    id: toastId,
+    icon: "⏳",
+    duration: 9000,
+  });
+}
+
 function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, videoPrompt, setVideoPrompt, videoDuration, setVideoDuration, isSubmittingVideo, setIsSubmittingVideo }) {
   const copy = NSFW_COPY[resolveLocale()] || NSFW_COPY.en;
+  const queryClient = useQueryClient();
   const { user, refreshUserCredits } = useAuthStore();
   const [videoGalleryPage, setVideoGalleryPage] = useState(1);
   const [extendingVideoId, setExtendingVideoId] = useState(null);
@@ -2124,6 +2158,9 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
         toast.success(`Motion video generating! ${response.creditsUsed} 🪙 used`);
         sound.playSuccess();
         await refreshUserCredits();
+        if (response.generationId) {
+          void pollNsfwMotionJobUntilComplete(response.generationId, modelId, queryClient);
+        }
       } else {
         toast.error(response?.message || "Motion video generation failed");
       }
@@ -4120,6 +4157,7 @@ function LoRAManager({
 export default function NSFWPage({ embedded = false, sidebarCollapsed = false, setDashboardTab }) {
   const copy = NSFW_COPY[resolveLocale()] || NSFW_COPY.en;
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { user, refreshUserCredits, logout } = useAuthStore();
   const {
     models,
@@ -4200,6 +4238,33 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
   const [nudesPackPoses, setNudesPackPoses] = useState(NUDES_PACK_POSES);
   const [nudesPackPricing, setNudesPackPricing] = useState(null);
   const [generatedNsfwImages, setGeneratedNsfwImages] = useState([]);
+
+  /** Merge a completed /generations row into the live NSFW image strip. Returns number of image URLs. */
+  const appendCompletedNsfwToLivePreview = useCallback((generation) => {
+    if (!generation?.outputUrl) return 0;
+    let imageUrls = [];
+    try {
+      const parsed = JSON.parse(generation.outputUrl);
+      if (Array.isArray(parsed)) {
+        imageUrls = parsed;
+      } else {
+        imageUrls = [generation.outputUrl];
+      }
+    } catch {
+      imageUrls = [generation.outputUrl];
+    }
+    setGeneratedNsfwImages((prev) => {
+      const newImages = imageUrls.map((url, index) => ({
+        id: `${generation.id}-${index}`,
+        url,
+        prompt: generation.prompt,
+        createdAt: generation.createdAt,
+      }));
+      return [...newImages, ...prev];
+    });
+    return imageUrls.length;
+  }, []);
+
   const [selectedPreset, setSelectedPreset] = useState(null);
   const [imageQuantity, setImageQuantity] = useState(1);
   const { data: generationPricingData } = useQuery({
@@ -5230,10 +5295,12 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
         );
         refreshUserCredits();
         setNudesPackModalOpen(false);
-        const gens = response.data.generations || [];
-        gens.forEach((g) => {
-          if (g?.id) pollNsfwGeneration(g.id).catch(() => {});
-        });
+        const packIds = (response.data.generations || [])
+          .map((g) => g?.id)
+          .filter(Boolean);
+        if (packIds.length) {
+          pollNsfwGenerationsBatch(packIds).catch((e) => console.error("Nudes pack batch poll:", e));
+        }
         if (response.data.failures?.length) {
           toast.error(`${response.data.failures.length} pose(s) could not be queued — credits refunded for those.`);
         }
@@ -5252,46 +5319,83 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
     }
   };
 
-  // Poll for NSFW generation completion (keep in sync with server RunPod wall ~90m; server completes in background anyway)
+  // Nudes pack: one coordinated poller (avoids 30× parallel loops + 30× "error" toasts at ~55m while jobs still run).
+  const pollNsfwGenerationsBatch = async (generationIds) => {
+    const ids = [...new Set((generationIds || []).filter(Boolean))];
+    if (ids.length === 0) return;
+    const TOAST_ID = "nudes-pack-poll";
+    const pollInterval = 5000;
+    const maxWallMs = 120 * 60 * 1000; // 120m — long RunPod + queue
+    const deadline = Date.now() + maxWallMs;
+    const pending = new Set(ids);
+    const seenCompleted = new Set();
+    const failed = [];
+
+    while (pending.size > 0 && Date.now() < deadline) {
+      for (const id of [...pending]) {
+        try {
+          const response = await api.get(`/generations/${id}`);
+          const g = response.data?.generation;
+          if (!g) continue;
+          if (g.status === "completed" && g.outputUrl) {
+            if (seenCompleted.has(id)) continue;
+            seenCompleted.add(id);
+            pending.delete(id);
+            const n = appendCompletedNsfwToLivePreview(g);
+            const done = ids.length - pending.size;
+            toast.success(
+              `Nudes pack: ${done}/${ids.length} ready` +
+                (n > 1 ? ` (${n} files in this output)` : ""),
+              { id: TOAST_ID, duration: 4000 },
+            );
+            queryClient.invalidateQueries({ queryKey: ["nsfw-processing", selectedModel] });
+            queryClient.invalidateQueries({ queryKey: ["nsfw-gallery", selectedModel] });
+          } else if (g.status === "failed") {
+            pending.delete(id);
+            failed.push({ id, msg: g.errorMessage || copy.toastGenerationFailed });
+          }
+        } catch (e) {
+          console.error("Nudes pack poll error:", e);
+        }
+      }
+      if (pending.size > 0) {
+        await new Promise((r) => setTimeout(r, pollInterval));
+      }
+    }
+
+    if (failed.length) {
+      const msg =
+        failed.length === 1
+          ? failed[0].msg
+          : `${failed.length} of ${ids.length} nudes pack image(s) failed — open History for details.`;
+      toast.error(msg, { duration: 8000 });
+    }
+    if (pending.size > 0) {
+      queryClient.invalidateQueries({ queryKey: ["nsfw-processing", selectedModel] });
+      toast(
+        `Some nudes pack images are still running (${pending.size} pending). ` +
+          "They are not failed — long RunPod/jobs are normal. Refresh or check your gallery.",
+        { id: TOAST_ID, icon: "⏳", duration: 10_000 },
+      );
+    }
+  };
+
+  // Poll for NSFW single generation completion (RunPod can exceed 1h; soft timeout is informational, not a failure)
   const pollNsfwGeneration = async (generationId) => {
     const pollInterval = 5000;
-    const maxAttempts = Math.ceil((55 * 60 * 1000) / pollInterval); // ~55 min — then user can refresh History
+    const maxWallMs = 120 * 60 * 1000;
+    const deadline = Date.now() + maxWallMs;
 
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    while (Date.now() < deadline) {
       try {
         const response = await api.get(`/generations/${generationId}`);
         const generation = response.data.generation;
 
         if (generation?.status === "completed" && generation?.outputUrl) {
-          // Parse outputUrl - can be single URL or JSON array of URLs
-          let imageUrls = [];
-          try {
-            // Try to parse as JSON array
-            const parsed = JSON.parse(generation.outputUrl);
-            if (Array.isArray(parsed)) {
-              imageUrls = parsed;
-            } else {
-              imageUrls = [generation.outputUrl];
-            }
-          } catch {
-            // Not JSON, treat as single URL
-            imageUrls = [generation.outputUrl];
-          }
-
-          const imageCount = imageUrls.length;
+          const imageCount = appendCompletedNsfwToLivePreview(generation);
           toast.success(
             `${imageCount} NSFW image${imageCount > 1 ? "s" : ""} generated!`,
           );
-
-          // Add all images to the generated list
-          const newImages = imageUrls.map((url, index) => ({
-            id: `${generation.id}-${index}`,
-            url: url,
-            prompt: generation.prompt,
-            createdAt: generation.createdAt,
-          }));
-
-          setGeneratedNsfwImages((prev) => [...newImages, ...prev]);
           return;
         }
 
@@ -5300,16 +5404,16 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
           return;
         }
 
-        // Wait before next poll
         await new Promise((resolve) => setTimeout(resolve, pollInterval));
       } catch (error) {
         console.error("Poll error:", error);
+        await new Promise((resolve) => setTimeout(resolve, pollInterval));
       }
     }
 
-    toast.error(
-      "No update yet from this tab — long NSFW runs can take 30–60+ min. Open History or refresh; your job may still finish in the background.",
-      { duration: 8000 },
+    toast(
+      "This generation is still processing or will appear in your gallery. Long NSFW runs are normal — refresh the page to update.",
+      { icon: "⏳", duration: 8000 },
     );
   };
 
