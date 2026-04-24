@@ -5,6 +5,7 @@ import { resolveImage, mediaMismatchHint } from "./media.js";
 import { cancelKbd, nsfwModelPickerKbd, nsfwHubMenuKbd, nsfwStudioMiniAppKbd, durationNsfw5_8 } from "./keyboards.js";
 import { sendGenerationResult, scheduleTelegramGenCompletionPush } from "./generate.js";
 import { ensureAuth } from "./auth.js";
+import { isNudesPackFeatureEnabled } from "../../../services/nudes-pack-config.service.js";
 import {
   apiNsfwImage, apiNsfwVideo, apiNsfwExtendVideo, apiNsfwAdvanced, apiNsfwNudesPack,
   apiNsfwGeneratePrompt, apiNsfwPlanGeneration, apiNsfwPlanStatus,
@@ -515,9 +516,17 @@ export async function handleNsfwCallback(chatId, data, callbackId = "") {
   }
 
   if (data === "nsfw:nudes") {
+    if (!isNudesPackFeatureEnabled()) {
+      await send(chatId, "Nudes pack is temporarily unavailable. Try again later.", nsfwHubMenuKbd());
+      return true;
+    }
     await send(chatId, "💄 Nudes Pack\n\nSelect model:", nsfwModelPickerKbd(nsfwModels, "nsfw:nudes:model")); return true;
   }
   if (data.startsWith("nsfw:nudes:model:")) {
+    if (!isNudesPackFeatureEnabled()) {
+      await send(chatId, "Nudes pack is temporarily unavailable.", nsfwHubMenuKbd());
+      return true;
+    }
     const modelId = data.split(":").pop();
     const poses = await getNsfwPoses(userId);
     if (!poses.length) { await send(chatId, "No poses available for this model."); return true; }
@@ -529,6 +538,10 @@ export async function handleNsfwCallback(chatId, data, callbackId = "") {
     await send(chatId, "Select poses (tap multiple):", inlineKbd(rows)); return true;
   }
   if (data.startsWith("nsfw:pose:")) {
+    if (!isNudesPackFeatureEnabled()) {
+      await send(chatId, "Nudes pack is temporarily unavailable.", nsfwHubMenuKbd());
+      return true;
+    }
     const poseId = data.split(":").pop();
     const flow = getFlow(chatId);
     const modelId = flow?.modelId || "";
@@ -543,6 +556,11 @@ export async function handleNsfwCallback(chatId, data, callbackId = "") {
     return true;
   }
   if (data === "nsfw:nudes:go") {
+    if (!isNudesPackFeatureEnabled()) {
+      clearFlow(chatId);
+      await send(chatId, "Nudes pack is temporarily unavailable.", nsfwHubMenuKbd());
+      return true;
+    }
     const flow = getFlow(chatId);
     const { modelId } = flow || {};
     if (!modelId) { await send(chatId, "Session expired. Open NSFW Studio in the Mini App and run Nudes Pack there.", nsfwStudioMiniAppKbd()); return true; }

@@ -98,6 +98,9 @@ const PREVIEW_BADGE_STYLE = {
   color: "#E5E7EB",
 };
 
+/** Must match server `NUDES_PACK_ENABLED=true` on the API. Off by default (hidden from users). */
+const NUDES_PACK_UI_ENABLED = import.meta.env.VITE_NUDES_PACK_ENABLED === "true";
+
 const LOCALE_STORAGE_KEY = "app_locale";
 const NSFW_SIDEBAR_PINNED_KEY = "nsfw_sidebar_pinned";
 const NSFW_COPY = {
@@ -4229,6 +4232,7 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
   const [isGeneratingAiPrompt, setIsGeneratingAiPrompt] = useState(false);
 
   useEffect(() => {
+    if (!NUDES_PACK_UI_ENABLED) return;
     api.get("/nsfw/nudes-pack-poses")
       .then((r) => {
         const poses = Array.isArray(r.data?.poses) ? r.data.poses : [];
@@ -5371,15 +5375,17 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
           sidebarCollapsed={layoutSidebarNarrow}
         />
 
-        <NudesPackModal
-          isOpen={nudesPackModalOpen}
-          onClose={() => setNudesPackModalOpen(false)}
-          onApprove={handleNudesPackApprove}
-          submitting={isSubmittingNudesPack}
-          sidebarCollapsed={layoutSidebarNarrow}
-          poses={nudesPackPoses}
-          nudesPackPricing={nudesPackPricing}
-        />
+        {NUDES_PACK_UI_ENABLED && (
+          <NudesPackModal
+            isOpen={nudesPackModalOpen}
+            onClose={() => setNudesPackModalOpen(false)}
+            onApprove={handleNudesPackApprove}
+            submitting={isSubmittingNudesPack}
+            sidebarCollapsed={layoutSidebarNarrow}
+            poses={nudesPackPoses}
+            nudesPackPricing={nudesPackPricing}
+          />
+        )}
 
         {/* Header */}
         <div className="mb-6">
@@ -5823,7 +5829,7 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
                     : "Paste or type the full prompt yourself (Danbooru-style tags work best). Your LoRA trigger is added automatically if missing. Same resolution & quality settings as Advanced."}
                 </p>
 
-                {isLoraReady && selectedModel && (
+                {NUDES_PACK_UI_ENABLED && isLoraReady && selectedModel && (
                   <div className="mb-5 p-3 rounded-xl border border-rose-500/20 bg-rose-500/[0.06] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 text-white font-medium text-sm">

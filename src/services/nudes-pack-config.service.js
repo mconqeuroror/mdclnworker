@@ -115,3 +115,11 @@ export async function upsertNudesPackPoseOverrides(nextOverrides, adminMeta = {}
   }
   return sanitized;
 }
+
+/**
+ * Nudes pack is hidden for end users by default. Set `NUDES_PACK_ENABLED=true` in the
+ * environment to expose API + web UI (build client with `VITE_NUDES_PACK_ENABLED=true`).
+ */
+export function isNudesPackFeatureEnabled() {
+  return String(process.env.NUDES_PACK_ENABLED || "").toLowerCase() === "true";
+}

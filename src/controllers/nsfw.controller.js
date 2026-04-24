@@ -89,6 +89,7 @@ import {
 } from "../../shared/nudesPackPoses.js";
 import {
   getEffectiveNudesPackPoses,
+  isNudesPackFeatureEnabled,
   validateNudesPackPoseIdsEffective,
   getNudesPackPoseByIdEffective,
   getNudesPackAdditiveHintForPose,
@@ -2995,6 +2996,9 @@ async function mapWithConcurrencyLimit(items, concurrency, mapper) {
 // GET /api/nsfw/nudes-pack-poses — active catalog + pack credit range (NSFW UI)
 export async function getNudesPackPoses(req, res) {
   try {
+    if (!isNudesPackFeatureEnabled()) {
+      return res.status(404).json({ success: false, message: "Not found" });
+    }
     const poses = await getEffectiveNudesPackPoses();
     const genPricing = await getGenerationPricing();
     return res.json({
@@ -3012,6 +3016,25 @@ export async function getNudesPackPoses(req, res) {
   }
 }
 
+/**
+ * `userRequest` for {@link runNsfwPromptGenerationForModel} in nudes pack.
+ * Kept in lockstep with POST /nsfw/generate-prompt and plan-generation: one natural scene
+ * string; model look chips and LoRA identity stay in `attributesDetail` / `attributesString` only.
+ * The curated `promptFragment` in shared/nudesPackPoses is the primary pose+scene source.
+ *
+ * @param {string} packSceneNote
+ * @param {{ title?: string, summary?: string, promptFragment?: string } | null | undefined} pose
+ */
+function buildNudesPackGrokUserRequest(packSceneNote, pose) {
+  const note = String(packSceneNote || "").trim();
+  const title = String(pose?.title || "").trim();
+  const summary = String(pose?.summary || "").trim();
+  const fragment = String(pose?.promptFragment || "").trim();
+  const mainScene = fragment || [title, summary].filter(Boolean).join(". ") || title;
+  if (note && mainScene) return `${note}\n\n${mainScene}`;
+  return mainScene || note || "intimate nude scene";
+}
+
 // ============================================
 // POST /api/nsfw/nudes-pack — dynamic cr/image: 15 @ 30 poses → 30 @ 1 pose (linear); looks + trigger server-side
 // Body: { modelId, poseIds: string[], attributes?, attributesDetail?, sceneDescription?, skipFaceSwap?, faceSwapImageUrl?, options?, resolution? }
@@ -3027,6 +3050,9 @@ export async function generateNudesPack(req, res) {
   const failures = [];
 
   try {
+    if (!isNudesPackFeatureEnabled()) {
+      return res.status(404).json({ success: false, message: "Not found" });
+    }
     const {
       modelId,
       poseIds,
@@ -3196,14 +3222,8 @@ export async function generateNudesPack(req, res) {
         const promptedRows = await mapWithConcurrencyLimit(rowsWithGen, promptConcurrency, async (row) => {
           const { idx, pose } = row;
           const modelLooksText = buildAttributeList(attributesDetail).join(", ") || attributesString || "";
-          const userRequestForAi = [
-            packSceneNote.trim() ? `Global scene note: ${packSceneNote.trim()}` : null,
-            `Pose summary: ${pose.summary || ""}`,
-            `Pose prompt fragment: ${pose.promptFragment || ""}`,
-            modelLooksText ? `Model look variables: ${modelLooksText}` : null,
-          ]
-            .filter(Boolean)
-            .join("\n");
+          // Same Grok path as /nsfw/generate-prompt: natural scene in userRequest, looks in attributesDetail.
+          const userRequestForAi = buildNudesPackGrokUserRequest(packSceneNote, pose);
           const composedFallbackPrompt = [
             pose.promptFragment || "",
             pose.summary || "",
@@ -3221,7 +3241,7 @@ export async function generateNudesPack(req, res) {
               userRequestForAi,
               attributesDetail,
               attributesString,
-              { mode: "nudes-pack", pose },
+              { pose },
             );
             if (aiPrompt && typeof aiPrompt === "string" && aiPrompt.trim()) {
               if (isNsfwPromptLogicalConflict(aiPrompt)) {

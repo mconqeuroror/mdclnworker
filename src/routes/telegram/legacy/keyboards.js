@@ -1,6 +1,7 @@
 import { appUrl, MINI_APP_BASE, miniAppGenerateAdvancedUrl } from "./config.js";
 import { inlineKbd, modelListToInlineRows, formatModelButtonText } from "./helpers.js";
 import { jorgeeeQuickPromptButtonRows } from "./jorgeee-prompts.js";
+import { isNudesPackFeatureEnabled } from "../../../services/nudes-pack-config.service.js";
 
 // ── Main navigation keyboard (reply keyboard) ─────────────────
 export function mainKbd() {
@@ -192,6 +193,12 @@ export function generateMoreKbd() {
 
 // ── NSFW: hub (bot-first; full chips = Mini App) ───────────────
 export function nsfwHubMenuKbd() {
+  const advancedRow = [
+    { text: "✨ Advanced", callback_data: "nsfw:advanced" },
+    ...(isNudesPackFeatureEnabled()
+      ? [{ text: "💄 Nudes pack", callback_data: "nsfw:nudes" }]
+      : []),
+  ];
   return inlineKbd([
     [
       { text: "🖼 Quick image", callback_data: "nsfw:genimg" },
@@ -201,10 +208,7 @@ export function nsfwHubMenuKbd() {
       { text: "🧠 AI scene plan", callback_data: "nsfw:plan" },
       { text: "🎯 Auto chips", callback_data: "nsfw:autoselect" },
     ],
-    [
-      { text: "✨ Advanced", callback_data: "nsfw:advanced" },
-      { text: "💄 Nudes pack", callback_data: "nsfw:nudes" },
-    ],
+    advancedRow,
     [
       { text: "📍 Scene presets", callback_data: "nsfw:pre" },
       { text: "🤖 AI prompt", callback_data: "nsfw:prompt" },
