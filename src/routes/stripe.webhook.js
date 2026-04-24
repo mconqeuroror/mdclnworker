@@ -1272,6 +1272,12 @@ function buildWebhookHandler(account) {
 
             const creditsExpireAt = subscriptionCreditsExpireAtFromInvoice(invoice, billingCycle);
 
+            // First paid invoice: use subscriptionId as paymentSessionId (same as checkout.session.completed
+            // and confirm-subscription). If invoice is processed before checkout, reusing only invoice.id
+            // would allow a second grant when checkout later inserts by subscriptionId.
+            const creditTxIdempotencyKey =
+              billingReason === "subscription_create" ? subscriptionId : invoice.id;
+
             try {
               await prisma.$transaction(async (tx) => {
                 await tx.creditTransaction.create({
@@ -1279,8 +1285,11 @@ function buildWebhookHandler(account) {
                     userId: user.id,
                     amount: parsedCredits,
                     type: "purchase",
-                    description: `Subscription renewal: ${subscription.metadata?.tierId || "plan"}`,
-                    paymentSessionId: invoice.id,
+                    description:
+                      billingReason === "subscription_create"
+                        ? `Subscription: ${subscription.metadata?.tierId || "plan"} (invoice ${invoice.id})`
+                        : `Subscription renewal: ${subscription.metadata?.tierId || "plan"}`,
+                    paymentSessionId: creditTxIdempotencyKey,
                   },
                 });
 
