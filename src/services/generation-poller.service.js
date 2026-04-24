@@ -7,6 +7,7 @@ import { enqueueCleanupOldGenerations } from "../controllers/generation.controll
 import { refundGeneration } from "../services/credit.service.js";
 import { pollUpscalerJob, extractUpscalerImage } from "./upscaler.service.js";
 import { pollModelCloneXJob, extractModelCloneXImages } from "./modelcloneX.service.js";
+import { checkNsfwMotionStatus, materializeNsfwMotionOutputFromRunpodResponse } from "./nsfw-motion.service.js";
 import http from "http";
 const WAVESPEED_API_KEY = process.env.WAVESPEED_API_KEY;
 const WAVESPEED_API_URL = "https://api.wavespeed.ai/api/v3";
@@ -90,6 +91,8 @@ class GenerationPollerService {
     // Find all processing generations
     // Exclude talking-head type - it uses inline polling in the background process
     // Exclude nsfw type - it uses RunComfy polling in nsfw.controller.js
+    // Exclude nsfw-video-motion - RunPod job id in replicateModel is not a WaveSpeed task;
+    //   `reconcileStaleRunpodGenerations` + webhook + `GET /generations/:id` finalize it.
     // Exclude img2img-describe - it's resolved synchronously inline by /api/img2img/describe
     //   (Grok 4 Fast vision via OpenRouter), so no async reconciliation is needed.
     const pendingGenerations = await prisma.generation.findMany({
@@ -101,6 +104,7 @@ class GenerationPollerService {
             "nsfw",
             "nsfw-video",
             "nsfw-video-extend",
+            "nsfw-video-motion",
             "prompt-image",
             "prompt-video",
             "image-identity",
@@ -859,27 +863,43 @@ class GenerationPollerService {
     includeTimedOutFailed = false,
   } = {}) {
     const RUNPOD_GRACE_MS = Number(process.env.RUNPOD_WATCHDOG_MIN_AGE_MS) || 30 * 60 * 1000;
+    /** NSFW motion uses a different RunPod endpoint; recover sooner if webhook is missed. */
+    const MOTION_GRACE_MS = Number(process.env.RUNPOD_MOTION_WATCHDOG_MIN_AGE_MS) || 2 * 60 * 1000;
     const FAILED_LOOKBACK_MS = 72 * 60 * 60 * 1000;
     const now = Date.now();
     const safeLimit = Math.max(1, Math.min(500, Number.parseInt(limit, 10) || 30));
 
-    const where = {
-      type: { in: ["upscale", "modelclone-x", "soulx", "nsfw"] },
-      OR: [
-        {
-          status: "processing",
-          createdAt: { lt: new Date(now - RUNPOD_GRACE_MS) },
-        },
-      ],
-    };
+    const runpodImageTypes = ["upscale", "modelclone-x", "soulx", "nsfw"];
+
+    const orBranches = [
+      {
+        AND: [
+          { type: { in: runpodImageTypes } },
+          { status: "processing" },
+          { createdAt: { lt: new Date(now - RUNPOD_GRACE_MS) } },
+        ],
+      },
+      {
+        AND: [
+          { type: "nsfw-video-motion" },
+          { status: "processing" },
+          { createdAt: { lt: new Date(now - MOTION_GRACE_MS) } },
+        ],
+      },
+    ];
 
     if (includeTimedOutFailed) {
-      where.OR.push({
-        status: "failed",
-        outputUrl: null,
-        completedAt: { gt: new Date(now - FAILED_LOOKBACK_MS) },
+      orBranches.push({
+        AND: [
+          { type: { in: runpodImageTypes } },
+          { status: "failed" },
+          { outputUrl: null },
+          { completedAt: { gt: new Date(now - FAILED_LOOKBACK_MS) } },
+        ],
       });
     }
+
+    const where = { OR: orBranches };
 
     const rows = await prisma.generation.findMany({
       where,
@@ -941,6 +961,40 @@ class GenerationPollerService {
       stats.checkedWithRunpodJobId += 1;
 
       try {
+        if (gen.type === "nsfw-video-motion") {
+          const rp = await checkNsfwMotionStatus(runpodJobId);
+          const status = String(rp?.status || "").toLowerCase();
+          if (["failed", "error", "timed_out", "timed-out", "cancelled", "canceled"].includes(status)) {
+            const msg =
+              rp?.error ||
+              rp?.output?.error ||
+              (typeof rp?.output === "string" ? rp.output : null) ||
+              `RunPod ${status}`;
+            await this.markFailed(gen.id, msg, { refund: gen.status === "processing" });
+            stats.failedMarked += 1;
+            continue;
+          }
+          if (status !== "completed" && status !== "success" && status !== "done") {
+            stats.stillRunning += 1;
+            continue;
+          }
+          const outputUrl = await materializeNsfwMotionOutputFromRunpodResponse(rp);
+          if (!outputUrl) {
+            await this.markFailed(gen.id, "RunPod motion job completed but returned no video", { refund: true });
+            continue;
+          }
+          await prisma.generation.update({
+            where: { id: gen.id },
+            data: { status: "completed", outputUrl, completedAt: new Date(), errorMessage: null },
+          });
+          if (gen.userId && gen.modelId) {
+            enqueueCleanupOldGenerations(gen.userId, gen.modelId);
+          }
+          stats.completedRecovered += 1;
+          if (gen.status === "failed") stats.completedRecoveredFromFailed += 1;
+          continue;
+        }
+
         const rp = gen.type === "upscale"
           ? await pollUpscalerJob(runpodJobId)
           : await pollModelCloneXJob(runpodJobId);

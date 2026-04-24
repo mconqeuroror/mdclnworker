@@ -25,6 +25,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { uploadBufferToBlobOrR2 } from "../utils/kieUpload.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -437,6 +438,30 @@ export function extractNsfwMotionVideo(raw) {
   }
 
   return null;
+}
+
+/**
+ * Upload the first video from a RunPod `/status` (or webhook) payload. Shared by
+ * `runpod-callback`, the RunPod watchdog, and `GET /generations/:id` recovery.
+ * @returns {Promise<string | null>} Public URL, or `null` if not complete / no video.
+ */
+export async function materializeNsfwMotionOutputFromRunpodResponse(rp) {
+  try {
+    const video = extractNsfwMotionVideo(rp);
+    if (!video || !video.base64) return null;
+    if (typeof video.base64 === "string" && video.base64.startsWith("http")) {
+      return video.base64;
+    }
+    const buf = Buffer.from(video.base64, "base64");
+    const isPng = (video.format || "").toLowerCase().startsWith("image/");
+    if (isPng) {
+      return await uploadBufferToBlobOrR2(buf, "nsfw-video-motion", "png", "image/png");
+    }
+    return await uploadBufferToBlobOrR2(buf, "nsfw-video-motion", "mp4", "video/mp4");
+  } catch (e) {
+    console.warn("[NSFW/motion] materializeNsfwMotionOutputFromRunpodResponse:", e?.message || e);
+    return null;
+  }
 }
 
 /**

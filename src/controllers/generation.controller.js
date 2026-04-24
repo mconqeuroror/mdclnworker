@@ -73,6 +73,11 @@ import { getUserFriendlyGenerationError } from "../utils/generationErrorMessages
 import { buildAppearancePrefix } from "../utils/appearancePrompt.js";
 import { getErrorMessageForDb } from "../lib/userError.js";
 import { getGenerationPricing } from "../services/generation-pricing.service.js";
+import {
+  checkNsfwMotionStatus,
+  materializeNsfwMotionOutputFromRunpodResponse,
+  isNsfwMotionConfigured,
+} from "../services/nsfw-motion.service.js";
 import { getPromptTemplateValue } from "../services/prompt-template-config.service.js";
 import { persistKieGenerationCorrelation } from "../utils/kieTaskCorrelation.js";
 import {
@@ -1265,31 +1270,96 @@ export async function getGenerationById(req, res) {
     const userId = req.user.userId;
     const { id } = req.params;
 
+    const selectGenById = {
+      id: true,
+      modelId: true,
+      type: true,
+      prompt: true,
+      duration: true,
+      outputUrl: true,
+      inputImageUrl: true,
+      status: true,
+      createdAt: true,
+      completedAt: true,
+      errorMessage: true,
+      isTrial: true,
+      providerTaskId: true,
+    };
+
     const generation = await prisma.generation.findFirst({
       where: { id, userId },
-      select: {
-        id: true,
-        modelId: true,
-        type: true,
-        prompt: true,
-        duration: true,
-        outputUrl: true,
-        inputImageUrl: true,
-        status: true,
-        createdAt: true,
-        completedAt: true,
-        errorMessage: true,
-        isTrial: true,
-      },
+      select: selectGenById,
     });
 
     if (!generation) {
       return res.status(404).json({ success: false, message: "Generation not found" });
     }
 
-    const resolvedGeneration = generation;
-    void ensureGenerationOutputPersisted(generation).catch((healError) => {
-      console.warn(`⚠️ Failed to self-heal generation ${generation.id} output URL:`, healError.message);
+    let resolvedGeneration = generation;
+
+    // Missed RunPod webhooks: motion jobs stay "processing" because the shared RunPod
+    // watchdog only covered image workers — finalize when the user polls this row.
+    if (
+      isNsfwMotionConfigured() &&
+      resolvedGeneration.type === "nsfw-video-motion" &&
+      resolvedGeneration.status === "processing" &&
+      Date.now() - new Date(resolvedGeneration.createdAt).getTime() > 30_000
+    ) {
+      let runpodJobId = String(resolvedGeneration.providerTaskId || "").trim() || null;
+      if (!runpodJobId) {
+        try {
+          const meta = JSON.parse(resolvedGeneration.inputImageUrl || "{}");
+          runpodJobId = (meta?.runpodJobId && String(meta.runpodJobId).trim()) || null;
+        } catch { /* */ }
+      }
+      if (runpodJobId) {
+        try {
+          const rp = await checkNsfwMotionStatus(runpodJobId);
+          const st = String(rp?.status || "").toLowerCase();
+          if (st === "completed" || st === "success" || st === "done") {
+            const outputUrl = await materializeNsfwMotionOutputFromRunpodResponse(rp);
+            if (outputUrl) {
+              await prisma.generation.update({
+                where: { id: resolvedGeneration.id },
+                data: { status: "completed", outputUrl, completedAt: new Date(), errorMessage: null },
+              });
+              if (resolvedGeneration.modelId) {
+                enqueueCleanupOldGenerations(userId, resolvedGeneration.modelId);
+              }
+              const fresh = await prisma.generation.findFirst({
+                where: { id, userId },
+                select: selectGenById,
+              });
+              if (fresh) resolvedGeneration = fresh;
+            }
+          } else if (["failed", "error", "timed_out", "timed-out", "cancelled", "canceled"].includes(st)) {
+            const msg =
+              (typeof rp?.error === "string" && rp.error) ||
+              (typeof rp?.output?.error === "string" && rp.output.error) ||
+              "Motion job failed on RunPod";
+            await refundGeneration(resolvedGeneration.id).catch(() => {});
+            await prisma.generation.update({
+              where: { id: resolvedGeneration.id },
+              data: {
+                status: "failed",
+                errorMessage: getErrorMessageForDb(String(msg)),
+                completedAt: new Date(),
+              },
+            });
+            const fresh = await prisma.generation.findFirst({
+              where: { id, userId },
+              select: selectGenById,
+            });
+            if (fresh) resolvedGeneration = fresh;
+          }
+        } catch (e) {
+          console.warn(`[getGenerationById] nsfw motion recovery: ${e?.message || e}`);
+        }
+      }
+    }
+
+    void ensureGenerationOutputPersisted(resolvedGeneration).catch((healError) => {
+      console.warn(`⚠️ Failed to self-heal generation ${resolvedGeneration.id} output URL:`, healError.message);
     });
 
     res.json({ success: true, generation: resolvedGeneration });

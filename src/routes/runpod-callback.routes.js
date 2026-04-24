@@ -11,7 +11,7 @@ import { refundGeneration } from "../services/credit.service.js";
 import { getErrorMessageForDb } from "../lib/userError.js";
 import { extractUpscalerImage } from "../services/upscaler.service.js";
 import { extractModelCloneXImages } from "../services/modelcloneX.service.js";
-import { extractNsfwMotionVideo } from "../services/nsfw-motion.service.js";
+import { extractNsfwMotionVideo, materializeNsfwMotionOutputFromRunpodResponse } from "../services/nsfw-motion.service.js";
 import { uploadBufferToBlobOrR2 } from "../utils/kieUpload.js";
 
 const router = express.Router();
@@ -315,40 +315,16 @@ async function handleRunpodCallback(req, res) {
       }
 
       if (st === "COMPLETED") {
-        const video = extractNsfwMotionVideo(rawOut);
-        if (!video || !video.base64) {
-          const msg = "RunPod motion job completed but returned no video";
-          console.warn(`[RunPod webhook] motion-video COMPLETED but no video in output for ${jobId}`);
+        const outputUrl = await materializeNsfwMotionOutputFromRunpodResponse(rawOut);
+        if (!outputUrl) {
+          const msg = "RunPod motion job completed but returned no video (or upload failed)";
+          console.warn(`[RunPod webhook] motion-video COMPLETED but no materialized URL for ${jobId}`);
           await refundGeneration(motionGen.id).catch(() => {});
           await prisma.generation.updateMany({
             where: { id: motionGen.id, status: { in: ["queued", "processing", "pending"] } },
-            data: { status: "failed", errorMessage: msg, completedAt: new Date() },
+            data: { status: "failed", errorMessage: getErrorMessageForDb(msg), completedAt: new Date() },
           });
           return res.status(200).json({ ok: true, type: motionGen.type, failed: true, reason: "no_video" });
-        }
-
-        let outputUrl;
-        try {
-          if (typeof video.base64 === "string" && video.base64.startsWith("http")) {
-            outputUrl = video.base64;
-          } else {
-            const buf = Buffer.from(video.base64, "base64");
-            // VHS_VideoCombine output is MP4 (h264). Worker labels format "video/h264-mp4".
-            const isPng = (video.format || "").toLowerCase().startsWith("image/");
-            if (isPng) {
-              outputUrl = await uploadBufferToBlobOrR2(buf, "nsfw-video-motion", "png", "image/png");
-            } else {
-              outputUrl = await uploadBufferToBlobOrR2(buf, "nsfw-video-motion", "mp4", "video/mp4");
-            }
-          }
-        } catch (uploadErr) {
-          console.error(`[RunPod webhook] motion-video upload error:`, uploadErr.message);
-          await refundGeneration(motionGen.id).catch(() => {});
-          await prisma.generation.updateMany({
-            where: { id: motionGen.id, status: { in: ["queued", "processing", "pending"] } },
-            data: { status: "failed", errorMessage: `Upload failed: ${uploadErr.message}`, completedAt: new Date() },
-          });
-          return res.status(200).json({ ok: true, type: motionGen.type, failed: true, reason: "upload_failed" });
         }
 
         await prisma.generation.update({
