@@ -101,6 +101,7 @@ import {
   assignTrainingImages,
   generateNsfwImage,
   generateNudesPack,
+  getNudesPackPoses,
   generateNsfwPrompt,
   planNsfwGeneration,
   getNsfwPlanGenerationJobStatus,
@@ -245,7 +246,6 @@ import {
   downloadLimiter,
 } from "../middleware/rateLimiter.js";
 import { getGenerationPricing, getGenerationPricingContract } from "../services/generation-pricing.service.js";
-import { getEffectiveNudesPackPoses } from "../services/nudes-pack-config.service.js";
 import { getPromptTemplateValue } from "../services/prompt-template-config.service.js";
 import {
   submitModelCloneXJob,
@@ -602,8 +602,8 @@ router.get("/nsfw/training-images/:modelId", authMiddleware, getTrainingImages);
 router.post("/nsfw/train-lora", authMiddleware, generationLimiter, trainLora);
 router.get("/nsfw/training-status/:modelId", authMiddleware, getLoraTrainingStatus);
 router.post("/nsfw/generate", authMiddleware, generationLimiter, generateNsfwImage);
-router.post("/nsfw/nudes-pack", authMiddleware, (_req, res) => res.status(503).json({ success: false, message: "Nudes Pack is temporarily unavailable." }));
-router.get("/nsfw/nudes-pack-poses", authMiddleware, (_req, res) => res.status(503).json({ success: false, message: "Nudes Pack is temporarily unavailable." }));
+router.post("/nsfw/nudes-pack", authMiddleware, generationLimiter, generateNudesPack);
+router.get("/nsfw/nudes-pack-poses", authMiddleware, getNudesPackPoses);
 router.post("/nsfw/generate-prompt", authMiddleware, generationLimiter, generateNsfwPrompt);
 router.post("/nsfw/plan-generation", authMiddleware, generationLimiter, planNsfwGeneration);
 router.get("/nsfw/plan-generation/status/:jobId", authMiddleware, getNsfwPlanGenerationJobStatus);

@@ -88,6 +88,7 @@ import {
   getNudesPackCreditsSplit,
 } from "../../shared/nudesPackPoses.js";
 import {
+  getEffectiveNudesPackPoses,
   validateNudesPackPoseIdsEffective,
   getNudesPackPoseByIdEffective,
   getNudesPackAdditiveHintForPose,
@@ -2989,6 +2990,26 @@ async function mapWithConcurrencyLimit(items, concurrency, mapper) {
   const workerCount = Math.min(limit, items.length);
   await Promise.all(Array.from({ length: workerCount }, () => worker()));
   return results;
+}
+
+// GET /api/nsfw/nudes-pack-poses — active catalog + pack credit range (NSFW UI)
+export async function getNudesPackPoses(req, res) {
+  try {
+    const poses = await getEffectiveNudesPackPoses();
+    const genPricing = await getGenerationPricing();
+    return res.json({
+      success: true,
+      poses,
+      nudesPackCreditsMin: genPricing.nudesPackCreditsMin,
+      nudesPackCreditsMax: genPricing.nudesPackCreditsMax,
+    });
+  } catch (e) {
+    console.error("getNudesPackPoses:", e);
+    return res.status(500).json({
+      success: false,
+      message: e?.message || "Failed to load nudes pack poses",
+    });
+  }
 }
 
 // ============================================
