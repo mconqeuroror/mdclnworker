@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import axios from "axios";
 import toast from "react-hot-toast";
+import { formatApiError } from "../services/api.js";
 import { downloadFromPublicUrl } from "../utils/directDownload";
 import { useAuthStore } from "../store";
 import { useTheme } from "../hooks/useTheme.jsx";
@@ -997,7 +998,15 @@ function GenerateTab({ isDark, copy }) {
         } else if (status === "failed") {
           stopPoll(genId);
           setResults((prev) => prev.map((r) => r.generationId === genId ? { ...r, status: "failed", error } : r));
-          toast.error(`Generation failed: ${error || "Unknown error"}`);
+          const errText =
+            typeof error === "string"
+              ? error
+              : error && typeof error === "object" && typeof error.message === "string"
+                ? error.message
+                : error != null
+                  ? String(error)
+                  : "Unknown error";
+          toast.error(`Generation failed: ${errText}`);
         }
       } catch (_) {}
     }, POLL_INTERVAL_MS);
@@ -1056,7 +1065,12 @@ function GenerateTab({ isDark, copy }) {
         }
       }
       if (!generationIds.length) {
-        toast.error(res.data?.error || "Submission unstable. Please retry once.");
+        toast.error(
+          formatApiError(
+            { response: { data: res.data } },
+            "Submission unstable. Please retry once.",
+          ),
+        );
         return;
       }
       const newResults = generationIds.map((id) => ({ generationId: id, status: "processing", imageUrl: null }));
@@ -1066,9 +1080,8 @@ function GenerateTab({ isDark, copy }) {
       // Sync credit balance from backend after successful submission.
       refreshUserCredits();
     } catch (err) {
-      const apiError = err?.response?.data?.error;
-      if (apiError) {
-        toast.error(apiError);
+      if (err?.response) {
+        toast.error(formatApiError(err, "Generation failed"));
         return;
       }
 
