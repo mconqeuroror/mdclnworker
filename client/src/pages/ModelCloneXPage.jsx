@@ -245,6 +245,13 @@ const COPY = {
     p5: "Extra steps (every +10 over included)",
     p6: "Character training — Standard",
     p7: "Character training — Pro",
+    genType: "Output",
+    outputTxt: "Text → image",
+    outputImg: "Image → image",
+    refImage: "Reference image",
+    refImageHint: "Z-Image img2img (same pipeline as NSFW). LoRA applies only in character mode.",
+    denoiseLabel: "Denoise (img2img)",
+    aspectNoteImg2: "In img2img, framing follows your reference (aspect control applies to text-to-image only).",
   },
   ru: {
     mode: "Режим",
@@ -281,6 +288,13 @@ const COPY = {
     p5: "Доп. шаги (каждые +10 сверх включенных)",
     p6: "Обучение персонажа — Standard",
     p7: "Обучение персонажа — Pro",
+    genType: "Вывод",
+    outputTxt: "Текст → изображение",
+    outputImg: "Изображение → изображение",
+    refImage: "Опорное изображение",
+    refImageHint: "Z-Image img2img (тот же пайплайн, что и NSFW). LoRA только в режиме с персонажем.",
+    denoiseLabel: "Шумоподавление (img2img)",
+    aspectNoteImg2: "В img2img кадр задаётся опорой (соотношение сторон — только для text-to-image).",
   },
 };
 
@@ -889,6 +903,7 @@ function GenerateTab({ isDark, copy }) {
   const { models } = useCachedModels();
 
   const [mode, setMode] = useState("without"); // "without" | "character"
+  const [genMode, setGenMode] = useState("txt"); // "txt" | "img" — t2i vs Z-Image img2img
   const [selectedModelId, setSelectedModelId] = useState("");
   const [selectedCharacterId, setSelectedCharacterId] = useState("");
   const [characters, setCharacters] = useState([]);
@@ -898,6 +913,10 @@ function GenerateTab({ isDark, copy }) {
   const [steps, setSteps] = useState(DEFAULT_MODELCLONE_X_LIMITS.defaultStepsNoModel);
   const [cfg, setCfg] = useState(MODELCLONE_X_DEFAULT_CFG);
   const [loraStrength, setLoraStrength] = useState(0.8);
+  const [refImageBase64, setRefImageBase64] = useState(""); // raw base64, no data: prefix
+  const [refImagePreview, setRefImagePreview] = useState("");
+  const [denoiseI2I, setDenoiseI2I] = useState(0.6);
+  const refFileInputRef = useRef(null);
   const [submitInFlight, setSubmitInFlight] = useState(0);
   const [results, setResults] = useState([]); // [{generationId, imageUrl, status}]
   const [pricing, setPricing] = useState(DEFAULT_MODELCLONE_X_PRICING);
@@ -993,12 +1012,13 @@ function GenerateTab({ isDark, copy }) {
     if (!prompt.trim()) { toast.error("Enter a prompt first"); return; }
     if (mode === "character" && !selectedModelId) { toast.error("Select a model"); return; }
     if (mode === "character" && !selectedCharacterId) { toast.error("Select a character identity"); return; }
+    if (genMode === "img" && !refImageBase64) { toast.error("Add a reference image for image-to-image"); return; }
     if (!hasEnough) { toast.error("Insufficient balance"); return; }
 
     setSubmitInFlight((n) => n + 1);
     try {
       const token = localStorage.getItem("token");
-      const res = await axios.post("/api/modelclone-x/generate", {
+      const body = {
         prompt: prompt.trim(),
         modelId: mode === "character" ? selectedModelId : null,
         characterLoraId: mode === "character" ? selectedCharacterId : null,
@@ -1007,7 +1027,12 @@ function GenerateTab({ isDark, copy }) {
         steps,
         cfg,
         loraStrength: mode === "character" ? loraStrength : undefined,
-      }, { headers: { Authorization: `Bearer ${token}` } });
+      };
+      if (genMode === "img") {
+        body.inputImageBase64 = refImageBase64;
+        body.denoise = denoiseI2I;
+      }
+      const res = await axios.post("/api/modelclone-x/generate", body, { headers: { Authorization: `Bearer ${token}` } });
 
       let generationIds = Array.isArray(res.data?.generationIds) ? res.data.generationIds : [];
       if (!generationIds.length) {
@@ -1132,6 +1157,98 @@ function GenerateTab({ isDark, copy }) {
         </div>
       </div>
 
+      {/* Text vs image-to-image (NSFW Z-Image img2img; LoRA only in character mode) */}
+      <div className={panel}>
+        <label className={labelBase}>{copy.genType}</label>
+        <div className="flex flex-wrap gap-2">
+          {[
+            { id: "txt", label: copy.outputTxt, icon: Sparkles },
+            { id: "img", label: copy.outputImg, icon: ImageIcon },
+          ].map(({ id, label, icon: Icon }) => (
+            <ControlChip
+              key={id}
+              onClick={() => {
+                setGenMode(id);
+                if (id === "txt") {
+                  setRefImageBase64("");
+                  setRefImagePreview("");
+                }
+              }}
+              active={genMode === id}
+              isDark={isDark}
+              className="flex-1 inline-flex items-center justify-center gap-1.5"
+            >
+              <Icon className="w-3.5 h-3.5" />
+              {label}
+            </ControlChip>
+          ))}
+        </div>
+        {genMode === "img" && (
+          <div className="mt-3 space-y-2">
+            <p className={`text-[11px] leading-relaxed ${isDark ? "text-slate-500" : "text-slate-600"}`}>{copy.refImageHint}</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                ref={refFileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target?.files?.[0];
+                  e.target.value = "";
+                  if (!f || !f.type.startsWith("image/")) return;
+                  const reader = new FileReader();
+                  reader.onload = () => {
+                    const dataUrl = String(reader.result || "");
+                    const comma = dataUrl.indexOf(",");
+                    const raw = comma >= 0 ? dataUrl.slice(comma + 1) : "";
+                    if (!raw) return;
+                    setRefImageBase64(raw);
+                    setRefImagePreview(dataUrl);
+                  };
+                  reader.readAsDataURL(f);
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => refFileInputRef.current?.click()}
+                className={`px-3 py-2 rounded-xl text-xs font-medium border transition-colors ${
+                  isDark ? "border-white/15 text-slate-200 hover:bg-white/[0.06]" : "border-slate-200 text-slate-800 hover:bg-slate-50"
+                }`}
+              >
+                <Upload className="w-3.5 h-3.5 inline mr-1" />
+                {copy.refImage}
+              </button>
+              {refImagePreview && (
+                <button
+                  type="button"
+                  onClick={() => { setRefImageBase64(""); setRefImagePreview(""); }}
+                  className={`text-xs ${isDark ? "text-rose-400" : "text-rose-600"}`}
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+            {refImagePreview && (
+              <div className="flex gap-2 items-start">
+                <img src={refImagePreview} alt="" className="h-20 w-auto max-w-full rounded-lg border object-contain border-white/10" />
+              </div>
+            )}
+            <label className="flex flex-col gap-1 max-w-xs">
+              <span className={`text-[11px] font-medium ${isDark ? "text-slate-400" : "text-slate-600"}`}>{copy.denoiseLabel}</span>
+              <input
+                type="range"
+                min={0.1}
+                max={1}
+                step={0.05}
+                value={denoiseI2I}
+                onChange={(e) => setDenoiseI2I(Math.max(0.1, Math.min(1, Number(e.target.value) || 0.6)))}
+              />
+              <span className={`text-xs ${isDark ? "text-slate-300" : "text-slate-700"}`}>{denoiseI2I.toFixed(2)}</span>
+            </label>
+          </div>
+        )}
+      </div>
+
       {/* Model + character selector */}
       <AnimatePresence>
         {mode === "character" && (
@@ -1227,14 +1344,17 @@ function GenerateTab({ isDark, copy }) {
         />
       </div>
 
-      {/* Aspect ratio */}
-      <div className={panel}>
+      {/* Aspect ratio (text-to-image; img2img follows reference) */}
+      <div className={`${panel} ${genMode === "img" ? "opacity-60" : ""}`}>
         <label className={labelBase}>{copy.aspectRatio}</label>
+        {genMode === "img" && (
+          <p className={`text-[11px] mb-2 ${isDark ? "text-slate-500" : "text-slate-500"}`}>{copy.aspectNoteImg2}</p>
+        )}
         <div className="flex flex-wrap gap-2">
           {ASPECT_OPTIONS.map((opt) => (
             <ControlChip
               key={opt.id}
-              onClick={() => setAspect(opt.id)}
+              onClick={() => genMode !== "img" && setAspect(opt.id)}
               active={aspect === opt.id}
               isDark={isDark}
             >

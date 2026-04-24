@@ -31,6 +31,7 @@ import {
 } from "./fal.service.js";
 import { resolveRunpodWebhookUrl } from "../lib/runpodWebhookUrl.js";
 import { getPromptTemplateValue } from "./prompt-template-config.service.js";
+import { NSFW_ZIMAGE_UNET_BASENAME } from "../config/nsfwZImageModel.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -68,7 +69,7 @@ if (!process.env.OPENROUTER_API_KEY) {
 const IMG2IMG_WORKFLOW = {
   "1": {
     "class_type": "UNETLoader",
-    "inputs": { "unet_name": "zImageTurboNSFW_20BF16AIO.safetensors", "weight_dtype": "default" }
+    "inputs": { "unet_name": NSFW_ZIMAGE_UNET_BASENAME, "weight_dtype": "default" }
   },
   "2": {
     "class_type": "CLIPLoader",
@@ -149,7 +150,7 @@ const NSFW_TXT2IMG_WORKFLOW = {
   "50": { inputs: { width: 1024, height: 1024, aspect_ratio: "16:9 landscape 1344x768", swap_dimensions: "On", upscale_factor: 1, batch_size: 1 }, class_type: "CR SDXL Aspect Ratio" },
   "57": { inputs: { seed: 0 }, class_type: "Seed (rgthree)" },
   "246": { inputs: { vae_name: "ae.safetensors" }, class_type: "VAELoader" },
-  "247": { inputs: { unet_name: "zImageTurboNSFW_20BF16AIO.safetensors", weight_dtype: "default" }, class_type: "UNETLoader" },
+  "247": { inputs: { unet_name: NSFW_ZIMAGE_UNET_BASENAME, weight_dtype: "default" }, class_type: "UNETLoader" },
   "248": { inputs: { clip_name: "qwen_3_4b.safetensors", type: "qwen_image", device: "default" }, class_type: "CLIPLoader" },
   "250": {
     inputs: {
@@ -168,7 +169,7 @@ const NSFW_TXT2IMG_WORKFLOW = {
   "284": { inputs: { density: 0.06, intensity: 0.1, highlights: 1, supersample_factor: 1, image: ["28", 0] }, class_type: "Image Film Grain" },
   "286": { inputs: { blur_radius: 2, sigma: 0.3, image: ["284", 0] }, class_type: "ImageBlur" },
   "289": { inputs: { filename_prefix: "modelclone", images: ["286", 0] }, class_type: "SaveImage" },
-  "304": { inputs: { ckpt_name: "zImageTurboNSFW_20BF16AIO.safetensors" }, class_type: "CheckpointLoaderSimple" },
+  "304": { inputs: { ckpt_name: NSFW_ZIMAGE_UNET_BASENAME }, class_type: "CheckpointLoaderSimple" },
 };
 
 // Deep-clone so every call gets a fresh mutable copy
@@ -283,13 +284,18 @@ function pruneDeadPreviewBranchFromApiPrompt(api) {
  * RunPod API prompt from `attached_assets/nsfw_img2img_v2promax_workflow.json` (ZIT img encode → refiner ckpt).
  * SaveImage is pointed at VAEDecode 28 so the handler output skips grain/blur; all other nodes from the JSON remain in the prompt (same worker serves multiple workflows).
  *
- * LoadLoraFromUrlOrPath (250): exactly one URL — the model’s girl LoRA (`loraUrl`). Uses `buildNsfwLoraStackEntries` with no additives so desktop template HF slots are never used.
+ * LoadLoraFromUrlOrPath (250): identity LoRA when `loraUrl` is set. When omitted (e.g. ModelClone-X
+ * no-character img2img), `num_loras` is set to 0 and the stack is cleared.
  */
-function buildNsfwImg2ImgV2ApiPrompt({ positivePrompt, loraUrl, loraStrength, seed, stage1Denoise }) {
-  if (!String(loraUrl ?? "").trim()) {
-    throw new Error("img2img requires a model LoRA URL (loraUrl)");
-  }
-
+function buildNsfwImg2ImgV2ApiPrompt({
+  positivePrompt,
+  loraUrl = null,
+  loraStrength,
+  seed,
+  stage1Denoise,
+  steps = null,
+  cfg = null,
+}) {
   const graph = loadNsfwImg2ImgV2GraphPrepared();
   const negNode = graph.nodes?.find((n) => String(n.id) === "41" && n.type === "String Literal");
   const negativeText =
@@ -314,15 +320,19 @@ function buildNsfwImg2ImgV2ApiPrompt({ positivePrompt, loraUrl, loraStrength, se
 
   const ls = ensureFiniteNumber(loraStrength, "loraStrength");
   if (api["250"]?.inputs) {
-    const stack = buildNsfwLoraStackEntries({
-      loraUrl,
-      girlLoraStrength: ls,
-      poseStrengths: {},
-      makeupStrength: 0,
-      cumStrength: 0,
-      enhancementStrengths: {},
-    });
-    applyCompactLoraStackToNode250(api["250"], stack);
+    if (String(loraUrl ?? "").trim()) {
+      const stack = buildNsfwLoraStackEntries({
+        loraUrl,
+        girlLoraStrength: ls,
+        poseStrengths: {},
+        makeupStrength: 0,
+        cumStrength: 0,
+        enhancementStrengths: {},
+      });
+      applyCompactLoraStackToNode250(api["250"], stack);
+    } else {
+      applyCompactLoraStackToNode250(api["250"], []);
+    }
   }
 
   if (api["57"]?.inputs) {
@@ -331,6 +341,14 @@ function buildNsfwImg2ImgV2ApiPrompt({ positivePrompt, loraUrl, loraStrength, se
 
   if (api["276"]?.inputs) {
     api["276"].inputs.denoise = ensureFiniteNumber(stage1Denoise, "denoise");
+    if (steps != null && steps !== "") {
+      const s = Math.max(1, Math.min(100, Math.round(Number(steps))));
+      if (Number.isFinite(s)) api["276"].inputs.steps = s;
+    }
+    if (cfg != null && cfg !== "") {
+      const c = Math.max(0, Math.min(8, Number(cfg)));
+      if (Number.isFinite(c)) api["276"].inputs.cfg = c;
+    }
   }
 
   if (api["289"]?.inputs) {
@@ -343,10 +361,10 @@ function buildNsfwImg2ImgV2ApiPrompt({ positivePrompt, loraUrl, loraStrength, se
   for (const node of Object.values(api)) {
     if (!node?.inputs) continue;
     if (node.class_type === "UNETLoader") {
-      node.inputs.unet_name = "zImageTurboNSFW_20BF16AIO.safetensors";
+      node.inputs.unet_name = NSFW_ZIMAGE_UNET_BASENAME;
     }
     if (node.class_type === "CheckpointLoaderSimple") {
-      node.inputs.ckpt_name = "zImageTurboNSFW_20BF16AIO.safetensors";
+      node.inputs.ckpt_name = NSFW_ZIMAGE_UNET_BASENAME;
     }
   }
 
@@ -509,10 +527,14 @@ export async function submitImg2ImgJob({
   imageUrl,
   imageBase64Provided,
   prompt,
-  loraUrl,
+  loraUrl = null,
   loraStrength = 0.8,
   denoise = 0.6,
   seed,
+  steps = null,
+  cfg = null,
+  /** When set, used instead of a bare `resolveRunpodWebhookUrl()` (e.g. ModelClone-X + generationId). */
+  webhookUrl: explicitWebhook = null,
 }) {
   const numericLoraStrength = ensureFiniteNumber(loraStrength, "loraStrength");
   const numericDenoise = ensureFiniteNumber(denoise, "denoise");
@@ -522,10 +544,12 @@ export async function submitImg2ImgJob({
 
   const workflow = buildNsfwImg2ImgV2ApiPrompt({
     positivePrompt: prompt,
-    loraUrl,
+    loraUrl: String(loraUrl ?? "").trim() ? loraUrl : null,
     loraStrength: numericLoraStrength,
     seed: resolvedSeed,
     stage1Denoise: numericDenoise,
+    steps,
+    cfg,
   });
 
   if (!workflow["250"]?.inputs || !workflow["276"]?.inputs || !workflow["305"]?.inputs) {
@@ -545,7 +569,7 @@ export async function submitImg2ImgJob({
     output_node_id: "289",
   };
 
-  const webhookUrl = resolveRunpodWebhookUrl();
+  const webhookUrl = explicitWebhook != null ? explicitWebhook : resolveRunpodWebhookUrl();
   if (webhookUrl) {
     console.log(
       `📣 [img2img] RunPod webhook: ${webhookUrl.slice(0, 88)}${webhookUrl.length > 88 ? "…" : ""}`,

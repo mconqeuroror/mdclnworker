@@ -250,6 +250,7 @@ import { getPromptTemplateValue } from "../services/prompt-template-config.servi
 import {
   submitModelCloneXJob,
 } from "../services/modelcloneX.service.js";
+import { submitImg2ImgJob } from "../services/img2img.service.js";
 import {
   MODELCLONE_X_CATEGORY,
   LEGACY_SOULX_CATEGORY,
@@ -3347,7 +3348,16 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
     steps = null,
     cfg = 2,
     loraStrength = 0.8,
+    /** NSFW img2img workflow (Z-Image encode): optional ref image for ModelClone-X img2img */
+    inputImageUrl = "",
+    inputImageBase64 = "",
+    denoise = 0.6,
   } = req.body;
+
+  const inputImgUrl = typeof inputImageUrl === "string" ? inputImageUrl.trim() : "";
+  const inputImgB64 = typeof inputImageBase64 === "string" ? String(inputImageBase64).trim() : "";
+  const isImg2Img = Boolean(inputImgUrl || inputImgB64);
+  const denoiseImg2Img = Math.max(0.05, Math.min(1, Number(denoise) || 0.6));
 
   if (!prompt || !prompt.trim()) {
     return res.status(400).json({ success: false, error: "Prompt is required" });
@@ -3469,23 +3479,57 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
         generationId: gen.id,
         kind: "modelclone-x",
       });
-      const jobId = await submitModelCloneXJob({
-        prompt: optimizedPrompt,
-        aspectRatio,
-        loraUrl,
-        loraStrength: safeLoraStrength,
-        triggerWord,
-        steps: safeSteps,
-        cfg: safeCfg,
-      }, modelcloneXWebhookUrl);
 
-      await prisma.generation.update({
-        where: { id: gen.id },
-        data: {
-          providerTaskId: jobId,
-          inputImageUrl: JSON.stringify({ runpodJobId: jobId, provider: "runpod-modelclone-x" }),
-        },
-      });
+      let jobId;
+      if (isImg2Img) {
+        const effectiveImageUrl = inputImgUrl || "base64-upload";
+        const result = await submitImg2ImgJob({
+          imageUrl: effectiveImageUrl,
+          imageBase64Provided: inputImgB64 || null,
+          prompt: optimizedPrompt,
+          loraUrl: useCharacter ? loraUrl : null,
+          loraStrength: safeLoraStrength,
+          denoise: denoiseImg2Img,
+          steps: safeSteps,
+          cfg: safeCfg,
+          webhookUrl: modelcloneXWebhookUrl,
+        });
+        jobId = result.runpodJobId;
+        await prisma.generation.update({
+          where: { id: gen.id },
+          data: {
+            providerTaskId: jobId,
+            inputImageUrl: JSON.stringify({
+              runpodJobId: jobId,
+              provider: "runpod-modelclone-x",
+              mode: "img2img",
+              denoise: denoiseImg2Img,
+              sourceImage: effectiveImageUrl,
+              hasBase64: Boolean(inputImgB64),
+            }),
+          },
+        });
+      } else {
+        jobId = await submitModelCloneXJob(
+          {
+            prompt: optimizedPrompt,
+            aspectRatio,
+            loraUrl,
+            loraStrength: safeLoraStrength,
+            triggerWord,
+            steps: safeSteps,
+            cfg: safeCfg,
+          },
+          modelcloneXWebhookUrl,
+        );
+        await prisma.generation.update({
+          where: { id: gen.id },
+          data: {
+            providerTaskId: jobId,
+            inputImageUrl: JSON.stringify({ runpodJobId: jobId, provider: "runpod-modelclone-x" }),
+          },
+        });
+      }
 
       generationIds.push(gen.id);
     } catch (err) {
@@ -3505,6 +3549,8 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
     success: true,
     generationIds,
     applied: {
+      mode: isImg2Img ? "img2img" : "txt2img",
+      denoise: isImg2Img ? denoiseImg2Img : undefined,
       steps: safeSteps,
       cfg: safeCfg,
       loraStrength: safeLoraStrength,
