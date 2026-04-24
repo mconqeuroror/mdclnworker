@@ -98,8 +98,8 @@ const PREVIEW_BADGE_STYLE = {
   color: "#E5E7EB",
 };
 
-/** Must match server `NUDES_PACK_ENABLED=true` on the API. Off by default (hidden from users). */
-const NUDES_PACK_UI_ENABLED = import.meta.env.VITE_NUDES_PACK_ENABLED === "true";
+/** On by default. Set `VITE_NUDES_PACK_ENABLED=false` at build time to hide the nudes pack CTA. */
+const NUDES_PACK_UI_ENABLED = import.meta.env.VITE_NUDES_PACK_ENABLED !== "false";
 
 const LOCALE_STORAGE_KEY = "app_locale";
 const NSFW_SIDEBAR_PINNED_KEY = "nsfw_sidebar_pinned";

@@ -117,9 +117,11 @@ export async function upsertNudesPackPoseOverrides(nextOverrides, adminMeta = {}
 }
 
 /**
- * Nudes pack is hidden for end users by default. Set `NUDES_PACK_ENABLED=true` in the
- * environment to expose API + web UI (build client with `VITE_NUDES_PACK_ENABLED=true`).
+ * Nudes pack is on by default. Set `NUDES_PACK_ENABLED=false` to disable API + Telegram.
+ * Web UI: set `VITE_NUDES_PACK_ENABLED=false` at build time to hide the NSFW page CTA only.
  */
 export function isNudesPackFeatureEnabled() {
-  return String(process.env.NUDES_PACK_ENABLED || "").toLowerCase() === "true";
+  const v = String(process.env.NUDES_PACK_ENABLED ?? "").trim().toLowerCase();
+  if (v === "false" || v === "0" || v === "off") return false;
+  return true;
 }
