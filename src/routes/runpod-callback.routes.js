@@ -11,6 +11,7 @@ import { refundGeneration } from "../services/credit.service.js";
 import { getErrorMessageForDb } from "../lib/userError.js";
 import { extractUpscalerImage } from "../services/upscaler.service.js";
 import { extractModelCloneXImages } from "../services/modelcloneX.service.js";
+import { parseRunpodHandlerOutput } from "../services/img2img.service.js";
 import { extractNsfwMotionVideo, materializeNsfwMotionOutputFromRunpodResponse } from "../services/nsfw-motion.service.js";
 import { uploadBufferToBlobOrR2 } from "../utils/kieUpload.js";
 
@@ -246,7 +247,22 @@ async function handleRunpodCallback(req, res) {
       body?.output?.status ??
       body?.output?.state;
     let st = String(statusRaw || "").toUpperCase();
-    const rawOut = body.output ?? body.result ?? body.data?.output ?? body.data ?? null;
+    let rawOut = body.output ?? body.result ?? body.data?.output ?? body.data ?? null;
+    if (rawOut == null && typeof body.data === "string") {
+      try {
+        rawOut = JSON.parse(body.data);
+      } catch {
+        /* leave null */
+      }
+    }
+    // RunPod / proxies sometimes stringifies output or nests handler body twice; img2img may put `images` on the envelope.
+    const parsed = parseRunpodHandlerOutput(rawOut);
+    if (parsed != null) rawOut = parsed;
+    if (rawOut && !Array.isArray(rawOut?.images) && Array.isArray(body?.images) && body.images.length > 0) {
+      rawOut = { ...rawOut, images: body.images };
+    } else if (rawOut == null && Array.isArray(body?.images) && body.images.length > 0) {
+      rawOut = { images: body.images };
+    }
 
     // Fallback inference for webhook variants that omit top-level status.
     if (!st) {

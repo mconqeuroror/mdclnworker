@@ -43,6 +43,8 @@ export const MODELCLONE_X_CREDITS = {
 };
 
 export const MODELCLONE_X_OUTPUT_NODE = "369";
+/** ModelClone-X img2img (ZIT v2promax) saves from this SaveImage — must be scanned when txt2img node 369 is absent. */
+const MODELCLONE_X_IMG2IMG_OUTPUT_NODE = "289";
 const UPSCALE_NODES_TO_STRIP = ["370", "371", "372", "373"];
 
 const ASPECT_RATIO_MAP = {
@@ -246,8 +248,23 @@ export async function pollModelCloneXJob(runpodJobId) {
 }
 
 export function extractModelCloneXImages(runpodOutput) {
-  const out = runpodOutput?.output ?? runpodOutput;
-  if (!out) return [];
+  let root = runpodOutput;
+  if (root == null) return [];
+  if (typeof root === "string") {
+    try {
+      root = JSON.parse(root);
+    } catch {
+      return [];
+    }
+  }
+  if (typeof root !== "object") return [];
+  // Double-wrap: e.g. { output: { output: { images: [...] } } } (some RunPod webhooks)
+  let out = root?.output ?? root;
+  if (out && typeof out === "object" && out.output && (out.output.images || out.output.outputs) && !out.images) {
+    out = out.output;
+  }
+  out = out?.output ?? out;
+  if (!out || typeof out !== "object") return [];
 
   const asImageString = (img) => {
     if (typeof img === "string") return img;
@@ -268,7 +285,12 @@ export function extractModelCloneXImages(runpodOutput) {
   const nodeOutputs = out.outputs;
   if (nodeOutputs && typeof nodeOutputs === "object") {
     const preferred = String(MODELCLONE_X_OUTPUT_NODE);
-    const orderedNodeIds = [preferred, ...Object.keys(nodeOutputs).filter((k) => k !== preferred)];
+    const i2i = String(MODELCLONE_X_IMG2IMG_OUTPUT_NODE);
+    const orderedNodeIds = [
+      preferred,
+      i2i,
+      ...Object.keys(nodeOutputs).filter((k) => k !== preferred && k !== i2i),
+    ];
     for (const nodeId of orderedNodeIds) {
       const nodeImages = nodeOutputs?.[nodeId]?.images;
       if (!Array.isArray(nodeImages) || nodeImages.length === 0) continue;
