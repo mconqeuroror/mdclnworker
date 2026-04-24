@@ -196,6 +196,36 @@ function getIncludedStepsForMode(mode, limits) {
   return Number(limits?.includedStepsNoModel ?? limits?.includedSteps ?? 20);
 }
 
+/** Same appearance labels as NSFW img2img /describe for `lookDescription`. */
+function buildMcxLookDescriptionFromModel(model) {
+  if (!model) return "";
+  let appearance = model.savedAppearance;
+  if (typeof appearance === "string") {
+    try {
+      appearance = JSON.parse(appearance);
+    } catch {
+      appearance = {};
+    }
+  }
+  if (!appearance || typeof appearance !== "object") appearance = {};
+  const keys = [
+    "ethnicity", "hairColor", "hairType", "skinTone", "eyeColor", "eyeShape",
+    "faceShape", "noseShape", "lipSize", "bodyType", "height",
+    "breastSize", "buttSize", "waist", "hips", "tattoos",
+  ];
+  const labelMap = {
+    ethnicity: "ethnicity", hairColor: "hair color", hairType: "hair style",
+    skinTone: "skin tone", eyeColor: "eye color", eyeShape: "eye shape",
+    faceShape: "face shape", noseShape: "nose", lipSize: "lips",
+    bodyType: "body type", height: "height", breastSize: "breast size",
+    buttSize: "butt", waist: "waist", hips: "hips", tattoos: "tattoos/piercings",
+  };
+  return keys
+    .filter((k) => appearance[k])
+    .map((k) => `${labelMap[k] || k}: ${appearance[k]}`)
+    .join(", ");
+}
+
 function resolveLocale() {
   try {
     const qsLang = new URLSearchParams(window.location.search).get("lang");
@@ -249,9 +279,18 @@ const COPY = {
     genType: "Output",
     outputTxt: "Text → image",
     outputImg: "Image → image",
-    refImage: "Reference image",
-    refImageHint: "Z-Image img2img (same pipeline as NSFW). LoRA applies only in character mode.",
-    denoiseLabel: "Denoise (img2img)",
+    outputRecreate: "Image recreate",
+    recreateShort: "Recreate",
+    refImage: "Source image",
+    refImageHint: "Z-Image img2img (same pipeline as NSFW). For “No character” you can type a prompt. With a character, use Image recreate to analyze the photo and build a character-specific prompt (no standard img+prompt for character).",
+    refImageRecreate:
+      "Drop a source photo, then use Prepare recreate. This runs the same vision + prompt-inject + img2img path as the NSFW tool; extra credits may apply for analysis.",
+    prepareRecreate: "Prepare recreate",
+    preparingRecreate: "Analyzing image…",
+    recreateReadyHint: "You can edit the prompt below, then Generate.",
+    recreatePromptWait: "Add a source photo, then use Prepare recreate to build the Z-Image prompt (vision + character inject, same as NSFW).",
+    analyzeFirst: "Prepare recreate first, or add a new source image.",
+    denoiseLabel: "Denoise (recreate)",
     aspectNoteImg2: "In img2img, framing follows your reference (aspect control applies to text-to-image only).",
   },
   ru: {
@@ -292,9 +331,18 @@ const COPY = {
     genType: "Вывод",
     outputTxt: "Текст → изображение",
     outputImg: "Изображение → изображение",
-    refImage: "Опорное изображение",
-    refImageHint: "Z-Image img2img (тот же пайплайн, что и NSFW). LoRA только в режиме с персонажем.",
-    denoiseLabel: "Шумоподавление (img2img)",
+    outputRecreate: "Воссоздать с фото",
+    recreateShort: "Воссоздать",
+    refImage: "Исходное фото",
+    refImageHint: "Z-Image img2img, как в NSFW. В режиме «без персонажа» можно задать промпт. С персонажем — только «Воссоздать с фото»: анализ + промпт + img2img (без обычного img+промпт).",
+    refImageRecreate:
+      "Загрузите фото и нажмите Подготовить воссоздание. Тот же путь: зрение + инъекция + img2img, что и в NSFW; анализ может стоить отдельных кредитов.",
+    prepareRecreate: "Подготовить воссоздание",
+    preparingRecreate: "Анализ изображения…",
+    recreateReadyHint: "Ниже можно отредактировать промпт, затем «Сгенерировать».",
+    recreatePromptWait: "Добавьте фото, затем «Подготовить воссоздание» — тот же путь, что и NSFW img2img (зрение + персонаж).",
+    analyzeFirst: "Сначала подготовьте воссоздание или выберите другое фото.",
+    denoiseLabel: "Шумоподавление (воссозд.)",
     aspectNoteImg2: "В img2img кадр задаётся опорой (соотношение сторон — только для text-to-image).",
   },
 };
@@ -904,7 +952,11 @@ function GenerateTab({ isDark, copy }) {
   const { models } = useCachedModels();
 
   const [mode, setMode] = useState("without"); // "without" | "character"
-  const [genMode, setGenMode] = useState("txt"); // "txt" | "img" — t2i vs Z-Image img2img
+  /** "txt" = text-to-image; "img" = i2i without character; "recreate" = character photo analyze + same pipeline as NSFW img2img */
+  const [genMode, setGenMode] = useState("txt");
+  const [isAnalyzingRecreate, setIsAnalyzingRecreate] = useState(false);
+  const [recreateReady, setRecreateReady] = useState(false);
+  const [analyzeError, setAnalyzeError] = useState(null);
   const [selectedModelId, setSelectedModelId] = useState("");
   const [selectedCharacterId, setSelectedCharacterId] = useState("");
   const [characters, setCharacters] = useState([]);
@@ -963,6 +1015,21 @@ function GenerateTab({ isDark, copy }) {
     setSteps(safe);
   }, [mode, limits]);
 
+  // Character mode: no standard img+prompt; map legacy "img" → recreate
+  useEffect(() => {
+    if (mode === "character" && genMode === "img") setGenMode("recreate");
+  }, [mode, genMode]);
+  useEffect(() => {
+    if (mode === "without" && genMode === "recreate") setGenMode("txt");
+  }, [mode, genMode]);
+
+  useEffect(() => {
+    if (mode !== "character" || genMode !== "recreate") {
+      setRecreateReady(false);
+      setAnalyzeError(null);
+    }
+  }, [mode, genMode]);
+
   // Fetch characters when model changes
   useEffect(() => {
     if (!selectedModelId || mode !== "character") { setCharacters([]); setSelectedCharacterId(""); return; }
@@ -1017,11 +1084,83 @@ function GenerateTab({ isDark, copy }) {
     Object.keys(pollRefs.current).forEach(stopPoll);
   }, []);
 
+  const handlePrepareRecreate = async () => {
+    if (!refImageBase64) {
+      toast.error("Add a source image first");
+      return;
+    }
+    if (mode !== "character" || !selectedModelId || !selectedCharacterId) {
+      toast.error("Select a model and character");
+      return;
+    }
+    const char = characters.find((c) => c.id === selectedCharacterId);
+    if (!char?.triggerWord) {
+      toast.error("Selected character has no trigger word");
+      return;
+    }
+    const mdl = allModels.find((m) => m.id === selectedModelId);
+    const lookDescription = buildMcxLookDescriptionFromModel(mdl);
+    setIsAnalyzingRecreate(true);
+    setAnalyzeError(null);
+    setRecreateReady(false);
+    try {
+      const token = localStorage.getItem("token");
+      const { data: postData } = await axios.post(
+        "/api/img2img/describe",
+        {
+          inputImageBase64: refImageBase64,
+          triggerWord: char.triggerWord,
+          lookDescription,
+        },
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      const describeJobId = postData?.describeJobId;
+      if (!describeJobId) {
+        throw new Error("No analysis job from server");
+      }
+      for (let i = 0; i < 40; i++) {
+        const { data: st } = await axios.get(`/api/img2img/describe-status/${describeJobId}`, {
+          params: { _t: Date.now() },
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Cache-Control": "no-cache",
+            Pragma: "no-cache",
+          },
+        });
+        if (st?.status === "completed" && (st?.prompt != null && String(st.prompt).trim() !== "")) {
+          setPrompt(String(st.prompt).trim());
+          setRecreateReady(true);
+          toast.success("Recreate prompt ready. You can edit it below, then Generate.");
+          return;
+        }
+        if (st?.status === "failed") {
+          throw new Error(st?.error || "Image analysis failed");
+        }
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+      throw new Error("Image analysis timed out. Try again.");
+    } catch (e) {
+      const msg = e?.response?.data?.error || e?.message || "Analysis failed";
+      setAnalyzeError(String(msg));
+      toast.error(String(msg).slice(0, 200));
+    } finally {
+      setIsAnalyzingRecreate(false);
+    }
+  };
+
   const handleGenerate = async () => {
-    if (!prompt.trim()) { toast.error("Enter a prompt first"); return; }
     if (mode === "character" && !selectedModelId) { toast.error("Select a model"); return; }
     if (mode === "character" && !selectedCharacterId) { toast.error("Select a character identity"); return; }
-    if (genMode === "img" && !refImageBase64) { toast.error("Add a reference image for image-to-image"); return; }
+    if (genMode === "txt" && !prompt.trim()) { toast.error("Enter a prompt first"); return; }
+    if (mode === "without" && genMode === "img") {
+      if (!refImageBase64) { toast.error("Add a reference image for image-to-image"); return; }
+      if (!prompt.trim()) { toast.error("Enter a prompt first"); return; }
+    }
+    if (mode === "character" && genMode === "recreate") {
+      if (!refImageBase64) { toast.error("Add a source image"); return; }
+      if (!recreateReady) { toast.error(copy.analyzeFirst); return; }
+      if (!prompt.trim()) { toast.error("No recreate prompt. Use Prepare recreate first."); return; }
+    }
     if (!hasEnough) { toast.error("Insufficient balance"); return; }
 
     setSubmitInFlight((n) => n + 1);
@@ -1036,8 +1175,9 @@ function GenerateTab({ isDark, copy }) {
         steps,
         cfg,
         loraStrength: mode === "character" ? loraStrength : undefined,
+        recreateFromImage: mode === "character" && genMode === "recreate",
       };
-      if (genMode === "img") {
+      if (genMode === "img" || (mode === "character" && genMode === "recreate")) {
         body.inputImageBase64 = refImageBase64;
         body.denoise = denoiseI2I;
       }
@@ -1158,7 +1298,14 @@ function GenerateTab({ isDark, copy }) {
           ].map(({ id, label, icon: Icon }) => (
             <ControlChip
               key={id}
-              onClick={() => setMode(id)}
+              onClick={() => {
+                setMode(id);
+                if (id === "without") {
+                  if (genMode === "recreate") setGenMode("txt");
+                } else {
+                  if (genMode === "img") setGenMode("recreate");
+                }
+              }}
               active={mode === id}
               isDark={isDark}
               className="flex-1 inline-flex items-center justify-center gap-1.5"
@@ -1170,14 +1317,20 @@ function GenerateTab({ isDark, copy }) {
         </div>
       </div>
 
-      {/* Text vs image-to-image (NSFW Z-Image img2img; LoRA only in character mode) */}
+      {/* Text-to-image vs image-based output (no standard i2i+prompt when character is on) */}
       <div className={panel}>
         <label className={labelBase}>{copy.genType}</label>
         <div className="flex flex-wrap gap-2">
-          {[
-            { id: "txt", label: copy.outputTxt, icon: Sparkles },
-            { id: "img", label: copy.outputImg, icon: ImageIcon },
-          ].map(({ id, label, icon: Icon }) => (
+          {(mode === "character"
+            ? [
+                { id: "txt", label: copy.outputTxt, icon: Sparkles },
+                { id: "recreate", label: copy.outputRecreate, icon: ImageIcon },
+              ]
+            : [
+                { id: "txt", label: copy.outputTxt, icon: Sparkles },
+                { id: "img", label: copy.outputImg, icon: ImageIcon },
+              ]
+          ).map(({ id, label, icon: Icon }) => (
             <ControlChip
               key={id}
               onClick={() => {
@@ -1185,6 +1338,10 @@ function GenerateTab({ isDark, copy }) {
                 if (id === "txt") {
                   setRefImageBase64("");
                   setRefImagePreview("");
+                }
+                if (id === "recreate" || (mode === "without" && id === "img")) {
+                  setRecreateReady(false);
+                  setAnalyzeError(null);
                 }
               }}
               active={genMode === id}
@@ -1196,9 +1353,11 @@ function GenerateTab({ isDark, copy }) {
             </ControlChip>
           ))}
         </div>
-        {genMode === "img" && (
+        {((mode === "without" && genMode === "img") || (mode === "character" && genMode === "recreate")) && (
           <div className="mt-3 space-y-2">
-            <p className={`text-[11px] leading-relaxed ${isDark ? "text-slate-500" : "text-slate-600"}`}>{copy.refImageHint}</p>
+            <p className={`text-[11px] leading-relaxed ${isDark ? "text-slate-500" : "text-slate-600"}`}>
+              {mode === "character" ? copy.refImageRecreate : copy.refImageHint}
+            </p>
             <div className="flex flex-wrap items-center gap-2">
               <input
                 ref={refFileInputRef}
@@ -1209,6 +1368,11 @@ function GenerateTab({ isDark, copy }) {
                   const f = e.target?.files?.[0];
                   e.target.value = "";
                   if (!f || !f.type.startsWith("image/")) return;
+                  if (mode === "character" && genMode === "recreate") {
+                    setRecreateReady(false);
+                    setAnalyzeError(null);
+                    setPrompt("");
+                  }
                   const reader = new FileReader();
                   reader.onload = () => {
                     const dataUrl = String(reader.result || "");
@@ -1234,7 +1398,15 @@ function GenerateTab({ isDark, copy }) {
               {refImagePreview && (
                 <button
                   type="button"
-                  onClick={() => { setRefImageBase64(""); setRefImagePreview(""); }}
+                  onClick={() => {
+                    setRefImageBase64("");
+                    setRefImagePreview("");
+                    if (genMode === "recreate") {
+                      setRecreateReady(false);
+                      setPrompt("");
+                    }
+                    setAnalyzeError(null);
+                  }}
                   className={`text-xs ${isDark ? "text-rose-400" : "text-rose-600"}`}
                 >
                   Clear
@@ -1245,6 +1417,27 @@ function GenerateTab({ isDark, copy }) {
               <div className="flex gap-2 items-start">
                 <img src={refImagePreview} alt="" className="h-20 w-auto max-w-full rounded-lg border object-contain border-white/10" />
               </div>
+            )}
+            {mode === "character" && genMode === "recreate" && (
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={!refImageBase64 || isAnalyzingRecreate}
+                  onClick={() => void handlePrepareRecreate()}
+                  className={`px-3 py-2 rounded-xl text-xs font-medium border transition-colors ${
+                    isDark ? "border-violet-500/40 text-violet-200 bg-violet-500/10 hover:bg-violet-500/15" : "border-violet-200 text-violet-800 bg-violet-50 hover:bg-violet-100"
+                  } disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1.5`}
+                >
+                  {isAnalyzingRecreate ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                  {isAnalyzingRecreate ? copy.preparingRecreate : copy.prepareRecreate}
+                </button>
+                {recreateReady && (
+                  <span className={`text-[11px] ${isDark ? "text-emerald-400/90" : "text-emerald-700"}`}>{copy.recreateReadyHint}</span>
+                )}
+              </div>
+            )}
+            {analyzeError && mode === "character" && genMode === "recreate" && (
+              <p className={`text-[11px] ${isDark ? "text-rose-400" : "text-rose-600"}`}>{analyzeError}</p>
             )}
             <label className="flex flex-col gap-1 max-w-xs">
               <span className={`text-[11px] font-medium ${isDark ? "text-slate-400" : "text-slate-600"}`}>{copy.denoiseLabel}</span>
@@ -1350,24 +1543,38 @@ function GenerateTab({ isDark, copy }) {
         <label className={labelBase}>{copy.prompt}</label>
         <textarea
           rows={3}
-          placeholder={copy.promptPlaceholder}
+          placeholder={
+            mode === "character" && genMode === "recreate" && !recreateReady
+              ? copy.recreatePromptWait
+              : copy.promptPlaceholder
+          }
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           className={`w-full px-3 py-2.5 rounded-xl text-sm border outline-none resize-none ${inputBase}`}
         />
+        {mode === "character" && genMode === "recreate" && recreateReady && (
+          <p className={`text-[11px] mt-1.5 ${isDark ? "text-slate-500" : "text-slate-600"}`}>{copy.recreateReadyHint}</p>
+        )}
       </div>
 
-      {/* Aspect ratio (text-to-image; img2img follows reference) */}
-      <div className={`${panel} ${genMode === "img" ? "opacity-60" : ""}`}>
+      {/* Aspect ratio (text-to-image; img2img / recreate follow reference) */}
+      <div
+        className={`${panel} ${
+          (mode === "without" && genMode === "img") || (mode === "character" && genMode === "recreate") ? "opacity-60" : ""
+        }`}
+      >
         <label className={labelBase}>{copy.aspectRatio}</label>
-        {genMode === "img" && (
+        {((mode === "without" && genMode === "img") || (mode === "character" && genMode === "recreate")) && (
           <p className={`text-[11px] mb-2 ${isDark ? "text-slate-500" : "text-slate-500"}`}>{copy.aspectNoteImg2}</p>
         )}
         <div className="flex flex-wrap gap-2">
           {ASPECT_OPTIONS.map((opt) => (
             <ControlChip
               key={opt.id}
-              onClick={() => genMode !== "img" && setAspect(opt.id)}
+              onClick={() => {
+                const locked = (mode === "without" && genMode === "img") || (mode === "character" && genMode === "recreate");
+                if (!locked) setAspect(opt.id);
+              }}
               active={aspect === opt.id}
               isDark={isDark}
             >
@@ -1454,9 +1661,9 @@ function GenerateTab({ isDark, copy }) {
         <button
           type="button"
           onClick={handleGenerate}
-          disabled={!hasEnough || submitInFlight > 0}
+          disabled={!hasEnough || submitInFlight > 0 || isAnalyzingRecreate}
           className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold transition-all active:scale-[0.99] disabled:cursor-not-allowed"
-          style={primaryBtnStyle(!hasEnough || submitInFlight > 0)}
+          style={primaryBtnStyle(!hasEnough || submitInFlight > 0 || isAnalyzingRecreate)}
         >
           {submitInFlight > 0 ? (
             <><Loader2 className="w-4 h-4 animate-spin" /> {copy.generating}</>

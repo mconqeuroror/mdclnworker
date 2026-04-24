@@ -3352,19 +3352,36 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
     inputImageUrl = "",
     inputImageBase64 = "",
     denoise = 0.6,
+    /** When true (character + ref image only): skip MCX prompt JSON optimizer — prompt is already from /img2img/describe + Grok inject (NSFW-style recreate). */
+    recreateFromImage = false,
   } = req.body;
 
   const inputImgUrl = typeof inputImageUrl === "string" ? inputImageUrl.trim() : "";
   const inputImgB64 = typeof inputImageBase64 === "string" ? String(inputImageBase64).trim() : "";
   const isImg2Img = Boolean(inputImgUrl || inputImgB64);
   const denoiseImg2Img = Math.max(0.05, Math.min(1, Number(denoise) || 0.6));
+  const isRecreate = Boolean(recreateFromImage);
 
   if (!prompt || !prompt.trim()) {
     return res.status(400).json({ success: false, error: "Prompt is required" });
   }
 
-  const qty = quantity === 2 ? 2 : 1;
   const useCharacter = Boolean(modelId && characterLoraId);
+  if (useCharacter && isImg2Img && !isRecreate) {
+    return res.status(400).json({
+      success: false,
+      error:
+        "With a character, image-based generation uses Image recreate only (analyze source, then the same Z-Image img2img pipeline as NSFW). Use the app’s Image recreate mode.",
+    });
+  }
+  if (isRecreate && (!useCharacter || !isImg2Img)) {
+    return res.status(400).json({
+      success: false,
+      error: "recreateFromImage requires a character, reference image, and a prompt from image analysis.",
+    });
+  }
+
+  const qty = quantity === 2 ? 2 : 1;
   const defaultStepsForMode = useCharacter ? 50 : 20;
   const parsedSteps = Number(steps);
   const safeSteps = Math.max(
@@ -3433,21 +3450,26 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
 
   const inputPrompt = prompt.trim();
   let optimizedPrompt = inputPrompt;
-  try {
-    const identityContext = useCharacter ? buildModelCloneXModelIdentityContext(modelForPrompt, loraForPrompt) : "";
-    optimizedPrompt = await optimizeModelCloneXPrompt({
-      userPrompt: inputPrompt,
-      withCharacter: useCharacter,
-      modelIdentityContext: identityContext,
-      // Pass the raw model + LoRA so the optimizer can build the structured JSON itself.
-      // For "no character" mode, model is intentionally null so main_subject is omitted.
-      model: useCharacter ? modelForPrompt : null,
-      lora: useCharacter ? loraForPrompt : null,
-      triggerWord: useCharacter ? triggerWord : "",
-      context: {},
-    });
-  } catch (optErr) {
-    console.warn("[ModelCloneX] Prompt optimization fallback to raw prompt:", optErr.message);
+  if (isRecreate && useCharacter && isImg2Img) {
+    // Prompt already: Grok vision → Grok inject (same as /api/img2img/describe). Do not re-wrap as MCX JSON.
+    console.log("[ModelCloneX] recreateFromImage: using injected scene prompt as-is (skip optimizeModelCloneXPrompt).");
+  } else {
+    try {
+      const identityContext = useCharacter ? buildModelCloneXModelIdentityContext(modelForPrompt, loraForPrompt) : "";
+      optimizedPrompt = await optimizeModelCloneXPrompt({
+        userPrompt: inputPrompt,
+        withCharacter: useCharacter,
+        modelIdentityContext: identityContext,
+        // Pass the raw model + LoRA so the optimizer can build the structured JSON itself.
+        // For "no character" mode, model is intentionally null so main_subject is omitted.
+        model: useCharacter ? modelForPrompt : null,
+        lora: useCharacter ? loraForPrompt : null,
+        triggerWord: useCharacter ? triggerWord : "",
+        context: {},
+      });
+    } catch (optErr) {
+      console.warn("[ModelCloneX] Prompt optimization fallback to raw prompt:", optErr.message);
+    }
   }
 
   const deducted = await deductCredits(userId, costPer);
