@@ -1,0 +1,3 @@
+# One proxy URL per line (http://user:pass@host:port or socks5://...).
+# Mount as a secret file and set REEL_SCRAPER_PROXY_FILE=/path/to/proxies.txt
+# Do not commit real credentials.

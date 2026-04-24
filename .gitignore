@@ -20,6 +20,15 @@ attached_assets/*
 # Nested repo checkout — keep files, not embedded .git
 runpod-mdcln/.git/
 
+# Satellite Vercel wrapper: local submodule checkout only (see modelclone-api/README.md)
+modelclone-api/core/
+
+# Python reelscraper local venv
+reelscraper/.venv/
+
+__pycache__/
+*.pyc
+
 # Playwright
 /test-results/
 /playwright-report/

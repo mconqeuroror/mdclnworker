@@ -157,6 +157,18 @@ const NSFW_COPY = {
     videoSectionDuration: "Duration",
     videoButtonGenerate: "Generate Video",
     videoButtonGenerating: "Generating...",
+    videoModeMotionX: "Motion-X",
+    videoModeMotionXBadge: "Video recreate",
+    videoModeRecommended: "Recommended",
+    videoModeStandardI2v: "Standard I2V",
+    videoModeStandardI2vBadge: "5s / 8s",
+    videoMotionXInfoTitle: "Motion-X (video recreate):",
+    videoMotionXInfoBody:
+      "use your first frame plus a driving video. Uses the same NSFW motion-control worker (RunPod). Duration follows the source clip, max 30s.",
+    videoButtonGenerateMotionX: "Generate Motion-X Video",
+    videoMotionXGenerating: "Generating Motion-X video...",
+    videoModeMotionXSubline: "NSFW motion worker",
+    videoGalleryMotionXSection: "Motion-X & motion",
     videoToastSelectModel: "Please select a model",
     videoToastUploadSource: "Please upload a source image",
     videoToastEnterPrompt: "Please enter a motion prompt",
@@ -376,6 +388,18 @@ const NSFW_COPY = {
     videoSectionDuration: "Длительность",
     videoButtonGenerate: "Создать видео",
     videoButtonGenerating: "Генерация...",
+    videoModeMotionX: "Motion-X",
+    videoModeMotionXBadge: "Видео из референса",
+    videoModeRecommended: "Рекомендуем",
+    videoModeStandardI2v: "Обычный I2V",
+    videoModeStandardI2vBadge: "5с / 8с",
+    videoMotionXInfoTitle: "Motion-X (воссоздание видео):",
+    videoMotionXInfoBody:
+      "первый кадр + движение с опорного ролика. Тот же motion-control worker (RunPod). Длительность — по исходнику, макс. 30с.",
+    videoButtonGenerateMotionX: "Создать Motion-X",
+    videoMotionXGenerating: "Генерация Motion-X...",
+    videoModeMotionXSubline: "Motion worker (NSFW)",
+    videoGalleryMotionXSection: "Motion-X и motion",
     videoToastSelectModel: "Пожалуйста, выберите модель",
     videoToastUploadSource: "Пожалуйста, загрузите исходное изображение",
     videoToastEnterPrompt: "Пожалуйста, введите промпт движения",
@@ -1935,7 +1959,8 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
   const [extendDuration, setExtendDuration] = useState(5);
   const [extendPrompt, setExtendPrompt] = useState("");
   const [isSubmittingExtend, setIsSubmittingExtend] = useState(false);
-  const [videoGenMode, setVideoGenMode] = useState("standard"); // "standard" | "motion"
+  /** "motion-x" = first / video recreate, same API as legacy "motion" (NSFW motion-control RunPod worker) */
+  const [videoGenMode, setVideoGenMode] = useState("motion-x");
   const [sourceImageMode, setSourceImageMode] = useState("gallery"); // "gallery" | "upload"
   const [uploadedSourceImageUrl, setUploadedSourceImageUrl] = useState("");
   const [uploadedSourceImageName, setUploadedSourceImageName] = useState("");
@@ -1947,6 +1972,7 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
   const [videoModal, setVideoModal] = useState(null); // { url, title, chain }
   const [viewingSegment, setViewingSegment] = useState({}); // { [chainRootId]: 'original' | 'extended' }
   const pageSize = 12;
+  const isMotionXMode = videoGenMode === "motion-x" || videoGenMode === "motion";
 
   const { data: imageData, isLoading: imagesLoading } = useQuery({
     queryKey: ["nsfw-video-source-images", modelId, videoGalleryPage],
@@ -2219,26 +2245,32 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
         <p className="text-[10px] uppercase tracking-[0.25em] text-slate-500 font-medium mb-2.5">Select Mode</p>
         <div className="grid grid-cols-2 gap-2">
         <button
-          onClick={() => setVideoGenMode("motion")}
+          onClick={() => setVideoGenMode("motion-x")}
           className={`relative h-[72px] p-3 rounded-xl group overflow-hidden text-center ${
-            videoGenMode === "motion" ? "text-[color:var(--text-primary)]" : "text-[color:var(--text-muted)] hover:text-[color:var(--text-primary)]"
+            isMotionXMode ? "text-[color:var(--text-primary)]" : "text-[color:var(--text-muted)] hover:text-[color:var(--text-primary)]"
           }`}
-          style={videoGenMode === "motion"
+          style={isMotionXMode
             ? { background: "var(--bg-glass-strong)", border: "1px solid var(--border-strong)", boxShadow: "inset 0 1px 0 var(--mc-glass-inset-strong)" }
             : { background: "var(--bg-glass)", border: "1px solid var(--border-subtle)", boxShadow: "inset 0 1px 0 var(--mc-glass-inset)" }}
-          data-testid="button-video-mode-motion"
+          data-testid="button-video-mode-motion-x"
         >
-          {videoGenMode === "motion" && (
+          {isMotionXMode && (
             <>
               <span className="absolute top-0 left-0 w-20 h-20 pointer-events-none" style={RED_CORNER_GLOW_STYLE} />
               <span className="absolute left-0 top-2 bottom-2 w-1 rounded-full bg-gradient-to-b from-white/90 to-white/45" />
             </>
           )}
           <div className="relative">
-            <p className="font-semibold text-xs">Motion Control</p>
-            <span className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-fuchsia-500/10 border border-fuchsia-500/20 text-[9px] font-medium text-fuchsia-300">
-              Recommended
-            </span>
+            <p className="font-semibold text-xs">{copy.videoModeMotionX}</p>
+            <div className="mt-1 flex flex-wrap items-center justify-center gap-1">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-fuchsia-500/10 border border-fuchsia-500/20 text-[9px] font-medium text-fuchsia-300">
+                {copy.videoModeMotionXBadge}
+              </span>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-[9px] font-medium text-emerald-300">
+                {copy.videoModeRecommended}
+              </span>
+            </div>
+            <span className="mt-0.5 block text-[8px] text-slate-500 font-normal">{copy.videoModeMotionXSubline}</span>
           </div>
         </button>
         <button
@@ -2258,20 +2290,20 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
             </>
           )}
           <div className="relative">
-            <p className="font-semibold text-xs">Standard I2V</p>
+            <p className="font-semibold text-xs">{copy.videoModeStandardI2v}</p>
             <span className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-[9px] font-medium text-blue-300">
-              5s / 8s
+              {copy.videoModeStandardI2vBadge}
             </span>
           </div>
         </button>
       </div>
       </div>
 
-      {videoGenMode === "motion" && (
+      {isMotionXMode && (
         <div className="mb-0.5 flex items-start gap-2.5 p-3 rounded-xl" style={{ background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.15)" }}>
           <Info className="w-4 h-4 text-white flex-shrink-0 mt-0.5" />
           <p className="text-[11px] text-slate-400 leading-relaxed">
-            <span className="text-white font-bold">Motion Control:</span> upload the first frame and a driving video. Duration is auto-derived from the video (max 30s).
+            <span className="text-white font-bold">{copy.videoMotionXInfoTitle}</span> {copy.videoMotionXInfoBody}
           </p>
         </div>
       )}
@@ -2387,7 +2419,7 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
       </div>
 
       {/* Step 2: driving video / duration */}
-      {videoGenMode === "motion" ? (
+      {isMotionXMode ? (
         <div className="mb-0.5">
           <div className="flex items-center gap-2 mb-2.5">
             <div className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold" style={{ background: "rgba(203, 213, 225, 0.9)", color: "#0f172a", border: "1px solid rgba(255,255,255,0.2)" }}>2</div>
@@ -2468,7 +2500,7 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
         />
       </div>
 
-      {videoGenMode === "motion" && (
+      {isMotionXMode && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-2.5">
             <p className="text-[10px] uppercase tracking-[0.12em] text-slate-400 mb-2">First frame</p>
@@ -2490,32 +2522,32 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
       )}
 
       <button
-        onClick={videoGenMode === "motion" ? handleSubmitMotionVideo : handleSubmitVideo}
+        onClick={isMotionXMode ? handleSubmitMotionVideo : handleSubmitVideo}
         disabled={
-          videoGenMode === "motion"
+          isMotionXMode
             ? (!effectiveSelectedImage || !drivingVideoUrl || isSubmittingMotionVideo)
             : (!effectiveSelectedImage || isSubmittingVideo)
         }
         className={`w-full h-12 rounded-xl font-semibold transition-all flex items-center justify-center gap-2 disabled:opacity-100 disabled:cursor-not-allowed ${
-          ((videoGenMode === "motion" ? isSubmittingMotionVideo : isSubmittingVideo)
+          ((isMotionXMode ? isSubmittingMotionVideo : isSubmittingVideo)
             || !effectiveSelectedImage
-            || (videoGenMode === "motion" && !drivingVideoUrl))
+            || (isMotionXMode && !drivingVideoUrl))
             ? "bg-white/10 text-white/40"
             : "bg-white text-black hover:bg-white/90"
         }`}
-        data-testid={videoGenMode === "motion" ? "button-generate-motion-video" : "button-generate-video"}
+        data-testid={isMotionXMode ? "button-generate-motion-x-video" : "button-generate-video"}
       >
-        {(videoGenMode === "motion" ? isSubmittingMotionVideo : isSubmittingVideo) ? (
+        {(isMotionXMode ? isSubmittingMotionVideo : isSubmittingVideo) ? (
           <>
             <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-            {videoGenMode === "motion" ? "Generating motion video..." : copy.videoButtonGenerating}
+            {isMotionXMode ? copy.videoMotionXGenerating : copy.videoButtonGenerating}
           </>
         ) : (
           <>
             <Video className="w-5 h-5" />
-            {videoGenMode === "motion" ? "Generate Motion Video" : copy.videoButtonGenerate}
+            {isMotionXMode ? copy.videoButtonGenerateMotionX : copy.videoButtonGenerate}
             <span className="inline-flex items-center gap-1 text-yellow-500">
-              {videoGenMode === "motion" ? motionCreditsNeeded : standardCreditsNeeded}
+              {isMotionXMode ? motionCreditsNeeded : standardCreditsNeeded}
               <Coins className="w-3.5 h-3.5" />
             </span>
           </>
@@ -2539,7 +2571,7 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
         <div className="space-y-3">
           <div className="flex items-center gap-2">
             <Video className="w-4 h-4 text-fuchsia-400" />
-            <h3 className="text-[11px] uppercase tracking-[0.15em] text-slate-400 font-medium">Motion Control Videos</h3>
+            <h3 className="text-[11px] uppercase tracking-[0.15em] text-slate-400 font-medium">{copy.videoGalleryMotionXSection}</h3>
             <span className="px-2 py-0.5 rounded-full text-[9px] font-medium" style={{ background: "rgba(217,70,239,0.15)", color: "#E879F9" }}>
               {motionVideos.length}
             </span>

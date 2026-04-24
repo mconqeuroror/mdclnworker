@@ -11,6 +11,7 @@ function resolveClientIp(req) {
 
 function deriveGenerationMode(routePath) {
   const path = String(routePath || "").toLowerCase();
+  if (path.includes("/modelclone-x/")) return "modelclone-x";
   if (path.includes("/soulx/")) return "soulx";
   if (path.includes("/nsfw/")) return "nsfw";
   if (path.includes("/upscale")) return "upscale";

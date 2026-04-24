@@ -6,6 +6,7 @@ function isGenerationLikePath(pathname) {
   if (/^\/api\/auth\/2fa\/generate$/.test(pathname)) return false;
   return (
     pathname.includes("/generate") ||
+    pathname.includes("/modelclone-x/") ||
     pathname.includes("/soulx/") ||
     pathname.includes("/nsfw/") ||
     pathname.includes("/img2img/") ||

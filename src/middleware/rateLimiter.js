@@ -1,10 +1,35 @@
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
+import { RedisStore } from "rate-limit-redis";
+import {
+  createUpstashRateLimitSendCommand,
+  getSharedUpstashRedis,
+} from "../lib/upstashRateLimitBridge.js";
 
 const isDev = process.env.NODE_ENV === "development";
 
 const userOrIpKey = (req) => {
   return req.user?.userId ? `user:${req.user.userId}` : req.ip;
 };
+
+/**
+ * When UPSTASH_REDIS_REST_URL + TOKEN (or Vercel KV_REST_*) are set, per-user and
+ * global limits are shared across all API instances.
+ */
+function makeRedisStore(prefix) {
+  const redis = getSharedUpstashRedis();
+  if (!redis) return undefined;
+  return new RedisStore({
+    sendCommand: createUpstashRateLimitSendCommand(redis),
+    prefix,
+  });
+}
+
+const storeGen = makeRedisStore("mcl:rl:gen:");
+const storeModels = makeRedisStore("mcl:rl:models:");
+const storeGenerationsList = makeRedisStore("mcl:rl:gens:");
+const storeVoicePrev = makeRedisStore("mcl:rl:voicepv:");
+const storeDownload = makeRedisStore("mcl:rl:dl:");
+const storeApi = makeRedisStore("mcl:rl:api:");
 
 export const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -19,9 +44,6 @@ export const authLimiter = rateLimit({
   skipSuccessfulRequests: false,
 });
 
-// Refresh endpoint should be more permissive than login/signup.
-// Browsers can trigger bursts after wake-from-sleep/tab-resume, and
-// strict auth limiting here causes "stuck" sessions until hard refresh/relogin.
 export const refreshLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: isDev ? 10000 : 120,
@@ -56,7 +78,6 @@ export const passwordResetLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-// Per-user generation submissions per minute (env: GENERATION_RATE_LIMIT_MAX, default 60)
 const generationLimitMax = Math.max(10, parseInt(process.env.GENERATION_RATE_LIMIT_MAX || "60", 10));
 export const generationLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -70,6 +91,8 @@ export const generationLimiter = rateLimit({
   skipSuccessfulRequests: false,
   validate: false,
   keyGenerator: userOrIpKey,
+  store: storeGen,
+  passOnStoreError: Boolean(storeGen),
 });
 
 export const modelsLimiter = rateLimit({
@@ -84,9 +107,10 @@ export const modelsLimiter = rateLimit({
   skipSuccessfulRequests: false,
   validate: false,
   keyGenerator: userOrIpKey,
+  store: storeModels,
+  passOnStoreError: Boolean(storeModels),
 });
 
-/** Voice design previews call ElevenLabs; keep abuse low */
 export const voiceDesignPreviewLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: isDev ? 1000 : 20,
@@ -99,6 +123,8 @@ export const voiceDesignPreviewLimiter = rateLimit({
   skipSuccessfulRequests: false,
   validate: false,
   keyGenerator: userOrIpKey,
+  store: storeVoicePrev,
+  passOnStoreError: Boolean(storeVoicePrev),
 });
 
 export const generationsLimiter = rateLimit({
@@ -113,17 +139,30 @@ export const generationsLimiter = rateLimit({
   skipSuccessfulRequests: false,
   validate: false,
   keyGenerator: userOrIpKey,
+  store: storeGenerationsList,
+  passOnStoreError: Boolean(storeGenerationsList),
 });
 
+/** Global /api bucket (runs before route auth → keyed by client IP). */
+const API_WINDOW_MS = Math.max(
+  60_000,
+  parseInt(process.env.API_RATE_LIMIT_WINDOW_MS || String(15 * 60 * 1000), 10),
+);
+const API_MAX = Math.max(100, parseInt(process.env.API_RATE_LIMIT_MAX || "2000", 10));
+
 export const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 500,
+  windowMs: API_WINDOW_MS,
+  max: isDev ? 100_000 : API_MAX,
   message: {
     success: false,
     message: "Too many requests. Please try again later.",
   },
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => ipKeyGenerator(req.ip ?? "0.0.0.0"),
+  validate: { xForwardedForHeader: false },
+  store: storeApi,
+  passOnStoreError: Boolean(storeApi),
 });
 
 export const downloadLimiter = rateLimit({
@@ -137,4 +176,6 @@ export const downloadLimiter = rateLimit({
   legacyHeaders: false,
   validate: false,
   keyGenerator: userOrIpKey,
+  store: storeDownload,
+  passOnStoreError: Boolean(storeDownload),
 });

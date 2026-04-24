@@ -72,15 +72,14 @@ setup_models() {
         "${target_dir}/clip/qwen_3_4b.safetensors"
 
     echo ""
-    echo "--- [3/4] UNet: zImageTurboNSFW_20BF16AIO.safetensors (HuggingFace) ---"
-    download_if_missing \
-        "https://huggingface.co/bigckck/Z-Image_Turbo_NSFW_2.0bf16_aio/resolve/main/zImageTurboNSFW_20BF16AIO.safetensors" \
-        "${target_dir}/unet/zImageTurboNSFW_20BF16AIO.safetensors"
-    if [ ! -f "${target_dir}/unet/zImageTurboNSFW_20BF16AIO.safetensors" ]; then
+    echo "--- [3/4] UNet: zImageTurboNSFW_62BF16.safetensors (network volume / S3) ---"
+    echo "  (No public HuggingFace auto-download for this file — place it under unet/ on the volume.)"
+    if [ ! -f "${target_dir}/unet/zImageTurboNSFW_62BF16.safetensors" ]; then
         echo ""
         echo "  ╔══════════════════════════════════════════════════════════════╗"
-        echo "  ║  FATAL: zImageTurboNSFW_20BF16AIO.safetensors NOT FOUND    ║"
-        echo "  ║  NSFW / MCX / img2img workflows will ALL fail.             ║"
+        echo "  ║  FATAL: zImageTurboNSFW_62BF16.safetensors NOT FOUND       ║"
+        echo "  ║  Upload to models/unet/ (RunPod volume or S3 sync).         ║"
+        echo "  ║  NSFW txt2img / img2img / MCX will fail without it.         ║"
         echo "  ╚══════════════════════════════════════════════════════════════╝"
         echo ""
     fi
@@ -90,11 +89,11 @@ setup_models() {
         rm -f "${target_dir}/unet/zImageTurboNSFW_43BF16AIO.safetensors"
     fi
 
-    # Symlink AIO model into checkpoints/ so CheckpointLoaderSimple workflows also find it
-    if [ -f "${target_dir}/unet/zImageTurboNSFW_20BF16AIO.safetensors" ]; then
-        ln -sf "${target_dir}/unet/zImageTurboNSFW_20BF16AIO.safetensors" \
-               "${target_dir}/checkpoints/zImageTurboNSFW_20BF16AIO.safetensors"
-        echo "  [OK] Symlinked AIO model into checkpoints/"
+    # Symlink UNet into checkpoints/ so CheckpointLoaderSimple (refiner) finds the same file
+    if [ -f "${target_dir}/unet/zImageTurboNSFW_62BF16.safetensors" ]; then
+        ln -sf "${target_dir}/unet/zImageTurboNSFW_62BF16.safetensors" \
+               "${target_dir}/checkpoints/zImageTurboNSFW_62BF16.safetensors"
+        echo "  [OK] Symlinked UNet into checkpoints/"
     fi
 
     echo ""

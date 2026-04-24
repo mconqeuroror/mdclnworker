@@ -240,6 +240,8 @@ async function handleRunpodCallback(req, res) {
       body.status ??
       body.state ??
       body.jobStatus ??
+      body?.execution?.status ??
+      body?.execution?.state ??
       body?.data?.status ??
       body?.data?.state ??
       body?.result?.status ??
@@ -247,12 +249,28 @@ async function handleRunpodCallback(req, res) {
       body?.output?.status ??
       body?.output?.state;
     let st = String(statusRaw || "").toUpperCase();
-    let rawOut = body.output ?? body.result ?? body.data?.output ?? body.data ?? null;
+    let rawOut =
+      body.output !== undefined && body.output !== null
+        ? body.output
+        : body.result !== undefined && body.result !== null
+          ? body.result
+          : body.data?.output !== undefined && body.data?.output !== null
+            ? body.data.output
+            : body.data?.result !== undefined
+              ? body.data.result
+              : body.data ?? null;
     if (rawOut == null && typeof body.data === "string") {
       try {
         rawOut = JSON.parse(body.data);
       } catch {
         /* leave null */
+      }
+    }
+    if (typeof rawOut === "string" && (rawOut.trim().startsWith("{") || rawOut.trim().startsWith("["))) {
+      try {
+        rawOut = JSON.parse(rawOut);
+      } catch {
+        /* keep string */
       }
     }
     // RunPod / proxies sometimes stringifies output or nests handler body twice; img2img may put `images` on the envelope.
@@ -262,6 +280,11 @@ async function handleRunpodCallback(req, res) {
       rawOut = { ...rawOut, images: body.images };
     } else if (rawOut == null && Array.isArray(body?.images) && body.images.length > 0) {
       rawOut = { images: body.images };
+    }
+    if (rawOut && !Array.isArray(rawOut?.videos) && Array.isArray(body?.videos) && body.videos.length > 0) {
+      rawOut = { ...rawOut, videos: body.videos };
+    } else if (rawOut == null && Array.isArray(body?.videos) && body.videos.length > 0) {
+      rawOut = { videos: body.videos };
     }
 
     // Fallback inference for webhook variants that omit top-level status.
@@ -331,10 +354,18 @@ async function handleRunpodCallback(req, res) {
       }
 
       if (st === "COMPLETED") {
-        const outputUrl = await materializeNsfwMotionOutputFromRunpodResponse(rawOut);
+        let outputUrl = await materializeNsfwMotionOutputFromRunpodResponse(rawOut);
+        if (!outputUrl) {
+          outputUrl = await materializeNsfwMotionOutputFromRunpodResponse(body);
+        }
         if (!outputUrl) {
           const msg = "RunPod motion job completed but returned no video (or upload failed)";
-          console.warn(`[RunPod webhook] motion-video COMPLETED but no materialized URL for ${jobId}`);
+          console.warn(
+            `[RunPod webhook] motion-video COMPLETED but no materialized URL for ${jobId} ` +
+            `outType=${rawOut == null ? "null" : typeof rawOut} bodyKeys=${
+              body && typeof body === "object" ? Object.keys(body).slice(0, 14).join(",") : ""
+            }`,
+          );
           await refundGeneration(motionGen.id).catch(() => {});
           await prisma.generation.updateMany({
             where: { id: motionGen.id, status: { in: ["queued", "processing", "pending"] } },

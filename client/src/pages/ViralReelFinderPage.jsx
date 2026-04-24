@@ -1,6 +1,6 @@
 /**
  * Reel Finder — rebuilt from scratch.
- * Works with thumbnail-only reels (video fetched on demand via Apify).
+ * Works with thumbnail-only reels (video refreshed on demand via local reelscraper).
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -121,7 +121,7 @@ function ReelModal({ reel, onClose, token }) {
   const thumb = thumbSrc(reel, token);
 
   // Always attempt streaming — the server handles expired CDN URLs by trying
-  // an Apify refresh. Only skip if we know there's no reel_url to fall back on.
+  // a reelscraper refresh. Only skip if we know there's no reel_url to fall back on.
   useEffect(() => {
     if (!reel?.id) return;
     let cancelled = false;

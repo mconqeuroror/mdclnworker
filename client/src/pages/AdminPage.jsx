@@ -42,6 +42,31 @@ const formatPromptTemplateLabel = (key = '') =>
     .trim()
     .replace(/\b\w/g, (m) => m.toUpperCase());
 
+const WINBACK_VISUAL_DEFAULTS = {
+  codeLabel: "Discount code",
+  discountLabel: "Discount",
+  appliesLabel: "Applies to",
+  appliesValue: "First membership checkout",
+  expiresLabel: "Expires",
+  ctaText: "Claim membership offer",
+  notePrimary: "Code is single-use and tied to your first membership purchase.",
+  noteSecondary: "If you've already joined, you can ignore this email.",
+};
+
+const buildWinbackVisualHtml = (v = WINBACK_VISUAL_DEFAULTS) => `
+<div style="background:#f7f7f5;border:1px solid #e2e2de;border-radius:4px;padding:20px 22px;margin-bottom:16px;">
+  <p style="font-size:13px;color:#9b9b93;margin-bottom:8px;">${v.codeLabel || WINBACK_VISUAL_DEFAULTS.codeLabel}</p>
+  <p style="font-size:30px;line-height:1.1;font-weight:600;color:#111;font-family:'DM Mono', monospace;">{{DISCOUNT_CODE}}</p>
+</div>
+<table style="width:100%;border-collapse:collapse;font-size:13px;color:#555550;margin:0 0 18px;">
+  <tr><td style="padding:8px 0;border-bottom:1px solid #e8e8e4;">${v.discountLabel || WINBACK_VISUAL_DEFAULTS.discountLabel}</td><td style="padding:8px 0;text-align:right;border-bottom:1px solid #e8e8e4;"><strong>{{DISCOUNT_PERCENT}}%</strong></td></tr>
+  <tr><td style="padding:8px 0;border-bottom:1px solid #e8e8e4;">${v.appliesLabel || WINBACK_VISUAL_DEFAULTS.appliesLabel}</td><td style="padding:8px 0;text-align:right;border-bottom:1px solid #e8e8e4;">${v.appliesValue || WINBACK_VISUAL_DEFAULTS.appliesValue}</td></tr>
+  <tr><td style="padding:8px 0;">${v.expiresLabel || WINBACK_VISUAL_DEFAULTS.expiresLabel}</td><td style="padding:8px 0;text-align:right;">{{EXPIRES_AT}}</td></tr>
+</table>
+<p style="margin:0 0 16px;"><a href="{{DASHBOARD_URL}}" class="cta-btn">${v.ctaText || WINBACK_VISUAL_DEFAULTS.ctaText}</a></p>
+<p class="note">${v.notePrimary || WINBACK_VISUAL_DEFAULTS.notePrimary}</p>
+<p class="note">${v.noteSecondary || WINBACK_VISUAL_DEFAULTS.noteSecondary}</p>`;
+
 const TELEMETRY_OPTIONS = [
   { value: 1,   label: '1h'  },
   { value: 24,  label: '24h' },
@@ -622,6 +647,8 @@ export default function AdminPage() {
   const [lostGenResult, setLostGenResult] = useState(null);
   const [lostGenAllLoading, setLostGenAllLoading] = useState(false);
   const [lostGenAllResult, setLostGenAllResult] = useState(null);
+  const [runpodBatchLoading, setRunpodBatchLoading] = useState(false);
+  const [runpodBatchResult, setRunpodBatchResult] = useState(null);
   const [voiceHostingDue, setVoiceHostingDue] = useState(null);
   const [voiceHostingDueLoading, setVoiceHostingDueLoading] = useState(false);
   const [voiceHostingRunUserId, setVoiceHostingRunUserId] = useState('');
@@ -704,6 +731,7 @@ export default function AdminPage() {
   });
   const [loadingWinbackTemplate, setLoadingWinbackTemplate] = useState(false);
   const [savingWinbackTemplate, setSavingWinbackTemplate] = useState(false);
+  const [winbackVisualEditor, setWinbackVisualEditor] = useState(WINBACK_VISUAL_DEFAULTS);
   const [emailAudience, setEmailAudience] = useState({
     verifiedOnly: true,
     subscriptionStatuses: [],
@@ -1032,6 +1060,18 @@ export default function AdminPage() {
       setSavingWinbackTemplate(false);
     }
   };
+
+  const applyWinbackVisualEditorToHtml = () => {
+    const visualHtml = buildWinbackVisualHtml(winbackVisualEditor);
+    setWinbackEmailTemplate((p) => ({ ...p, content: visualHtml }));
+    toast.success('Visual layout applied to HTML');
+  };
+
+  const winbackVisualPreviewHtml = buildWinbackVisualHtml(winbackVisualEditor)
+    .replaceAll('{{DISCOUNT_CODE}}', 'WELCOME15-ABC123')
+    .replaceAll('{{DISCOUNT_PERCENT}}', '15')
+    .replaceAll('{{EXPIRES_AT}}', 'Apr 25, 2026')
+    .replaceAll('{{DASHBOARD_URL}}', '#');
 
   const loadTutorialSlots = async () => {
     try {
@@ -1509,6 +1549,33 @@ export default function AdminPage() {
       toast.error(msg);
     } finally {
       setLostGenAllLoading(false);
+    }
+  };
+
+  const handleRunpodBatchReconcile = async () => {
+    const limit = Math.max(1, Math.min(500, parseInt(lostGenForm.limit || 200, 10) || 200));
+    setRunpodBatchLoading(true);
+    setRunpodBatchResult(null);
+    try {
+      const result = await adminAPI.runRunpodBatchReconcile({
+        limit,
+        includeTimedOutFailed: true,
+      });
+      setRunpodBatchResult(result);
+      if (result?.success) {
+        const d = result?.data || {};
+        toast.success(
+          `RunPod batch check: recovered ${d.completedRecovered || 0}/${d.checkedWithRunpodJobId || 0} checked`,
+        );
+      } else {
+        toast.error(result?.error || result?.message || 'RunPod batch check failed');
+      }
+    } catch (e) {
+      const msg = e?.response?.data?.error || e?.response?.data?.message || 'RunPod batch check failed';
+      setRunpodBatchResult({ success: false, error: msg });
+      toast.error(msg);
+    } finally {
+      setRunpodBatchLoading(false);
     }
   };
 
@@ -3447,6 +3514,20 @@ export default function AdminPage() {
                 </>
               )}
             </PrimaryBtn>
+            <span className="text-gray-500 text-xs mx-1">|</span>
+            <PrimaryBtn onClick={handleRunpodBatchReconcile} disabled={runpodBatchLoading}>
+              {runpodBatchLoading ? (
+                <>
+                  <div className="w-3 h-3 border border-black/30 border-t-black rounded-full animate-spin" />
+                  Checking RunPod…
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="w-3 h-3" />
+                  RunPod batch callback check
+                </>
+              )}
+            </PrimaryBtn>
           </div>
           {lostGenResult && (
             <div className={`mt-3 p-3 rounded-lg border text-xs ${lostGenResult.success ? 'border-emerald-500/20 bg-emerald-500/[0.05] text-emerald-400' : 'border-red-500/20 bg-red-500/[0.05] text-red-400'}`}>
@@ -3464,6 +3545,16 @@ export default function AdminPage() {
               {lostGenAllResult?.data && (
                 <div className="mt-1 text-[11px] text-gray-300">
                   scanned: {lostGenAllResult.data.scanned} | users: {lostGenAllResult.data.uniqueUsers} | recoverable: {lostGenAllResult.data.recoverable} | recovered: {lostGenAllResult.data.recovered}
+                </div>
+              )}
+            </div>
+          )}
+          {runpodBatchResult && (
+            <div className={`mt-3 p-3 rounded-lg border text-xs ${runpodBatchResult.success ? 'border-emerald-500/20 bg-emerald-500/[0.05] text-emerald-400' : 'border-red-500/20 bg-red-500/[0.05] text-red-400'}`}>
+              {runpodBatchResult.message || runpodBatchResult.error || 'RunPod batch check finished.'}
+              {runpodBatchResult?.data && (
+                <div className="mt-1 text-[11px] text-gray-300">
+                  scanned: {runpodBatchResult.data.scanned || 0} | checked: {runpodBatchResult.data.checkedWithRunpodJobId || 0} | recovered: {runpodBatchResult.data.completedRecovered || 0} | from failed: {runpodBatchResult.data.completedRecoveredFromFailed || 0} | still running: {runpodBatchResult.data.stillRunning || 0}
                 </div>
               )}
             </div>
@@ -4990,14 +5081,38 @@ export default function AdminPage() {
                   rows={3}
                   className="w-full px-3 py-2 rounded-lg border border-white/[0.07] bg-white/[0.03] text-xs outline-none focus:border-white/20 transition resize-none"
                 />
+                <div className="mt-2 rounded-lg border border-white/[0.07] bg-white/[0.02] p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[11px] text-gray-400">Visual content editor</p>
+                    <GhostBtn onClick={applyWinbackVisualEditorToHtml} disabled={savingWinbackTemplate}>
+                      Apply visual to HTML
+                    </GhostBtn>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input value={winbackVisualEditor.codeLabel} onChange={(e) => setWinbackVisualEditor((v) => ({ ...v, codeLabel: e.target.value }))} placeholder="Code label" className="px-2 py-1.5 rounded border border-white/[0.07] bg-black/30 text-[11px]" />
+                    <input value={winbackVisualEditor.discountLabel} onChange={(e) => setWinbackVisualEditor((v) => ({ ...v, discountLabel: e.target.value }))} placeholder="Discount label" className="px-2 py-1.5 rounded border border-white/[0.07] bg-black/30 text-[11px]" />
+                    <input value={winbackVisualEditor.appliesLabel} onChange={(e) => setWinbackVisualEditor((v) => ({ ...v, appliesLabel: e.target.value }))} placeholder="Applies label" className="px-2 py-1.5 rounded border border-white/[0.07] bg-black/30 text-[11px]" />
+                    <input value={winbackVisualEditor.appliesValue} onChange={(e) => setWinbackVisualEditor((v) => ({ ...v, appliesValue: e.target.value }))} placeholder="Applies value" className="px-2 py-1.5 rounded border border-white/[0.07] bg-black/30 text-[11px]" />
+                    <input value={winbackVisualEditor.expiresLabel} onChange={(e) => setWinbackVisualEditor((v) => ({ ...v, expiresLabel: e.target.value }))} placeholder="Expires label" className="px-2 py-1.5 rounded border border-white/[0.07] bg-black/30 text-[11px]" />
+                    <input value={winbackVisualEditor.ctaText} onChange={(e) => setWinbackVisualEditor((v) => ({ ...v, ctaText: e.target.value }))} placeholder="CTA text" className="px-2 py-1.5 rounded border border-white/[0.07] bg-black/30 text-[11px]" />
+                  </div>
+                  <textarea value={winbackVisualEditor.notePrimary} onChange={(e) => setWinbackVisualEditor((v) => ({ ...v, notePrimary: e.target.value }))} rows={2} placeholder="Primary note" className="w-full px-2 py-1.5 rounded border border-white/[0.07] bg-black/30 text-[11px] resize-none" />
+                  <textarea value={winbackVisualEditor.noteSecondary} onChange={(e) => setWinbackVisualEditor((v) => ({ ...v, noteSecondary: e.target.value }))} rows={2} placeholder="Secondary note" className="w-full px-2 py-1.5 rounded border border-white/[0.07] bg-black/30 text-[11px] resize-none" />
+                </div>
               </div>
-              <textarea
-                value={winbackEmailTemplate.content}
-                onChange={(e) => setWinbackEmailTemplate((p) => ({ ...p, content: e.target.value }))}
-                placeholder="HTML content block"
-                rows={10}
-                className="w-full px-3 py-2 rounded-lg border border-white/[0.07] bg-black/40 text-[11px] text-gray-200 font-mono outline-none focus:border-white/20 transition resize-y"
-              />
+              <div className="space-y-2">
+                <div className="rounded-lg border border-white/[0.07] bg-white/[0.02] p-3">
+                  <p className="text-[11px] text-gray-400 mb-2">Visual preview</p>
+                  <div className="rounded border border-white/[0.08] bg-[#f6f6f4] p-3 text-black text-xs" dangerouslySetInnerHTML={{ __html: winbackVisualPreviewHtml }} />
+                </div>
+                <textarea
+                  value={winbackEmailTemplate.content}
+                  onChange={(e) => setWinbackEmailTemplate((p) => ({ ...p, content: e.target.value }))}
+                  placeholder="HTML content block"
+                  rows={10}
+                  className="w-full px-3 py-2 rounded-lg border border-white/[0.07] bg-black/40 text-[11px] text-gray-200 font-mono outline-none focus:border-white/20 transition resize-y"
+                />
+              </div>
             </div>
             <div className="mt-2 text-[10px] text-gray-500">
               Placeholders: <code>{'{{NAME}}'}</code>, <code>{'{{DISCOUNT_CODE}}'}</code>, <code>{'{{DISCOUNT_PERCENT}}'}</code>, <code>{'{{EXPIRES_AT}}'}</code>, <code>{'{{DASHBOARD_URL}}'}</code>, <code>{'{{BRAND_NAME}}'}</code>, <code>{'{{EMAIL}}'}</code>

@@ -19,23 +19,23 @@ This document tracks **user-facing app** coverage in the Legacy Telegram bot (`s
 
 | Tab | Status | Notes |
 |-----|--------|-------|
-| home | partial | Credits/dashboard; align CTAs with app home |
+| home | partial | Credits/dashboard + `/apphub` for all tabs |
 | models | partial | Prisma-heavy flows; ensure REST parity where app uses `/api/models/*` |
 | generate | partial | Add missing generate APIs (advanced, pipelines); mode pickers |
 | creator-studio | partial + mini | Chat shortcuts + **mini** for masks / full matrix |
 | voice-studio | partial | Voices, clone, TTS; previews / edge cases |
 | reformatter | done | |
-| frame-extractor | todo | First-frame pipeline → chat wizard + APIs |
+| frame-extractor | partial | Chat: extract-frames wizard; tab stays **mini** for full UI |
 | upscaler | done | |
 | modelclone-x | partial | Generate, character, train, delete, register image; rest |
-| history | partial | Filters, monthly stats, download parity |
+| history | partial | Filters, download parity; monthly counts on dashboard |
 | settings | partial | API keys, 2FA, email change, full profile |
 | nsfw | partial | extend-video, plan-gen, auto-select, full training, LoRA mgmt |
 | course | mini | Deep link `tab=course` (+ optional video id) |
 | jobs | todo | Chat MVP vs **mini** — product call if revived |
 | repurposer | done | |
 | reelfinder | mini | Deep link `tab=reelfinder` |
-| referral | todo | Stats/link; **mini** if no clean API for chat |
+| referral | mini | Deep link from Tools / Settings |
 
 ---
 
@@ -56,19 +56,19 @@ This document tracks **user-facing app** coverage in the Legacy Telegram bot (`s
 | video-prompt | done | |
 | prompt-image | done | Expose more options (style, qty, rating) in chat |
 | image-identity | done | |
-| video-motion | todo | |
-| complete-recreation | todo | |
-| describe-target | done | clothesMode picker |
-| enhance-prompt | partial | Add `nsfw` / `ultra-realism` modes |
+| video-motion | done | Chat wizard (image → ref video → duration) |
+| complete-recreation | done | Chat wizard (screenshot → video → prompt → duration) |
+| describe-target | done | clothesMode picker (model vs reference) |
+| enhance-prompt | done | Casual, NSFW, ultra-realism pickers |
 | video-directly | done | Optional engine/ultra fields |
 | face-swap, face-swap-video | done | |
 | image-faceswap | done | |
-| advanced (SFW) | todo | Helper exists; wire UI |
+| advanced (SFW) | done | Model picker + prompt → nano-banana |
 | talking-head | done | |
 | analyze-looks | done | |
-| extract-frames | todo | |
-| prepare-video | todo | |
-| complete-video | todo | |
+| extract-frames | done | URL/upload → frame URLs |
+| prepare-video | done | After extract: frame URL → 3 variations → pick → complete-video |
+| complete-video | done | Wired in reel pipeline |
 | creator-studio (image) | partial | Defaults only; full params + **mini** |
 | creator-studio/video | partial | One Kling i2v path; families + **mini** |
 | creator-studio/video/extend, 4k, 1080p | todo | |
@@ -84,10 +84,10 @@ This document tracks **user-facing app** coverage in the Legacy Telegram bot (`s
 | generate, generate-video, generate-advanced | done | |
 | nudes-pack, poses | done | |
 | generate-prompt | done | |
-| extend-video | todo | |
-| plan-generation + status | todo | |
-| auto-select + status | todo | |
-| test-face-ref + status | todo | |
+| extend-video | done | UUID → 5s/8s → optional prompt |
+| plan-generation + status | done | Model + scene → poll → useprompt buttons |
+| auto-select + status | done | Model + description → poll → selections text |
+| test-face-ref + status | done | LoRA models only → prompt → fal poll |
 | lora create, list, train, status | partial | Wire create/init helpers; full training UX |
 | register / upload / assign / regenerate / list training | todo | |
 | set-active, delete lora, appearance | todo | |
@@ -113,7 +113,7 @@ This document tracks **user-facing app** coverage in the Legacy Telegram bot (`s
 | upload config / presign / blob | partial | Bot uses Telegram→R2; align if app-only features |
 | voices list | done | modelId query |
 | voice preview GET | todo | Optional button |
-| generations monthly-stats | todo | |
+| generations monthly-stats | done | On dashboard |
 
 ---
 

@@ -13,7 +13,7 @@ export const DEFAULT_GENERATION_SAFETY_CONFIG = Object.freeze({
   aiGeneralPolicy:
     "Block any minor sexual content. Adult NSFW is not blocked by this generic policy.",
   aiSoulxPolicy:
-    "Block any minor sexual content. For Soul-X also block explicit sex acts/sex scenes. Allow only mild adult nudity (e.g. subtle clothing reveal, visible nipples under shirt) if clearly adult and non-explicit.",
+    "Block any minor sexual content. For ModelClone-X also block explicit sex acts/sex scenes. Allow only mild adult nudity (e.g. subtle clothing reveal, visible nipples under shirt) if clearly adult and non-explicit.",
   heuristicSexualTermsPattern:
     "\\b(sex|sexual|explicit|hardcore|porn|nsfw|nude|naked|nipples?|breasts?|boobs?|tits?|vagina|penis|cock|dick|genitals?|blowjob|handjob|anal|oral|cum|creampie|penetrat(?:e|ion)|fucking|fuck)\\b",
   heuristicChildTermsPattern:

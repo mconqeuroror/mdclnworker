@@ -1,0 +1,2 @@
+# Avoid CRLF in deployment zips from Windows breaking Linux shell scripts / Docker COPY
+* text=auto

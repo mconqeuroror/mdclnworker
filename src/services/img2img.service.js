@@ -487,7 +487,9 @@ export function parseRunpodHandlerOutput(raw) {
     const outerText = typeof o.text === "string" && o.text.trim();
     const innerImages = Array.isArray(inner.images) && inner.images.length > 0;
     const innerText = typeof inner.text === "string" && inner.text.trim();
-    if (!outerImages && !outerText && (innerImages || innerText)) {
+    const innerVideos = Array.isArray(inner.videos) && inner.videos.length > 0;
+    const innerGifs = Array.isArray(inner.gifs) && inner.gifs.length > 0;
+    if (!outerImages && !outerText && (innerImages || innerText || innerVideos || innerGifs)) {
       return inner;
     }
   }

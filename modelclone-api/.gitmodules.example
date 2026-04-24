@@ -1,0 +1,8 @@
+# Copy to `.gitmodules` after creating the submodule, or run:
+#   git submodule add <YOUR_MODELCLONE_REPO_URL> core
+#
+# Example:
+#
+# [submodule "core"]
+# 	path = core
+# 	url = https://github.com/YOUR_ORG/modelclone.git

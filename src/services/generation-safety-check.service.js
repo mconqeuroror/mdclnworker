@@ -39,7 +39,7 @@ function toRegex(pattern, fallbackPattern) {
 
 function heuristicCheck({ routePath, text, config }) {
   const lower = text.toLowerCase();
-  const isSoulX = /\/soulx\/generate$/.test(routePath);
+  const isSoulX = /\/(modelclone-x|soulx)\/generate$/.test(routePath);
   const sexualTerms = toRegex(
     config.heuristicSexualTermsPattern,
     DEFAULT_GENERATION_SAFETY_CONFIG.heuristicSexualTermsPattern,
@@ -77,7 +77,7 @@ function heuristicCheck({ routePath, text, config }) {
     return {
       blocked: true,
       code: "safety_soulx_explicit_nsfw_blocked",
-      reason: "Soul-X blocks explicit NSFW sex scenes. Mild adult nudity is allowed.",
+      reason: "ModelClone-X blocks explicit NSFW sex scenes. Mild adult nudity is allowed.",
       source: "heuristic",
     };
   }
@@ -104,7 +104,7 @@ function extractJson(text) {
 async function aiCheck({ routePath, text, config }) {
   if (!OPENROUTER_API_KEY) return null;
 
-  const isSoulX = /\/soulx\/generate$/.test(routePath);
+  const isSoulX = /\/(modelclone-x|soulx)\/generate$/.test(routePath);
   const policy = isSoulX
     ? config.aiSoulxPolicy
     : config.aiGeneralPolicy;
@@ -171,12 +171,12 @@ export async function runGenerationSafetyCheck({ routePath, body }) {
     };
   }
 
-  const isSoulX = /\/soulx\/generate$/.test(routePath);
+  const isSoulX = /\/(modelclone-x|soulx)\/generate$/.test(routePath);
   if (isSoulX && ai.explicitSexScene) {
     return {
       blocked: true,
       code: "safety_soulx_explicit_nsfw_blocked",
-      reason: "Soul-X blocks explicit NSFW sex scenes. Mild adult nudity is allowed.",
+      reason: "ModelClone-X blocks explicit NSFW sex scenes. Mild adult nudity is allowed.",
       source: "ai",
     };
   }

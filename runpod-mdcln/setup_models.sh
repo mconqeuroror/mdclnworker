@@ -28,44 +28,27 @@ mkdir -p "${MODELS_DIR}/vae"
 mkdir -p "${MODELS_DIR}/loras"
 mkdir -p "${MODELS_DIR}/unet"
 mkdir -p "${MODELS_DIR}/upscale_models"
-mkdir -p "${MODELS_DIR}/seedvr2"
 
-echo ">>> Downloading all models (all from HuggingFace)..."
+echo ">>> Downloading NSFW generation models (all from HuggingFace)..."
 
-echo "  [1/6] Downloading VAE: ae.safetensors (335MB)..."
+echo "  [1/4] Downloading VAE: ae.safetensors (335MB)..."
 download_hf \
     "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors" \
     "${MODELS_DIR}/vae/ae.safetensors"
 
-echo "  [2/6] Downloading CLIP: qwen_3_4b.safetensors (8GB)..."
+echo "  [2/4] Downloading CLIP: qwen_3_4b.safetensors (8GB)..."
 download_hf \
     "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/text_encoders/qwen_3_4b.safetensors" \
     "${MODELS_DIR}/clip/qwen_3_4b.safetensors"
 
-echo "  [3/6] UNet: zImageTurboNSFW_20BF16AIO.safetensors (HuggingFace)..."
-download_hf \
-    "https://huggingface.co/bigckck/Z-Image_Turbo_NSFW_2.0bf16_aio/resolve/main/zImageTurboNSFW_20BF16AIO.safetensors" \
-    "${MODELS_DIR}/unet/zImageTurboNSFW_20BF16AIO.safetensors"
+echo "  [3/4] UNet: zImageTurboNSFW_62BF16.safetensors — not on public HF under this name."
+echo "        Copy to ${MODELS_DIR}/unet/ from your RunPod network volume (S3) or supply the file before build."
 
-echo "  [4/6] Downloading upscaler: 4xFaceUpDAT.pth..."
+echo "  [4/4] Downloading upscaler: 4xFaceUpDAT.pth..."
 download_hf \
     "https://huggingface.co/Acly/Upscaler/resolve/main/4xFaceUpDAT.pth" \
     "${MODELS_DIR}/upscale_models/4xFaceUpDAT.pth" || \
   echo "  [WARN] Upscaler download failed during build — will be downloaded at container start via start.sh"
-
-echo "  [5/6] Downloading SeedVR2 VAE: ema_vae_fp16.safetensors (~501MB)..."
-download_hf \
-    "https://huggingface.co/Osrivers/SEEDVR2/resolve/main/ema_vae_fp16.safetensors" \
-    "${MODELS_DIR}/seedvr2/ema_vae_fp16.safetensors"
-
-echo "  [6/6] Downloading SeedVR2 DiT: seedvr2_ema_7b_fp16.safetensors (~16.5GB)..."
-if [ "${SKIP_SEEDVR2_MODELS:-0}" = "1" ]; then
-    echo "  [SKIP] SKIP_SEEDVR2_MODELS=1 — skipping 16.5GB DiT model bake."
-else
-    download_hf \
-        "https://huggingface.co/numz/SeedVR2_comfyUI/resolve/main/seedvr2_ema_7b_fp16.safetensors" \
-        "${MODELS_DIR}/seedvr2/seedvr2_ema_7b_fp16.safetensors"
-fi
 
 echo ""
 echo ">>> All models downloaded!"

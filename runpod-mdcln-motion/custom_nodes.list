@@ -1,0 +1,25 @@
+# NSFW MOTION CONTROL workflow custom nodes (Wan 2.2 Animate)
+#
+# Mapping (workflow class_type → repo):
+#   PoseAndFaceDetection / DrawViTPose / OnnxDetectionModelLoader → kijai/ComfyUI-WanAnimatePreprocess
+#   ImageConcatMulti / ImageResizeKJv2 / GetImageRangeFromBatch / GetImageSize
+#     wanBlockSwap / TorchCompileModelWanVideoV2 / PathchSageAttentionKJ / ModelPatchTorchSettings
+#                                                              → kijai/ComfyUI-KJNodes
+#   VHS_LoadVideo / VHS_VideoCombine / VHS_VideoInfo           → Kosinkadink/ComfyUI-VideoHelperSuite
+#   Seed (rgthree) / Any Switch (rgthree)                      → rgthree/rgthree-comfy
+#   easy * (int/float/boolean/ifElse/compare/positive/promptReplace/convertAnything/whileLoopStart/whileLoopEnd/lengthAnything/batchAnything)
+#                                                              → yolain/ComfyUI-Easy-Use
+#   SimpleMath+ / SimpleMathDual+                              → cubiq/ComfyUI_essentials
+#   MathExpression|pysssss                                     → pythongosssss/ComfyUI-Custom-Scripts
+#
+# WanAnimateToVideo / TrimVideoLatent / KSampler / VAELoader / CLIPLoader /
+# CLIPVisionLoader / CLIPVisionEncode / CLIPTextEncode / VAEDecode / UNETLoader /
+# LoraLoaderModelOnly / ModelSamplingSD3 / LoadImage are CORE ComfyUI nodes.
+kijai/ComfyUI-WanAnimatePreprocess
+kijai/ComfyUI-KJNodes
+Kosinkadink/ComfyUI-VideoHelperSuite
+rgthree/rgthree-comfy
+yolain/ComfyUI-Easy-Use
+cubiq/ComfyUI_essentials
+pythongosssss/ComfyUI-Custom-Scripts
+ltdrdata/ComfyUI-Manager

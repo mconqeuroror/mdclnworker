@@ -4,14 +4,12 @@ set -e
 CUSTOM_NODES_DIR="/workspace/ComfyUI/custom_nodes"
 mkdir -p "${CUSTOM_NODES_DIR}"
 
-# Required node packs for our workflows. If these fail, image build must fail.
+# Required node packs for NSFW generation workflows.
 REQUIRED_REPOS=(
   "Acly/comfyui-tooling-nodes"
   "bollerdominik/ComfyUI-load-lora-from-url"
   "glifxyz/ComfyUI-GlifNodes"
   "Suzie1/ComfyUI_Comfyroll_CustomNodes"
-  "chflame163/ComfyUI_LayerStyle_Advance"
-  "1038lab/ComfyUI-JoyCaption"
   "Derfuu/Derfuu_ComfyUI_ModdedNodes"
   "crystian/ComfyUI-Crystools"
   "alexopus/ComfyUI-Image-Saver"

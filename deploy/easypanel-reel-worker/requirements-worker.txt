@@ -1,0 +1,6 @@
+# Pin playwright to the same major line as the Dockerfile FROM tag (browsers ship in mcr.microsoft.com/playwright/python).
+playwright==1.49.0
+fastapi>=0.115.0,<1
+uvicorn[standard]>=0.32.0,<1
+# Required for FastAPI Form() / multipart (profile-form, reel-form routes)
+python-multipart>=0.0.9,<1
