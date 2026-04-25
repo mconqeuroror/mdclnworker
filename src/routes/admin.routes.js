@@ -178,9 +178,9 @@ Rules:
 - STRICT SFW POLICY: no nudity, no explicit sexual acts, no exposed genitals, no explicit erotic phrasing
 - If user asks for explicit/NSFW content, rewrite to a tasteful SFW equivalent while preserving composition/mood`,
   nsfwPromptGenerator:
-    "Default for JSON path: STRUCTURED_INPUT_CONTRACT + buildGrokNsfwZit62JsonSystemBody() in src/prompts/zit62NsfwPromptBuilderModule.js. Override in DB to replace; full text is long.",
+    "Default: inline in src/controllers/nsfw.controller.js (runNsfwPromptGenerationForModel) — Z-Image Turbo NSFW JSON system prompt + STRUCTURED_INPUT_CONTRACT. Override in DB; ensure STRUCTURED JSON INPUT is included if you replace the full text.",
   nsfwTextPromptGenerator:
-    "Built from buildGrokNsfwZit62TextSystemBlock() + src/prompts/zit62NsfwPromptBuilderModule.md + partnered POV addendum. Set NSFW_GROK_JSON_PROMPTS=1 to use JSON output mode. Override in DB to replace the full default.",
+    "Same stack as nsfwPromptGenerator (single JSON Grok path in runNsfwPromptGenerationForModel). Use DB key nsfwPromptGenerator; this key is for legacy / alternate admin labels only.",
   nsfwTextPromptUserWrapper:
     "**Scene / user request:**\n{{REQUEST}}\n\n**Model appearance (weave in naturally; do not paste as a list):**\n{{ATTRIBUTE_SUMMARY}}",
   nudesPackTextPromptUserWrapper:
@@ -190,15 +190,15 @@ Rules:
   enhancePromptNanoBananaSystem:
     "You are a creative director prompt engineer for Nano Banana Pro. Rewrite user ideas into production-ready prompts with specific subject/action/context/composition/style, preserve user intent and modelLooks, keep results photoreal and distinctive, and enforce true selfie POV constraints when selfie is requested.",
   enhancePromptNsfwSystem:
-    "Default: buildEnhancePromptNsfwZit62System() in src/prompts/zit62NsfwPromptBuilderModule.js (embeds zit62NsfwPromptBuilderModule.md + partnered POV). Override in DB to replace the full in-code system prompt for prompt enhancement.",
+    "Default: inline in src/routes/api.routes.js (POST /generate/enhance-prompt, mode nsfw) — Z-Image Turbo 60–110 words, four-sentence + quality suffix + hard bans. Override in DB to replace.",
   nudesPackPromptGeneratorSystem:
-    "Legacy. Nudes-pack Grok now uses the same ZiT 6.2 + partnered POV stack as other NSFW prompters (nsfwTextPromptGenerator / buildGrokNsfwZit62*). See src/prompts/zit62NsfwPromptBuilderModule.md.",
+    "Nudes pack uses runNsfwPromptGenerationForModel with the same system prompt as /nsfw/generate-prompt (key nsfwPromptGenerator) plus nudesPackPromptUserWrapper. Ignored if you only override nsfwPromptGenerator.",
   nudesPackPromptGeneratorUserWrapper:
     "Compose one final NSFW prompt for this nudes-pack item. Use the full request as source-of-truth.\n\n{{REQUEST}}",
   describeTargetImageSystemPrompt:
     'You are an expert at describing reference images for AI identity recreation. Start with model name, describe scene/pose/camera/lighting/background/mood, avoid identity-trait details, keep under 150 words, output one paragraph only.',
   img2imgInjectSystemPrompt:
-    "Default: buildImg2imgZit62InjectSystemBlock() in src/prompts/zit62NsfwPromptBuilderModule.js (ZiT 6.2 + partnered POV + img2img labels).",
+    "Default: inline in src/services/img2img.service.js (injectModelIntoPrompt) — ZIT img2img inject + POV templates; getPromptTemplateValue('img2imgInjectSystemPrompt', …) wraps the default. Override in DB to replace.",
   falCaptionSystemPrompt:
     "You are an expert image captioner for Z-Image Turbo LoRA training datasets. Start each caption with trigger word (+ locked subject class if provided), describe visible pose/camera/clothing/environment/lighting/style, avoid fixed identity over-specification, and keep concise training-stable captions.",
   falLoraSelectorSystemPrompt:

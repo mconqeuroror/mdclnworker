@@ -96,10 +96,6 @@ import {
 } from "../services/nudes-pack-config.service.js";
 import { getPromptTemplateValue } from "../services/prompt-template-config.service.js";
 import { getGenerationPricing } from "../services/generation-pricing.service.js";
-import {
-  buildGrokNsfwZit62TextSystemBlock,
-  buildGrokNsfwZit62JsonSystemBody,
-} from "../prompts/zit62NsfwPromptBuilderModule.js";
 
 export async function cleanupTrainingDataset(loraId, modelId) {
   try {
@@ -298,124 +294,6 @@ function summarizeAttributes(attrs = {}, fallbackString = "") {
   }
 
   return lines.length ? lines.join("\n") : "- None provided";
-}
-
-/** Only the exact value `structured` enables legacy JSON in/out. `1` / `true` are ignored (prevents production accidents). */
-function isNsfwGrokJsonPromptsEnabled() {
-  return String(process.env.NSFW_GROK_JSON_PROMPTS || "").trim() === "structured";
-}
-
-function isNsfwGrokUseAdminTextTemplate() {
-  const v = String(process.env.NSFW_GROK_USE_ADMIN_TEXT_TEMPLATE || "").trim().toLowerCase();
-  return v === "1" || v === "true" || v === "yes" || v === "on";
-}
-
-/** If Grok still returns JSON while text mode is on, build sampler plain text (ordered when possible). */
-function flattenNsfwGrokJsonToProseFallback(obj) {
-  if (!obj || typeof obj !== "object" || Array.isArray(obj)) return "";
-  if (typeof obj.error === "string" && obj.error.trim()) return obj.error.trim();
-  const tw = obj.trigger_word != null ? String(obj.trigger_word).trim() : "";
-  const parts = [];
-  if (tw) parts.push(tw);
-  const ms = obj.main_subject;
-  if (ms && typeof ms === "object") {
-    const hair = ms.hair && typeof ms.hair === "object" ? ms.hair : null;
-    const idBits = [
-      ms.gender_presentation,
-      ms.ethnicity || ms.heritage,
-      hair
-        ? [hair.color, hair.length, hair.texture, hair.style].filter(Boolean).join(" ")
-        : "",
-      ms.face?.eyes?.color ? `${ms.face.eyes.color} eyes` : "",
-      ms.body?.type,
-    ]
-      .map((x) => (typeof x === "string" ? x.trim() : ""))
-      .filter(Boolean);
-    if (idBits.length) parts.push(idBits.join(", "));
-  }
-  const sc = obj.scene;
-  if (sc && typeof sc === "object") {
-    for (const k of ["pose", "wardrobe", "user_request", "setting", "lighting", "expression", "gaze"]) {
-      const v = sc[k];
-      if (typeof v === "string" && v.trim()) parts.push(v.trim());
-    }
-  }
-  const comp = obj.composition;
-  if (comp && typeof comp === "object") {
-    for (const k of ["framing", "camera_angle", "camera_lens"]) {
-      const v = comp[k];
-      if (typeof v === "string" && v.trim()) parts.push(v.trim());
-    }
-  }
-  if (parts.length > (tw ? 1 : 0)) {
-    return parts.join(", ");
-  }
-  const buf = [];
-  function walk(x, depth) {
-    if (depth > 6) return;
-    if (x == null) return;
-    if (typeof x === "string" && x.trim()) buf.push(x.trim());
-    else if (Array.isArray(x)) {
-      for (const v of x) walk(v, depth + 1);
-    } else if (typeof x === "object") {
-      for (const [k, v] of Object.entries(x)) {
-        if (k === "request_kind") continue;
-        walk(v, depth + 1);
-      }
-    }
-  }
-  walk(obj, 0);
-  const seen = new Set();
-  const deduped = buf.filter((s) => {
-    if (seen.has(s)) return false;
-    seen.add(s);
-    return true;
-  });
-  const rest = tw ? deduped.filter((s) => s !== tw) : deduped;
-  return (tw ? `${tw}, ` : "") + rest.join(", ");
-}
-
-function stripGrokThinkingAndMarkdownFences(raw) {
-  let s = String(raw || "");
-  s = s.replace(/<think>[\s\S]*?<\/redacted_thinking>/gi, "");
-  s = s.replace(/<think>[\s\S]*?<\/think>/gi, "");
-  s = s.trim();
-  for (let n = 0; n < 12 && s.includes("```"); n++) {
-    s = s.replace(/```[a-z0-9]*\s*[\s\S]*?```/i, " ").replace(/\s+/g, " ").trim();
-  }
-  return s;
-}
-
-function tryParseJsonLoose(s) {
-  const t = String(s || "").trim();
-  if (!t) return null;
-  try {
-    return JSON.parse(t);
-  } catch {
-    const i = t.indexOf("{");
-    if (i === -1) return null;
-    const j = t.lastIndexOf("}");
-    if (j <= i) return null;
-    try {
-      return JSON.parse(t.slice(i, j + 1));
-    } catch {
-      return null;
-    }
-  }
-}
-
-/** Always returns a single plain string for the image sampler — never pretty-printed JSON (unless legacy `structured` path handled above). */
-function coerceGrokNsfwOutputToSamplerPlainText(content) {
-  let s = stripGrokThinkingAndMarkdownFences(content);
-  s = s.replace(/^['"]{1,2}\s*|\s*['"]{1,2}$/g, "").trim();
-  const parsed = tryParseJsonLoose(s);
-  if (parsed == null) return s;
-  if (Array.isArray(parsed)) return String(parsed[0] || "").trim() || s;
-  if (typeof parsed === "object") {
-    const flat = flattenNsfwGrokJsonToProseFallback(parsed);
-    return (flat && flat.length > 8 ? flat : s).trim();
-  }
-  return s;
 }
 
 function buildDifferentiatingFeatures(attrs = {}) {
@@ -3815,94 +3693,152 @@ async function runNsfwPromptGenerationForModel(
       attributesDetail?.expression,
     ].find((v) => typeof v === "string" && v.trim()) || "authentic candid private mood";
 
-    const mode = String(context?.mode || "").trim().toLowerCase();
-    // Nudes pack always uses plain-text prompts for the sampler (ignore NSFW_GROK_JSON_PROMPTS).
-    const jsonGrokOutput = isNsfwGrokJsonPromptsEnabled() && mode !== "nudes-pack";
-
-    const zit62Ctx = {
-      triggerWord,
-      differentiatingFeatures,
-      poseHint,
-      sceneHint,
-      lightingHint,
-      moodHint,
-      genderClass,
-    };
-
-    const systemPromptJson = `You are a prompt engineer for Z-Image Turbo NSFW (Tongyi-MAI 6B Z-Image Turbo NSFW LoRA stack). Your output is a SINGLE JSON OBJECT (pretty-printed) — never prose, never markdown.
+    let systemPrompt = `You are a prompt engineer for Z-Image Turbo NSFW (Tongyi-MAI 6B Z-Image Turbo NSFW LoRA stack). Your output is a SINGLE JSON OBJECT (pretty-printed) — never prose, never markdown.
 
 ${STRUCTURED_INPUT_CONTRACT}
 
-${buildGrokNsfwZit62JsonSystemBody(zit62Ctx)}`;
+## CALLER-PROVIDED FACTS (always respect; surface them inside the JSON output)
+- trigger: ${triggerWord}      → output.trigger_word
+- differentiating_features (legacy fallback string): ${differentiatingFeatures}
+- pose: ${poseHint}             → output.scene.pose
+- scene: ${sceneHint}           → output.scene.setting / output.scene (concrete fields)
+- lighting: ${lightingHint}     → output.scene.lighting
+- mood: ${moodHint}             → output.colors.atmosphere / output.style.visual_tone
+- gender_class: ${genderClass}  → output.main_subject.gender_presentation
 
-    const systemPromptText = buildGrokNsfwZit62TextSystemBlock(zit62Ctx);
+## OUTPUT JSON RULES — NSFW SPECIFIC
 
-    // Text path uses in-code ZiT + POV (admin override only with NSFW_GROK_USE_ADMIN_TEXT_TEMPLATE=1).
-    // JSON path is opt-in: NSFW_GROK_JSON_PROMPTS=structured (not "1" — prevents accidental JSON in production).
-    let systemPrompt;
-    if (jsonGrokOutput) {
-      systemPrompt = await getPromptTemplateValue("nsfwPromptGenerator", systemPromptJson);
-      if (!systemPrompt.includes("STRUCTURED JSON INPUT")) {
-        systemPrompt = `${systemPrompt}\n\n${STRUCTURED_INPUT_CONTRACT}`;
-      }
-    } else {
-      systemPrompt = isNsfwGrokUseAdminTextTemplate()
-        ? await getPromptTemplateValue("nsfwTextPromptGenerator", systemPromptText)
-        : systemPromptText;
+The "main_subject" block is mirrored verbatim from input.main_subject. Do not add or remove identity fields.
+
+The "scene" block carries the act:
+- "scene.pose"  : compact body-position description, derived from input.scene.user_request and input.scene.pose. Solo => plain anatomical language ("nude, spread legs, ass raised toward camera"). Partnered => COMPOSITION-FIRST POV phrasing (see Sentence 2 rules below). The female LoRA character is ALWAYS the dominant subject; the male partner appears ONLY as edge-of-frame body parts (his hips, thighs, hands, abs, erect cock) — NEVER his face, NEVER his identity. Penetration is described in EXACTLY ONE short phrase, never repeated, never stacked with other anatomy.
+- "scene.expression" : one short clause from the user request.
+- "scene.gaze"       : if the user request specifies eye contact / direction, encode it; else omit.
+- "scene.wardrobe"   : nudity state and any accessories that remain (jewelry, sunglasses, etc.).
+- "nsfw_meta"        : carry "is_partnered", "sex_act", "explicit": true.
+
+Sentence 2 — Pose / sex act (COMPOSITION-FIRST POV — read carefully).
+  For SOLO scenes (no partner): describe body position, action, and visible nudity in plain anatomical language ("nude", "spread legs", "ass raised toward camera", "pussy visible", "biting her lip"). One short anatomy phrase at most.
+
+  For EXPLICIT SEX ACTS (any scene with a male partner: doggystyle, missionary, cowgirl, reverse cowgirl, mating press, prone bone, spooning, standing-from-behind, piledriver, amazon, oral, titfuck, anal, etc.) — you MUST use composition-first POV phrasing. Z-Image Turbo and similar photoreal NSFW models mutate badly (penis floating outside vagina, duplicated genitals, oversized scale, detached shafts) when given clinical "penis entering pussy with visible penetration, anus and pussy visible" narration. The female LoRA character is ALWAYS the dominant subject; the male partner appears ONLY as edge-of-frame body parts (his hips, thighs, hands, abs, erect cock) — NEVER his face, NEVER his identity. Penetration is described in ONE short composition phrase, never repeated, never stacked with other anatomy.
+
+  HARD BANS — these strings MUST NOT appear in your output, even if a Pose prompt fragment uses them; rewrite to the composition templates below instead:
+    - "penis entering pussy", "penis entering vagina", "penis entering her", "penis entering from <direction>"
+    - "with visible penetration", "visible penetration", "with visible contact at entrance", "with clear connection"
+    - stacked anatomy lists like "anus and pussy visible", "vulva and asshole visible", "labia spread around the shaft", "labia gripping the shaft"
+    - penis size descriptors: "average-sized", "average erect", "small", "huge", "gigantic", "oversized", "massive", "enormous", "tiny", "big", "large" before penis/cock/dick/shaft
+    - "her labia", "her pussy", "her vulva", "her anus" mentioned as standalone visible objects in a sex-act scene (skin contact at the join is implied by "penetrating her")
+    - duplicated penetration mentions in the same prompt
+    - "slightly damp skin" or other moisture/sweat gloss adjectives
+
+  POSE → CAMERA POV TEMPLATES (use the matching one, adapt the woman-side detail to the user's scene):
+    • Doggystyle / prone bone (woman on all fours or face-down, man behind):
+      "POV from behind, partner's hips and thighs in lower foreground framing the shot, his erect cock penetrating her from behind, woman on all fours / face-down on [surface] with arched back, her ass facing the camera, [her hand placement / expression / hair from the user scene]"
+    • Standing from behind (both standing, man behind):
+      "POV from behind standing, partner's hips and abs in lower foreground, his erect cock penetrating her from behind, woman bent forward over [surface] with arched back, her ass pushed back toward the camera, [grip / surface / expression]"
+    • Missionary (woman on back, man on top):
+      "POV from above looking down, partner's torso and hips in upper foreground silhouette, his erect cock penetrating her from above, woman lying on her back on [surface] with legs spread and knees bent, [hand placement, expression, eye contact with the camera]"
+    • Mating press (woman on back, legs folded back, man pressing down):
+      "POV from above with deep angle, woman lying on her back with her legs folded back over her shoulders, partner's hips pressed down between her thighs, his hands on the backs of her thighs, deep penetration angle, [her expression]"
+    • Cowgirl (woman on top, facing partner):
+      "POV from below looking up at her, partner's hips and thighs in lower foreground, woman straddling and riding on top, body upright or slightly arched, her hands on his chest / her own breasts / her hair, eye contact with the camera"
+    • Reverse cowgirl (woman on top, facing away):
+      "POV from below looking up at her back, partner's hips and lower torso in foreground, woman straddling facing away, her back arched, her ass and back facing the camera, [hand placement]"
+    • Spooning / sideways (both lying on side, man behind):
+      "side profile shot, both lying on their sides, partner behind her, his hips against her ass and his erect cock penetrating her from behind, his arm wrapped around her, [her expression]"
+    • Anal (any orientation):
+      same templates as the matching vaginal pose, but penetration phrase becomes "his erect cock penetrating her ass from <direction>". One mention only — never also describe vaginal penetration in the same prompt.
+    • Blowjob / deepthroat / titfuck POV (oral / chest with male body in frame):
+      "first person POV from the man receiving [oral / the act], his lower abdomen and upper thighs visible at the edges of the frame, his erect cock continuous with his body, [woman's mouth wrapped around it / deep in her throat / sliding between her breasts], [her expression, gaze, hand placement]"
+    • Sixty-nine / piledriver / amazon / less common: pick the camera POV that matches the dominant body orientation, place the partner's framing body parts at the matching edge of the frame, and describe penetration as ONE short composition phrase ("his erect cock penetrating her from above", "her pussy over his face") — never as a clinical anatomical event.
+
+  Phrasing rules for sex acts:
+    - Use "his erect cock" or "his erect penis" — pick ONE, never both. Never use a size descriptor.
+    - Penetration is described in ONE short phrase. Do not repeat it. Do not stack anatomy after it.
+    - Preserve every NON-act detail from the user scene verbatim: surface, sheet color, lighting, time of day, props, the woman's expression, where her hands are, whether she's looking at the camera, jewelry, makeup, hair state.
+    - If a Pose prompt fragment is provided in the input, you MAY copy its NON-act details verbatim (woman's expression, surface, lighting, hand placement, hair) but you MUST rewrite the act portion using the matching POV template above. The Pose prompt fragment is a hint, not a verbatim instruction for the act.
+    - If the scene mentions a sex act but does NOT mention a male partner at all, treat it as solo — describe only the woman's body position, do NOT add a partner.
+
+## HARD BANS (apply to every string field in the JSON output)
+- Clinical sex-act anatomy in scene.pose:
+  - "penis entering pussy / vagina / her", "penis entering from <direction>"
+  - "with visible penetration", "with visible contact at entrance", "with clear connection"
+  - stacked anatomy: "anus and pussy visible", "vulva and asshole visible", "labia spread around the shaft", "labia gripping the shaft"
+  - penis size descriptors before penis/cock/dick/shaft: "average-sized", "average erect", "small", "huge", "gigantic", "oversized", "massive", "enormous", "tiny", "big", "large"
+  - duplicated penetration mentions
+  - the partner's face / identity / facial expression — partner is body-parts only at the edge of frame
+- Mood / atmosphere adjectives anywhere: "evoking", "breathless", "stolen", "forbidden", "vulnerable", "vulnerability", "hushed", "tender", "raw glimpse", "unpolished", "intimate moment", "private moment", "pulses with", "urgent desire", "candid authenticity", "secluded", "unguarded".
+- Camera-imperfection language: NO "grain", NO "film grain", NO "motion blur", NO "shaky", NO "handheld blur", NO "shallow blur", NO "lens distortion", NO "low-light haste".
+- Quality tokens: NO "RAW photo", NO "8k", NO "hyperrealistic", NO "masterpiece", NO "cinematic", NO "professional", NO long tag dumps.
+- Moisture/sweat gloss adjectives: NO "slightly damp skin".
+- No body-part contradictions (e.g. "lying on back" + "ass thrust up").
+
+## ANATOMY / GENDER (HARD CONSTRAINT)
+- main_subject.gender_presentation MUST equal: ${genderClass}. NEVER switch.
+${genderClass === "woman"
+  ? "- The subject is a WOMAN. Never describe her as a 'man', 'guy', 'boy', or 'male'. Never give her a penis, never describe an erection, never give her testicles or a beard. Pronouns: she/her. If the scene involves penetration, the partner's anatomy may be mentioned ONLY if the user's pose/scene explicitly involves a partner — otherwise this is a solo female nude."
+  : genderClass === "man"
+  ? "- The subject is a MAN. Never describe him as a 'woman', 'girl', or 'female'. Never give him breasts, vulva, or female genitalia. Pronouns: he/him."
+  : "- Keep gender ambiguous unless the scene clearly implies one."}
+- Penetration / contact descriptions in scene.pose must be physically possible for the stated body position. If the user's pose makes the requested act impossible, pick the dominant intent and silently make the rest consistent.
+- For partnered sex scenes: penetration is EXACTLY ONE short phrase inside scene.pose (e.g. "his erect cock penetrating her from behind"). Never reference the join with separate anatomy nouns elsewhere in the JSON.
+
+## IDENTITY ANCHORING (REDUCE WRONG-FACE LEAKAGE)
+- The LoRA learned a specific person. main_subject (when present) is the ONLY source of identity facts; mirror every non-empty field exactly.
+- Do not invent age / ethnicity / hair / eyes / face / body details that aren't in main_subject.
+- Carry input.trigger_word to output.trigger_word verbatim. Never inline the trigger inside any other string.
+
+## OUTPUT
+Return ONLY the JSON object — pretty-printed, 2-space indent, no \`\`\`json fences, no preamble, no explanation.
+If the request is genuinely impossible to render as one coherent image, return exactly:
+{"error": "Irresolvable logical conflict in request - please clarify"}`;
+    const mode = String(context?.mode || "").trim().toLowerCase();
+    // Nudes pack uses the same system prompt as single-image NSFW (structured JSON I/O + POV rules).
+    // Admin override key: `nsfwPromptGenerator` (not the legacy `nudesPackPromptGeneratorSystem`).
+    const systemTemplateKey = "nsfwPromptGenerator";
+    systemPrompt = await getPromptTemplateValue(systemTemplateKey, systemPrompt);
+
+    // Guarantee the structured-JSON contract is always in the system prompt, even when
+    // an admin has overridden the template in the DB without copying the contract over.
+    if (!systemPrompt.includes("STRUCTURED JSON INPUT")) {
+      systemPrompt = `${systemPrompt}\n\n${STRUCTURED_INPUT_CONTRACT}`;
     }
 
-    let userMessage;
-    if (jsonGrokOutput) {
-      const isPartnered = /\b(doggy|missionary|cowgirl|reverse[-\s]?cowgirl|mating[-\s]?press|prone[-\s]?bone|spoon|standing[-\s]?from[-\s]?behind|piledriver|amazon|oral|blowjob|deep[-\s]?throat|titfuck|anal|sex|fuck|fucking|penetrat|partner)/i.test(
-        `${userRequest} ${poseHint} ${context?.pose?.title || ""}`,
-      );
-      const structured = buildStructuredPromptInput({
-        model,
-        lora: context?.lora || null,
-        userRequest,
-        context: { ...context, attributesDetail },
-        options: {
-          withCharacter: true,
-          mode: mode === "nudes-pack" ? "nudes-pack" : "nsfw",
-          triggerWord,
-          explicit: true,
-          isPartnered,
-        },
-      });
+    // Build the structured JSON payload for Grok. NSFW always has a LoRA model selected,
+    // so main_subject is filled with every identity-lock field we have.
+    const isPartnered = /\b(doggy|missionary|cowgirl|reverse[-\s]?cowgirl|mating[-\s]?press|prone[-\s]?bone|spoon|standing[-\s]?from[-\s]?behind|piledriver|amazon|oral|blowjob|deep[-\s]?throat|titfuck|anal|sex|fuck|fucking|penetrat|partner)/i.test(
+      `${userRequest} ${poseHint} ${context?.pose?.title || ""}`,
+    );
+    const structured = buildStructuredPromptInput({
+      model,
+      lora: context?.lora || null,
+      userRequest,
+      context: { ...context, attributesDetail },
+      options: {
+        withCharacter: true,
+        mode: mode === "nudes-pack" ? "nudes-pack" : "nsfw",
+        triggerWord,
+        explicit: true,
+        isPartnered,
+      },
+    });
 
-      const defaultUserWrapper =
-        mode === "nudes-pack"
-          ? "Compose one final NSFW prompt JSON for this nudes-pack item. The structured JSON below is the source of truth — mirror every non-empty field of `main_subject` exactly, derive `scene.pose` from `scene.user_request` using the composition-first POV templates, and follow all hard bans / anatomy rules from the system prompt. Output a SINGLE JSON object (pretty-printed, no fences).\n\n{{REQUEST_JSON}}\n\nLegacy raw request (for reference only):\n{{REQUEST}}"
-          : "Structured request (read every field). Output a SINGLE JSON object (pretty-printed, no fences) following the system prompt's I/O contract — no prose, no preamble.\n\n{{REQUEST_JSON}}\n\nLegacy raw request (for reference only):\n{{REQUEST}}";
-      const wrapperTemplate =
-        mode === "nudes-pack"
-          ? await getPromptTemplateValue("nudesPackPromptGeneratorUserWrapper", defaultUserWrapper)
-          : defaultUserWrapper;
-      userMessage = applyPromptTemplatePlaceholders(wrapperTemplate, {
-        REQUEST: userRequest,
-        REQUEST_JSON: structured.json,
-        MODEL_NAME: model?.name || "",
-        MODE: mode || "default",
-        POSE_ID: context?.pose?.id || "",
-        POSE_TITLE: context?.pose?.title || "",
-      });
-    } else {
-      const defaultTextUserWrapper =
-        mode === "nudes-pack"
-          ? "Nudes pack — pose {{POSE_ID}} ({{POSE_TITLE}}). Read the model appearance and scene below. Write ONE fluent NSFW image prompt paragraph per the system rules (not JSON, not a bulleted list).\n\n**Scene / pose (source of truth for the act):**\n{{REQUEST}}\n\n**Model appearance (weave in naturally; do not paste as a list):**\n{{ATTRIBUTE_SUMMARY}}"
-          : "**Scene / user request:**\n{{REQUEST}}\n\n**Model appearance (weave in naturally; do not paste as a list):**\n{{ATTRIBUTE_SUMMARY}}";
-      const textWrapperKey =
-        mode === "nudes-pack" ? "nudesPackTextPromptUserWrapper" : "nsfwTextPromptUserWrapper";
-      const textWrapper = await getPromptTemplateValue(textWrapperKey, defaultTextUserWrapper);
-      userMessage = applyPromptTemplatePlaceholders(textWrapper, {
-        REQUEST: userRequest,
-        ATTRIBUTE_SUMMARY: attributeSummary,
-        MODEL_NAME: model?.name || "",
-        MODE: mode || "default",
-        POSE_ID: context?.pose?.id || "",
-        POSE_TITLE: context?.pose?.title || "",
-      });
-    }
+    const defaultUserWrapper =
+      mode === "nudes-pack"
+        ? "Compose one final NSFW prompt JSON for this nudes-pack item. The structured JSON below is the source of truth — mirror every non-empty field of `main_subject` exactly, derive `scene.pose` from `scene.user_request` using the composition-first POV templates, and follow all hard bans / anatomy rules from the system prompt. Output a SINGLE JSON object (pretty-printed, no fences).\n\n{{REQUEST_JSON}}\n\nLegacy raw request (for reference only):\n{{REQUEST}}"
+        : "Structured request (read every field). Output a SINGLE JSON object (pretty-printed, no fences) following the system prompt's I/O contract — no prose, no preamble.\n\n{{REQUEST_JSON}}\n\nLegacy raw request (for reference only):\n{{REQUEST}}";
+    const wrapperTemplate =
+      mode === "nudes-pack"
+        ? await getPromptTemplateValue("nudesPackPromptGeneratorUserWrapper", defaultUserWrapper)
+        : defaultUserWrapper;
+    const userMessage = applyPromptTemplatePlaceholders(wrapperTemplate, {
+      REQUEST: userRequest,
+      REQUEST_JSON: structured.json,
+      MODEL_NAME: model?.name || "",
+      MODE: mode || "default",
+      POSE_ID: context?.pose?.id || "",
+      POSE_TITLE: context?.pose?.title || "",
+    });
 
     const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
     if (!OPENROUTER_API_KEY) {
@@ -3934,22 +3870,26 @@ ${buildGrokNsfwZit62JsonSystemBody(zit62Ctx)}`;
 
     const result = await response.json();
     const rawContent = result.choices?.[0]?.message?.content || "";
-    let content = stripGrokThinkingAndMarkdownFences(rawContent);
+    let content = rawContent.includes("<think>")
+      ? rawContent.replace(/<think>[\s\S]*?<\/think>/g, "").trim()
+      : rawContent.trim();
 
-    if (jsonGrokOutput) {
-      try {
-        const parsed = tryParseJsonLoose(content);
-        if (parsed != null) {
-          if (Array.isArray(parsed)) return String(parsed[0] || "").trim();
-          if (typeof parsed === "object") return JSON.stringify(parsed, null, 2);
-        }
-      } catch {
-        // fall through
+    // Strip any accidental ```json fences and return the JSON string verbatim.
+    content = content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
+
+    // Validate that Grok returned a JSON object (or legacy array). If parse fails,
+    // fall back to whatever Grok returned so callers don't crash on malformed output.
+    try {
+      const parsed = JSON.parse(content);
+      // Legacy support: old prompt format returned an array of strings.
+      if (Array.isArray(parsed)) {
+        return String(parsed[0] || "").trim();
       }
+      // New format: pretty-printed JSON object — feed verbatim to the image model.
+      return JSON.stringify(parsed, null, 2);
+    } catch {
       return content;
     }
-
-    return coerceGrokNsfwOutputToSamplerPlainText(content);
 }
 
 export async function generateNsfwPrompt(req, res) {
@@ -5558,16 +5498,17 @@ export async function generateNsfwMotionVideo(req, res) {
     await deductCredits(userId, creditsNeeded);
     creditsDeducted = creditsNeeded;
 
-    /** User text only; when omitted, Comfy uses workflow default (node 336 empty in nsfw_motion_api.json). */
-    const userPrompt =
-      typeof prompt === "string" && prompt.trim() ? prompt.trim().slice(0, 1500) : null;
+    const finalPrompt =
+      (typeof prompt === "string" && prompt.trim())
+        ? prompt.trim().slice(0, 1500)
+        : "natural cinematic motion, subtle weight shift, soft skin lighting, smooth and continuous animation, photorealistic";
 
     const generation = await prisma.generation.create({
       data: {
         userId,
         modelId,
         type: "nsfw-video-motion",
-        prompt: userPrompt || "natural cinematic motion, subtle weight shift, soft skin lighting, smooth and continuous animation, photorealistic",
+        prompt: finalPrompt,
         status: "processing",
         creditsCost: creditsNeeded,
         replicateModel: null,
@@ -5593,7 +5534,7 @@ export async function generateNsfwMotionVideo(req, res) {
       {
         referenceImageUrl: imageUrl,
         drivingVideoUrl: videoUrl,
-        prompt: userPrompt || undefined,
+        prompt: finalPrompt,
         durationSecs: dur,
         skipSecs: skip,
         seed: Number.isFinite(Number(seed)) ? Math.trunc(Number(seed)) : undefined,
