@@ -88,6 +88,14 @@ function getClient() {
   return client;
 }
 
+/**
+ * Same singleton as the mirror cache — used for distributed rate limits when Redis is configured.
+ * @returns {import("ioredis").default | null}
+ */
+export function getSharedIoredis() {
+  return getClient();
+}
+
 async function ensureConnected(r) {
   if (r.status === "wait" || r.status === "end") {
     await r.connect().catch(() => {});

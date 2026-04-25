@@ -19,7 +19,16 @@ import api from "../services/api";
 // Groups for LivePreviewPanel - shows all related types together
 const TYPE_GROUPS = {
   "all-images": ["image", "image-identity", "prompt-image", "face-swap-image", "advanced-image"],
-  "all-videos": ["video", "prompt-video", "face-swap", "recreate-video", "talking-head"],
+  "all-videos": [
+    "video",
+    "prompt-video",
+    "face-swap",
+    "recreate-video",
+    "talking-head",
+    "nsfw-video-motion",
+  ],
+  /** Recreate / motion outputs from Create (video + legacy types + RunPod motion) */
+  "recreate-videos": ["video", "recreate-video", "nsfw-video-motion"],
   "all-nsfw": ["nsfw", "nsfw-video", "nsfw-video-extend"],
   all: null,
 };

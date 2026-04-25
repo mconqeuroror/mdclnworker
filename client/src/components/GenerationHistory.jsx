@@ -118,7 +118,15 @@ export function GenerationHistory({
     const gen = generation || previewModal;
     const lowerUrl = url.toLowerCase();
     const genType = gen?.type || "";
-    const videoTypes = ["video", "faceswap", "face-swap", "prompt-video", "talking-head", "recreate-video"];
+    const videoTypes = [
+      "video",
+      "faceswap",
+      "face-swap",
+      "prompt-video",
+      "talking-head",
+      "recreate-video",
+      "nsfw-video-motion",
+    ];
     const isVideo = videoTypes.includes(genType) || lowerUrl.includes(".mp4") || lowerUrl.includes(".webm");
     const ext = isVideo ? (lowerUrl.includes(".webm") ? "webm" : "mp4") : "jpg";
     const filename = `generation-${gen?.id || "image"}-${index + 1}.${ext}`;
@@ -479,6 +487,7 @@ function isVideoType(type) {
     "prompt-video",
     "talking-head",
     "recreate-video",
+    "nsfw-video-motion",
   ].includes(type);
 }
 
@@ -672,6 +681,7 @@ function getTypeLabel(generation) {
     "face-swap-image": "Face Swap",
     video: "Video",
     "recreate-video": "Recreate Video",
+    "nsfw-video-motion": "Recreate Video",
     faceswap: "Face Swap Video",
     "face-swap": "Face Swap Video",
     "prompt-video": "Prompt Video",
