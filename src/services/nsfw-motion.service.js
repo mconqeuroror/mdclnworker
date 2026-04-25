@@ -43,13 +43,6 @@ const DEFAULT_WIDTH = 720;
 const DEFAULT_HEIGHT = 1280;
 const DEFAULT_FPS = 30;
 const DEFAULT_DURATION_SECS = 5;
-const DEFAULT_NEGATIVE_PROMPT = [
-  "oversaturated, overexposed, static, blurry details, subtitles, watermark,",
-  "painting style, artwork, still image, gray tones, worst quality, low quality,",
-  "JPEG artifacts, ugly, deformed, extra fingers, poorly drawn hands, poorly drawn face,",
-  "mutated, disfigured, malformed limbs, fused fingers, frozen frame, cluttered background,",
-  "three legs, crowd in background, walking backwards",
-].join(" ");
 
 if (!RUNPOD_API_KEY) {
   console.warn("⚠️ RUNPOD_API_KEY not set — NSFW motion control will not work");
@@ -187,7 +180,7 @@ async function fetchUrlBuffer(url, label, expectedKind /* "image" | "video" */) 
  * @param {string} opts.referenceImageUrl      — public URL of the user's NSFW reference image
  * @param {string} opts.drivingVideoUrl        — public URL of the user-uploaded driving mp4
  * @param {string} [opts.prompt]               — positive prompt, applied to CLIPTextEncode node "336"
- * @param {string} [opts.negativePrompt]       — negative prompt, applied to node "335"
+ * @param {string} [opts.negativePrompt]       — if set, overrides node "335"; omit to keep workflow JSON default
  * @param {number} [opts.durationSecs]         — total duration; sets node "255"
  * @param {number} [opts.skipSecs]             — leading seconds of driving video to skip; node "254"
  * @param {number} [opts.fps]                  — output FPS; node "257"
@@ -212,7 +205,7 @@ export async function submitNsfwMotionVideo(opts, webhookUrl = null, generationI
     referenceImageUrl,
     drivingVideoUrl,
     prompt,
-    negativePrompt = DEFAULT_NEGATIVE_PROMPT,
+    negativePrompt,
     durationSecs,
     skipSecs = 0,
     fps = DEFAULT_FPS,
@@ -254,6 +247,7 @@ export async function submitNsfwMotionVideo(opts, webhookUrl = null, generationI
   // not installed in the motion worker image — force Comfy to use stock attention.
   if (workflow["322"]?.inputs) workflow["322"].inputs.sage_attention = "disabled";
 
+  // Match Comfy “as saved” unless the caller overrides (empty 336 / baked-in 335 in nsfw_motion_api.json).
   if (typeof prompt === "string" && prompt.trim() && workflow["336"]?.inputs) {
     workflow["336"].inputs.text = prompt.trim();
   }

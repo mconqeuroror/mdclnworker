@@ -5498,17 +5498,16 @@ export async function generateNsfwMotionVideo(req, res) {
     await deductCredits(userId, creditsNeeded);
     creditsDeducted = creditsNeeded;
 
-    const finalPrompt =
-      (typeof prompt === "string" && prompt.trim())
-        ? prompt.trim().slice(0, 1500)
-        : "natural cinematic motion, subtle weight shift, soft skin lighting, smooth and continuous animation, photorealistic";
+    /** User text only; when omitted, Comfy uses workflow default (node 336 empty in nsfw_motion_api.json). */
+    const userPrompt =
+      typeof prompt === "string" && prompt.trim() ? prompt.trim().slice(0, 1500) : null;
 
     const generation = await prisma.generation.create({
       data: {
         userId,
         modelId,
         type: "nsfw-video-motion",
-        prompt: finalPrompt,
+        prompt: userPrompt || "natural cinematic motion, subtle weight shift, soft skin lighting, smooth and continuous animation, photorealistic",
         status: "processing",
         creditsCost: creditsNeeded,
         replicateModel: null,
@@ -5534,7 +5533,7 @@ export async function generateNsfwMotionVideo(req, res) {
       {
         referenceImageUrl: imageUrl,
         drivingVideoUrl: videoUrl,
-        prompt: finalPrompt,
+        prompt: userPrompt || undefined,
         durationSecs: dur,
         skipSecs: skip,
         seed: Number.isFinite(Number(seed)) ? Math.trunc(Number(seed)) : undefined,
