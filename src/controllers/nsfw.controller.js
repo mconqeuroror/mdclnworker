@@ -3241,7 +3241,7 @@ export async function generateNudesPack(req, res) {
               userRequestForAi,
               attributesDetail,
               attributesString,
-              { pose },
+              { pose, mode: "nudes-pack" },
             );
             if (aiPrompt && typeof aiPrompt === "string" && aiPrompt.trim()) {
               if (isNsfwPromptLogicalConflict(aiPrompt)) {
@@ -3731,26 +3731,27 @@ Sentence 2 — Pose / sex act (COMPOSITION-FIRST POV — read carefully).
     - duplicated penetration mentions in the same prompt
     - "slightly damp skin" or other moisture/sweat gloss adjectives
 
-  POSE → CAMERA POV TEMPLATES (use the matching one, adapt the woman-side detail to the user's scene):
+  POSE → CAMERA POV TEMPLATES (use the matching one, adapt the woman-side detail to the user's scene). Reduces model "mutations": partnered = exactly two people; his penis only at his groin, continuous with his pelvis; main light is on-camera / in front of the lens with the camera — do NOT write "harsh phone flash from behind" when the camera is also from behind the couple (the flash IS the on-camera light). For stacked or overlapping poses, say torsos "not merged" and leave a "clear gap" / two distinct bodies. For 69, never place his penis at his or her face — mouth meets groin only.
+
     • Doggystyle / prone bone (woman on all fours or face-down, man behind):
-      "POV from behind, partner's hips and thighs in lower foreground framing the shot, his erect cock penetrating her from behind, woman on all fours / face-down on [surface] with arched back, her ass facing the camera, [her hand placement / expression / hair from the user scene]"
+      "camera from behind the couple, hip height, one man and one woman, not merged, his penis in her pussy from behind, she on all fours or face-down on [surface], arched back, ass toward camera, [her hands, expression, hair] — harsh on-camera flash"
     • Standing from behind (both standing, man behind):
-      "POV from behind standing, partner's hips and abs in lower foreground, his erect cock penetrating her from behind, woman bent forward over [surface] with arched back, her ass pushed back toward the camera, [grip / surface / expression]"
+      "3/4 rear or behind-the-couple view, he stands behind, she bent over [surface], two separate bodies, his penis in her pussy at groin, not merged, [grip, expression] — on-camera flash"
     • Missionary (woman on back, man on top):
-      "POV from above looking down, partner's torso and hips in upper foreground silhouette, his erect cock penetrating her from above, woman lying on her back on [surface] with legs spread and knees bent, [hand placement, expression, eye contact with the camera]"
+      "the man's first-person view looking down, only two people, she on back on [surface], he is on top between camera and her, one continuous male body from the hips, his penis in her pussy, [legs, hands, eye contact, expression] — one on-camera flash"
     • Mating press (woman on back, legs folded back, man pressing down):
-      "POV from above with deep angle, woman lying on her back with her legs folded back over her shoulders, partner's hips pressed down between her thighs, his hands on the backs of her thighs, deep penetration angle, [her expression]"
+      "from above, she on back with legs folded back, his hips between her thighs, not merged, his hands on the backs of her thighs, [expression] — on-camera flash"
     • Cowgirl (woman on top, facing partner):
-      "POV from below looking up at her, partner's hips and thighs in lower foreground, woman straddling and riding on top, body upright or slightly arched, her hands on his chest / her own breasts / her hair, eye contact with the camera"
+      "from below, she straddles facing the camera, his pelvis in lower frame, his penis in her pussy, not merged, [hands, expression, eye contact] — on-camera flash"
     • Reverse cowgirl (woman on top, facing away):
-      "POV from below looking up at her back, partner's hips and lower torso in foreground, woman straddling facing away, her back arched, her ass and back facing the camera, [hand placement]"
+      "man on his back, camera low at his shins, she straddles facing his feet, his pelvis and his penis in her pussy visible, not merged, [hand placement, expression] — dim bedroom, single lamp"
     • Spooning / sideways (both lying on side, man behind):
-      "side profile shot, both lying on their sides, partner behind her, his hips against her ass and his erect cock penetrating her from behind, his arm wrapped around her, [her expression]"
+      "side profile, both on their sides, he behind, not merged, his penis in her pussy from behind, [arm around her, raised leg, expression] — soft rim light behind them"
     • Anal (any orientation):
-      same templates as the matching vaginal pose, but penetration phrase becomes "his erect cock penetrating her ass from <direction>". One mention only — never also describe vaginal penetration in the same prompt.
+      same as the matching vaginal template, but a single short phrase: "his penis in her ass" with direction implied by the pose — one anal mention only, never also vaginal in the same prompt.
     • Blowjob / deepthroat / titfuck POV (oral / chest with male body in frame):
-      "first person POV from the man receiving [oral / the act], his lower abdomen and upper thighs visible at the edges of the frame, his erect cock continuous with his body, [woman's mouth wrapped around it / deep in her throat / sliding between her breasts], [her expression, gaze, hand placement]"
-    • Sixty-nine / piledriver / amazon / less common: pick the camera POV that matches the dominant body orientation, place the partner's framing body parts at the matching edge of the frame, and describe penetration as ONE short composition phrase ("his erect cock penetrating her from above", "her pussy over his face") — never as a clinical anatomical event.
+      "first person POV, only two people, his penis from his groin at her mouth or chest only, his lower body at the frame edge, not merged, [oral / titfuck action], [gaze, hands] — on-camera flash"
+    • Sixty-nine / piledriver / amazon: prefer side or 3/4; for sixty-nine use "her mouth at his groin, his face at her crotch, clear gap between bellies, two distinct torsos" — never penis growing from a face. For other rare poses, one penetration/oral phrase only, no stacked anatomy.
 
   Phrasing rules for sex acts:
     - Use "his erect cock" or "his erect penis" — pick ONE, never both. Never use a size descriptor.
