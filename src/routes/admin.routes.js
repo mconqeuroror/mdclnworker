@@ -65,6 +65,7 @@ import {
   deleteElevenLabsVoiceStrict,
 } from "../services/elevenlabs.service.js";
 import { runRunpodWatchdog } from "../services/generation-poller.service.js";
+import { runDisasterRecovery } from "../services/disaster-recovery.service.js";
 
 const router = express.Router();
 const KIE_API_KEY = process.env.KIE_API_KEY;
@@ -3034,6 +3035,41 @@ router.delete("/discount-codes/:id", async (req, res) => {
   } catch (error) {
     console.error("Error deactivating discount code:", error);
     res.status(500).json({ error: "Failed to deactivate discount code" });
+  }
+});
+
+/**
+ * POST /api/admin/disaster-recovery
+ * Replays Stripe payments / subs (new + legacy), recreates missing users (metadata.userId + email), emails reset codes.
+ * Optional `vercelLogRows` (array) to extract extra cs_/sub_/pi_ ids. Default dryRun: true.
+ * `catastropheUserRestore: true` — first phase: list Stripe customers + scan Vercel JSON for email-like strings;
+ * for emails not in DB, create user with temporary password and `sendCatastropheAccountEmail` (or `temporaryPasswordStyle: "create_only"` to skip email).
+ * Then existing checkout replay, optional log-correlation generation restore, KIE reconcile.
+ */
+router.post("/disaster-recovery", async (req, res) => {
+  try {
+    const data = await runDisasterRecovery(req.body || {});
+    await prisma.adminAuditLog.create({
+      data: {
+        adminUserId: req.user.userId,
+        adminEmail: req.user.email || null,
+        action: "disaster_recovery",
+        targetType: "global",
+        targetId: null,
+        detailsJson: JSON.stringify({
+          dryRun: req.body?.dryRun !== false,
+          since: data?.since,
+          results: (data?.idResults || []).length,
+        }),
+      },
+    }).catch(() => {});
+    return res.json({ success: true, data });
+  } catch (error) {
+    console.error("disaster-recovery error:", error);
+    return res.status(500).json({
+      success: false,
+      error: error?.message || "Disaster recovery failed",
+    });
   }
 });
 

@@ -871,6 +871,11 @@ export const adminAPI = {
     });
     return response.data;
   },
+  /** DB + dual Stripe: replay payments/subs, recreate deleted users, optional Vercel log rows, KIE gen reconcile. */
+  runDisasterRecovery: async (body = {}) => {
+    const response = await api.post("/admin/disaster-recovery", body);
+    return response.data;
+  },
   getVoiceHostingDue: async () => {
     const response = await api.get("/admin/voice-hosting/due");
     return response.data;

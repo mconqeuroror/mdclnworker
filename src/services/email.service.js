@@ -186,6 +186,54 @@ export async function sendVerificationEmail(email, code, name, isPasswordReset =
   }
 }
 
+/**
+ * Catastrophe / disaster recovery: one-time login password for a recreated account.
+ * The caller must not log the plaintext password except via email.
+ */
+export async function sendCatastropheRestoredAccountEmail(email, temporaryPassword, name) {
+  try {
+    const branding = await getAppBranding();
+    const brandName = branding.appName || BRAND.name;
+    const baseUrl = (branding.baseUrl || BRAND.defaultBaseUrl).replace(/\/$/, "");
+    const subject = `Your ${brandName} account was restored — sign in`;
+    const fromEmail = process.env.SENDGRID_FROM_EMAIL || "noreply@modelclone.app";
+    const msg = {
+      to: email,
+      from: { email: fromEmail, name: brandName },
+      subject,
+      html: await renderBaseEmailShell({
+        subject,
+        sectionLabel: "Account restored",
+        title: "Sign in with this temporary password",
+        introHtml: `<p class="greeting-text">We recreated your account after a data recovery. Log in with the email <strong>${escapeHtml(
+          email,
+        )}</strong> and the temporary password below, then change your password in account settings as soon as possible.</p>`,
+        contentHtml: `
+          <div style="margin-bottom: 28px;">
+            <div style="font-size: 11px; font-weight: 500; letter-spacing: 1px; text-transform: uppercase; color: #9b9b93; margin-bottom: 12px;">Temporary password</div>
+            <div class="code-block">
+              <div class="code-digits" style="text-align:center; font-size: 15px; word-break: break-all;">${escapeHtml(
+                temporaryPassword,
+              )}</div>
+            </div>
+          </div>
+          <p class="note">Log in: <a href="${escapeHtml(baseUrl)}/login" style="color: #1a1a1a;">${escapeHtml(
+            baseUrl,
+          )}/login</a></p>
+          <p class="note">If you did not expect this email, contact support immediately.</p>
+        `,
+        preheader: `Temporary password for ${brandName} restored account`,
+      }),
+    };
+    await sgMail.send(msg);
+    console.log("✅ Catastrophe restored-account email sent to:", email);
+    return { success: true };
+  } catch (error) {
+    console.error("❌ Catastrophe account email failed:", error?.message);
+    return { success: false, error: error?.message || String(error) };
+  }
+}
+
 export function generateVerificationCode() {
   // Generate 6-digit code
   return Math.floor(100000 + Math.random() * 900000).toString();

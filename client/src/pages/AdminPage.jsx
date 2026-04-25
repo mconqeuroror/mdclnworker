@@ -4,7 +4,7 @@ import {
   Users, Search, Plus, Trash2, DollarSign, Activity, Settings, Shield, Key,
   ChevronDown, ChevronUp, RefreshCw, BarChart3, Palette, Mail, ArrowLeft,
   Copy, Check, AlertTriangle, Zap, Server, Clock, TrendingUp, TrendingDown,
-  ChevronLeft, ChevronRight, X, Send, UserX, Download, Loader2, Wallet, ExternalLink,
+  ChevronLeft, ChevronRight, X, Send, UserX, Download, Upload, Loader2, Wallet, ExternalLink,
   Ban,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -28,6 +28,9 @@ const fmtDurationMs = (ms) => {
   if (n < 60_000) return `${(n / 1000).toFixed(1)}s`;
   return `${(n / 60_000).toFixed(1)}m`;
 };
+
+/** Vercel log JSON POST body must stay under server `BODY_LIMIT` (default 50mb) and browser limits. */
+const DISASTER_VERCEL_LOG_MAX_BYTES = 48 * 1024 * 1024;
 const PROVIDER_NAME_RE = /\b(heygen|elevenlabs?|kling|nanobanana|nano\s*banana|replicate|fal(?:\.ai)?|wavespeed|openrouter|apify|kie)\b/ig;
 const redactProviderText = (value, fallback = '—') => {
   const raw = String(value ?? '').trim();
@@ -649,6 +652,24 @@ export default function AdminPage() {
   const [lostGenAllResult, setLostGenAllResult] = useState(null);
   const [runpodBatchLoading, setRunpodBatchLoading] = useState(false);
   const [runpodBatchResult, setRunpodBatchResult] = useState(null);
+  const [disasterForm, setDisasterForm] = useState({
+    since: '',
+    maxCheckoutSessions: 400,
+    maxStripeCustomers: 2000,
+    vercelLogJson: '',
+    resyncTodaysUsers: true,
+    recoverKie: true,
+    kieLimit: 500,
+    rebuildLogCorrelation: false,
+    catastropheUserRestore: false,
+  });
+  const [disasterLoading, setDisasterLoading] = useState(false);
+  const [disasterResult, setDisasterResult] = useState(null);
+  /** Parsed Vercel export rows (kept in ref so multi‑MB JSON does not live in React state). */
+  const disasterVercelLogRowsRef = useRef(null);
+  const disasterLogFileInputRef = useRef(null);
+  const [disasterLogFileMeta, setDisasterLogFileMeta] = useState(null);
+  const [disasterLogParseBusy, setDisasterLogParseBusy] = useState(false);
   const [voiceHostingDue, setVoiceHostingDue] = useState(null);
   const [voiceHostingDueLoading, setVoiceHostingDueLoading] = useState(false);
   const [voiceHostingRunUserId, setVoiceHostingRunUserId] = useState('');
@@ -743,6 +764,51 @@ export default function AdminPage() {
   });
   
   const requestIdRef = useRef(0);
+
+  const hasDisasterVercelLogs =
+    Boolean(disasterForm.vercelLogJson?.trim()) || disasterLogFileMeta != null;
+
+  const clearDisasterVercelLogFile = () => {
+    disasterVercelLogRowsRef.current = null;
+    setDisasterLogFileMeta(null);
+    if (disasterLogFileInputRef.current) disasterLogFileInputRef.current.value = '';
+  };
+
+  const handleDisasterVercelLogFile = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (file.size > DISASTER_VERCEL_LOG_MAX_BYTES) {
+      toast.error(
+        `Log file too large (${(file.size / 1024 / 1024).toFixed(0)} MB). Max ~48 MB per request — export a shorter window from Vercel or run in batches.`,
+      );
+      return;
+    }
+    setDisasterLogParseBusy(true);
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      const rows = Array.isArray(parsed) ? parsed : parsed?.rows;
+      if (!Array.isArray(rows)) {
+        toast.error('Vercel log JSON must be a top-level array of row objects, or { "rows": [...] }');
+        clearDisasterVercelLogFile();
+        return;
+      }
+      disasterVercelLogRowsRef.current = rows;
+      setDisasterLogFileMeta({
+        name: file.name,
+        rows: rows.length,
+        sizeMb: +(file.size / 1024 / 1024).toFixed(2),
+      });
+      setDisasterForm((v) => ({ ...v, vercelLogJson: '', rebuildLogCorrelation: true }));
+      toast.success(`Loaded ${file.name} (${rows.length.toLocaleString()} rows) — log correlation enabled`);
+    } catch (err) {
+      clearDisasterVercelLogFile();
+      toast.error(err?.message || 'Failed to read or parse log JSON');
+    } finally {
+      setDisasterLogParseBusy(false);
+    }
+  };
 
   // ── Data loaders ─────────────────────────────────────────────────────────────
 
@@ -1576,6 +1642,60 @@ export default function AdminPage() {
       toast.error(msg);
     } finally {
       setRunpodBatchLoading(false);
+    }
+  };
+
+  const handleDisasterRecovery = async (dryRun) => {
+    setDisasterLoading(true);
+    setDisasterResult(null);
+    try {
+      let vercelLogRows;
+      if (disasterForm.vercelLogJson?.trim()) {
+        const parsed = JSON.parse(disasterForm.vercelLogJson);
+        vercelLogRows = Array.isArray(parsed) ? parsed : parsed?.rows;
+        if (!Array.isArray(vercelLogRows)) {
+          throw new Error('Vercel log JSON must be an array of log objects (or { rows: [...] })');
+        }
+      } else if (Array.isArray(disasterVercelLogRowsRef.current)) {
+        vercelLogRows = disasterVercelLogRowsRef.current;
+      }
+      const since = disasterForm.since?.trim()
+        ? new Date(disasterForm.since).toISOString()
+        : undefined;
+      const r = await adminAPI.runDisasterRecovery({
+        dryRun,
+        since,
+        maxCheckoutSessions: Math.max(1, Math.min(5000, parseInt(disasterForm.maxCheckoutSessions, 10) || 400)),
+        maxStripeCustomers: Math.max(100, Math.min(10000, parseInt(disasterForm.maxStripeCustomers, 10) || 2000)),
+        vercelLogRows,
+        resyncTodaysUsers: disasterForm.resyncTodaysUsers,
+        recoverKieGenerations: disasterForm.recoverKie,
+        kieReconcileLimit: Math.max(1, Math.min(2000, parseInt(disasterForm.kieLimit, 10) || 500)),
+        sendPasswordResetEmail: true,
+        scanCheckoutsFromStripe: true,
+        rebuildMissingGenerationsFromLogCorrelation:
+          Boolean(disasterForm.rebuildLogCorrelation) &&
+          (Boolean(disasterForm.vercelLogJson?.trim()) || Array.isArray(disasterVercelLogRowsRef.current)),
+        catastropheUserRestore: Boolean(disasterForm.catastropheUserRestore),
+        sendCatastropheAccountEmail: true,
+      });
+      const payload = r?.data != null ? r.data : r;
+      setDisasterResult(payload);
+      if (r?.success !== false) {
+        toast.success(
+          dryRun
+            ? 'Disaster recovery dry run complete (see panel below).'
+            : 'Disaster recovery run completed.',
+        );
+      } else {
+        toast.error(r?.error || r?.message || 'Disaster recovery failed');
+      }
+    } catch (e) {
+      const msg = e?.message || e?.response?.data?.error || 'Disaster recovery failed';
+      setDisasterResult({ error: msg });
+      toast.error(msg);
+    } finally {
+      setDisasterLoading(false);
     }
   };
 
@@ -3557,6 +3677,182 @@ export default function AdminPage() {
                   scanned: {runpodBatchResult.data.scanned || 0} | checked: {runpodBatchResult.data.checkedWithRunpodJobId || 0} | recovered: {runpodBatchResult.data.completedRecovered || 0} | from failed: {runpodBatchResult.data.completedRecoveredFromFailed || 0} | still running: {runpodBatchResult.data.stillRunning || 0}
                 </div>
               )}
+            </div>
+          )}
+        </Section>
+
+        {/* ── Disaster recovery (Stripe + DB) ─────────────────────────────── */}
+        <Section>
+          <SectionHeader title="Disaster recovery" />
+          <p className="text-xs text-amber-200/90 mb-2 border border-amber-500/25 rounded-lg p-2 bg-amber-500/5">
+            <strong>High impact.</strong> Load your <strong>Vercel log export JSON</strong> with the button below (recommended) so Stripe id extraction, catastrophe email discovery, and generation correlation{' '}
+            <strong>use the logs</strong> automatically — no copy-paste needed unless you prefer the box. Replays checkouts since <strong>Since</strong>, backfills credits/subs, optional catastrophe accounts + temp
+            password email, KIE reconcile. Gen restore still needs <code className="text-amber-100/80">KieTask</code> / sampled <code className="text-amber-100/80">ApiRequestMetric</code> in the DB.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+            <label className="text-[11px] text-gray-500 col-span-full">Since (local) — default on server: start of today UTC if empty</label>
+            <span className="text-[10px] text-gray-500 col-span-full -mt-1">Customers / checkout / correlation use this window when relevant.</span>
+            <input
+              type="datetime-local"
+              value={disasterForm.since}
+              onChange={(e) => setDisasterForm((v) => ({ ...v, since: e.target.value }))}
+              className="px-3 py-2 rounded-lg border border-white/[0.07] bg-white/[0.03] text-xs"
+            />
+            <input
+              type="number"
+              min={1}
+              max={5000}
+              value={disasterForm.maxCheckoutSessions}
+              onChange={(e) => setDisasterForm((v) => ({ ...v, maxCheckoutSessions: e.target.value }))}
+              className="px-3 py-2 rounded-lg border border-white/[0.07] bg-white/[0.03] text-xs"
+              title="Max checkout sessions to pull per Stripe account (budget total)"
+            />
+            <div className="md:col-span-2">
+              <label className="text-[11px] text-gray-500">Max Stripe customers / account (catastrophe)</label>
+              <input
+                type="number"
+                min={100}
+                max={10000}
+                value={disasterForm.maxStripeCustomers}
+                onChange={(e) => setDisasterForm((v) => ({ ...v, maxStripeCustomers: e.target.value }))}
+                className="mt-1 w-full max-w-xs px-3 py-2 rounded-lg border border-white/[0.07] bg-white/[0.03] text-xs"
+                title="Max Stripe customers to list per account (catastrophe user restore)"
+              />
+            </div>
+            <label className="inline-flex items-center gap-2 text-xs text-gray-300 col-span-full">
+              <input
+                type="checkbox"
+                checked={disasterForm.resyncTodaysUsers}
+                onChange={(e) => setDisasterForm((v) => ({ ...v, resyncTodaysUsers: e.target.checked }))}
+                className="accent-white"
+              />
+              Also re-process subscriptions for users created/updated since &quot;since&quot;
+            </label>
+            <label className="inline-flex items-center gap-2 text-xs text-gray-300 col-span-full">
+              <input
+                type="checkbox"
+                checked={disasterForm.recoverKie}
+                onChange={(e) => setDisasterForm((v) => ({ ...v, recoverKie: e.target.checked }))}
+                className="accent-white"
+              />
+              Run KIE lost-generation reconcile (failed rows with kie-task:)
+            </label>
+            <label className="inline-flex items-center gap-2 text-xs text-rose-200/90 col-span-full max-w-3xl">
+              <input
+                type="checkbox"
+                checked={disasterForm.catastropheUserRestore}
+                onChange={(e) => setDisasterForm((v) => ({ ...v, catastropheUserRestore: e.target.checked }))}
+                className="accent-rose-400"
+              />
+              <span>
+                <strong>Catastrophe user restore</strong> — list Stripe customers + scrape emails in Vercel JSON; <strong>skip</strong> if email already in DB; <strong>create</strong> missing accounts and email a
+                temporary password (runs first, then payments + gen restore)
+              </span>
+            </label>
+            <label className="inline-flex items-center gap-2 text-xs text-amber-100/90 col-span-full max-w-3xl">
+              <input
+                type="checkbox"
+                checked={disasterForm.rebuildLogCorrelation}
+                onChange={(e) => setDisasterForm((v) => ({ ...v, rebuildLogCorrelation: e.target.checked }))}
+                className="accent-amber-400"
+              />
+              <span>
+                Rebuild <strong>missing</strong> generations using Vercel path + merged <code className="text-amber-200/90">requestId</code> messages + <code className="text-amber-200/90">KieTask</code> +{' '}
+                <code className="text-amber-200/90">ApiRequestMetric</code> (requires log JSON)
+              </span>
+            </label>
+            <input
+              type="number"
+              min={1}
+              max={2000}
+              value={disasterForm.kieLimit}
+              onChange={(e) => setDisasterForm((v) => ({ ...v, kieLimit: e.target.value }))}
+              className="px-3 py-2 rounded-lg border border-white/[0.07] bg-white/[0.03] text-xs max-w-xs"
+              title="KIE reconcile limit"
+            />
+            <div className="md:col-span-2 flex flex-wrap items-center gap-2">
+              <input
+                ref={disasterLogFileInputRef}
+                type="file"
+                accept=".json,application/json"
+                className="hidden"
+                onChange={handleDisasterVercelLogFile}
+              />
+              <GhostBtn
+                type="button"
+                onClick={() => disasterLogFileInputRef.current?.click()}
+                disabled={disasterLoading || disasterLogParseBusy}
+              >
+                {disasterLogParseBusy ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <Upload className="w-3 h-3" />
+                )}
+                Load Vercel log export (.json)
+              </GhostBtn>
+              {disasterLogFileMeta && (
+                <>
+                  <span className="text-[11px] text-emerald-300/90">
+                    {disasterLogFileMeta.name} — {disasterLogFileMeta.rows.toLocaleString()} rows, {disasterLogFileMeta.sizeMb} MB
+                  </span>
+                  <GhostBtn type="button" onClick={clearDisasterVercelLogFile} disabled={disasterLoading}>
+                    Clear log file
+                  </GhostBtn>
+                </>
+              )}
+              {!hasDisasterVercelLogs && (
+                <span className="text-[10px] text-amber-200/70">No log file loaded — only Stripe / DB paths run.</span>
+              )}
+            </div>
+            <textarea
+              value={disasterForm.vercelLogJson}
+              onChange={(e) => setDisasterForm((v) => ({ ...v, vercelLogJson: e.target.value }))}
+              rows={3}
+              placeholder="Optional: paste JSON here instead of file (same format). If both are set, this box wins over the loaded file."
+              className="md:col-span-2 px-3 py-2 rounded-lg border border-white/[0.07] bg-white/[0.03] text-[11px] font-mono focus:border-white/20 outline-none"
+            />
+          </div>
+          <div className="mt-3 flex items-center gap-2 flex-wrap">
+            <GhostBtn onClick={() => handleDisasterRecovery(true)} disabled={disasterLoading || disasterLogParseBusy}>
+              {disasterLoading ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Search className="w-3 h-3" />}
+              Dry run
+            </GhostBtn>
+            <PrimaryBtn
+              onClick={() => {
+                if (
+                  !window.confirm(
+                    disasterForm.catastropheUserRestore
+                      ? 'Run disaster recovery? This may CREATE user rows, set temporary passwords, and SEND catastrophe account emails, plus replay Stripe and restore generations.'
+                      : 'Run disaster recovery for real? Writes DB and may send password reset emails.',
+                  )
+                ) {
+                  return;
+                }
+                handleDisasterRecovery(false);
+              }}
+              disabled={disasterLoading || disasterLogParseBusy}
+            >
+              {disasterLoading ? (
+                <>
+                  <div className="w-3 h-3 border border-black/30 border-t-black rounded-full animate-spin" />
+                  Running…
+                </>
+              ) : (
+                <>
+                  <Zap className="w-3 h-3" />
+                  Apply
+                </>
+              )}
+            </PrimaryBtn>
+          </div>
+          {disasterResult && !disasterResult.error && (
+            <pre className="mt-3 p-3 rounded-lg border border-white/[0.1] bg-black/30 text-[10px] text-gray-300 overflow-auto max-h-80 whitespace-pre-wrap">
+              {JSON.stringify(disasterResult, null, 2)}
+            </pre>
+          )}
+          {disasterResult?.error && (
+            <div className="mt-3 p-3 rounded-lg border border-red-500/20 bg-red-500/[0.05] text-xs text-red-400">
+              {disasterResult.error}
             </div>
           )}
         </Section>
