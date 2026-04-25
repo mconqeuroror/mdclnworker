@@ -88,6 +88,8 @@ import {
   getNudesPackCreditsSplit,
 } from "../../shared/nudesPackPoses.js";
 import {
+  getEffectiveNudesPackPoses,
+  isNudesPackFeatureEnabled,
   validateNudesPackPoseIdsEffective,
   getNudesPackPoseByIdEffective,
   getNudesPackAdditiveHintForPose,
@@ -2997,6 +2999,29 @@ async function mapWithConcurrencyLimit(items, concurrency, mapper) {
   return results;
 }
 
+// GET /api/nsfw/nudes-pack-poses — active catalog + pack credit range (NSFW UI)
+export async function getNudesPackPoses(req, res) {
+  try {
+    if (!isNudesPackFeatureEnabled()) {
+      return res.status(404).json({ success: false, message: "Not found" });
+    }
+    const poses = await getEffectiveNudesPackPoses();
+    const genPricing = await getGenerationPricing();
+    return res.json({
+      success: true,
+      poses,
+      nudesPackCreditsMin: genPricing.nudesPackCreditsMin,
+      nudesPackCreditsMax: genPricing.nudesPackCreditsMax,
+    });
+  } catch (e) {
+    console.error("getNudesPackPoses:", e);
+    return res.status(500).json({
+      success: false,
+      message: e?.message || "Failed to load nudes pack poses",
+    });
+  }
+}
+
 // ============================================
 // POST /api/nsfw/nudes-pack — dynamic cr/image: 15 @ 30 poses → 30 @ 1 pose (linear); looks + trigger server-side
 // Body: { modelId, poseIds: string[], attributes?, attributesDetail?, sceneDescription?, skipFaceSwap?, faceSwapImageUrl?, options?, resolution? }
@@ -5598,6 +5623,7 @@ export default {
   trainLora,
   getLoraTrainingStatus,
   generateNsfwImage,
+  getNudesPackPoses,
   generateNudesPack,
   generateNsfwPrompt,
   planNsfwGeneration,
