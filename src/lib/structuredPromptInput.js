@@ -321,8 +321,6 @@ The user message is a JSON object. Top-level keys you may receive:
 - "style"               — Photo category + visual tone + render style.
 - "nsfw_meta"           — NSFW-only flags (mode, explicit, is_partnered, sex_act, …) when applicable.
 
-**Partnered explicit (OUTPUT.scene.pose when is_partnered):** one coherent camera + one dominant light direction; exactly two people; his penis only as part of his groin, never detached or on a face; for overlapping poses (e.g. 69) say torsos are **not merged** and leave a **clear gap**; never contradict "from-above" or "face-to-face" POV with "harsh light from behind" unless you mean a small rim (prefer on-camera or front fill for phone snapshots).
-
 ### OUTPUT
 You MUST return a SINGLE JSON object (pretty-printed, 2-space indent) and NOTHING ELSE — no markdown fences, no preamble, no explanation, no code block.
 
