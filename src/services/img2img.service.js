@@ -480,6 +480,9 @@ export function parseRunpodHandlerOutput(raw) {
     }
   }
   if (typeof o !== "object" || o === null) return null;
+  if (Array.isArray(o) && o.length === 1 && o[0] != null && typeof o[0] === "object") {
+    o = o[0];
+  }
 
   const inner = o.output;
   if (inner && typeof inner === "object") {

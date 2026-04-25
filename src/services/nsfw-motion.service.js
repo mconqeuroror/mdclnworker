@@ -307,6 +307,12 @@ export async function submitNsfwMotionVideo(opts, webhookUrl = null, generationI
     }
   }
 
+  if (!webhookUrl) {
+    console.warn(
+      "[NSFW/motion] No RunPod webhook URL (set CALLBACK_BASE_URL or RUNPOD_WEBHOOK_URL). " +
+        "Completions depend on GET /generations/:id or the RunPod reconcile cron polling /status.",
+    );
+  }
   console.log(
     `[NSFW/motion] submit mode=${useUrls ? "url" : "base64"} endpoint=${RUNPOD_MOTION_ENDPOINT_ID} ` +
       `dur=${finalDuration}s skip=${finalSkip}s fps=${finalFps} ${finalW}x${finalH} ` +
@@ -378,8 +384,9 @@ export async function submitNsfwMotionVideo(opts, webhookUrl = null, generationI
 /**
  * RunPod webhooks and `/status` often nest the handler payload several levels deep, e.g.
  * `{ output: { output: { videos: [...] } } }` or stringified `output`, which breaks a
- * single `output` unwrap. This walks `output` / `result` / `data` and JSON-strings
- * until we find an object that has `videos` / `gifs` / `images` or Comfy `outputs`.
+ * single `output` unwrap. RunPod may also wrap the handler dict as a one-element **array**
+ * under `output`. This walks `output` / `result` / `data` and JSON-strings until we find
+ * an object that has `videos` / `gifs` / `images` or Comfy `outputs`.
  */
 export function normalizeNsfwMotionRunpodOutput(input) {
   let o = input;
@@ -398,7 +405,14 @@ export function normalizeNsfwMotionRunpodOutput(input) {
       }
       return null;
     }
-    if (typeof o !== "object" || Array.isArray(o)) return o;
+    if (Array.isArray(o)) {
+      if (o.length === 1 && o[0] != null && typeof o[0] === "object") {
+        o = o[0];
+        continue;
+      }
+      return o;
+    }
+    if (typeof o !== "object") return o;
 
     const hasVideos = Array.isArray(o.videos) && o.videos.length > 0;
     const hasGifs = Array.isArray(o.gifs) && o.gifs.length > 0;
@@ -515,7 +529,15 @@ export function extractNsfwMotionVideo(raw) {
 export async function materializeNsfwMotionOutputFromRunpodResponse(rp) {
   try {
     /** Try full envelope, then common subtrees (webhook + `/status` differ). */
-    const tryRoots = [rp, rp?.output, rp?.result, rp?.data, rp?.data?.output].filter((x) => x != null);
+    const tryRoots = [
+      rp,
+      rp?.output,
+      Array.isArray(rp?.output) && rp.output[0] != null ? rp.output[0] : null,
+      rp?.result,
+      rp?.data,
+      rp?.data?.output,
+      Array.isArray(rp?.data?.output) && rp.data.output[0] != null ? rp.data.output[0] : null,
+    ].filter((x) => x != null);
     let video = null;
     for (const root of tryRoots) {
       video = extractNsfwMotionVideo(root);

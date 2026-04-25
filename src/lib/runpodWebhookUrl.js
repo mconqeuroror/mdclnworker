@@ -47,6 +47,10 @@ export function resolveRunpodWebhookUrl(extraQueryParams = null) {
         u.searchParams.set(key, String(value));
       }
     }
+    const hookSecret = process.env.RUNPOD_WEBHOOK_SECRET?.trim();
+    if (hookSecret && !u.searchParams.get("secret") && !u.searchParams.get("token")) {
+      u.searchParams.set("secret", hookSecret);
+    }
     return u.toString();
   } catch {
     let next = path;
@@ -55,6 +59,10 @@ export function resolveRunpodWebhookUrl(extraQueryParams = null) {
         if (value == null || value === "") continue;
         next += `${next.includes("?") ? "&" : "?"}${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`;
       }
+    }
+    const hookSecret = process.env.RUNPOD_WEBHOOK_SECRET?.trim();
+    if (hookSecret && !/[?&]secret=/.test(next) && !/[?&]token=/.test(next)) {
+      next += `${next.includes("?") ? "&" : "?"}${encodeURIComponent("secret")}=${encodeURIComponent(hookSecret)}`;
     }
     return next;
   }

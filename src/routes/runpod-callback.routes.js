@@ -273,6 +273,9 @@ async function handleRunpodCallback(req, res) {
         /* keep string */
       }
     }
+    if (Array.isArray(rawOut) && rawOut.length > 0 && rawOut[0] != null && typeof rawOut[0] === "object") {
+      rawOut = rawOut[0];
+    }
     // RunPod / proxies sometimes stringifies output or nests handler body twice; img2img may put `images` on the envelope.
     const parsed = parseRunpodHandlerOutput(rawOut);
     if (parsed != null) rawOut = parsed;
