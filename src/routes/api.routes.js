@@ -247,10 +247,8 @@ import {
 } from "../middleware/rateLimiter.js";
 import { getGenerationPricing, getGenerationPricingContract } from "../services/generation-pricing.service.js";
 import { getPromptTemplateValue } from "../services/prompt-template-config.service.js";
-import {
-  submitModelCloneXJob,
-} from "../services/modelcloneX.service.js";
-import { submitImg2ImgJob } from "../services/img2img.service.js";
+import { isModelCloneXRunpodReady, submitModelCloneXJob } from "../services/modelcloneX.service.js";
+import { getMcxSceneJsonFromImageGrok } from "../services/mcxGrokImagePrompt.service.js";
 import {
   MODELCLONE_X_CATEGORY,
   LEGACY_SOULX_CATEGORY,
@@ -3288,7 +3286,156 @@ Return the optimized JSON prompt now.`;
   return userPrompt;
 }
 
-// POST /api/modelclone-x/generate
+/**
+ * Model + character LoRA for ModelClone-X (used by /prompt-from-image and /generate).
+ */
+async function resolveModelCloneXGenerationContext(userId, modelId, characterLoraId) {
+  const useCharacter = Boolean(modelId && characterLoraId);
+  if (!useCharacter) {
+    return {
+      ok: true,
+      useCharacter: false,
+      modelForPrompt: null,
+      loraForPrompt: null,
+      loraUrl: null,
+      triggerWord: null,
+    };
+  }
+  const modelForPrompt = await prisma.savedModel.findFirst({
+    where: { id: modelId, userId },
+    select: {
+      id: true,
+      age: true,
+      savedAppearance: true,
+      aiGenerationParams: true,
+    },
+  });
+  if (!modelForPrompt) {
+    return { ok: false, status: 404, error: "Model not found or you don't have access." };
+  }
+  const lora = await prisma.trainedLora.findFirst({
+    where: {
+      id: characterLoraId,
+      modelId,
+      status: "ready",
+      category: { in: [...TRAINED_LORA_CATEGORIES_MODELCLONE_X, "nsfw"] },
+    },
+  });
+  if (!lora) {
+    return { ok: false, status: 400, error: "Selected LoRA not found or not ready for generation." };
+  }
+  return {
+    ok: true,
+    useCharacter: true,
+    modelForPrompt,
+    loraForPrompt: lora,
+    loraUrl: lora.loraUrl,
+    triggerWord: lora.triggerWord,
+  };
+}
+
+/**
+ * Grok (scene JSON) + MCX optimizer — no credits, no RunPod.
+ * @returns {Promise<{ ok: true, inputPrompt, optimizedPrompt } | { ok: false, status: number, error: string }>}
+ */
+async function buildMcxPromptFromImagePipeline(
+  { modelForPrompt, loraForPrompt, triggerWord, useCharacter, inputImgUrl, inputImgB64, userText },
+) {
+  const identityHint = useCharacter
+    ? buildModelCloneXModelIdentityContext(modelForPrompt, loraForPrompt)
+    : "";
+  let inputPrompt;
+  try {
+    const sceneJson = await getMcxSceneJsonFromImageGrok({
+      imageUrl: inputImgUrl,
+      imageBase64: inputImgB64,
+      loraIdentityHint: identityHint,
+    });
+    const trimmedUser = String(userText || "").trim();
+    inputPrompt = trimmedUser
+      ? `${sceneJson}\n\n// Additional user instructions:\n${trimmedUser}`
+      : sceneJson;
+  } catch (grokErr) {
+    console.error("[ModelCloneX] Grok scene JSON failed:", grokErr?.message || grokErr);
+    return { ok: false, status: 500, error: grokErr?.message || "Failed to build scene from image (Grok / OpenRouter)." };
+  }
+  if (!String(inputPrompt || "").trim()) {
+    return { ok: false, status: 400, error: "Prompt is required" };
+  }
+  let optimizedPrompt = inputPrompt;
+  try {
+    const identityContext = useCharacter
+      ? buildModelCloneXModelIdentityContext(modelForPrompt, loraForPrompt)
+      : "";
+    optimizedPrompt = await optimizeModelCloneXPrompt({
+      userPrompt: inputPrompt,
+      withCharacter: useCharacter,
+      modelIdentityContext: identityContext,
+      model: useCharacter ? modelForPrompt : null,
+      lora: useCharacter ? loraForPrompt : null,
+      triggerWord: useCharacter ? triggerWord : "",
+      context: {},
+    });
+  } catch (optErr) {
+    console.warn("[ModelCloneX] Prompt optimization fallback to raw prompt:", optErr.message);
+  }
+  return { ok: true, inputPrompt, optimizedPrompt };
+}
+
+// POST /api/modelclone-x/prompt-from-image
+router.post("/modelclone-x/prompt-from-image", authMiddleware, generationLimiter, async (req, res) => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json({ success: false, error: "Unauthorized" });
+
+    const {
+      prompt = "",
+      modelId = null,
+      characterLoraId = null,
+      inputImageUrl = "",
+      inputImageBase64 = "",
+    } = req.body;
+
+    const inputImgUrl = typeof inputImageUrl === "string" ? inputImageUrl.trim() : "";
+    const inputImgB64 = typeof inputImageBase64 === "string" ? String(inputImageBase64).trim() : "";
+    if (!inputImgUrl && !inputImgB64) {
+      return res.status(400).json({ success: false, error: "Reference image is required (url or base64)." });
+    }
+
+    const ctx = await resolveModelCloneXGenerationContext(userId, modelId, characterLoraId);
+    if (!ctx.ok) {
+      return res.status(ctx.status).json({ success: false, error: ctx.error });
+    }
+
+    const { modelForPrompt, loraForPrompt, triggerWord, useCharacter } = ctx;
+    const built = await buildMcxPromptFromImagePipeline({
+      modelForPrompt,
+      loraForPrompt,
+      triggerWord,
+      useCharacter,
+      inputImgUrl,
+      inputImgB64,
+      userText: String(prompt || "").trim(),
+    });
+    if (!built.ok) {
+      return res.status(built.status).json({ success: false, error: built.error });
+    }
+    return res.json({
+      success: true,
+      inputPrompt: built.inputPrompt,
+      optimizedPrompt: built.optimizedPrompt,
+    });
+  } catch (e) {
+    const msg = e && typeof e.message === "string" ? e.message : String(e);
+    console.error("[ModelCloneX] prompt-from-image failed:", e);
+    return res.status(500).json({
+      success: false,
+      error: msg || "Failed to build prompt from image",
+    });
+  }
+});
+
+// GET /api/modelclone-x/config
 router.get("/modelclone-x/config", authMiddleware, async (_req, res) => {
   try {
     const pricing = await getGenerationPricing();
@@ -3300,6 +3447,8 @@ router.get("/modelclone-x/config", authMiddleware, async (_req, res) => {
     const trainingPro = toCredits(pricing.loraTrainingPro, 1500);
     return res.json({
       success: true,
+      fromImageEnabled: Boolean(String(process.env.OPENROUTER_API_KEY || "").trim()),
+      runpodForModelCloneX: isModelCloneXRunpodReady(),
       pricing: {
         noModel1: toCredits(pricing.modelcloneXNoModel1, 10),
         withModel1: toCredits(pricing.modelcloneXWithModel1, 15),
@@ -3348,38 +3497,36 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
     steps = null,
     cfg = 2,
     loraStrength = 0.8,
-    /** NSFW img2img workflow (Z-Image encode): optional ref image for ModelClone-X img2img */
+    /** @deprecated use POST /api/modelclone-x/prompt-from-image, then this endpoint with `prompt` only. */
     inputImageUrl = "",
     inputImageBase64 = "",
-    denoise = 0.6,
-    /** When true (character + ref image only): skip MCX prompt JSON optimizer — prompt is already from /img2img/describe + Grok inject (NSFW-style recreate). */
-    recreateFromImage = false,
+    /** When true, `prompt` is already the MCX-optimized string from prompt-from-image (skip second pass). */
+    preOptimized = false,
   } = req.body;
 
   const inputImgUrl = typeof inputImageUrl === "string" ? inputImageUrl.trim() : "";
   const inputImgB64 = typeof inputImageBase64 === "string" ? String(inputImageBase64).trim() : "";
-  const isImg2Img = Boolean(inputImgUrl || inputImgB64);
-  const denoiseImg2Img = Math.max(0.05, Math.min(1, Number(denoise) || 0.6));
-  const isRecreate = Boolean(recreateFromImage);
-
-  if (!prompt || !prompt.trim()) {
-    return res.status(400).json({ success: false, error: "Prompt is required" });
-  }
-
-  const useCharacter = Boolean(modelId && characterLoraId);
-  if (useCharacter && isImg2Img && !isRecreate) {
+  if (inputImgUrl || inputImgB64) {
     return res.status(400).json({
       success: false,
       error:
-        "With a character, image-based generation uses Image recreate only (analyze source, then the same Z-Image img2img pipeline as NSFW). Use the app’s Image recreate mode.",
+        "Upload the photo, tap “Build prompt” in the app (or POST /api/modelclone-x/prompt-from-image), " +
+        "then generate using the text only — the image is not sent with this request.",
     });
   }
-  if (isRecreate && (!useCharacter || !isImg2Img)) {
-    return res.status(400).json({
-      success: false,
-      error: "recreateFromImage requires a character, reference image, and a prompt from image analysis.",
-    });
+
+  const hasTextPrompt = Boolean(typeof prompt === "string" && prompt.trim());
+  if (!hasTextPrompt) {
+    return res.status(400).json({ success: false, error: "Prompt is required" });
   }
+
+  const userText = typeof prompt === "string" ? prompt.trim() : "";
+  const skipSecondOptimizer = Boolean(preOptimized);
+  const ctx = await resolveModelCloneXGenerationContext(userId, modelId, characterLoraId);
+  if (!ctx.ok) {
+    return res.status(ctx.status).json({ success: false, error: ctx.error });
+  }
+  const { useCharacter, modelForPrompt, loraForPrompt, loraUrl, triggerWord } = ctx;
 
   const qty = quantity === 2 ? 2 : 1;
   const defaultStepsForMode = useCharacter ? 50 : 20;
@@ -3413,46 +3560,10 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
   const costEach = costEachBase.map((c) => c + extraCostPerImage);
   const costPer = costEach.reduce((sum, c) => sum + c, 0);
 
-  let loraUrl = null;
-  let triggerWord = null;
-  let modelForPrompt = null;
-  let loraForPrompt = null;
-
-  if (useCharacter) {
-    modelForPrompt = await prisma.savedModel.findFirst({
-      where: { id: modelId, userId },
-      select: {
-        id: true,
-        age: true,
-        savedAppearance: true,
-        aiGenerationParams: true,
-      },
-    });
-    if (!modelForPrompt) {
-      return res.status(404).json({ success: false, error: "Model not found or you don't have access." });
-    }
-
-    const lora = await prisma.trainedLora.findFirst({
-      where: {
-        id: characterLoraId,
-        modelId,
-        status: "ready",
-        category: { in: [...TRAINED_LORA_CATEGORIES_MODELCLONE_X, "nsfw"] },
-      },
-    });
-    if (!lora) {
-      return res.status(400).json({ success: false, error: "Selected LoRA not found or not ready for generation." });
-    }
-    loraForPrompt = lora;
-    loraUrl = lora.loraUrl;
-    triggerWord = lora.triggerWord;
-  }
-
-  const inputPrompt = prompt.trim();
-  let optimizedPrompt = inputPrompt;
-  if (isRecreate && useCharacter && isImg2Img) {
-    // Prompt already: Grok vision → Grok inject (same as /api/img2img/describe). Do not re-wrap as MCX JSON.
-    console.log("[ModelCloneX] recreateFromImage: using injected scene prompt as-is (skip optimizeModelCloneXPrompt).");
+  const inputPrompt = userText;
+  let optimizedPrompt = userText;
+  if (skipSecondOptimizer) {
+    console.log("[ModelCloneX] generate: using pre-optimized prompt (from build step)");
   } else {
     try {
       const identityContext = useCharacter ? buildModelCloneXModelIdentityContext(modelForPrompt, loraForPrompt) : "";
@@ -3460,8 +3571,6 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
         userPrompt: inputPrompt,
         withCharacter: useCharacter,
         modelIdentityContext: identityContext,
-        // Pass the raw model + LoRA so the optimizer can build the structured JSON itself.
-        // For "no character" mode, model is intentionally null so main_subject is omitted.
         model: useCharacter ? modelForPrompt : null,
         lora: useCharacter ? loraForPrompt : null,
         triggerWord: useCharacter ? triggerWord : "",
@@ -3502,56 +3611,30 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
         kind: "modelclone-x",
       });
 
-      let jobId;
-      if (isImg2Img) {
-        const effectiveImageUrl = inputImgUrl || "base64-upload";
-        const result = await submitImg2ImgJob({
-          imageUrl: effectiveImageUrl,
-          imageBase64Provided: inputImgB64 || null,
+      const jobId = await submitModelCloneXJob(
+        {
           prompt: optimizedPrompt,
-          loraUrl: useCharacter ? loraUrl : null,
+          aspectRatio,
+          loraUrl,
           loraStrength: safeLoraStrength,
-          denoise: denoiseImg2Img,
+          triggerWord,
           steps: safeSteps,
           cfg: safeCfg,
-          webhookUrl: modelcloneXWebhookUrl,
-        });
-        jobId = result.runpodJobId;
-        await prisma.generation.update({
-          where: { id: gen.id },
-          data: {
-            providerTaskId: jobId,
-            inputImageUrl: JSON.stringify({
-              runpodJobId: jobId,
-              provider: "runpod-modelclone-x",
-              mode: "img2img",
-              denoise: denoiseImg2Img,
-              sourceImage: effectiveImageUrl,
-              hasBase64: Boolean(inputImgB64),
-            }),
-          },
-        });
-      } else {
-        jobId = await submitModelCloneXJob(
-          {
-            prompt: optimizedPrompt,
-            aspectRatio,
-            loraUrl,
-            loraStrength: safeLoraStrength,
-            triggerWord,
-            steps: safeSteps,
-            cfg: safeCfg,
-          },
-          modelcloneXWebhookUrl,
-        );
-        await prisma.generation.update({
-          where: { id: gen.id },
-          data: {
-            providerTaskId: jobId,
-            inputImageUrl: JSON.stringify({ runpodJobId: jobId, provider: "runpod-modelclone-x" }),
-          },
-        });
-      }
+        },
+        modelcloneXWebhookUrl,
+      );
+      await prisma.generation.update({
+        where: { id: gen.id },
+        data: {
+          providerTaskId: jobId,
+          inputImageUrl: JSON.stringify({
+            runpodJobId: jobId,
+            provider: "runpod-modelclone-x",
+            mode: skipSecondOptimizer ? "txt2img-prompt-from-image" : "txt2img",
+            preOptimized: skipSecondOptimizer,
+          }),
+        },
+      });
 
       generationIds.push(gen.id);
     } catch (err) {
@@ -3571,8 +3654,7 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
     success: true,
     generationIds,
     applied: {
-      mode: isImg2Img ? "img2img" : "txt2img",
-      denoise: isImg2Img ? denoiseImg2Img : undefined,
+      mode: skipSecondOptimizer ? "txt2img-prompt-from-image" : "txt2img",
       steps: safeSteps,
       cfg: safeCfg,
       loraStrength: safeLoraStrength,

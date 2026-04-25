@@ -104,7 +104,7 @@ async function handleCallback(callbackQuery) {
   const callbackId = callbackQuery?.id || "";
   if (!chatId || !data) return;
 
-  await answerCb(callbackId).catch(() => {});
+  // answerCallbackQuery already ran in POST /webhook before hydrateState — do not duplicate (saves one Telegram round trip).
 
   if (data === "noop") return;
 
@@ -239,13 +239,7 @@ async function handlePlainMessage(message) {
 }
 
 // ── Main webhook POST ─────────────────────────────────────────
-router.post("/webhook", async (req, res) => {
-  const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
-  const incoming = req.get("X-Telegram-Bot-Api-Secret-Token") || "";
-  if (secret && incoming !== secret) return res.status(401).json({ ok: false });
-
-  res.json({ ok: true }); // Ack immediately
-
+async function processWebhookUpdate(req) {
   const update = req.body || {};
   const message = update.message;
   const callbackQuery = update.callback_query;
@@ -267,9 +261,12 @@ router.post("/webhook", async (req, res) => {
     new Promise((_, rej) => setTimeout(() => rej(new Error("hydrateState timeout")), 5000)),
   ]).catch(() => {});
 
-  // Init bot commands once
+  // Register slash commands off the hot path — await here added 200–800ms on cold instances.
   if (!commandsReady) {
-    try { await setMyCommands(COMMANDS); commandsReady = true; } catch {}
+    commandsReady = true;
+    setMyCommands(COMMANDS).catch(() => {
+      commandsReady = false;
+    });
   }
 
   try {
@@ -290,6 +287,24 @@ router.post("/webhook", async (req, res) => {
     console.error("[webhook] error:", e?.message, e?.stack);
   } finally {
     await persistNow(String(chatId)).catch(() => {});
+  }
+}
+
+router.post("/webhook", async (req, res) => {
+  const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  const incoming = req.get("X-Telegram-Bot-Api-Secret-Token") || "";
+  if (secret && incoming !== secret) return res.status(401).json({ ok: false });
+
+  res.json({ ok: true }); // Ack immediately — real work continues below
+
+  const work = processWebhookUpdate(req);
+
+  try {
+    const { waitUntil } = await import("@vercel/functions");
+    waitUntil(work);
+  } catch (e) {
+    console.warn("[webhook] waitUntil unavailable, background may not finish on serverless:", e?.message);
+    work.catch((err) => console.error("[webhook] background failed:", err?.message, err?.stack));
   }
 });
 

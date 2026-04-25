@@ -1,38 +1,50 @@
 /**
  * ModelClone-X image generation (formerly Soul-X).
- * RunPod: RUNPOD_MODELCLONE_X_ENDPOINT_ID, or legacy RUNPOD_SOULX_ENDPOINT_ID.
+ * RunPod serverless ID resolution (first match wins — explicit MCX before NSFW so a bad RUNPOD_NSFW_ENDPOINT_ID cannot override RUNPOD_ENDPOINT_ID):
+ *   RUNPOD_MODELCLONE_X_ENDPOINT_ID → RUNPOD_SOULX_ENDPOINT_ID → RUNPOD_ENDPOINT_ID → RUNPOD_NSFW_ENDPOINT_ID
  * Workflows: modelclonex_*_api.json, with fallback to soulx_*_api.json.
  */
 
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { buildZImageImg2ImgRunpodInput } from "./img2img.service.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const RUNPOD_API_KEY = process.env.RUNPOD_API_KEY;
-// Dedicated NSFW endpoint, falls back through the chain to the default worker.
-const RUNPOD_MODELCLONE_X_ENDPOINT_ID =
-  String(
-    process.env.RUNPOD_NSFW_ENDPOINT_ID ||
-    process.env.RUNPOD_MODELCLONE_X_ENDPOINT_ID ||
-    process.env.RUNPOD_ENDPOINT_ID ||
-    process.env.RUNPOD_SOULX_ENDPOINT_ID ||
-    "",
-  ).trim() || null;
+
+function resolveModelCloneXRunpodEndpoint() {
+  const order = [
+    ["RUNPOD_MODELCLONE_X_ENDPOINT_ID", process.env.RUNPOD_MODELCLONE_X_ENDPOINT_ID],
+    ["RUNPOD_SOULX_ENDPOINT_ID", process.env.RUNPOD_SOULX_ENDPOINT_ID],
+    ["RUNPOD_ENDPOINT_ID", process.env.RUNPOD_ENDPOINT_ID],
+    ["RUNPOD_NSFW_ENDPOINT_ID", process.env.RUNPOD_NSFW_ENDPOINT_ID],
+  ];
+  for (const [name, val] of order) {
+    const s = String(val ?? "").trim();
+    if (s) return { id: s, source: name };
+  }
+  return { id: null, source: null };
+}
+
+const { id: RUNPOD_MODELCLONE_X_ENDPOINT_ID, source: RUNPOD_MODELCLONE_X_ENDPOINT_SOURCE } =
+  resolveModelCloneXRunpodEndpoint();
 
 if (!RUNPOD_MODELCLONE_X_ENDPOINT_ID) {
-  console.warn("⚠️  No RunPod endpoint configured (RUNPOD_ENDPOINT_ID / RUNPOD_MODELCLONE_X_ENDPOINT_ID) — ModelClone-X will not work");
+  console.warn(
+    "⚠️  No RunPod endpoint configured (set RUNPOD_MODELCLONE_X_ENDPOINT_ID, RUNPOD_ENDPOINT_ID, or RUNPOD_SOULX_ENDPOINT_ID) — ModelClone-X will not work",
+  );
 } else {
-  const resolvedFrom = process.env.RUNPOD_NSFW_ENDPOINT_ID?.trim()
-    ? "RUNPOD_NSFW_ENDPOINT_ID"
-    : process.env.RUNPOD_MODELCLONE_X_ENDPOINT_ID?.trim()
-      ? "RUNPOD_MODELCLONE_X_ENDPOINT_ID"
-      : process.env.RUNPOD_ENDPOINT_ID?.trim()
-        ? "RUNPOD_ENDPOINT_ID"
-        : "RUNPOD_SOULX_ENDPOINT_ID";
-  console.log(`[MCX/NSFW] endpoint=${RUNPOD_MODELCLONE_X_ENDPOINT_ID} (from ${resolvedFrom})`);
+  console.log(
+    `[ModelClone-X] RunPod endpoint=${RUNPOD_MODELCLONE_X_ENDPOINT_ID} (from ${RUNPOD_MODELCLONE_X_ENDPOINT_SOURCE})`,
+  );
+}
+
+/** Used by `GET /api/modelclone-x/config` — no secrets, only “can submit jobs?”. */
+export function isModelCloneXRunpodReady() {
+  return Boolean(RUNPOD_API_KEY && RUNPOD_MODELCLONE_X_ENDPOINT_ID);
 }
 
 export const MODELCLONE_X_CREDITS = {
@@ -188,6 +200,14 @@ export async function submitRunpodJob(payload, webhookUrl = null, label = "RunPo
 
   if (!resp.ok) {
     const text = await resp.text();
+    if (resp.status === 404) {
+      const suffix = String(RUNPOD_MODELCLONE_X_ENDPOINT_ID || "").slice(-10);
+      throw new Error(
+        `${label} submit failed 404: ${text.slice(0, 240)} — RunPod: serverless endpoint not found. ` +
+          `Active env: ${RUNPOD_MODELCLONE_X_ENDPOINT_SOURCE} (id …${suffix}). ` +
+          `In RunPod use Serverless → Endpoints (not a Pod id). Set RUNPOD_MODELCLONE_X_ENDPOINT_ID or RUNPOD_ENDPOINT_ID to a valid endpoint id.`,
+      );
+    }
     throw new Error(`${label} submit failed ${resp.status}: ${text.slice(0, 400)}`);
   }
 
@@ -211,6 +231,42 @@ export async function submitModelCloneXJob(opts, webhookUrl = null) {
     webhookUrl,
     `ModelCloneX${opts?.loraUrl ? " (lora)" : " (no-lora)"}`,
   );
+}
+
+/**
+ * ModelClone-X **Image → image** after Grok scene JSON + `optimizeModelCloneXPrompt`.
+ * Same Z-Image Turbo + LoRA stack as MCX “prompt” txt2img: positive text in CLIP, LoRA, KSampler, reference encode.
+ * (Comfy file `nsfw_img2img_v2promax_workflow.json` is a shared v2 promax graph on the same RunPod worker, not a separate “NSFW tool” Comfy run.)
+ */
+export async function submitModelCloneXImg2ImgJob({
+  imageUrl,
+  imageBase64Provided,
+  prompt,
+  loraUrl = null,
+  loraStrength = 0.8,
+  denoise = 0.6,
+  seed,
+  steps = null,
+  cfg = null,
+  webhookUrl: explicitWebhook = null,
+} = {}) {
+  const { runpodInput, resolvedSeed } = await buildZImageImg2ImgRunpodInput({
+    imageUrl,
+    imageBase64Provided,
+    prompt,
+    loraUrl,
+    loraStrength,
+    denoise,
+    seed,
+    steps,
+    cfg,
+  });
+  const runpodJobId = await submitRunpodJob(
+    { input: runpodInput },
+    explicitWebhook,
+    "ModelClone-X img2img",
+  );
+  return { runpodJobId, resolvedSeed };
 }
 
 export async function pollModelCloneXJob(runpodJobId) {

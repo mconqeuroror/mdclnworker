@@ -505,7 +505,14 @@ export async function getRunpodJobStatus(jobId) {
   return await resp.json();
 }
 
-export async function submitImg2ImgJob({
+/**
+ * Builds the RunPod `input` object for Z-Image Turbo reference image → image (v2 “promax” Comfy graph
+ * in `attached_assets/nsfw_img2img_v2promax_workflow.json`). `steps` / `cfg` are accepted for
+ * modelcloneX.service.js compatibility; the current workflow may ignore them and use graph defaults.
+ *
+ * @returns {{ runpodInput: object, resolvedSeed: number }}
+ */
+export async function buildZImageImg2ImgRunpodInput({
   imageUrl,
   imageBase64Provided,
   prompt,
@@ -513,11 +520,12 @@ export async function submitImg2ImgJob({
   loraStrength = 0.8,
   denoise = 0.6,
   seed,
-}) {
+  steps: _steps = null,
+  cfg: _cfg = null,
+} = {}) {
   const numericLoraStrength = ensureFiniteNumber(loraStrength, "loraStrength");
   const numericDenoise = ensureFiniteNumber(denoise, "denoise");
-
-  const imageBase64 = imageBase64Provided || await imageUrlToBase64(imageUrl);
+  const imageBase64 = imageBase64Provided || (await imageUrlToBase64(imageUrl));
   const resolvedSeed = seed ?? Math.floor(Math.random() * 1_000_000_000);
 
   const workflow = buildNsfwImg2ImgV2ApiPrompt({
@@ -529,10 +537,10 @@ export async function submitImg2ImgJob({
   });
 
   if (!workflow["250"]?.inputs || !workflow["276"]?.inputs || !workflow["305"]?.inputs) {
-    throw new Error("NSFW img2img workflow is missing expected nodes (250, 276, or 305)");
+    throw new Error("Z-Image img2img workflow is missing expected nodes (250, 276, or 305)");
   }
 
-  const payload = {
+  const runpodInput = {
     prompt: workflow,
     upload_images: [
       {
@@ -544,14 +552,40 @@ export async function submitImg2ImgJob({
     output_type: "image",
     output_node_id: "289",
   };
+  return { runpodInput, resolvedSeed };
+}
 
-  const webhookUrl = resolveRunpodWebhookUrl();
+export async function submitImg2ImgJob({
+  imageUrl,
+  imageBase64Provided,
+  prompt,
+  loraUrl,
+  loraStrength = 0.8,
+  denoise = 0.6,
+  seed,
+  steps = null,
+  cfg = null,
+  webhookUrl: explicitWebhook = null,
+} = {}) {
+  const { runpodInput, resolvedSeed } = await buildZImageImg2ImgRunpodInput({
+    imageUrl,
+    imageBase64Provided,
+    prompt,
+    loraUrl,
+    loraStrength,
+    denoise,
+    seed,
+    steps,
+    cfg,
+  });
+
+  const webhookUrl = explicitWebhook != null ? explicitWebhook : resolveRunpodWebhookUrl();
   if (webhookUrl) {
     console.log(
       `📣 [img2img] RunPod webhook: ${webhookUrl.slice(0, 88)}${webhookUrl.length > 88 ? "…" : ""}`,
     );
   }
-  const runpodJobId = await runpodSubmit(payload, webhookUrl);
+  const runpodJobId = await runpodSubmit(runpodInput, webhookUrl);
   return { runpodJobId, resolvedSeed };
 }
 

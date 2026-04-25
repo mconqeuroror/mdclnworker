@@ -8,7 +8,7 @@ export function setErrorDisplay(fn) {
   showErrorDetailsGlobal = fn;
 }
 
-// Backend mounts API routes at /api — base URL must end with /api (e.g. http://localhost:5006/api)
+// Backend mounts API routes at /api — base URL must end with /api (e.g. http://localhost:5000/api)
 // When app is served from localhost, always use local backend to avoid CORS (production often doesn't allow localhost origin)
 function resolveApiBase() {
   const raw = import.meta.env.VITE_API_URL || "";
@@ -17,7 +17,8 @@ function resolveApiBase() {
     (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
   let base = raw;
   if (isLocalHost && raw.startsWith("http") && !raw.includes("localhost") && !raw.includes("127.0.0.1")) {
-    base = `http://localhost:${import.meta.env.VITE_DEV_PORT || "5006"}`;
+    // Must match npm run dev (PORT / SERVER_PORT default 5000, see server/index.ts)
+    base = `http://localhost:${import.meta.env.VITE_DEV_PORT || "5000"}`;
   }
   if (!base) base = "/api";
   else if (base.includes("://") && !base.replace(/\/$/, "").endsWith("/api")) base = `${base.replace(/\/$/, "")}/api`;
