@@ -104,7 +104,6 @@ const COPY = {
     mobileNavSettings: "Settings",
     mobileNavCourses: "Courses",
     mobileNavNsfw: "NSFW",
-    nsfwStudioLockedToast: "NSFW Studio is under reconstruction for now.",
     mobileNavPhotoVideoRepurposer: "Photo/Video Repurposer",
     mobileNavReelFinder: "Reel Finder",
     badgeSoon: "Soon",
@@ -144,12 +143,12 @@ const COPY = {
     referralModalChipCommission: "15% first-purchase commission",
     referralModalChipPayouts: "Manual admin payouts",
     referralModalChipUnlimited: "Unlimited referrals",
-    whatsNewTitle: "New Feature Added!",
-    whatsNewSubtitle: "February 2026 Update",
+    whatsNewTitle: "NSFW Studio is live",
+    whatsNewSubtitle: "Open for all creators",
     whatsNewFeatureTitle: "NSFW Studio",
     whatsNewFeatureBody:
       "Create adult content with your AI models. Train custom LoRA models and generate explicit images with face swap technology.",
-    whatsNewNote: "Access requires verified models. Check the sidebar for the new NSFW tab.",
+    whatsNewNote: "Use the NSFW tab in the sidebar or open /nsfw. Access still requires eligible models per product rules.",
     whatsNewCta: "Explore NSFW Studio",
     whatsNewMaybeLater: "Maybe Later",
     homeWelcomeBack: "Welcome back,",
@@ -197,7 +196,6 @@ const COPY = {
     mobileNavSettings: "Настройки",
     mobileNavCourses: "Курсы",
     mobileNavNsfw: "NSFW",
-    nsfwStudioLockedToast: "NSFW-студия временно на реконструкции.",
     mobileNavPhotoVideoRepurposer: "Переработка фото/видео",
     mobileNavReelFinder: "Поиск рилс",
     badgeSoon: "Скоро",
@@ -238,12 +236,12 @@ const COPY = {
     referralModalChipCommission: "15% комиссия с первой покупки",
     referralModalChipPayouts: "Выплаты через администратора",
     referralModalChipUnlimited: "Неограниченное количество рефералов",
-    whatsNewTitle: "Добавлена новая функция!",
-    whatsNewSubtitle: "Обновление февраля 2026",
+    whatsNewTitle: "NSFW-студия доступна",
+    whatsNewSubtitle: "Для всех авторов",
     whatsNewFeatureTitle: "NSFW-студия",
     whatsNewFeatureBody:
       "Создавайте контент для взрослых с вашими ИИ-моделями. Обучайте собственные LoRA-модели и генерируйте откровенные изображения с технологией замены лица.",
-    whatsNewNote: "Доступ требует верифицированных моделей. Найдите новую вкладку NSFW на боковой панели.",
+    whatsNewNote: "Вкладка NSFW в боковой панели или /nsfw. Доступ по-прежнему требует подходящих моделей по правилам продукта.",
     whatsNewCta: "Открыть NSFW-студию",
     whatsNewMaybeLater: "Позже",
     homeWelcomeBack: "С возвращением,",
@@ -327,24 +325,18 @@ export default function DashboardPage() {
   const { theme, toggleTheme } = useTheme();
   const canAccessPremiumTabs = hasPremiumAccess(user);
   const hideRestrictedTabs = !hasRestrictedFeatureAccess(user);
-  const isNsfwStudioAdmin = user?.role === "admin";
   const premiumTabs = ["course", "repurposer", "reelfinder", "voice-studio"];
 
   const [activeTab, setActiveTab] = useState(() => {
     try {
-      const isAdmin = useAuthStore.getState().user?.role === "admin";
       const params = new URLSearchParams(window.location.search);
       const fromUrl = params.get("tab");
       if (fromUrl) {
         const t = fromUrl === "soulx" ? "modelclone-x" : fromUrl;
-        if (t === "nsfw") return isAdmin ? "nsfw" : "home";
         return t;
       }
       const fromStorage = safeLocalStorageGet("dashboard-active-tab");
-      if (fromStorage) {
-        if (fromStorage === "nsfw") return isAdmin ? "nsfw" : "home";
-        return fromStorage;
-      }
+      if (fromStorage) return fromStorage;
     } catch (_) {}
     return "home";
   });
@@ -369,7 +361,7 @@ export default function DashboardPage() {
   const [creatorStudioInitialPrompt, setCreatorStudioInitialPrompt] = useState("");
 
   // What's New popup - version key for tracking updates
-  const WHATS_NEW_VERSION = "nsfw-feb-2026";
+  const WHATS_NEW_VERSION = "nsfw-studio-live-2026";
 
   useEffect(() => {
     let cancelled = false;
@@ -383,8 +375,7 @@ export default function DashboardPage() {
       let tabParam = urlParams.get("tab");
       if (tabParam === "soulx") tabParam = "modelclone-x";
       if (tabParam === "nsfw") {
-        if (freshUser?.role === "admin") setActiveTab("nsfw");
-        else setActiveTab("home");
+        setActiveTab("nsfw");
       } else if (tabParam && ["home", "models", "generate", "creator-studio", "voice-studio", "reformatter", "frame-extractor", "upscaler", "modelclone-x", "history", "settings", "course", "repurposer", "reelfinder", "referral"].includes(tabParam)) {
         if (premiumTabs.includes(tabParam)) {
           const hasAccess = hasPremiumAccess(freshUser);
@@ -471,12 +462,6 @@ export default function DashboardPage() {
     }
   }, [activeTab, hideRestrictedTabs]);
 
-  useEffect(() => {
-    if (activeTab === "nsfw" && !isNsfwStudioAdmin) {
-      setActiveTab("home");
-    }
-  }, [activeTab, isNsfwStudioAdmin]);
-
   const loadUserProfile = async () => {
     await refreshUserCredits();
     return useAuthStore.getState().user;
@@ -547,10 +532,6 @@ export default function DashboardPage() {
   };
 
   const handleTabChange = (tabId) => {
-    if (tabId === "nsfw" && !isNsfwStudioAdmin) {
-      toast(copy.nsfwStudioLockedToast);
-      return;
-    }
     if (hideRestrictedTabs && tabId === "course") {
       setActiveTab("home");
       return;
@@ -918,7 +899,7 @@ export default function DashboardPage() {
           {activeTab === "modelclone-x" && <ModelCloneXPage />}
           {activeTab === "history" && <HistoryPage />}
           {activeTab === "settings" && <SettingsPage />}
-          {!hideRestrictedTabs && activeTab === "nsfw" && isNsfwStudioAdmin && (
+          {!hideRestrictedTabs && activeTab === "nsfw" && (
             <NSFWPage
               embedded
               sidebarCollapsed={sidebarNarrow}
