@@ -1,16 +1,11 @@
 /**
  * NSFW Motion Control video generation (Wan 2.2 Animate, dedicated RunPod worker).
  *
- * Worker: `runpod-mdcln-motion/handler.py` (must be deployed; supports URL inputs).
+ * Flow: the client uploads reference image + driving video to public storage (e.g. Vercel Blob),
+ * then passes those **https URLs** here. We submit only `reference_image_url` + `driving_video_url`
+ * in the RunPod `/run` JSON; the worker downloads into Comfy (`runpod-mdcln-motion/handler.py`).
+ *
  * Endpoint: `RUNPOD_MOTION_ENDPOINT_ID` · Auth: `RUNPOD_API_KEY`
- *
- * **Submit (default):** `reference_image_url` + `driving_video_url` (https) are sent
- * in the small JSON body; the **worker** downloads the original files, so you avoid
- * RunPod’s **10 MiB** `/run` limit **without** recompressing on the API.
- *
- * **Legacy base64** (embeds full media, hits 10 MiB for large files): set
- * `NSFW_MOTION_SUBMIT_BASE64=1` (e.g. old worker image without URL support).
- *
  *   - extractNsfwMotionVideo / materializeNsfwMotionOutputFromRunpodResponse / checkNsfwMotionStatus
  */
 
@@ -34,9 +29,6 @@ const WORKFLOW_OUTPUT_NODE = "226"; // KIARA_AnimateX VHS_VideoCombine
 const SUBMIT_TIMEOUT_MS = 60_000;
 const STATUS_TIMEOUT_MS = 20_000;
 const DEFAULT_JOB_TIMEOUT_SECS = 1800;
-
-/** RunPod serverless `/run` JSON hard limit — legacy base64 mode must stay under this. */
-const RUNPOD_MAX_JSON_BYTES = 9.5 * 1024 * 1024;
 
 // Default reference frame width × height fed into the workflow.
 const DEFAULT_WIDTH = 720;
@@ -100,34 +92,18 @@ function clampInt(value, min, max, fallback) {
   return Math.max(min, Math.min(max, n));
 }
 
-function pickContentType(headers, fallback) {
-  const ct = headers?.get?.("content-type") || "";
-  return (ct.split(";")[0] || "").trim() || fallback;
-}
-
-function extensionFromContentType(contentType, fallback) {
-  if (!contentType) return fallback;
-  const map = {
-    "image/jpeg": "jpg",
-    "image/jpg": "jpg",
-    "image/png": "png",
-    "image/webp": "webp",
-    "image/gif": "gif",
-    "video/mp4": "mp4",
-    "video/quicktime": "mov",
-    "video/webm": "webm",
-  };
-  return map[contentType.toLowerCase()] || fallback;
-}
-
-/** Default: two https URLs — RunPod body stays small; worker downloads originals. */
-function shouldUseMotionUrlSubmit(referenceImageUrl, drivingVideoUrl) {
-  if (String(process.env.NSFW_MOTION_SUBMIT_BASE64 || "").trim() === "1") {
+/** Motion submit always uses public URLs (client → blob → RunPod); no base64 in `/run`. */
+function isPublicHttpUrl(s) {
+  const t = String(s || "").trim();
+  if (!/^https?:\/\//i.test(t)) return false;
+  try {
+    const u = new URL(t);
+    const h = (u.hostname || "").toLowerCase();
+    if (!h || h === "localhost" || h === "127.0.0.1") return false;
+    return true;
+  } catch {
     return false;
   }
-  const r = String(referenceImageUrl || "").trim();
-  const d = String(drivingVideoUrl || "").trim();
-  return /^https?:\/\//i.test(r) && /^https?:\/\//i.test(d);
 }
 
 function motionInputBase(workflow, generationId) {
@@ -139,36 +115,6 @@ function motionInputBase(workflow, generationId) {
       ? { generationId: String(generationId), kind: "nsfw-video-motion" }
       : { kind: "nsfw-video-motion" },
   };
-}
-
-function jsonUtf8Length(obj) {
-  return Buffer.byteLength(JSON.stringify(obj), "utf8");
-}
-
-/** Legacy: fetch bytes for base64 embedding (keeps full quality, may exceed 10 MiB). */
-async function fetchUrlBuffer(url, label, expectedKind /* "image" | "video" */) {
-  if (!url) throw new Error(`${label}: URL is empty`);
-  if (!/^https?:\/\//i.test(url)) {
-    throw new Error(`${label}: only http(s) URLs are supported (got "${url.slice(0, 80)}")`);
-  }
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 60_000);
-  let resp;
-  try {
-    resp = await fetch(url, { signal: controller.signal });
-  } catch (err) {
-    clearTimeout(timer);
-    throw new Error(`${label}: download failed (${err.message || "fetch error"})`);
-  }
-  clearTimeout(timer);
-  if (!resp.ok) {
-    throw new Error(`${label}: HTTP ${resp.status} ${resp.statusText}`);
-  }
-  const fallbackCt = expectedKind === "video" ? "video/mp4" : "image/jpeg";
-  const contentType = pickContentType(resp.headers, fallbackCt);
-  const buf = Buffer.from(await resp.arrayBuffer());
-  const ext = extensionFromContentType(contentType, expectedKind === "video" ? "mp4" : "jpg");
-  return { buffer: buf, contentType, extension: ext, bytes: buf.length };
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -262,50 +208,23 @@ export async function submitNsfwMotionVideo(opts, webhookUrl = null, generationI
 
   const refStr = String(referenceImageUrl).trim();
   const drvStr = String(drivingVideoUrl).trim();
-  const useUrls = shouldUseMotionUrlSubmit(refStr, drvStr);
-  let body;
-  let lastBodySize = 0;
-  let img;
-  let vid;
-  if (useUrls) {
-    body = {
-      input: {
-        ...motionInputBase(workflow, generationId),
-        reference_image_url: refStr,
-        driving_video_url: drvStr,
-      },
+  if (!isPublicHttpUrl(refStr) || !isPublicHttpUrl(drvStr)) {
+    return {
+      success: false,
+      error:
+        "Reference image and driving video must be public http(s) URLs (upload to blob/storage first, then pass those links).",
     };
-    if (webhookUrl) body.webhook = webhookUrl;
-    lastBodySize = jsonUtf8Length(body);
-  } else {
-    try {
-      img = await fetchUrlBuffer(refStr, "Reference image", "image");
-      vid = await fetchUrlBuffer(drvStr, "Driving video", "video");
-    } catch (e) {
-      return { success: false, error: e.message };
-    }
-    if (workflow["167"]?.inputs) workflow["167"].inputs.image = `ref.${img.extension}`;
-    if (workflow["52"]?.inputs) workflow["52"].inputs.video = `drive.${vid.extension}`;
-    body = {
-      input: {
-        ...motionInputBase(workflow, generationId),
-        upload_images: [
-          { node_id: "167", filename: `ref.${img.extension}`, data: img.buffer.toString("base64") },
-        ],
-        upload_videos: [
-          { node_id: "52", filename: `drive.${vid.extension}`, data: vid.buffer.toString("base64") },
-        ],
-      },
-    };
-    if (webhookUrl) body.webhook = webhookUrl;
-    lastBodySize = jsonUtf8Length(body);
-    if (lastBodySize > RUNPOD_MAX_JSON_BYTES) {
-      return {
-        success: false,
-        error: `RunPod request body is ~${(lastBodySize / (1024 * 1024)).toFixed(1)} MiB (max 10 MiB with base64). Host assets on https and use a motion worker that accepts reference_image_url + driving_video_url, or use shorter / smaller source files.`,
-      };
-    }
   }
+
+  const body = {
+    input: {
+      ...motionInputBase(workflow, generationId),
+      reference_image_url: refStr,
+      driving_video_url: drvStr,
+    },
+  };
+  if (webhookUrl) body.webhook = webhookUrl;
+  const lastBodySize = Buffer.byteLength(JSON.stringify(body), "utf8");
 
   if (!webhookUrl) {
     console.warn(
@@ -314,7 +233,7 @@ export async function submitNsfwMotionVideo(opts, webhookUrl = null, generationI
     );
   }
   console.log(
-    `[NSFW/motion] submit mode=${useUrls ? "url" : "base64"} endpoint=${RUNPOD_MOTION_ENDPOINT_ID} ` +
+    `[NSFW/motion] submit (public blob URLs) endpoint=${RUNPOD_MOTION_ENDPOINT_ID} ` +
       `dur=${finalDuration}s skip=${finalSkip}s fps=${finalFps} ${finalW}x${finalH} ` +
       `seed=${finalSeed} torchCompile=${!!torchCompile} blockSwap=${finalBlockSwap} ` +
       `jsonBytes≈${lastBodySize}` +
@@ -370,10 +289,7 @@ export async function submitNsfwMotionVideo(opts, webhookUrl = null, generationI
     success: true,
     requestId,
     seed: finalSeed,
-    bytes:
-      useUrls
-        ? { image: 0, video: 0, mode: "url" }
-        : { image: img?.bytes ?? 0, video: vid?.bytes ?? 0, mode: "base64" },
+    bytes: { image: 0, video: 0, mode: "url" },
   };
 }
 
