@@ -296,154 +296,16 @@ export function buildStructuredPromptInput({
   };
 }
 
-/** Comfy / Qwen CLIP text encoders are trained on natural language; do not pass pretty-printed JSON. */
-const MAX_NSFW_CLIP_PROMPT_CHARS = 3800;
-
-/**
- * Turn Grok's structured NSFW JSON (or legacy prose) into a single conditioning string
- * for CLIPTextEncode. Call this at the RunComfy submit boundary only — the API may still
- * return JSON to the client for the UI.
- *
- * @param {string} raw
- * @returns {string}
- */
-export function flattenStructuredNsfwJsonForClipText(raw) {
-  if (raw == null) return "";
-  const s0 = String(raw).trim();
-  if (!s0) return "";
-  if (s0.length < 2 || s0[0] !== "{") {
-    return s0.length > MAX_NSFW_CLIP_PROMPT_CHARS ? s0.slice(0, MAX_NSFW_CLIP_PROMPT_CHARS) : s0;
-  }
-  let o;
-  try {
-    o = JSON.parse(s0);
-  } catch {
-    return s0.length > MAX_NSFW_CLIP_PROMPT_CHARS ? s0.slice(0, MAX_NSFW_CLIP_PROMPT_CHARS) : s0;
-  }
-  if (o == null || typeof o !== "object" || Array.isArray(o)) {
-    return s0;
-  }
-  if (o.error) {
-    return `Error: ${String(o.error).trim()}`;
-  }
-
-  const parts = [];
-
-  function walkStrings(val, out, depth) {
-    if (depth > 10) return;
-    if (val == null) return;
-    if (typeof val === "string") {
-      const t = val.trim();
-      if (t) out.push(t);
-      return;
-    }
-    if (Array.isArray(val)) {
-      for (const item of val) walkStrings(item, out, depth + 1);
-      return;
-    }
-    if (typeof val === "object") {
-      for (const k of Object.keys(val).sort()) walkStrings(val[k], out, depth + 1);
-    }
-  }
-
-  if (o.trigger_word) {
-    const tw = String(o.trigger_word).trim();
-    if (tw) parts.push(tw);
-  }
-
-  if (o.main_subject && typeof o.main_subject === "object") {
-    const ms = [];
-    walkStrings(o.main_subject, ms, 0);
-    if (ms.length) parts.push(`Subject: ${[...new Set(ms)].join(", ")}`);
-  }
-
-  if (o.scene && typeof o.scene === "object") {
-    const sc = o.scene;
-    for (const k of [
-      "user_request",
-      "pose",
-      "setting",
-      "expression",
-      "gaze",
-      "lighting",
-      "color_mood",
-      "time_of_day",
-      "weather",
-    ]) {
-      if (sc[k] && String(sc[k]).trim()) parts.push(String(sc[k]).trim());
-    }
-    if (Array.isArray(sc.environment_details)) {
-      for (const x of sc.environment_details) {
-        if (x && String(x).trim()) parts.push(String(x).trim());
-      }
-    }
-    if (Array.isArray(sc.props)) {
-      for (const x of sc.props) {
-        if (x && String(x).trim()) parts.push(String(x).trim());
-      }
-    }
-    if (sc.wardrobe && typeof sc.wardrobe === "object") {
-      const w = sc.wardrobe;
-      const bits = Object.entries(w)
-        .map(([a, b]) => (b && String(b).trim() ? `${a}: ${String(b).trim()}` : ""))
-        .filter(Boolean);
-      if (bits.length) parts.push(`Wardrobe: ${bits.join(", ")}`);
-    }
-  }
-
-  if (o.composition && typeof o.composition === "object") {
-    const c = o.composition;
-    for (const k of ["framing", "camera_angle", "camera_lens", "orientation", "focus", "depth_of_field"]) {
-      if (c[k] && String(c[k]).trim()) parts.push(String(c[k]).trim());
-    }
-  }
-
-  if (o.colors && typeof o.colors === "object") {
-    if (o.colors.atmosphere) parts.push(String(o.colors.atmosphere).trim());
-    if (Array.isArray(o.colors.dominant_palette)) {
-      for (const x of o.colors.dominant_palette) {
-        if (x && String(x).trim()) parts.push(String(x).trim());
-      }
-    }
-  }
-
-  if (o.style && typeof o.style === "object") {
-    for (const k of ["render_style", "visual_tone", "photo_category"]) {
-      if (o.style[k] && String(o.style[k]).trim()) parts.push(String(o.style[k]).trim());
-    }
-  }
-
-  if (o.nsfw_meta && typeof o.nsfw_meta === "object") {
-    const m = o.nsfw_meta;
-    for (const k of ["sex_act", "nudity", "pose_intent", "mode"]) {
-      if (m[k] != null && String(m[k]).trim()) parts.push(String(m[k]).trim());
-    }
-  }
-
-  let out = parts
-    .filter(Boolean)
-    .join(". ")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (!out) {
-    out = s0;
-  }
-  if (out.length > MAX_NSFW_CLIP_PROMPT_CHARS) {
-    out = out.slice(0, MAX_NSFW_CLIP_PROMPT_CHARS);
-  }
-  return out;
-}
-
 /**
  * Standardized SYSTEM-prompt section that explains the JSON I/O contract to Grok.
  *
  * Both NSFW and ModelClone-X system prompts include this block so the LLM knows
  * exactly what JSON shape it receives AND must produce as output.
  *
- * The LLM still returns pretty-printed JSON (good for the UI and logs). For actual
- * image generation, {@link flattenStructuredNsfwJsonForClipText} turns that object
- * into a natural-language string for the CLIP / Z-Image text encoder — it must not
- * receive raw JSON with braces and keys.
+ * IMPORTANT: The OUTPUT of the LLM is the JSON itself (pretty-printed). It is then
+ * stringified and fed to the downstream image model (Z-Image Turbo etc.) as the prompt
+ * — JSON formatting is preserved verbatim because the diffusion model conditions on
+ * the structured tokens, and our UI / logs need it human-readable.
  */
 export const STRUCTURED_INPUT_CONTRACT = `## STRUCTURED JSON I/O CONTRACT (READ CAREFULLY — INPUT *AND* OUTPUT ARE JSON)
 

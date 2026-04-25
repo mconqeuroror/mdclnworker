@@ -88,8 +88,6 @@ import {
   getNudesPackCreditsSplit,
 } from "../../shared/nudesPackPoses.js";
 import {
-  getEffectiveNudesPackPoses,
-  isNudesPackFeatureEnabled,
   validateNudesPackPoseIdsEffective,
   getNudesPackPoseByIdEffective,
   getNudesPackAdditiveHintForPose,
@@ -2860,8 +2858,14 @@ export async function generateNsfwImage(req, res) {
       (req.body.width && req.body.height ? `${req.body.width}x${req.body.height}` : undefined);
     const resSpec = resolveNsfwResolution(resolutionPreset);
     const postProcessing = {
-      blur: { enabled: false, strength: 0 },
-      grain: { enabled: false, strength: 0 },
+      blur: {
+        enabled: options?.postProcessing?.blur?.enabled !== false,
+        strength: Number(options?.postProcessing?.blur?.strength ?? 0.3),
+      },
+      grain: {
+        enabled: options?.postProcessing?.grain?.enabled !== false,
+        strength: Number(options?.postProcessing?.grain?.strength ?? 0.06),
+      },
     };
     let firstGeneration = null;
 
@@ -2993,48 +2997,6 @@ async function mapWithConcurrencyLimit(items, concurrency, mapper) {
   return results;
 }
 
-// GET /api/nsfw/nudes-pack-poses — active catalog + pack credit range (NSFW UI)
-export async function getNudesPackPoses(req, res) {
-  try {
-    if (!isNudesPackFeatureEnabled()) {
-      return res.status(404).json({ success: false, message: "Not found" });
-    }
-    const poses = await getEffectiveNudesPackPoses();
-    const genPricing = await getGenerationPricing();
-    return res.json({
-      success: true,
-      poses,
-      nudesPackCreditsMin: genPricing.nudesPackCreditsMin,
-      nudesPackCreditsMax: genPricing.nudesPackCreditsMax,
-    });
-  } catch (e) {
-    console.error("getNudesPackPoses:", e);
-    return res.status(500).json({
-      success: false,
-      message: e?.message || "Failed to load nudes pack poses",
-    });
-  }
-}
-
-/**
- * `userRequest` for {@link runNsfwPromptGenerationForModel} in nudes pack.
- * Kept in lockstep with POST /nsfw/generate-prompt and plan-generation: one natural scene
- * string; model look chips and LoRA identity stay in `attributesDetail` / `attributesString` only.
- * The curated `promptFragment` in shared/nudesPackPoses is the primary pose+scene source.
- *
- * @param {string} packSceneNote
- * @param {{ title?: string, summary?: string, promptFragment?: string } | null | undefined} pose
- */
-function buildNudesPackGrokUserRequest(packSceneNote, pose) {
-  const note = String(packSceneNote || "").trim();
-  const title = String(pose?.title || "").trim();
-  const summary = String(pose?.summary || "").trim();
-  const fragment = String(pose?.promptFragment || "").trim();
-  const mainScene = fragment || [title, summary].filter(Boolean).join(". ") || title;
-  if (note && mainScene) return `${note}\n\n${mainScene}`;
-  return mainScene || note || "intimate nude scene";
-}
-
 // ============================================
 // POST /api/nsfw/nudes-pack — dynamic cr/image: 15 @ 30 poses → 30 @ 1 pose (linear); looks + trigger server-side
 // Body: { modelId, poseIds: string[], attributes?, attributesDetail?, sceneDescription?, skipFaceSwap?, faceSwapImageUrl?, options?, resolution? }
@@ -3050,9 +3012,6 @@ export async function generateNudesPack(req, res) {
   const failures = [];
 
   try {
-    if (!isNudesPackFeatureEnabled()) {
-      return res.status(404).json({ success: false, message: "Not found" });
-    }
     const {
       modelId,
       poseIds,
@@ -3155,8 +3114,14 @@ export async function generateNudesPack(req, res) {
     // Nudes pack is always 9:16 portrait (IG story / vertical format) — resolution override is ignored
     const resSpec = resolveNsfwResolution("768x1344");
     const postProcessing = {
-      blur: { enabled: false, strength: 0 },
-      grain: { enabled: false, strength: 0 },
+      blur: {
+        enabled: options?.postProcessing?.blur?.enabled !== false,
+        strength: Number(options?.postProcessing?.blur?.strength ?? 0.3),
+      },
+      grain: {
+        enabled: options?.postProcessing?.grain?.enabled !== false,
+        strength: Number(options?.postProcessing?.grain?.strength ?? 0.06),
+      },
     };
 
     /** @type {{ idx: number, poseId: string, pose: { id: string, title: string, summary: string, category: string, promptFragment: string }, thisCreditCost: number }[]} */
@@ -3222,8 +3187,14 @@ export async function generateNudesPack(req, res) {
         const promptedRows = await mapWithConcurrencyLimit(rowsWithGen, promptConcurrency, async (row) => {
           const { idx, pose } = row;
           const modelLooksText = buildAttributeList(attributesDetail).join(", ") || attributesString || "";
-          // Same Grok path as /nsfw/generate-prompt: natural scene in userRequest, looks in attributesDetail.
-          const userRequestForAi = buildNudesPackGrokUserRequest(packSceneNote, pose);
+          const userRequestForAi = [
+            packSceneNote.trim() ? `Global scene note: ${packSceneNote.trim()}` : null,
+            `Pose summary: ${pose.summary || ""}`,
+            `Pose prompt fragment: ${pose.promptFragment || ""}`,
+            modelLooksText ? `Model look variables: ${modelLooksText}` : null,
+          ]
+            .filter(Boolean)
+            .join("\n");
           const composedFallbackPrompt = [
             pose.promptFragment || "",
             pose.summary || "",
@@ -3241,7 +3212,7 @@ export async function generateNudesPack(req, res) {
               userRequestForAi,
               attributesDetail,
               attributesString,
-              { pose },
+              { mode: "nudes-pack", pose },
             );
             if (aiPrompt && typeof aiPrompt === "string" && aiPrompt.trim()) {
               if (isNsfwPromptLogicalConflict(aiPrompt)) {
@@ -3335,10 +3306,10 @@ export async function generateNudesPack(req, res) {
                 sampler: rp.sampler ?? "dpmpp_2m",
                 scheduler: rp.scheduler ?? "beta",
                 builtPrompt: rp.prompt || null,
-                blurEnabled: rp?.postProcessing?.blur?.enabled ?? false,
-                blurStrength: rp?.postProcessing?.blur?.strength ?? 0,
-                grainEnabled: rp?.postProcessing?.grain?.enabled ?? false,
-                grainStrength: rp?.postProcessing?.grain?.strength ?? 0,
+                blurEnabled: rp?.postProcessing?.blur?.enabled ?? true,
+                blurStrength: rp?.postProcessing?.blur?.strength ?? 0.3,
+                grainEnabled: rp?.postProcessing?.grain?.enabled ?? true,
+                grainStrength: rp?.postProcessing?.grain?.strength ?? 0.06,
               }),
             },
           });
@@ -3793,9 +3764,7 @@ Return ONLY the JSON object — pretty-printed, 2-space indent, no \`\`\`json fe
 If the request is genuinely impossible to render as one coherent image, return exactly:
 {"error": "Irresolvable logical conflict in request - please clarify"}`;
     const mode = String(context?.mode || "").trim().toLowerCase();
-    // Nudes pack uses the same system prompt as single-image NSFW (structured JSON I/O + POV rules).
-    // Admin override key: `nsfwPromptGenerator` (not the legacy `nudesPackPromptGeneratorSystem`).
-    const systemTemplateKey = "nsfwPromptGenerator";
+    const systemTemplateKey = mode === "nudes-pack" ? "nudesPackPromptGeneratorSystem" : "nsfwPromptGenerator";
     systemPrompt = await getPromptTemplateValue(systemTemplateKey, systemPrompt);
 
     // Guarantee the structured-JSON contract is always in the system prompt, even when
