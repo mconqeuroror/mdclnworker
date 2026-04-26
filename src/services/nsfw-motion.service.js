@@ -20,7 +20,7 @@
  */
 
 import { execFile } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -29,7 +29,7 @@ import { getFfmpegWorkerBaseUrls } from "../lib/ffmpeg-worker-env.js";
 import { postTranscodeJobToWorker } from "./ffmpeg-worker-client.js";
 import { getR2PresignedPutForKey, isR2Configured } from "../utils/r2.js";
 import { uploadBufferToBlobOrR2 } from "../utils/kieUpload.js";
-import { getFfmpegPathSync } from "../utils/ffmpeg-path.js";
+import { getFfprobePathSync, getFfmpegPathSync } from "../utils/ffmpeg-path.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -52,6 +52,12 @@ function bufferContainsFtypMp4(b) {
   if (!Buffer.isBuffer(b) || b.length < 32) return false;
   const n = Math.min(b.length, 1_000_000);
   return b.subarray(0, n).indexOf(FTYP_SIG) >= 0;
+}
+
+/** First 16 hex chars of SHA-256 of buffer (trace whether transcode actually changed bytes). */
+function shortBufferSha16(buf) {
+  if (!Buffer.isBuffer(buf) || buf.length === 0) return "empty";
+  return createHash("sha256").update(buf).digest("hex").slice(0, 16);
 }
 
 /* H.264 (optional): baseline-ish, very decode-friendly. */
@@ -86,6 +92,8 @@ const MOTION_VHS_MPEG4_OUT = [
   "mp4v",
   "-q:v",
   "5",
+  "-pix_fmt",
+  "yuv420p",
   "-an",
   "-movflags",
   "+faststart",
@@ -103,25 +111,102 @@ function getMotionVhsVideoCodec() {
 }
 
 /**
- * -vf: yuv420, even size, optional CFR (fixes 0/invalid fps that can break VHS after open).
+ * -vf: yuv420, even size (VFR/CFF fixed via -r and -fps_mode cfr in output, not fps filter, to match OpenCV/VHS workarounds).
  * @returns {string}
  */
 function getMotionVhsVf() {
+  return "format=yuv420p,scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=bicubic,setsar=1";
+}
+
+/**
+ * @returns {number} Output CFR frame rate (0 = do not set -r / -fps_mode).
+ */
+function getMotionVhsCfrFps() {
   const raw = String(process.env.NSFW_MOTION_VHS_CFR_FPS ?? "30").toLowerCase();
   const off = raw === "0" || raw === "off" || raw === "false" || raw === "no";
   const n = off ? 0 : Number.parseInt(String(process.env.NSFW_MOTION_VHS_CFR_FPS ?? "30"), 10);
-  const cfr = Number.isFinite(n) && n > 0 ? n : 0;
-  if (cfr > 0) {
-    return `format=yuv420p,fps=${cfr},scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=bicubic,setsar=1`;
-  }
-  return "format=yuv420p,scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=bicubic,setsar=1";
+  return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
 /**
  * @returns {string[]}
  */
 function getMotionVhsFfmpegOutputOpts() {
-  return getMotionVhsVideoCodec() === "libx264" ? MOTION_VHS_X264_OUT : MOTION_VHS_MPEG4_OUT;
+  const cfr = getMotionVhsCfrFps();
+  const base = getMotionVhsVideoCodec() === "libx264" ? [...MOTION_VHS_X264_OUT] : [...MOTION_VHS_MPEG4_OUT];
+  if (cfr <= 0) return base;
+  const anIdx = base.indexOf("-an");
+  if (anIdx < 0) {
+    return [...base, "-r", String(cfr), "-fps_mode", "cfr"];
+  }
+  return [...base.slice(0, anIdx), "-r", String(cfr), "-fps_mode", "cfr", ...base.slice(anIdx)];
+}
+
+/**
+ * ffprobe gate before RunningHub: reject 0/0 r_frame_rate or nb_frames=0 when possible.
+ * If ffprobe is missing, logs a warning and allows (avoids hard-failing on hosts without it).
+ * Set NSFW_MOTION_VHS_FFPROBE=false to skip the probe.
+ * @param {Buffer} buffer
+ * @param {string} where — log label
+ * @returns {Promise<{ ok: boolean, reason?: string, probeJson?: object, skipped?: boolean, ffprobeError?: boolean }>}
+ */
+async function validateVhsTranscodedBufferWithFfprobe(buffer, where) {
+  if (String(process.env.NSFW_MOTION_VHS_FFPROBE || "true").toLowerCase() === "false") {
+    return { ok: true, skipped: true };
+  }
+  if (!Buffer.isBuffer(buffer) || buffer.length < 256) {
+    return { ok: false, reason: "buffer too small" };
+  }
+  const id = randomBytes(6).toString("hex");
+  const tmp = path.join(os.tmpdir(), `vhs-ffp-${id}.mp4`);
+  const ff = getFfmpegPathSync();
+  const prob = getFfprobePathSync(ff);
+  try {
+    await fs.writeFile(tmp, buffer);
+    const { stdout } = await execFileAsync(
+      prob,
+      [
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "stream=codec_name,r_frame_rate,avg_frame_rate,nb_frames,pix_fmt",
+        "-of",
+        "json",
+        tmp,
+      ],
+      { maxBuffer: 2_000_000, timeout: 45_000 },
+    );
+    const j = JSON.parse(stdout);
+    const s = j && Array.isArray(j.streams) ? j.streams[0] : null;
+    if (!s) {
+      return { ok: false, reason: "ffprobe: no v:0", probeJson: j };
+    }
+    const { codec_name, r_frame_rate, nb_frames, pix_fmt } = s;
+    if (r_frame_rate === "0/0" || r_frame_rate === 0) {
+      return { ok: false, reason: `r_frame_rate=${r_frame_rate}`, probeJson: s };
+    }
+    if (nb_frames !== undefined && Number(nb_frames) === 0) {
+      return { ok: false, reason: "nb_frames=0", probeJson: s };
+    }
+    const out = { codec_name, r_frame_rate, nb_frames, pix_fmt };
+    console.log(`[NSFW/motion] ffprobe ok [${where}]`, JSON.stringify(out));
+    return { ok: true, probeJson: out };
+  } catch (e) {
+    const errText = e?.message || String(e);
+    if (/ENOENT|spawn|not find|ffprobe/gi.test(errText)) {
+      console.warn(
+        "[NSFW/motion] ffprobe not runnable — skipping VHS pre-upload validation (set FFPROBE_PATH or install):",
+        errText.slice(0, 200),
+      );
+      return { ok: true, skipped: true, ffprobeError: true, warn: errText };
+    }
+    console.warn(`[NSFW/motion] ffprobe failed [${where}]:`, errText);
+    return { ok: true, warn: errText, ffprobeError: true, skipped: true };
+  } finally {
+    await fs.unlink(tmp).catch(() => {});
+  }
 }
 
 const RUNNINGHUB_API_KEY = String(process.env.RUNNINGHUB_API_KEY || "").trim();
@@ -197,6 +282,12 @@ async function transcodeDrivingVideoForVhsLocally(inputBuffer, sourceExt) {
   const inPath = path.join(os.tmpdir(), `rh-mo-in-${id}.${safeExt}`);
   const outPath = path.join(os.tmpdir(), `rh-mo-out-${id}.mp4`);
   const ff = getFfmpegPathSync();
+  const inBytes = inputBuffer.length;
+  const inSha = shortBufferSha16(inputBuffer);
+  console.log(
+    `[NSFW/motion] local transcode start inBytes=${inBytes} inSha16=${inSha} ext=${safeExt} ` +
+      `codec=${getMotionVhsVideoCodec()} cfrOutFps=${getMotionVhsCfrFps() || "off"}`,
+  );
   try {
     await fs.writeFile(inPath, inputBuffer);
     const args = [
@@ -211,11 +302,30 @@ async function transcodeDrivingVideoForVhsLocally(inputBuffer, sourceExt) {
       ...getMotionVhsFfmpegOutputOpts(),
       outPath,
     ];
+    console.log(
+      "[NSFW/motion] local transcode running ffmpeg (first args): -y -i … -vf " +
+        getMotionVhsVf().slice(0, 50) +
+        "… " +
+        getMotionVhsFfmpegOutputOpts().join(" "),
+    );
     await execFileAsync(ff, args, { maxBuffer: 50 * 1024 * 1024, timeout: 15 * 60 * 1000 });
     const out = await fs.readFile(outPath);
-    if (out.length < 256) return null;
+    if (out.length < 256) {
+      console.warn(`[NSFW/motion] local transcode: output too small (${out.length} B)`);
+      return null;
+    }
     if (!bufferContainsFtypMp4(out)) {
       console.warn("[NSFW/motion] local transcode output missing ftyp — treating as failed");
+      return null;
+    }
+    const outSha = shortBufferSha16(out);
+    console.log(
+      `[NSFW/motion] local transcode done outBytes=${out.length} outSha16=${outSha} ` +
+        `sameShaAsInput=${outSha === inSha} (if true, input may already be same-bytes; still re-encode)`,
+    );
+    const vProbe = await validateVhsTranscodedBufferWithFfprobe(out, "local-ffmpeg");
+    if (!vProbe.ok) {
+      console.warn("[NSFW/motion] local transcode failed ffprobe gate:", vProbe.reason, vProbe.probeJson);
       return null;
     }
     return out;
@@ -246,13 +356,17 @@ async function transcodeDrivingVideoViaFfmpegWorker(publicDrivingUrl) {
   if (!u.startsWith("http") || !isFfmpegWorkerR2PathAvailable()) return null;
   const key = `nsfw-motion-temp/${Date.now()}_${randomBytes(8).toString("hex")}_drive_vhs.mp4`;
   let publicUrl;
+  const codec = getMotionVhsVideoCodec();
+  const vf = getMotionVhsVf();
+  const outOpts = getMotionVhsFfmpegOutputOpts();
+  console.log(
+    `[NSFW/motion] worker transcode start inputUrl=${u.slice(0, 100)}` +
+      (u.length > 100 ? "…" : "") +
+      ` codec=${codec} cfrFpsOut=${getMotionVhsCfrFps() || "off"} vf=${vf.slice(0, 64)}… extraOptions=${outOpts.join(" ")}`,
+  );
   try {
     const presign = await getR2PresignedPutForKey(key, "video/mp4", 3600);
     publicUrl = presign.publicUrl;
-    const codec = getMotionVhsVideoCodec();
-    const vf = getMotionVhsVf();
-    const outOpts = getMotionVhsFfmpegOutputOpts();
-    console.log(`[NSFW/motion] worker transcode codec=${codec} cfrFpsEnv=${String(process.env.NSFW_MOTION_VHS_CFR_FPS || "30")} vf(brief)=${vf.slice(0, 64)}…`);
     await postTranscodeJobToWorker({
       inputUrl: u,
       vfFilter: vf,
@@ -283,6 +397,17 @@ async function transcodeDrivingVideoViaFfmpegWorker(publicDrivingUrl) {
         lastErr = new Error("not a valid ftyp MP4 (truncated or wrong content-type?)");
         console.warn(`[NSFW/motion] R2 transcode read missing ftyp, retry ${attempt + 1}/6`);
         continue;
+      }
+      console.log(
+        `[NSFW/motion] worker R2 read ok outBytes=${buf.length} outSha16=${shortBufferSha16(buf)} r2PublicKeyHint=${(publicUrl && publicUrl.split("/").pop()) || "?"}`,
+      );
+      const vProbe = await validateVhsTranscodedBufferWithFfprobe(buf, "worker-r2");
+      if (!vProbe.ok) {
+        console.warn(
+          "[NSFW/motion] R2 file failed ffprobe (bad for VHS; not retrying same URL):",
+          vProbe.reason,
+        );
+        return null;
       }
       return buf;
     } catch (e) {
@@ -490,6 +615,10 @@ export async function submitNsfwMotionVideo(opts, generationId = null) {
 
   const imageFilename = `ref-${generationId || "g"}.${img.extension}`;
 
+  console.log(
+    `[NSFW/motion] VHS trace [gen=${generationId || "—"}] downloaded: drivingBytes=${vid.bytes} drivingSha16=${shortBufferSha16(vid.buffer)} refImageBytes=${img.bytes}`,
+  );
+
   let videoBufferToUpload = vid.buffer;
   let videoUploadExt = vid.extension;
   let videoContentType = vid.contentType;
@@ -530,16 +659,32 @@ export async function submitNsfwMotionVideo(opts, generationId = null) {
     }
   }
 
+  const outSha = shortBufferSha16(videoBufferToUpload);
+  const sameAsSourceDownload = outSha === shortBufferSha16(vid.buffer);
+  console.log(
+    `[NSFW/motion] VHS trace [gen=${generationId || "—"}] pre-RunningHub upload: ` +
+      `videoOutBytes=${videoBufferToUpload.length} videoOutSha16=${outSha} sameAsDownloadedDrivingFile=${sameAsSourceDownload} ` +
+      `ext=${videoUploadExt} (if transcode ran, sameSha is usually false unless re-encode was a no-op)`,
+  );
+
   const videoFilename = `drive-${generationId || "g"}.${videoUploadExt}`;
 
   let imageFieldValue;
   let videoFieldValue;
   try {
     imageFieldValue = await uploadBufferToRunningHub(img.buffer, imageFilename, img.contentType);
+    console.log(
+      `[NSFW/motion] RunningHub POST ${RUNNINGHUB_MEDIA_UPLOAD_BASE}/.../upload/binary (video) ` +
+        `fileName=${videoFilename} contentType=${videoContentType} bodyBytes=${videoBufferToUpload.length} bodySha16=${outSha}`,
+    );
     videoFieldValue = await uploadBufferToRunningHub(
       videoBufferToUpload,
       videoFilename,
       videoContentType,
+    );
+    console.log(
+      `[NSFW/motion] RunningHub video fieldValue (server-side name, typically hash of file bytes)=${videoFieldValue} — ` +
+        `repeated names across different source videos means identical upload bytes`,
     );
   } catch (e) {
     return { success: false, error: e.message || String(e) };
