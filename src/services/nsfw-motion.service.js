@@ -14,8 +14,8 @@
  * Driving video is re-encoded for VHS (OpenCV `VideoCapture` + `grab()`) before upload (unless NSFW_MOTION_TRANSCODE=false).
  * Default codec is **MPEG-4 Part 2 (mpeg4 / mp4v)** — often more reliable than H.264 on some OpenCV+FFmpeg builds; override with
  * NSFW_MOTION_VHS_VIDEO_CODEC=libx264. Optional constant frame rate: NSFW_MOTION_VHS_CFR_FPS=30 (0=off) helps broken fps metadata.
- * Prefer FFMPEG_WORKER_URL + R2 (presigned PUT) like reformatter/Seedance — R2 is still used in blob-only
- * deployments for temp worker output when R2 is configured. Fallback: local ffmpeg (FFMPEG_PATH).
+ * Uses the external FFmpeg worker in `returnBytes` mode — worker streams the transcoded MP4 back
+ * in the HTTP response (no R2 or Blob presign needed). Fallback: local ffmpeg (FFMPEG_PATH).
  *
  * The hosted app workflow may not expose prompt/duration/skip via the API; those are accepted
  * for billing / UX and stored on the generation row, but are not always sent to RunningHub.
@@ -28,8 +28,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { getFfmpegWorkerBaseUrls } from "../lib/ffmpeg-worker-env.js";
-import { postTranscodeJobToWorker } from "./ffmpeg-worker-client.js";
-import { getR2PresignedPutForKey, isR2Configured } from "../utils/r2.js";
+import { postTranscodeJobToWorkerReturnBytes } from "./ffmpeg-worker-client.js";
 import { uploadBufferToBlobOrR2 } from "../utils/kieUpload.js";
 import { getFfprobePathSync, getFfmpegPathSync } from "../utils/ffmpeg-path.js";
 
@@ -363,84 +362,64 @@ async function transcodeDrivingVideoForVhsLocally(inputBuffer, sourceExt) {
   }
 }
 
-function isFfmpegWorkerR2PathAvailable() {
+function isFfmpegWorkerReachable() {
   return (
     getFfmpegWorkerBaseUrls().length > 0 &&
-    Boolean(String(process.env.FFMPEG_WORKER_API_KEY || "").trim()) &&
-    isR2Configured()
+    Boolean(String(process.env.FFMPEG_WORKER_API_KEY || "").trim())
   );
 }
 
 /**
- * Same VHS transcode as local, via external ffmpeg worker + R2 (presigned PUT + fetch back).
+ * VHS-friendly transcode via the external ffmpeg worker using `returnBytes` mode. The worker
+ * downloads the source, runs ffmpeg, and streams the output MP4 back in the HTTP response body
+ * — no R2 or Vercel Blob needed.
  * @param {string} publicDrivingUrl - Public http(s) URL the worker can fetch
  * @returns {Promise<Buffer | null>}
  */
 async function transcodeDrivingVideoViaFfmpegWorker(publicDrivingUrl) {
   const u = String(publicDrivingUrl || "").trim();
-  if (!u.startsWith("http") || !isFfmpegWorkerR2PathAvailable()) return null;
-  const key = `nsfw-motion-temp/${Date.now()}_${randomBytes(8).toString("hex")}_drive_vhs.mp4`;
-  let publicUrl;
+  if (!u.startsWith("http") || !isFfmpegWorkerReachable()) return null;
   const codec = getMotionVhsVideoCodec();
   const vf = getMotionVhsVf();
   const outOpts = getMotionVhsFfmpegOutputOpts();
   console.log(
-    `[NSFW/motion] worker transcode start inputUrl=${u.slice(0, 100)}` +
+    `[NSFW/motion] worker transcode (returnBytes) start inputUrl=${u.slice(0, 100)}` +
       (u.length > 100 ? "…" : "") +
       ` codec=${codec} cfrFpsOut=${getMotionVhsCfrFps() || "off"} vf=${vf.slice(0, 64)}… extraOptions=${outOpts.join(" ")}`,
   );
+  let buf;
   try {
-    const presign = await getR2PresignedPutForKey(key, "video/mp4", 3600);
-    publicUrl = presign.publicUrl;
-    await postTranscodeJobToWorker({
+    const { buffer, bytes } = await postTranscodeJobToWorkerReturnBytes({
       inputUrl: u,
       vfFilter: vf,
       extraOptions: [...outOpts],
-      outputPutUrl: { putUrl: presign.uploadUrl, publicUrl: presign.publicUrl, contentType: "video/mp4" },
+      outputContainerExt: ".mp4",
     });
+    buf = buffer;
+    if (!Buffer.isBuffer(buf) || buf.length < 256) {
+      console.warn(`[NSFW/motion] worker returnBytes: output too small (${bytes} B)`);
+      return null;
+    }
+    if (!bufferContainsFtypMp4(buf)) {
+      console.warn("[NSFW/motion] worker returnBytes: output missing ftyp — treating as failed");
+      return null;
+    }
+    console.log(
+      `[NSFW/motion] worker returnBytes ok outBytes=${buf.length} outSha16=${shortBufferSha16(buf)}`,
+    );
   } catch (e) {
-    console.warn("[NSFW/motion] ffmpeg worker transcode failed:", e?.message || e);
+    console.warn("[NSFW/motion] ffmpeg worker transcode (returnBytes) failed:", e?.message || e);
     return null;
   }
-  let lastErr = null;
-  for (let attempt = 0; attempt < 6; attempt++) {
-    if (attempt > 0) {
-      await new Promise((r) => setTimeout(r, 400 * attempt));
-    }
-    try {
-      const res = await fetch(publicUrl, { signal: AbortSignal.timeout(600_000) });
-      if (!res.ok) {
-        lastErr = new Error(`HTTP ${res.status}`);
-        continue;
-      }
-      const buf = Buffer.from(await res.arrayBuffer());
-      if (buf.length < 256) {
-        lastErr = new Error("empty file");
-        continue;
-      }
-      if (!bufferContainsFtypMp4(buf)) {
-        lastErr = new Error("not a valid ftyp MP4 (truncated or wrong content-type?)");
-        console.warn(`[NSFW/motion] R2 transcode read missing ftyp, retry ${attempt + 1}/6`);
-        continue;
-      }
-      console.log(
-        `[NSFW/motion] worker R2 read ok outBytes=${buf.length} outSha16=${shortBufferSha16(buf)} r2PublicKeyHint=${(publicUrl && publicUrl.split("/").pop()) || "?"}`,
-      );
-      const vProbe = await validateVhsTranscodedBufferWithFfprobe(buf, "worker-r2");
-      if (!vProbe.ok) {
-        console.warn(
-          "[NSFW/motion] R2 file failed ffprobe (bad for VHS; not retrying same URL):",
-          vProbe.reason,
-        );
-        return null;
-      }
-      return buf;
-    } catch (e) {
-      lastErr = e instanceof Error ? e : new Error(e?.message || String(e));
-    }
+  const vProbe = await validateVhsTranscodedBufferWithFfprobe(buf, "worker-returnbytes");
+  if (!vProbe.ok) {
+    console.warn(
+      "[NSFW/motion] worker returnBytes output failed ffprobe (bad for VHS):",
+      vProbe.reason,
+    );
+    return null;
   }
-  console.warn("[NSFW/motion] could not download valid MP4 from R2 after transcode:", lastErr?.message || lastErr);
-  return null;
+  return buf;
 }
 
 /**
@@ -648,7 +627,7 @@ export async function submitNsfwMotionVideo(opts, generationId = null) {
     console.log(
       `[NSFW/motion] env: FFMPEG_WORKER_URL=${Boolean(getFfmpegWorkerBaseUrls().length)} ` +
         `FFMPEG_WORKER_API_KEY=${Boolean(String(process.env.FFMPEG_WORKER_API_KEY || "").trim())} ` +
-        `R2Configured=${isR2Configured()} FFMPEG_PATH=${String(process.env.FFMPEG_PATH || "(unset)")} ` +
+        `FFMPEG_PATH=${String(process.env.FFMPEG_PATH || "(unset)")} ` +
         `codec=${getMotionVhsVideoCodec()} cfrFps=${getMotionVhsCfrFps() || "off"} ` +
         `STRICT_ALWAYS=true ALLOW_UNTRANSCODED=${NSFW_MOTION_ALLOW_UNTRANSCODED}`,
     );
@@ -684,8 +663,9 @@ export async function submitNsfwMotionVideo(opts, generationId = null) {
         error:
           "Driving video could not be re-encoded for VHS (OpenCV). RunningHub content-addresses uploads " +
           "(SHA-256 → filename), so uploading raw bytes reuses the same filename that already failed on their side. " +
-          "Configure EXACTLY ONE of: (a) FFMPEG_PATH to /usr/bin/ffmpeg on the API host, or (b) FFMPEG_WORKER_URL + FFMPEG_WORKER_API_KEY + full R2 env vars. " +
-          "To debug, POST /api/nsfw/generate-motion-video with NSFW_MOTION_LOG_ENV=true and check logs.",
+          "Configure EXACTLY ONE of: (a) FFMPEG_PATH to /usr/bin/ffmpeg on the API host, or " +
+          "(b) FFMPEG_WORKER_URL + FFMPEG_WORKER_API_KEY (worker streams bytes back, no R2/Blob needed). " +
+          "To debug, set NSFW_MOTION_LOG_ENV=true and resubmit.",
       };
     }
   }

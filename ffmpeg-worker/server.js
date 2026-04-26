@@ -314,10 +314,21 @@ app.post("/job", requireAuth, async (req, res) => {
  * }
  */
 app.post("/transcode", requireAuth, async (req, res) => {
-  const { inputUrl, vfFilter, audioOptions = [], extraOptions = [], outputPutUrl } = req.body || {};
+  const {
+    inputUrl,
+    vfFilter,
+    audioOptions = [],
+    extraOptions = [],
+    outputPutUrl,
+    returnBytes = false,
+    outputContainerExt = ".mp4",
+  } = req.body || {};
 
-  if (!inputUrl || !outputPutUrl?.putUrl || !outputPutUrl?.publicUrl) {
-    return res.status(400).json({ ok: false, error: "Bad request", message: "inputUrl and outputPutUrl (putUrl + publicUrl) are required" });
+  if (!inputUrl) {
+    return res.status(400).json({ ok: false, error: "Bad request", message: "inputUrl is required" });
+  }
+  if (!returnBytes && (!outputPutUrl?.putUrl || !outputPutUrl?.publicUrl)) {
+    return res.status(400).json({ ok: false, error: "Bad request", message: "outputPutUrl (putUrl + publicUrl) is required unless returnBytes=true" });
   }
 
   const { execFile } = await import("child_process");
@@ -328,6 +339,10 @@ app.post("/transcode", requireAuth, async (req, res) => {
   fs.mkdirSync(tempDir, { recursive: true });
   let inputPath = null;
   const outExt = (() => {
+    if (returnBytes) {
+      const raw = String(outputContainerExt || ".mp4");
+      return raw.startsWith(".") ? raw : `.${raw}`;
+    }
     try { return path.extname(new URL(outputPutUrl.publicUrl).pathname) || ".mp4"; } catch { return ".mp4"; }
   })();
   const outPath = path.join(tempDir, `out${outExt}`);
@@ -338,7 +353,6 @@ app.post("/transcode", requireAuth, async (req, res) => {
     fs.renameSync(inputPath, moved);
     inputPath = moved;
 
-    // Build ffmpeg args
     const ffmpegBin = process.env.FFMPEG_PATH || "ffmpeg";
     const args = ["-y", "-fflags", "+discardcorrupt", "-err_detect", "ignore_err", "-i", inputPath];
     if (vfFilter) args.push("-vf", vfFilter);
@@ -349,6 +363,22 @@ app.post("/transcode", requireAuth, async (req, res) => {
     console.log(`[transcode] ffmpeg ${args.join(" ")}`);
     await execFileAsync(ffmpegBin, args, { timeout: 300_000 });
 
+    if (returnBytes) {
+      const stat = fs.statSync(outPath);
+      res.status(200);
+      res.setHeader("Content-Type", "application/octet-stream");
+      res.setHeader("Content-Length", String(stat.size));
+      res.setHeader("X-Transcode-Bytes", String(stat.size));
+      console.log(`[transcode] ✅ return bytes (${stat.size} B) ext=${outExt}`);
+      fs.createReadStream(outPath)
+        .on("error", (streamErr) => {
+          console.error("[transcode] stream error:", streamErr?.message || streamErr);
+          try { res.destroy(streamErr); } catch (_) {}
+        })
+        .pipe(res);
+      return;
+    }
+
     await uploadToPutUrl(outputPutUrl.putUrl, outPath, outputPutUrl.contentType || "video/mp4");
 
     const result = { ok: true, outputUrl: outputPutUrl.publicUrl };
@@ -356,7 +386,11 @@ app.post("/transcode", requireAuth, async (req, res) => {
     res.json(result);
   } catch (e) {
     console.error("[transcode] error:", e?.message || e);
-    res.status(500).json({ ok: false, error: e?.message || String(e) });
+    if (!res.headersSent) {
+      res.status(500).json({ ok: false, error: e?.message || String(e) });
+    } else {
+      try { res.end(); } catch (_) {}
+    }
   } finally {
     try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (_) {}
   }

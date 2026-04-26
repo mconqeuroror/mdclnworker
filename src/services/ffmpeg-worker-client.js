@@ -60,6 +60,65 @@ export async function postTranscodeJobToWorker(body) {
 }
 
 /**
+ * POST /transcode with `returnBytes: true` — the worker streams the output file bytes back in
+ * the HTTP response (no R2 / no presigned PUT required). Use for small-to-medium files (<~200 MB)
+ * where the bytes can be held in memory on the API. Input must still be a public http(s) URL.
+ *
+ * @param {object} body
+ * @param {string}   body.inputUrl
+ * @param {string}   [body.vfFilter]
+ * @param {string[]} [body.audioOptions]
+ * @param {string[]} [body.extraOptions]
+ * @param {string}   [body.outputContainerExt] — e.g. ".mp4" (default)
+ * @returns {Promise<{ buffer: Buffer, bytes: number, workerBase: string | null }>}
+ */
+export async function postTranscodeJobToWorkerReturnBytes(body) {
+  const apiKey = process.env.FFMPEG_WORKER_API_KEY;
+  if (!apiKey) throw new Error("FFMPEG_WORKER_API_KEY is not configured");
+  const bases = getFfmpegWorkerBaseUrls();
+  if (bases.length === 0) throw new Error("FFMPEG_WORKER_URL (or FFMPEG_WORKER_FALLBACK_URL) is not configured");
+  let lastErr = null;
+  for (const base of bases) {
+    try {
+      const res = await fetch(`${base}/transcode`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
+        body: JSON.stringify({ ...body, returnBytes: true }),
+        signal: AbortSignal.timeout(WORKER_JOB_TIMEOUT_MS),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        let msg;
+        try { msg = JSON.parse(text)?.message || JSON.parse(text)?.error; } catch {}
+        if (!msg) msg = text.slice(0, 200) || `HTTP ${res.status}`;
+        lastErr = new Error(`Worker HTTP ${res.status}: ${msg}`);
+        continue;
+      }
+      const ct = (res.headers.get("content-type") || "").toLowerCase();
+      if (!ct.includes("application/octet-stream")) {
+        const peek = await res.text().catch(() => "");
+        lastErr = new Error(
+          `Worker returned unexpected content-type '${ct}' (expected octet-stream). ` +
+            "Redeploy the ffmpeg worker so returnBytes mode is supported: " +
+            (peek ? peek.slice(0, 200) : `HTTP ${res.status}`),
+        );
+        continue;
+      }
+      const ab = await res.arrayBuffer();
+      const buffer = Buffer.from(ab);
+      return {
+        buffer,
+        bytes: buffer.length,
+        workerBase: base,
+      };
+    } catch (e) {
+      lastErr = new Error(`FFmpeg worker (returnBytes) fetch failed [${base}/transcode]: ${e.message}`);
+    }
+  }
+  throw lastErr || new Error("FFmpeg worker unreachable (returnBytes)");
+}
+
+/**
  * POST /frames to external ffmpeg worker — extract video frames at specific timestamps.
  * @param {object}   body
  * @param {string}   body.inputUrl        - Publicly accessible video URL
