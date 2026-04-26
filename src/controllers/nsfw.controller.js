@@ -5273,7 +5273,7 @@ export async function extendNsfwVideo(req, res) {
 }
 
 // =====================================================================
-// NSFW Motion Control Video (Wan 2.2 Animate, dedicated RunPod worker)
+// NSFW Motion Control Video (RunningHub AI app + media upload)
 // =====================================================================
 
 /** Keep in sync with `NSFW_MOTION_CREDITS_PER_SEC` in client/src/constants/nsfwMotionControl.js */
@@ -5329,7 +5329,7 @@ export async function generateNsfwMotionVideo(req, res) {
       return res.status(503).json({
         success: false,
         message:
-          "NSFW Motion Control is not configured on this server (RUNPOD_MOTION_ENDPOINT_ID missing)",
+          "NSFW Motion Control is not configured on this server (RUNNINGHUB_API_KEY missing or invalid)",
       });
     }
 
@@ -5414,11 +5414,6 @@ export async function generateNsfwMotionVideo(req, res) {
     });
     generationId = generation.id;
 
-    const runpodWebhook = resolveRunpodWebhookUrl({
-      generationId: String(generation.id),
-      kind: "nsfw-video-motion",
-    });
-
     const submission = await submitNsfwMotionVideo(
       {
         referenceImageUrl: imageUrl,
@@ -5428,7 +5423,6 @@ export async function generateNsfwMotionVideo(req, res) {
         skipSecs: skip,
         seed: Number.isFinite(Number(seed)) ? Math.trunc(Number(seed)) : undefined,
       },
-      runpodWebhook,
       generation.id,
     );
 
@@ -5453,19 +5447,19 @@ export async function generateNsfwMotionVideo(req, res) {
       data: {
         replicateModel: submission.requestId,
         providerTaskId: submission.requestId,
-        provider: "runpod-motion",
+        provider: "runninghub-motion",
         inputImageUrl: JSON.stringify({
           referenceImageUrl: imageUrl,
           duration: dur,
           skipSeconds: skip,
           seed: submission.seed,
-          runpodJobId: submission.requestId,
+          runningHubTaskId: submission.requestId,
         }),
       },
     });
 
     console.log(
-      `🎬 NSFW motion video submitted gen=${generation.id} runpod=${submission.requestId} dur=${dur}s seed=${submission.seed}`,
+      `🎬 NSFW motion video submitted gen=${generation.id} task=${submission.requestId} dur=${dur}s seed=${submission.seed}`,
     );
 
     const updatedUser = await prisma.user.findUnique({ where: { id: userId } });

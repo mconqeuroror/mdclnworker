@@ -91,7 +91,7 @@ class GenerationPollerService {
     // Find all processing generations
     // Exclude talking-head type - it uses inline polling in the background process
     // Exclude nsfw type - it uses RunComfy polling in nsfw.controller.js
-    // Exclude nsfw-video-motion - RunPod job id in replicateModel is not a WaveSpeed task;
+    // Exclude nsfw-video-motion - RunningHub task id in providerTaskId is not a WaveSpeed task;
     //   `reconcileStaleRunpodGenerations` + webhook + `GET /generations/:id` finalize it.
     // Exclude img2img-describe - it's resolved synchronously inline by /api/img2img/describe
     //   (Grok 4 Fast vision via OpenRouter), so no async reconciliation is needed.
@@ -863,8 +863,11 @@ class GenerationPollerService {
     includeTimedOutFailed = false,
   } = {}) {
     const RUNPOD_GRACE_MS = Number(process.env.RUNPOD_WATCHDOG_MIN_AGE_MS) || 30 * 60 * 1000;
-    /** NSFW motion uses a different RunPod endpoint; recover sooner if webhook is missed. */
-    const MOTION_GRACE_MS = Number(process.env.RUNPOD_MOTION_WATCHDOG_MIN_AGE_MS) || 2 * 60 * 1000;
+    /** NSFW motion (RunningHub): poll sooner if the client never received completion. */
+    const MOTION_GRACE_MS =
+      Number(process.env.RUNNINGHUB_MOTION_WATCHDOG_MIN_AGE_MS) ||
+      Number(process.env.RUNPOD_MOTION_WATCHDOG_MIN_AGE_MS) ||
+      2 * 60 * 1000;
     const FAILED_LOOKBACK_MS = 72 * 60 * 60 * 1000;
     const now = Date.now();
     const safeLimit = Math.max(1, Math.min(500, Number.parseInt(limit, 10) || 30));
@@ -950,7 +953,10 @@ class GenerationPollerService {
       let runpodJobId = typeof gen.providerTaskId === "string" ? gen.providerTaskId.trim() : null;
       try {
         const meta = JSON.parse(gen.inputImageUrl || "{}");
-        runpodJobId = runpodJobId || (typeof meta?.runpodJobId === "string" ? meta.runpodJobId.trim() : null);
+        runpodJobId =
+          runpodJobId ||
+          (typeof meta?.runningHubTaskId === "string" ? meta.runningHubTaskId.trim() : null) ||
+          (typeof meta?.runpodJobId === "string" ? meta.runpodJobId.trim() : null);
       } catch {
         runpodJobId = runpodJobId || null;
       }
@@ -969,7 +975,8 @@ class GenerationPollerService {
               rp?.error ||
               rp?.output?.error ||
               (typeof rp?.output === "string" ? rp.output : null) ||
-              `RunPod ${status}`;
+              (typeof rp?.errorMessage === "string" ? rp.errorMessage : null) ||
+              `Motion ${status}`;
             await this.markFailed(gen.id, msg, { refund: gen.status === "processing" });
             stats.failedMarked += 1;
             continue;
@@ -980,7 +987,11 @@ class GenerationPollerService {
           }
           const outputUrl = await materializeNsfwMotionOutputFromRunpodResponse(rp);
           if (!outputUrl) {
-            await this.markFailed(gen.id, "RunPod motion job completed but returned no video", { refund: true });
+            await this.markFailed(
+              gen.id,
+              "Motion job completed but returned no video (could not mirror output)",
+              { refund: true },
+            );
             continue;
           }
           await prisma.generation.update({

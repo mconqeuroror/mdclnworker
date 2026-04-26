@@ -1,5 +1,6 @@
 /**
- * Wan 2.2 Animate RunPod worker — shared by Create (Video → Recreate) and NSFW Studio.
+ * Motion X / NSFW Motion — backend: RunningHub AI app (media upload + `run/ai-app`).
+ * Shared by Create (Video → Recreate) and NSFW Studio.
  *
  * UI naming (product choice):
  *   - Create / avatar video recreate: **Motion X**

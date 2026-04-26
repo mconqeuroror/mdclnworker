@@ -1297,8 +1297,7 @@ export async function getGenerationById(req, res) {
 
     let resolvedGeneration = generation;
 
-    // Missed RunPod webhooks: motion jobs stay "processing" because the shared RunPod
-    // watchdog only covered image workers — finalize when the user polls this row.
+    // Missed webhooks: motion jobs may stay "processing" — poll RunningHub when the user fetches this row.
     if (
       isNsfwMotionConfigured() &&
       resolvedGeneration.type === "nsfw-video-motion" &&
@@ -1309,7 +1308,10 @@ export async function getGenerationById(req, res) {
       if (!runpodJobId) {
         try {
           const meta = JSON.parse(resolvedGeneration.inputImageUrl || "{}");
-          runpodJobId = (meta?.runpodJobId && String(meta.runpodJobId).trim()) || null;
+          runpodJobId =
+            (meta?.runningHubTaskId && String(meta.runningHubTaskId).trim()) ||
+            (meta?.runpodJobId && String(meta.runpodJobId).trim()) ||
+            null;
         } catch { /* */ }
       }
       if (runpodJobId) {
@@ -1335,8 +1337,9 @@ export async function getGenerationById(req, res) {
           } else if (["failed", "error", "timed_out", "timed-out", "cancelled", "canceled"].includes(st)) {
             const msg =
               (typeof rp?.error === "string" && rp.error) ||
+              (typeof rp?.errorMessage === "string" && rp.errorMessage) ||
               (typeof rp?.output?.error === "string" && rp.output.error) ||
-              "Motion job failed on RunPod";
+              "Motion job failed (RunningHub)";
             await refundGeneration(resolvedGeneration.id).catch(() => {});
             await prisma.generation.update({
               where: { id: resolvedGeneration.id },
