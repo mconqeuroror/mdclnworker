@@ -560,20 +560,28 @@ export async function fetchUrlBufferForMotion(url, label, expectedKind) {
   return { buffer: buf, contentType, extension: ext, bytes: buf.length };
 }
 
+/**
+ * Value for workflow `nodeInfoList[].fieldValue` after `upload/binary`.
+ * RunningHub returns `data.fileName` like `openapi/<hash>.mp4`; Comfy VHS_LoadVideo resolves files under
+ * input using that path — stripping to basename breaks loading on the server.
+ * Same logic for reference image (node 167) and driving video (node 52); RH may use flat or prefixed paths — we pass through whatever path they return.
+ */
 function fieldValueFromUploadData(data) {
   if (!data || typeof data !== "object") return null;
   const name = data.fileName || data.file_name || data.filename;
   if (typeof name === "string" && name.trim()) {
-    const t = name.trim();
-    if (t.includes("/")) {
-      return t.split("/").pop() || t;
-    }
-    return t;
+    return name.trim();
   }
   if (typeof data.download_url === "string" && data.download_url) {
     const s = data.download_url.split("?")[0] || data.download_url;
+    try {
+      const p = new URL(s, "https://www.runninghub.cn").pathname.replace(/^\/+/, "");
+      if (p) return p;
+    } catch {
+      /* relative path */
+    }
     const p = s.split("/").filter(Boolean);
-    if (p.length) return p[p.length - 1];
+    if (p.length) return p.join("/");
   }
   return null;
 }
@@ -582,9 +590,15 @@ function fieldValueFromUploadData(data) {
  * @param {Buffer} buffer
  * @param {string} filename
  * @param {string} [contentType]
+ * @param {string} [logLabel] — "image" | "video" | etc. for logs when the response shape breaks
  * @returns {Promise<string | null>} Value for `fieldValue` in nodeInfoList, or null on hard failure
  */
-export async function uploadBufferToRunningHub(buffer, filename, contentType = "application/octet-stream") {
+export async function uploadBufferToRunningHub(
+  buffer,
+  filename,
+  contentType = "application/octet-stream",
+  logLabel = "media",
+) {
   const uploadUrl = `${RUNNINGHUB_MEDIA_UPLOAD_BASE}/openapi/v2/media/upload/binary`;
   const form = new FormData();
   const file = new globalThis.File([buffer], filename, { type: contentType });
@@ -626,7 +640,19 @@ export async function uploadBufferToRunningHub(buffer, filename, contentType = "
   }
   const v = fieldValueFromUploadData(j.data);
   if (!v) {
-    throw new Error("RunningHub media upload: missing fileName in response");
+    const dataPreview =
+      j.data && typeof j.data === "object"
+        ? JSON.stringify(j.data).slice(0, 400)
+        : String(j.data ?? "").slice(0, 200);
+    console.warn(
+      `[NSFW/motion] RunningHub upload/binary [${logLabel}]: cannot derive workflow fieldValue — ` +
+        "expected `data.fileName` (full path, e.g. openapi/…) or parseable `data.download_url`. " +
+        `data=${dataPreview || "(none)"}`,
+    );
+    throw new Error(
+      `RunningHub media upload [${logLabel}]: missing fileName / parseable download_url — ` +
+        "workflow nodeInfoList would get an empty fieldValue (check RunningHub response format).",
+    );
   }
   return v;
 }
@@ -819,19 +845,20 @@ export async function submitNsfwMotionVideo(opts, generationId = null) {
   let imageFieldValue;
   let videoFieldValue;
   try {
-    imageFieldValue = await uploadBufferToRunningHub(img.buffer, imageFilename, img.contentType);
+    imageFieldValue = await uploadBufferToRunningHub(img.buffer, imageFilename, img.contentType, "image");
     console.log(
-      `[NSFW/motion] RunningHub POST ${RUNNINGHUB_MEDIA_UPLOAD_BASE}/.../upload/binary (video) ` +
-        `fileName=${videoFilename} contentType=${videoContentType} bodyBytes=${videoBufferToUpload.length} bodySha16=${outSha}`,
+      `[NSFW/motion] RunningHub upload/binary (image) clientName=${imageFilename} bytes=${img.bytes} fieldValue=${imageFieldValue}`,
     );
     videoFieldValue = await uploadBufferToRunningHub(
       videoBufferToUpload,
       videoFilename,
       videoContentType,
+      "video",
     );
     console.log(
-      `[NSFW/motion] RunningHub video fieldValue (server-side name, typically hash of file bytes)=${videoFieldValue} — ` +
-        `repeated names across different source videos means identical upload bytes`,
+      `[NSFW/motion] RunningHub upload/binary (video) clientName=${videoFilename} contentType=${videoContentType} ` +
+        `bodyBytes=${videoBufferToUpload.length} bodySha16=${outSha} fieldValue=${videoFieldValue} ` +
+        `(use full path from API in workflow; identical fieldValue ⇒ identical file bytes)`,
     );
   } catch (e) {
     return { success: false, error: e.message || String(e) };
