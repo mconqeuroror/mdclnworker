@@ -4,11 +4,13 @@
  * - POST /api/nsfw/generate-motion-video
  * - Generation type: nsfw-video-motion
  *
- * Flow: download public reference + driving video URLs, upload to RunningHub binary API,
- * submit `nodeInfoList` to the pre-published AI app, poll `openapi/v2/query` until SUCCESS,
- * mirror the output mp4 to Blob/R2 (RunningHub result URLs expire ~24h).
+ * Flow: download public reference + driving video URLs, upload to RunningHub binary API
+ * (`POST {RUNNINGHUB_MEDIA_UPLOAD_BASE}/openapi/v2/media/upload/binary`), then
+ * `POST {RUNNINGHUB_API_BASE}/openapi/v2/run/ai-app/{appId}` with `nodeInfoList`, poll
+ * `POST /openapi/v2/query` — mirror the output mp4 to Blob/R2 (RunningHub result URLs expire ~24h).
  *
- * Env: RUNNINGHUB_API_KEY, RUNNINGHUB_MOTION_APP_ID (default below), optional RUNNINGHUB_API_BASE / RUNNINGHUB_MEDIA_UPLOAD_BASE.
+ * Env: RUNNINGHUB_API_KEY, RUNNINGHUB_MOTION_APP_ID (default below), optional RUNNINGHUB_API_BASE / RUNNINGHUB_MEDIA_UPLOAD_BASE,
+ * optional OpenAPI: RUNNINGHUB_MOTION_WEBHOOK_URL, RUNNINGHUB_MOTION_RETAIN_SECONDS (10–180, enterprise).
  * Driving video is re-encoded for VHS (OpenCV `VideoCapture` + `grab()`) before upload (unless NSFW_MOTION_TRANSCODE=false).
  * Default codec is **MPEG-4 Part 2 (mpeg4 / mp4v)** — often more reliable than H.264 on some OpenCV+FFmpeg builds; override with
  * NSFW_MOTION_VHS_VIDEO_CODEC=libx264. Optional constant frame rate: NSFW_MOTION_VHS_CFR_FPS=30 (0=off) helps broken fps metadata.
@@ -222,6 +224,12 @@ const RUNNINGHUB_MEDIA_UPLOAD_BASE = (String(
 
 const MOTION_NODE_VIDEO = String(process.env.RUNNINGHUB_MOTION_VIDEO_NODE_ID || "52").trim();
 const MOTION_NODE_IMAGE = String(process.env.RUNNINGHUB_MOTION_IMAGE_NODE_ID || "167").trim();
+/** `POST /openapi/v2/run/ai-app/{id}`: optional `webhookUrl` (RunningHub posts when task completes). */
+const RUNNINGHUB_MOTION_WEBHOOK_URL = String(process.env.RUNNINGHUB_MOTION_WEBHOOK_URL || "").trim() || null;
+/** OpenAPI: instance retention 10–180s (Enterprise Shared API keys). */
+const RUNNINGHUB_MOTION_RETAIN_SECONDS_RAW = String(
+  process.env.RUNNINGHUB_MOTION_RETAIN_SECONDS || "0",
+).trim();
 
 const SUBMIT_TIMEOUT_MS = 90_000;
 const QUERY_TIMEOUT_MS = 30_000;
@@ -235,6 +243,23 @@ if (!RUNNINGHUB_API_KEY) {
   console.log(
     `[NSFW/motion] provider=runninghub appId=${RUNNINGHUB_MOTION_APP_ID} uploadBase=${RUNNINGHUB_MEDIA_UPLOAD_BASE}`,
   );
+}
+
+/**
+ * @returns {Record<string, unknown>} Merged into `run/ai-app` body: optional `webhookUrl`, `retainSeconds` (when 10–180).
+ */
+function runningHubAiAppRunBodyExtras() {
+  const o = {};
+  if (RUNNINGHUB_MOTION_WEBHOOK_URL) {
+    o.webhookUrl = RUNNINGHUB_MOTION_WEBHOOK_URL;
+  }
+  if (RUNNINGHUB_MOTION_RETAIN_SECONDS_RAW) {
+    const n = Number.parseInt(RUNNINGHUB_MOTION_RETAIN_SECONDS_RAW, 10);
+    if (Number.isFinite(n) && n >= 10 && n <= 180) {
+      o.retainSeconds = n;
+    }
+  }
+  return o;
 }
 
 function isPublicHttpUrl(s) {
@@ -695,6 +720,8 @@ export async function submitNsfwMotionVideo(opts, generationId = null) {
     : Math.floor(Math.random() * 2 ** 53);
 
   const runBody = {
+    // Official OpenAPI examples and call records include this for AI-app runs.
+    randomSeed: true,
     nodeInfoList: [
       {
         nodeId: MOTION_NODE_VIDEO,
@@ -710,8 +737,17 @@ export async function submitNsfwMotionVideo(opts, generationId = null) {
       },
     ],
     instanceType: "default",
-    usePersonalQueue: false,
+    // Official curl uses the JSON string "false" (not boolean); some stacks expect this shape.
+    usePersonalQueue: "false",
+    retainSeconds: 0,
+    ...runningHubAiAppRunBodyExtras(),
   };
+  if (RUNNINGHUB_MOTION_WEBHOOK_URL) {
+    console.log(
+      "[NSFW/motion] run/ai-app including webhookUrl=",
+      `${RUNNINGHUB_MOTION_WEBHOOK_URL.slice(0, 100)}${RUNNINGHUB_MOTION_WEBHOOK_URL.length > 100 ? "…" : ""}`,
+    );
+  }
   let submitRes;
   try {
     const path = `/openapi/v2/run/ai-app/${encodeURIComponent(RUNNINGHUB_MOTION_APP_ID)}`;
