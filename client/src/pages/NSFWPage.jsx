@@ -101,6 +101,9 @@ const PREVIEW_BADGE_STYLE = {
 /** On by default. Set `VITE_NUDES_PACK_ENABLED=false` at build time to hide the nudes pack CTA. */
 const NUDES_PACK_UI_ENABLED = import.meta.env.VITE_NUDES_PACK_ENABLED !== "false";
 
+/** Off by default. Set `VITE_NSFW_MOTION_STUDIO_ENABLED=true` to show Motion Control assets + copy in the Videos tab. */
+const NSFW_MOTION_STUDIO_ENABLED = import.meta.env.VITE_NSFW_MOTION_STUDIO_ENABLED === "true";
+
 const LOCALE_STORAGE_KEY = "app_locale";
 const NSFW_SIDEBAR_PINNED_KEY = "nsfw_sidebar_pinned";
 const NSFW_COPY = {
@@ -171,6 +174,8 @@ const NSFW_COPY = {
     videoGalleryMotionXSection: "NSFW Motion Control",
     videoNsfwMotionRecreateInCreate:
       "To recreate from a reference video, use the Create tab with your model → Video → Recreate (Motion X is the default).",
+    videoTabInfoI2vOnly:
+      "In this tab, generate 5s or 8s clips from a still image. For reference-video recreate (Motion X), use the Create flow when enabled.",
     videoToastSelectModel: "Please select a model",
     videoToastUploadSource: "Please upload a source image",
     videoToastEnterPrompt: "Please enter a motion prompt",
@@ -404,6 +409,8 @@ const NSFW_COPY = {
     videoGalleryMotionXSection: "NSFW Motion Control",
     videoNsfwMotionRecreateInCreate:
       "Воссоздание по референс-видео: вкладка Create → ваша модель → Video → Recreate (по умолчанию — Motion X).",
+    videoTabInfoI2vOnly:
+      "Здесь — 5 с или 8 с с одного кадра. Recreate с опорным видео (Motion X) — через Create, если включено.",
     videoToastSelectModel: "Пожалуйста, выберите модель",
     videoToastUploadSource: "Пожалуйста, загрузите исходное изображение",
     videoToastEnterPrompt: "Пожалуйста, введите промпт движения",
@@ -1976,13 +1983,16 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
       const extendResponse = await api.get(`/generations?${extendParams}`);
       const extendVideos = extendResponse.data.generations || [];
 
-      const motionParams = new URLSearchParams({
-        type: "nsfw-video-motion",
-        limit: "50",
-      });
-      if (modelId) motionParams.set("modelId", modelId);
-      const motionResponse = await api.get(`/generations?${motionParams}`);
-      const motionVideos = motionResponse.data.generations || [];
+      let motionVideos = [];
+      if (NSFW_MOTION_STUDIO_ENABLED) {
+        const motionParams = new URLSearchParams({
+          type: "nsfw-video-motion",
+          limit: "50",
+        });
+        if (modelId) motionParams.set("modelId", modelId);
+        const motionResponse = await api.get(`/generations?${motionParams}`);
+        motionVideos = motionResponse.data.generations || [];
+      }
 
       return [...nsfwVideos, ...extendVideos, ...motionVideos].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     },
@@ -1999,7 +2009,9 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
 
   const originals = videos.filter(v => v.type === "nsfw-video");
   const extendsList = videos.filter(v => v.type === "nsfw-video-extend");
-  const motionVideos = videos.filter(v => v.type === "nsfw-video-motion");
+  const motionVideos = NSFW_MOTION_STUDIO_ENABLED
+    ? videos.filter(v => v.type === "nsfw-video-motion")
+    : [];
 
   const extendsBySource = {};
   extendsList.forEach(v => {
@@ -2131,7 +2143,7 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
       <div className="mb-0.5 flex items-start gap-2.5 p-3 rounded-xl" style={{ background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.15)" }}>
         <Info className="w-4 h-4 text-white flex-shrink-0 mt-0.5" />
         <p className="text-[11px] text-slate-400 leading-relaxed">
-          {copy.videoNsfwMotionRecreateInCreate}
+          {NSFW_MOTION_STUDIO_ENABLED ? copy.videoNsfwMotionRecreateInCreate : copy.videoTabInfoI2vOnly}
         </p>
       </div>
 
@@ -2320,8 +2332,8 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
         </div>
       )}
 
-      {/* Motion Control Videos Gallery */}
-      {motionVideos.length > 0 && (
+      {/* Motion Control Videos Gallery (hidden unless VITE_NSFW_MOTION_STUDIO_ENABLED=true) */}
+      {NSFW_MOTION_STUDIO_ENABLED && motionVideos.length > 0 && (
         <div className="space-y-3">
           <div className="flex items-center gap-2">
             <Video className="w-4 h-4 text-fuchsia-400" />
