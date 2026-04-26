@@ -9,8 +9,9 @@
  * mirror the output mp4 to Blob/R2 (RunningHub result URLs expire ~24h).
  *
  * Env: RUNNINGHUB_API_KEY, RUNNINGHUB_MOTION_APP_ID (default below), optional RUNNINGHUB_API_BASE / RUNNINGHUB_MEDIA_UPLOAD_BASE.
- * Driving video is re-encoded to H.264 **baseline** + yuv420p MP4 before upload (unless NSFW_MOTION_TRANSCODE=false) so
- * Comfy VHS_LoadVideo (OpenCV) on RunningHub can decode (OpenCV is picky; main/hevc av1 will fail with “cv”).
+ * Driving video is re-encoded for VHS (OpenCV `VideoCapture` + `grab()`) before upload (unless NSFW_MOTION_TRANSCODE=false).
+ * Default codec is **MPEG-4 Part 2 (mpeg4 / mp4v)** — often more reliable than H.264 on some OpenCV+FFmpeg builds; override with
+ * NSFW_MOTION_VHS_VIDEO_CODEC=libx264. Optional constant frame rate: NSFW_MOTION_VHS_CFR_FPS=30 (0=off) helps broken fps metadata.
  * Prefer FFMPEG_WORKER_URL + R2 (presigned PUT) like reformatter/Seedance — R2 is still used in blob-only
  * deployments for temp worker output when R2 is configured. Fallback: local ffmpeg (FFMPEG_PATH).
  *
@@ -32,7 +33,7 @@ import { getFfmpegPathSync } from "../utils/ffmpeg-path.js";
 
 const execFileAsync = promisify(execFile);
 
-/** Re-encode driving clip so OpenCV in Comfy VHS can open it (H.264 + yuv420p, no B-frames, no audio). */
+/** Re-encode driving clip for VHS; default codec is mpeg4 (NSFW_MOTION_VHS_VIDEO_CODEC=libx264 for H.264). */
 const NSFW_MOTION_TRANSCODE = String(process.env.NSFW_MOTION_TRANSCODE || "true").toLowerCase() !== "false";
 /**
  * If re-encode is on but no worker+local transcode could produce a file, return an error instead of
@@ -53,10 +54,7 @@ function bufferContainsFtypMp4(b) {
   return b.subarray(0, n).indexOf(FTYP_SIG) >= 0;
 }
 
-/** Tuned for VHS_LoadVideo (OpenCV / cv2): yuv420, even dimensions, H.264 baseline, no B-frames, faststart. */
-const MOTION_VHS_VF =
-  "format=yuv420p,scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=bicubic,setsar=1";
-/* Align with RunningHub guidance: H.264 baseline, preset fast, crf 23 — libx264, no audio, moov at start. */
+/* H.264 (optional): baseline-ish, very decode-friendly. */
 const MOTION_VHS_X264_OUT = [
   "-c:v",
   "libx264",
@@ -80,6 +78,51 @@ const MOTION_VHS_X264_OUT = [
   "-movflags",
   "+faststart",
 ];
+/* MPEG-4 Part 2 in MP4 (default) — many cv2 builds read this more reliably than H.264. */
+const MOTION_VHS_MPEG4_OUT = [
+  "-c:v",
+  "mpeg4",
+  "-vtag",
+  "mp4v",
+  "-q:v",
+  "5",
+  "-an",
+  "-movflags",
+  "+faststart",
+];
+
+function getMotionVhsVideoCodec() {
+  const t = String(process.env.NSFW_MOTION_VHS_VIDEO_CODEC || "mpeg4").toLowerCase();
+  if (t === "libx264" || t === "h264" || t === "x264" || t === "h.264" || t === "avc") {
+    return "libx264";
+  }
+  if (t === "mpeg4" || t === "mp4v" || t === "msmpeg4" || t === "part2") {
+    return "mpeg4";
+  }
+  return "mpeg4";
+}
+
+/**
+ * -vf: yuv420, even size, optional CFR (fixes 0/invalid fps that can break VHS after open).
+ * @returns {string}
+ */
+function getMotionVhsVf() {
+  const raw = String(process.env.NSFW_MOTION_VHS_CFR_FPS ?? "30").toLowerCase();
+  const off = raw === "0" || raw === "off" || raw === "false" || raw === "no";
+  const n = off ? 0 : Number.parseInt(String(process.env.NSFW_MOTION_VHS_CFR_FPS ?? "30"), 10);
+  const cfr = Number.isFinite(n) && n > 0 ? n : 0;
+  if (cfr > 0) {
+    return `format=yuv420p,fps=${cfr},scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=bicubic,setsar=1`;
+  }
+  return "format=yuv420p,scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=bicubic,setsar=1";
+}
+
+/**
+ * @returns {string[]}
+ */
+function getMotionVhsFfmpegOutputOpts() {
+  return getMotionVhsVideoCodec() === "libx264" ? MOTION_VHS_X264_OUT : MOTION_VHS_MPEG4_OUT;
+}
 
 const RUNNINGHUB_API_KEY = String(process.env.RUNNINGHUB_API_KEY || "").trim();
 const DEFAULT_MOTION_APP_ID = "2048360380644204545";
@@ -143,12 +186,12 @@ function extensionFromContentType(contentType, fallback) {
 }
 
 /**
- * Transcode any decodable video to H.264 (yuv420p) MP4 without audio — OpenCV-friendly.
+ * Re-encode driving clip for VHS (OpenCV): see getMotionVhsVideoCodec() / getMotionVhsFfmpegOutputOpts().
  * @param {Buffer} inputBuffer
  * @param {string} sourceExt — e.g. mp4, webm, mov
  * @returns {Promise<Buffer | null>}
  */
-async function transcodeDrivingVideoToH264OpencvFriendly(inputBuffer, sourceExt) {
+async function transcodeDrivingVideoForVhsLocally(inputBuffer, sourceExt) {
   const id = randomBytes(8).toString("hex");
   const safeExt = String(sourceExt || "mp4").replace(/[^a-z0-9]/gi, "") || "mp4";
   const inPath = path.join(os.tmpdir(), `rh-mo-in-${id}.${safeExt}`);
@@ -164,8 +207,8 @@ async function transcodeDrivingVideoToH264OpencvFriendly(inputBuffer, sourceExt)
       "-i",
       inPath,
       "-vf",
-      MOTION_VHS_VF,
-      ...MOTION_VHS_X264_OUT,
+      getMotionVhsVf(),
+      ...getMotionVhsFfmpegOutputOpts(),
       outPath,
     ];
     await execFileAsync(ff, args, { maxBuffer: 50 * 1024 * 1024, timeout: 15 * 60 * 1000 });
@@ -194,22 +237,26 @@ function isFfmpegWorkerR2PathAvailable() {
 }
 
 /**
- * OpenCV-friendly H.264 baseline (yuv420p, no B-frames, no audio) via the same external ffmpeg worker as reformatter.
+ * Same VHS transcode as local, via external ffmpeg worker + R2 (presigned PUT + fetch back).
  * @param {string} publicDrivingUrl - Public http(s) URL the worker can fetch
  * @returns {Promise<Buffer | null>}
  */
 async function transcodeDrivingVideoViaFfmpegWorker(publicDrivingUrl) {
   const u = String(publicDrivingUrl || "").trim();
   if (!u.startsWith("http") || !isFfmpegWorkerR2PathAvailable()) return null;
-  const key = `nsfw-motion-temp/${Date.now()}_${randomBytes(8).toString("hex")}_drive_h264.mp4`;
+  const key = `nsfw-motion-temp/${Date.now()}_${randomBytes(8).toString("hex")}_drive_vhs.mp4`;
   let publicUrl;
   try {
     const presign = await getR2PresignedPutForKey(key, "video/mp4", 3600);
     publicUrl = presign.publicUrl;
+    const codec = getMotionVhsVideoCodec();
+    const vf = getMotionVhsVf();
+    const outOpts = getMotionVhsFfmpegOutputOpts();
+    console.log(`[NSFW/motion] worker transcode codec=${codec} cfrFpsEnv=${String(process.env.NSFW_MOTION_VHS_CFR_FPS || "30")} vf(brief)=${vf.slice(0, 64)}…`);
     await postTranscodeJobToWorker({
       inputUrl: u,
-      vfFilter: MOTION_VHS_VF,
-      extraOptions: [...MOTION_VHS_X264_OUT],
+      vfFilter: vf,
+      extraOptions: [...outOpts],
       outputPutUrl: { putUrl: presign.uploadUrl, publicUrl: presign.publicUrl, contentType: "video/mp4" },
     });
   } catch (e) {
@@ -452,7 +499,7 @@ export async function submitNsfwMotionVideo(opts, generationId = null) {
       console.warn("[NSFW/motion] worker transcode not a valid MP4; trying local ffmpeg");
       workerOut = null;
     }
-    let tc = workerOut || (await transcodeDrivingVideoToH264OpencvFriendly(vid.buffer, vid.extension));
+    let tc = workerOut || (await transcodeDrivingVideoForVhsLocally(vid.buffer, vid.extension));
     if (tc && !bufferContainsFtypMp4(tc)) {
       console.warn("[NSFW/motion] local transcode not a valid MP4");
       tc = null;
@@ -463,16 +510,17 @@ export async function submitNsfwMotionVideo(opts, generationId = null) {
       videoContentType = "video/mp4";
       const mb = videoBufferToUpload.length / (1024 * 1024);
       const source = workerOut ? "ffmpeg worker" : "local ffmpeg";
+      const codec = getMotionVhsVideoCodec();
       console.log(
-        `[NSFW/motion] driving video transcoded (${source}) to H.264 baseline yuv420p MP4 ≈${mb.toFixed(2)} MiB (was ${vid.extension})`,
+        `[NSFW/motion] driving video transcoded (${source}, ${codec}) for VHS (yuv420p) MP4 ≈${mb.toFixed(2)} MiB (was ${vid.extension})`,
       );
     } else if (NSFW_MOTION_TRANSCODE_STRICT) {
       return {
         success: false,
         error:
-          "Driving video could not be re-encoded to OpenCV-friendly H.264 baseline MP4. Configure R2 + " +
-          "FFMPEG_WORKER_URL/KEY (recommended), or point FFMPEG_PATH at ffmpeg on the API. " +
-          "If you must try an untranscoded upload, set NSFW_MOTION_TRANSCODE_STRICT=false (it often still fails on RunningHub with VHS/cv2).",
+          "Driving video could not be re-encoded for VHS (OpenCV). Set R2 + " +
+          "FFMPEG_WORKER_URL/KEY, or FFMPEG_PATH. Default VHS encode is mpeg4 (set NSFW_MOTION_VHS_VIDEO_CODEC=libx264 to try H.264). " +
+          "To attempt raw upload, set NSFW_MOTION_TRANSCODE_STRICT=false (RunningHub will often still fail on VHS/cv2).",
       };
     } else {
       console.warn(
