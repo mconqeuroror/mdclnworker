@@ -44,6 +44,12 @@ const NSFW_MOTION_ALLOW_UNTRANSCODED =
   String(process.env.NSFW_MOTION_ALLOW_UNTRANSCODED || "false").toLowerCase() === "true";
 /** When true, prints ffmpeg/ffprobe/R2 env-availability flags before transcode to help debug config. */
 const NSFW_MOTION_LOG_ENV = String(process.env.NSFW_MOTION_LOG_ENV || "false").toLowerCase() === "true";
+/**
+ * Debug: upload the transcoded driving clip to Vercel Blob so you can download and inspect it
+ * (check cv2 compatibility locally) before it's POSTed to RunningHub. Default OFF.
+ */
+const NSFW_MOTION_DEBUG_UPLOAD_BLOB =
+  String(process.env.NSFW_MOTION_DEBUG_UPLOAD_BLOB || "false").toLowerCase() === "true";
 
 const FTYP_SIG = Buffer.from("ftyp");
 
@@ -63,31 +69,47 @@ function shortBufferSha16(buf) {
   return createHash("sha256").update(buf).digest("hex").slice(0, 16);
 }
 
-/* H.264 (optional): baseline-ish, very decode-friendly. */
+/**
+ * H.264 "main" MP4 with explicit avc1 tag + bt.709 color + CFR + repeated parameter sets. This is
+ * the widest-compatibility cv2 profile — broader than baseline for some headless OpenCV builds
+ * that only ship avc1/main support. Use for VHS_LoadVideo on ComfyUI/RunningHub.
+ */
 const MOTION_VHS_X264_OUT = [
   "-c:v",
   "libx264",
   "-profile:v",
-  "baseline",
+  "main",
+  "-level",
+  "4.0",
   "-preset",
-  "fast",
-  "-tune",
-  "fastdecode",
+  "medium",
   "-crf",
   "23",
-  "-bf",
-  "0",
-  "-refs",
-  "1",
   "-g",
   "30",
+  "-keyint_min",
+  "30",
+  "-sc_threshold",
+  "0",
+  "-x264-params",
+  "repeat-headers=1:force-cfr=1",
   "-pix_fmt",
   "yuv420p",
+  "-color_range",
+  "tv",
+  "-colorspace",
+  "bt709",
+  "-color_primaries",
+  "bt709",
+  "-color_trc",
+  "bt709",
+  "-tag:v",
+  "avc1",
   "-an",
   "-movflags",
   "+faststart",
 ];
-/* MPEG-4 Part 2 in MP4 (default) — many cv2 builds read this more reliably than H.264. */
+/** MPEG-4 Part 2 fallback — sometimes works where libx264 doesn't, but less reliable overall. */
 const MOTION_VHS_MPEG4_OUT = [
   "-c:v",
   "mpeg4",
@@ -103,14 +125,14 @@ const MOTION_VHS_MPEG4_OUT = [
 ];
 
 function getMotionVhsVideoCodec() {
-  const t = String(process.env.NSFW_MOTION_VHS_VIDEO_CODEC || "mpeg4").toLowerCase();
+  const t = String(process.env.NSFW_MOTION_VHS_VIDEO_CODEC || "libx264").toLowerCase();
   if (t === "libx264" || t === "h264" || t === "x264" || t === "h.264" || t === "avc") {
     return "libx264";
   }
   if (t === "mpeg4" || t === "mp4v" || t === "msmpeg4" || t === "part2") {
     return "mpeg4";
   }
-  return "mpeg4";
+  return "libx264";
 }
 
 /**
@@ -679,8 +701,24 @@ export async function submitNsfwMotionVideo(opts, generationId = null) {
     `[NSFW/motion] VHS trace [gen=${generationId || "—"}] pre-RunningHub upload: ` +
       `videoOutBytes=${videoBufferToUpload.length} videoOutSha16=${outSha} ` +
       `sourceSha16=${sourceSha} bytesDiffer=${bytesDiffer} transcodeSource=${transcodeSource || "none"} ` +
-      `ext=${videoUploadExt}`,
+      `ext=${videoUploadExt} ftypHeadHex=${videoBufferToUpload.subarray(0, 32).toString("hex")}`,
   );
+
+  if (NSFW_MOTION_DEBUG_UPLOAD_BLOB && videoBufferToUpload.length > 0) {
+    try {
+      const debugUrl = await uploadBufferToBlobOrR2(
+        videoBufferToUpload,
+        "nsfw-motion-debug",
+        "mp4",
+        "video/mp4",
+      );
+      console.log(
+        `[NSFW/motion] DEBUG transcoded clip mirrored to Blob for inspection: ${debugUrl}`,
+      );
+    } catch (e) {
+      console.warn("[NSFW/motion] DEBUG upload to Blob failed:", e?.message || e);
+    }
+  }
   if (NSFW_MOTION_TRANSCODE && !bytesDiffer && !NSFW_MOTION_ALLOW_UNTRANSCODED) {
     return {
       success: false,

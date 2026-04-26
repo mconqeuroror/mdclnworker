@@ -104,8 +104,16 @@ export async function postTranscodeJobToWorkerReturnBytes(body) {
         );
         continue;
       }
+      const expectedLen = Number(res.headers.get("content-length") || res.headers.get("x-transcode-bytes") || 0);
       const ab = await res.arrayBuffer();
       const buffer = Buffer.from(ab);
+      if (expectedLen > 0 && buffer.length !== expectedLen) {
+        lastErr = new Error(
+          `Worker returnBytes truncated: received ${buffer.length} / expected ${expectedLen}. Likely a broken TCP connection.`,
+        );
+        console.warn(`[ffmpeg-worker] ${lastErr.message} (base=${base})`);
+        continue;
+      }
       return {
         buffer,
         bytes: buffer.length,
