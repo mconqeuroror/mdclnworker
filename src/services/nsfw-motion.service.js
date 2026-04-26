@@ -11,7 +11,7 @@
  *
  * Env: RUNNINGHUB_API_KEY, RUNNINGHUB_MOTION_WORKFLOW_ID (default below; legacy RUNNINGHUB_MOTION_APP_ID still read as fallback),
  * optional RUNNINGHUB_API_BASE / RUNNINGHUB_MEDIA_UPLOAD_BASE,
- * optional OpenAPI: RUNNINGHUB_MOTION_WEBHOOK_URL, RUNNINGHUB_MOTION_RETAIN_SECONDS (10–180, enterprise).
+ * optional OpenAPI: webhook (RUNNINGHUB_MOTION_WEBHOOK_URL or shared `getRunningHubWebhookUrl()`), RUNNINGHUB_MOTION_RETAIN_SECONDS (10–180, enterprise).
  * Driving video is re-encoded for VHS (OpenCV `VideoCapture` + `grab()`) before upload (unless NSFW_MOTION_TRANSCODE=false).
  * Default codec is **MPEG-4 Part 2 (mpeg4 / mp4v)** — often more reliable than H.264 on some OpenCV+FFmpeg builds; override with
  * NSFW_MOTION_VHS_VIDEO_CODEC=libx264. Optional constant frame rate: NSFW_MOTION_VHS_CFR_FPS=30 (0=off) helps broken fps metadata.
@@ -31,6 +31,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { getFfmpegWorkerBaseUrls } from "../lib/ffmpeg-worker-env.js";
+import { getRunningHubWebhookUrl } from "./runninghub.service.js";
 import { postTranscodeJobToWorker, postTranscodeJobToWorkerReturnBytes } from "./ffmpeg-worker-client.js";
 import { uploadBufferToBlobOrR2, mirrorToBlob, isVercelBlobConfigured } from "../utils/kieUpload.js";
 import { isR2Configured, getR2PresignedPutForKey } from "../utils/r2.js";
@@ -279,8 +280,9 @@ if (!RUNNINGHUB_API_KEY) {
  */
 function runningHubWorkflowRunBodyExtras() {
   const o = {};
-  if (RUNNINGHUB_MOTION_WEBHOOK_URL) {
-    o.webhookUrl = RUNNINGHUB_MOTION_WEBHOOK_URL;
+  const wh = RUNNINGHUB_MOTION_WEBHOOK_URL || getRunningHubWebhookUrl();
+  if (wh) {
+    o.webhookUrl = wh;
   }
   if (RUNNINGHUB_MOTION_RETAIN_SECONDS_RAW) {
     const n = Number.parseInt(RUNNINGHUB_MOTION_RETAIN_SECONDS_RAW, 10);

@@ -858,11 +858,11 @@ class GenerationPollerService {
 
   /**
    * Reconcile RunningHub (Seedance 2.0 Global + Sora rhart-video-s-official) generations.
-   * RunningHub does NOT provide webhooks — this watchdog is the primary completion path.
+   * Primary completion is `POST /api/runninghub/callback` when `webhookUrl` is sent on submit;
+   * this watchdog polls POST /openapi/v2/query for stuck or missed webhooks.
    *
-   * Polls POST https://www.runninghub.ai/openapi/v2/query for each processing gen whose
-   * replicateModel is tagged `runninghub-task:<taskId>`. On SUCCESS the output URL (valid
-   * for 24h) is mirrored to persistent storage before being written to the generation.
+   * Polls for each processing gen whose replicateModel is `runninghub-task:<taskId>`.
+   * On SUCCESS the output URL (valid ~24h) is mirrored to persistent storage.
    */
   async reconcileStaleRunningHubGenerations() {
     const RUNNINGHUB_API_KEY = process.env.RUNNINGHUB_API_KEY;

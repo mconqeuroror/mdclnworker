@@ -195,6 +195,7 @@ import cryptoWebhookRouter from './routes/crypto.webhook.js';
 import kieCallbackRoutes from './routes/kie-callback.routes.js';
 import piapiCallbackRoutes from './routes/piapi-callback.routes.js';
 import wavespeedCallbackRoutes from './routes/wavespeed-callback.routes.js';
+import runninghubCallbackRoutes from './routes/runninghub-callback.routes.js';
 import videoRepurposeRoutes from './routes/video-repurpose.routes.js';
 import img2imgRoutes from './routes/img2img.routes.js';
 import viralReelsRoutes from './routes/viral-reels.routes.js';
@@ -209,6 +210,7 @@ app.use('/api/kie/callback', kieCallbackRoutes);
 // PiAPI does not require raw body (no HMAC sig), so parse JSON before the handler
 app.use('/api/piapi/callback', express.json({ limit: "2mb" }), piapiCallbackRoutes);
 app.use('/api/wavespeed/callback', wavespeedCallbackRoutes);
+app.use('/api/runninghub/callback', runninghubCallbackRoutes);
 app.use('/api/fal/webhook', falCallbackRoutes);
 app.use('/api/runpod', runpodCallbackRoutes);
 
@@ -230,6 +232,7 @@ app.use(telemetryMiddleware());
 app.use('/api', (req, res, next) => {
   if (req.path.startsWith('/admin')) return next();
   if (req.path.startsWith('/runpod/callback')) return next();
+  if (req.path.startsWith('/runninghub/callback')) return next();
   if (req.path.startsWith('/heygen/webhook')) return next();
   return apiLimiter(req, res, next);
 });

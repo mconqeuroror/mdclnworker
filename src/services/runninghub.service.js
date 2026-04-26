@@ -13,9 +13,10 @@
  * Task states: QUEUED | RUNNING | SUCCESS | FAILED
  * Output URLs are valid for 24h only — callers MUST mirror to persistent storage on success.
  *
- * RunningHub does NOT deliver webhooks for task completion. Callers should persist
- * `runninghub-task:<taskId>` in generation.replicateModel and let the poller
- * (`reconcileStaleRunningHubGenerations` in generation-poller.service.js) reconcile the result.
+ * When `getRunningHubWebhookUrl()` returns a URL, task submissions include `webhookUrl` and
+ * RunningHub POSTs `TASK_END` to `/api/runninghub/callback`. The poller remains a fallback for
+ * missed webhooks. Persist `runninghub-task:<taskId>` in generation.replicateModel (Creator Studio)
+ * or `providerTaskId` / raw task id for NSFW motion.
  */
 
 const RUNNINGHUB_API_KEY = process.env.RUNNINGHUB_API_KEY;
@@ -40,14 +41,59 @@ function rhHeaders() {
   };
 }
 
+/**
+ * Public HTTPS URL for RunningHub `webhookUrl` (TASK_END callbacks).
+ * Priority: RUNNINGHUB_WEBHOOK_URL (full) → RUNNINGHUB_CALLBACK_URL (full) → CALLBACK_BASE_URL / KIE-style bases + `/api/runninghub/callback`.
+ * Optional `RUNNINGHUB_WEBHOOK_SECRET`: appended as `?secret=` when building the default URL (verify in callback).
+ */
+export function getRunningHubWebhookUrl() {
+  const explicit =
+    String(process.env.RUNNINGHUB_WEBHOOK_URL || process.env.RUNNINGHUB_CALLBACK_URL || "").trim();
+  if (explicit.startsWith("http")) return explicit;
+
+  let basePath = null;
+  const callbackBase = process.env.CALLBACK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL;
+  if (callbackBase) {
+    const base = callbackBase.replace(/\/$/, "").trim();
+    const withProtocol = base.startsWith("http") ? base : `https://${base}`;
+    basePath = `${withProtocol.replace(/\/$/, "")}/api/runninghub/callback`;
+  } else {
+    const baseUrl = process.env.APP_PUBLIC_URL || process.env.PUBLIC_URL || process.env.APP_URL;
+    if (baseUrl) {
+      const host = baseUrl.replace(/\/$/, "").replace(/^https?:\/\//, "").split("/")[0];
+      const protocol = baseUrl.trim().toLowerCase().startsWith("http:") ? "http" : "https";
+      basePath = `${protocol}://${host}/api/runninghub/callback`;
+    } else {
+      const vercel = process.env.VERCEL_URL;
+      if (vercel) {
+        basePath = `https://${vercel.replace(/^https?:\/\//, "").split("/")[0]}/api/runninghub/callback`;
+      }
+    }
+  }
+
+  if (!basePath) return null;
+  if (basePath.startsWith("http://localhost")) {
+    console.warn("[RunningHub] webhook URL resolves to localhost — omitting webhookUrl (use polling or set RUNNINGHUB_WEBHOOK_URL)");
+    return null;
+  }
+  const secret = String(process.env.RUNNINGHUB_WEBHOOK_SECRET || "").trim();
+  if (secret) {
+    const sep = basePath.includes("?") ? "&" : "?";
+    return `${basePath}${sep}secret=${encodeURIComponent(secret)}`;
+  }
+  return basePath;
+}
+
 /** POST a JSON body to the given RunningHub endpoint and return the parsed task submission response. */
 async function rhPost(endpointPath, body, label) {
   assertApiKey();
   const url = `${RUNNINGHUB_BASE_URL}${endpointPath}`;
+  const wh = getRunningHubWebhookUrl();
+  const payload = wh && typeof body === "object" && body !== null ? { ...body, webhookUrl: wh } : body;
   const res = await fetch(url, {
     method: "POST",
     headers: rhHeaders(),
-    body: JSON.stringify(body),
+    body: JSON.stringify(payload),
     signal: AbortSignal.timeout(RUNNINGHUB_REQUEST_TIMEOUT_MS),
   });
   const text = await res.text();
