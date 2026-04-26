@@ -108,6 +108,134 @@ function stripeForUser(user) {
   return client;
 }
 
+/**
+ * First-cycle embedded subscription: single idempotency key = Stripe subscription id (`sub_*`),
+ * never the PaymentIntent id — avoids duplicate CreditTransaction rows (sub_ vs pi_).
+ * @returns {Promise<{ ok: true, updatedUser: object } | { ok: false, duplicate: true }>}
+ */
+async function grantNewEmbeddedSubscriptionCredits(userId, subscription) {
+  const subscriptionId = subscription.id;
+  const tierId = subscription.metadata?.tierId;
+  const billingCycle = resolveSubscriptionBillingCycle(subscription);
+  const credits = normalizeCreditUnits(subscription.metadata?.credits);
+  if (!tierId || !credits) {
+    throw new Error("Subscription missing tierId or credits in metadata");
+  }
+  const expiryDate = new Date();
+  if (billingCycle === "annual") {
+    expiryDate.setFullYear(expiryDate.getFullYear() + 1);
+  } else {
+    expiryDate.setMonth(expiryDate.getMonth() + 1);
+  }
+  try {
+    const updatedUser = await prisma.$transaction(async (tx) => {
+      await tx.creditTransaction.create({
+        data: {
+          userId,
+          amount: credits,
+          type: "subscription",
+          description: `${String(tierId).charAt(0).toUpperCase() + String(tierId).slice(1)} subscription (${billingCycle})`,
+          paymentSessionId: subscriptionId,
+        },
+      });
+      const prior = await tx.user.findUnique({
+        where: { id: userId },
+        select: { subscriptionCredits: true },
+      });
+      const rollover = rolloverSubPoolToPurchasedUpdate(prior?.subscriptionCredits);
+      if (Object.keys(rollover).length) {
+        console.log(
+          `💾 grantNewEmbeddedSubscriptionCredits: rolling ${prior?.subscriptionCredits || 0} sub credits → purchased`,
+        );
+      }
+      return await tx.user.update({
+        where: { id: userId },
+        data: {
+          ...rollover,
+          stripeSubscriptionId: subscriptionId,
+          subscriptionTier: tierId,
+          subscriptionBillingCycle: billingCycle,
+          subscriptionStatus: "active",
+          subscriptionCredits: credits,
+          creditsExpireAt: expiryDate,
+          maxModels: 999,
+        },
+      });
+    });
+    return { ok: true, updatedUser, credits, tierId, billingCycle, subscriptionId };
+  } catch (error) {
+    if (error.code === "P2002") {
+      return { ok: false, duplicate: true };
+    }
+    throw error;
+  }
+}
+
+/**
+ * Referral commission, discount usage, and legacy-plan cancellation after a successful
+ * `grantNewEmbeddedSubscriptionCredits` (or when skipping duplicate, do not call).
+ */
+async function runEmbeddedSubscriptionSideEffects({ userId, userBefore, subscription, stripe }) {
+  const subscriptionId = subscription.id;
+  const latestPi = subscription.latest_invoice?.payment_intent;
+  const latestPiId = typeof latestPi === "object" && latestPi?.id ? latestPi.id : null;
+  let purchaseAmountCents = typeof latestPi === "object"
+    ? (latestPi.amount_received || latestPi.amount || 0)
+    : 0;
+  if (!purchaseAmountCents && subscription.latest_invoice) {
+    try {
+      const invoiceId = typeof subscription.latest_invoice === "string"
+        ? subscription.latest_invoice
+        : subscription.latest_invoice.id;
+      if (invoiceId) {
+        const invoice = await stripe.invoices.retrieve(invoiceId);
+        purchaseAmountCents = invoice.amount_paid || 0;
+      }
+    } catch (e) {
+      console.warn("⚠️ [embedded] invoice fetch for commission:", e.message);
+    }
+  }
+  const referrerUserId = subscription.metadata.referrerUserId || null;
+  if (referrerUserId) await linkReferrerOnFirstPurchase(userId, referrerUserId);
+  await recordReferralCommissionFromPayment({
+    referredUserId: userId,
+    purchaseAmountCents,
+    sourceType: latestPiId ? "stripe_payment_intent" : "stripe_subscription",
+    sourceId: latestPiId || subscriptionId,
+  });
+  const discountCodeId = subscription.metadata.discountCodeId;
+  if (discountCodeId) {
+    try {
+      await prisma.discountCode.update({
+        where: { id: discountCodeId },
+        data: { currentUses: { increment: 1 } },
+      });
+      console.log(`🏷️ Discount code usage incremented (embedded sub): ${discountCodeId}`);
+    } catch (dcErr) {
+      console.warn("⚠️ [embedded] discount increment (non-fatal):", dcErr.message);
+    }
+  }
+  const oldSubscriptionId =
+    userBefore.stripeSubscriptionId && userBefore.stripeSubscriptionId !== subscriptionId
+      ? userBefore.stripeSubscriptionId
+      : null;
+  if (oldSubscriptionId) {
+    const cancelStripe = getStripeForAccount(
+      accountForUserSubscription(userBefore, oldSubscriptionId),
+    );
+    try {
+      console.log("🔄 Cancelling previous subscription (after new is active):", oldSubscriptionId);
+      if (cancelStripe) {
+        await cancelStripe.subscriptions.cancel(oldSubscriptionId);
+      } else {
+        console.warn("⚠️ No Stripe client configured for old subscription account");
+      }
+    } catch (cancelError) {
+      console.warn("⚠️ Could not cancel previous subscription:", cancelError.message);
+    }
+  }
+}
+
 if (process.env.NODE_ENV === "production") {
   if (!getStripeForAccount(NEW_ACCOUNT)) {
     console.warn("⚠️ STRIPE_NEW_SECRET_KEY is not configured — new charges will fail until set.");
@@ -1161,11 +1289,83 @@ router.post('/confirm-payment', authMiddleware, async (req, res) => {
       return res.status(403).json({ error: 'Unauthorized' });
     }
     
-    const credits = normalizeCreditUnits(paymentIntent.metadata.credits);
     const type = paymentIntent.metadata.type;
-    
-    // Atomic idempotency: insert transaction first (UNIQUE paymentSessionId)
-    // If duplicate arrives (webhook + client confirm race), P2002 is handled below.
+
+    // subscription-embedded must use the same idempotency key as /confirm-subscription
+    // and webhooks: CreditTransaction.paymentSessionId = `sub_*`, never the PI id.
+    if (type === "subscription-embedded") {
+      const piExp = await stripe.paymentIntents.retrieve(paymentIntentId, {
+        expand: ["invoice", "invoice.subscription"],
+      });
+      let subId = null;
+      if (piExp.invoice) {
+        const inv = typeof piExp.invoice === "string"
+          ? await stripe.invoices.retrieve(piExp.invoice, { expand: ["subscription"] })
+          : piExp.invoice;
+        const s = inv?.subscription;
+        subId = typeof s === "string" ? s : s?.id;
+      }
+      if (!subId) {
+        return res.status(400).json({
+          error:
+            "Could not link this payment to a subscription id yet. Use /confirm-subscription, or wait for sync.",
+        });
+      }
+      const subscription = await stripe.subscriptions.retrieve(subId, {
+        expand: ["latest_invoice.payment_intent"],
+      });
+      if (subscription.metadata.userId !== userId) {
+        return res.status(403).json({ error: "Unauthorized" });
+      }
+      const userRow = await prisma.user.findUnique({ where: { id: userId } });
+      if (!userRow) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      if (userRow.stripeSubscriptionId === subId) {
+        return res.json({
+          success: true,
+          message: "Subscription already active",
+          alreadyProcessed: true,
+          credits: normalizeCreditUnits(subscription.metadata.credits),
+          totalCredits: (userRow.credits || 0) + (userRow.subscriptionCredits || 0) + userRow.purchasedCredits,
+        });
+      }
+      const grant = await grantNewEmbeddedSubscriptionCredits(userId, subscription);
+      if (grant.ok === false && grant.duplicate) {
+        const u2 = await prisma.user.findUnique({ where: { id: userId } });
+        return res.json({
+          success: true,
+          message: "Subscription already active",
+          alreadyProcessed: true,
+          credits: normalizeCreditUnits(subscription.metadata.credits),
+          totalCredits: (u2?.credits || 0) + (u2?.subscriptionCredits || 0) + (u2?.purchasedCredits || 0),
+        });
+      }
+      if (!grant.ok) {
+        throw new Error("Unexpected grant result");
+      }
+      await runEmbeddedSubscriptionSideEffects({
+        userId,
+        userBefore: userRow,
+        subscription,
+        stripe,
+      });
+      return res.json({
+        success: true,
+        subscriptionId: subId,
+        tierId: grant.tierId,
+        billingCycle: grant.billingCycle,
+        credits: grant.credits,
+        totalCredits: (grant.updatedUser.credits || 0) + (grant.updatedUser.subscriptionCredits || 0) + (grant.updatedUser.purchasedCredits || 0),
+      });
+    }
+
+    const credits = normalizeCreditUnits(paymentIntent.metadata.credits);
+    if (!credits) {
+      return res.status(400).json({ error: "Invalid or missing credits in payment metadata" });
+    }
+
+    // One-time (and other non-embedded) credit pack purchase
     let user;
     try {
       user = await prisma.$transaction(async (tx) => {
@@ -1173,35 +1373,33 @@ router.post('/confirm-payment', authMiddleware, async (req, res) => {
           data: {
             userId,
             amount: credits,
-            type: 'purchase',
-            description: type === 'subscription-embedded' 
-              ? `Subscription payment: ${paymentIntent.metadata.tierId} (${paymentIntent.metadata.billingCycle})`
-              : `Credit pack purchase: ${credits} credits`,
-            paymentSessionId: paymentIntentId
-          }
+            type: "purchase",
+            description: `Credit pack purchase: ${credits} credits`,
+            paymentSessionId: paymentIntentId,
+          },
         });
 
         return await tx.user.update({
           where: { id: userId },
           data: {
-            purchasedCredits: { increment: credits }
-          }
+            purchasedCredits: { increment: credits },
+          },
         });
       });
     } catch (error) {
-      if (error.code === 'P2002') {
-        console.log('⚠️ Credits already added for this payment:', paymentIntentId);
-        return res.json({ 
-          success: true, 
-          message: 'Credits already added',
+      if (error.code === "P2002") {
+        console.log("⚠️ Credits already added for this payment:", paymentIntentId);
+        return res.json({
+          success: true,
+          message: "Credits already added",
           credits: credits,
-          alreadyProcessed: true
+          alreadyProcessed: true,
         });
       }
       throw error;
     }
-    
-    console.log('✅ Credits added successfully:', { userId, credits, paymentIntentId });
+
+    console.log("✅ Credits added successfully:", { userId, credits, paymentIntentId });
     const referrerUserId = paymentIntent.metadata.referrerUserId || null;
     if (referrerUserId) {
       await linkReferrerOnFirstPurchase(userId, referrerUserId);
@@ -1222,14 +1420,14 @@ router.post('/confirm-payment', authMiddleware, async (req, res) => {
         });
         console.log(`🏷️ Discount code usage incremented (confirm-payment): ${discountCodeId}`);
       } catch (dcErr) {
-        console.warn('⚠️ Failed to increment discount code usage (non-fatal):', dcErr.message);
+        console.warn("⚠️ Failed to increment discount code usage (non-fatal):", dcErr.message);
       }
     }
-    
-    res.json({ 
-      success: true, 
+
+    res.json({
+      success: true,
       credits: credits,
-      totalCredits: (user.credits || 0) + (user.subscriptionCredits || 0) + user.purchasedCredits
+      totalCredits: (user.credits || 0) + (user.subscriptionCredits || 0) + user.purchasedCredits,
     });
   } catch (error) {
     console.error('❌ Confirm payment error:', error.message);
@@ -1321,139 +1519,23 @@ router.post('/confirm-subscription', authMiddleware, async (req, res) => {
       });
     }
     
-    // Store old subscription ID for cancellation AFTER successful update
-    const oldSubscriptionId = user.stripeSubscriptionId && user.stripeSubscriptionId !== subscriptionId 
-      ? user.stripeSubscriptionId 
-      : null;
-    
-    // Calculate expiry date based on billing cycle
-    const expiryDate = new Date();
-    if (billingCycle === 'annual') {
-      expiryDate.setFullYear(expiryDate.getFullYear() + 1);
-    } else {
-      expiryDate.setMonth(expiryDate.getMonth() + 1);
-    }
-
-    // Atomic idempotency: create transaction first (UNIQUE paymentSessionId),
-    // then update subscription + credits in one transaction.
-    let updatedUser;
-    try {
-      updatedUser = await prisma.$transaction(async (tx) => {
-        await tx.creditTransaction.create({
-          data: {
-            userId,
-            amount: credits,
-            type: 'subscription',
-            description: `${tierId.charAt(0).toUpperCase() + tierId.slice(1)} subscription (${billingCycle})`,
-            paymentSessionId: subscriptionId
-          }
-        });
-
-        const priorConfirm = await tx.user.findUnique({
-          where: { id: userId },
-          select: { subscriptionCredits: true },
-        });
-        const rolloverConfirm = rolloverSubPoolToPurchasedUpdate(priorConfirm?.subscriptionCredits);
-        if (Object.keys(rolloverConfirm).length) {
-          console.log(
-            `💾 confirm-subscription: rolling ${priorConfirm?.subscriptionCredits || 0} subscription credits → purchased`,
-          );
-        }
-
-        return await tx.user.update({
-          where: { id: userId },
-          data: {
-            ...rolloverConfirm,
-            stripeSubscriptionId: subscriptionId,
-            subscriptionTier: tierId,
-            subscriptionBillingCycle: billingCycle,
-            subscriptionStatus: 'active',
-            subscriptionCredits: credits,
-            creditsExpireAt: expiryDate,
-          }
-        });
+    const grant = await grantNewEmbeddedSubscriptionCredits(userId, subscription);
+    if (grant.ok === false && grant.duplicate) {
+      console.log("⚠️ Subscription already confirmed (P2002):", subscriptionId);
+      return res.json({
+        success: true,
+        message: "Subscription already active",
+        alreadyProcessed: true,
+        credits,
       });
-    } catch (error) {
-      if (error.code === 'P2002') {
-        console.log('⚠️ Subscription already confirmed:', subscriptionId);
-        return res.json({ 
-          success: true, 
-          message: 'Subscription already active',
-          alreadyProcessed: true,
-          credits
-        });
-      }
-      throw error;
     }
+    if (!grant.ok) {
+      throw new Error("Unexpected grant result");
+    }
+    const { updatedUser } = grant;
     
     console.log('✅ Subscription confirmed:', { userId, subscriptionId, tierId, billingCycle, credits });
-    const latestPi = subscription.latest_invoice?.payment_intent;
-    const latestPiId = typeof latestPi === "object" && latestPi?.id ? latestPi.id : null;
-
-    // Resolve amount: prefer the expanded PI object, then fall back to the invoice amount_paid.
-    // When latest_invoice.payment_intent is an unexpanded string (not an object), fetch the
-    // invoice explicitly so we always have a real dollar amount for the commission record.
-    let purchaseAmountCents = typeof latestPi === "object"
-      ? (latestPi.amount_received || latestPi.amount || 0)
-      : 0;
-
-    if (!purchaseAmountCents && subscription.latest_invoice) {
-      try {
-        const invoiceId = typeof subscription.latest_invoice === "string"
-          ? subscription.latest_invoice
-          : subscription.latest_invoice.id;
-        if (invoiceId) {
-          const invoice = await stripe.invoices.retrieve(invoiceId);
-          purchaseAmountCents = invoice.amount_paid || 0;
-        }
-      } catch (invoiceFetchErr) {
-        console.warn("⚠️ Could not fetch invoice for referral commission amount:", invoiceFetchErr.message);
-      }
-    }
-
-    const referrerUserId = subscription.metadata.referrerUserId || null;
-    if (referrerUserId) {
-      await linkReferrerOnFirstPurchase(userId, referrerUserId);
-    }
-    await recordReferralCommissionFromPayment({
-      referredUserId: userId,
-      purchaseAmountCents,
-      sourceType: latestPiId ? "stripe_payment_intent" : "stripe_subscription",
-      sourceId: latestPiId || subscriptionId,
-    });
-    
-    const discountCodeId = subscription.metadata.discountCodeId;
-    if (discountCodeId) {
-      try {
-        await prisma.discountCode.update({
-          where: { id: discountCodeId },
-          data: { currentUses: { increment: 1 } },
-        });
-        console.log(`🏷️ Discount code usage incremented (confirm-subscription): ${discountCodeId}`);
-      } catch (dcErr) {
-        console.warn('⚠️ Failed to increment discount code usage (non-fatal):', dcErr.message);
-      }
-    }
-
-    // Cancel old subscription ONLY AFTER new subscription is fully confirmed.
-    // Old sub may live on the LEGACY account (if user is migrating from legacy → new),
-    // so route the cancel to the correct Stripe instance.
-    if (oldSubscriptionId) {
-      const cancelStripe = getStripeForAccount(
-        accountForUserSubscription(user, oldSubscriptionId),
-      );
-      try {
-        console.log('🔄 Cancelling previous subscription (after new is active):', oldSubscriptionId);
-        if (cancelStripe) {
-          await cancelStripe.subscriptions.cancel(oldSubscriptionId);
-        } else {
-          console.warn('⚠️ No Stripe client configured for old subscription account');
-        }
-      } catch (cancelError) {
-        // Non-fatal - log but don't fail
-        console.warn('⚠️ Could not cancel previous subscription:', cancelError.message);
-      }
-    }
+    await runEmbeddedSubscriptionSideEffects({ userId, userBefore: user, subscription, stripe });
     
     res.json({ 
       success: true, 

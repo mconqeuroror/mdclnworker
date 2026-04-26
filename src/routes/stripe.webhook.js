@@ -912,26 +912,50 @@ function buildWebhookHandler(account) {
             }
           } else if (type === "subscription-embedded") {
             // Subscription via embedded checkout — webhook safety net
-            // Resolves the Stripe subscription ID from the payment intent's invoice
+            // Resolves the Stripe subscription ID from the payment intent's invoice.
+            // Never use the PaymentIntent id as CreditTransaction.paymentSessionId (would duplicate
+            // rows when confirm-subscription already wrote sub_*).
             let resolvedSubId = null;
             try {
               const invoiceId = paymentIntent.invoice;
               if (invoiceId) {
-                const inv = typeof invoiceId === 'object' ? invoiceId : await stripe.invoices.retrieve(invoiceId);
-                resolvedSubId = inv.subscription || null;
+                const inv = typeof invoiceId === "object" ? invoiceId : await stripe.invoices.retrieve(invoiceId);
+                const s = inv.subscription || null;
+                resolvedSubId = typeof s === "string" ? s : s?.id;
+              }
+              if (!resolvedSubId) {
+                const piFull = await stripe.paymentIntents.retrieve(paymentIntent.id, {
+                  expand: ["invoice", "invoice.subscription"],
+                });
+                if (piFull.invoice) {
+                  const inv2 = typeof piFull.invoice === "string"
+                    ? await stripe.invoices.retrieve(piFull.invoice, { expand: ["subscription"] })
+                    : piFull.invoice;
+                  const s2 = inv2?.subscription;
+                  resolvedSubId = typeof s2 === "string" ? s2 : s2?.id;
+                }
               }
             } catch (e) {
-              console.warn('⚠️ Could not resolve subscription ID from PI invoice:', e.message);
+              console.warn("⚠️ Could not resolve subscription ID from PI invoice:", e.message);
+            }
+
+            if (!resolvedSubId) {
+              console.warn(
+                `⚠️ subscription-embedded PI ${paymentIntent.id} has no resolvable subscription id; skip grant (confirm-subscription/invoice will handle)`,
+              );
+              break;
             }
 
             // Cross-path idempotency: check if /confirm-subscription or invoice webhook
             // already awarded credits for this subscription (they use subscriptionId as paymentSessionId)
-            if (resolvedSubId) {
+            {
               const existingTx = await prisma.creditTransaction.findUnique({
                 where: { paymentSessionId: resolvedSubId },
               });
               if (existingTx) {
-                console.log(`✅ Embedded subscription already processed by /confirm-subscription or invoice webhook for sub ${resolvedSubId} — PI webhook skipping`);
+                console.log(
+                  `✅ Embedded subscription already processed for sub ${resolvedSubId} — PI webhook skipping`,
+                );
                 break;
               }
             }
@@ -945,9 +969,7 @@ function buildWebhookHandler(account) {
                 creditsExpireAt.setMonth(creditsExpireAt.getMonth() + 1);
               }
 
-              // Use subscriptionId as paymentSessionId when available (matches /confirm-subscription)
-              // to ensure cross-path idempotency via the UNIQUE constraint
-              const idempotencyKey = resolvedSubId || paymentIntent.id;
+              const idempotencyKey = resolvedSubId;
 
               await prisma.$transaction(async (tx) => {
                 await tx.creditTransaction.create({
