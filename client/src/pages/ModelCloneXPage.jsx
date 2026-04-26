@@ -17,9 +17,8 @@ import {
   Trash2,
   AlertCircle,
 } from "lucide-react";
-import axios from "axios";
 import toast from "react-hot-toast";
-import { formatApiError } from "../services/api.js";
+import api, { formatApiError } from "../services/api.js";
 import { downloadFromPublicUrl } from "../utils/directDownload";
 import { useAuthStore } from "../store";
 import { useTheme } from "../hooks/useTheme.jsx";
@@ -305,7 +304,13 @@ const COPY = {
     refImage: "Source image",
     refImageHint: "1) Add a photo. 2) Build prompt (Grok on the server). 3) Generate — same ModelClone-X as typing a prompt. No image is sent to RunPod.",
     refImageHintCharImg: "1) Model + character. 2) Photo. 3) Build prompt, then Generate.",
+    adminRunpodImg2Img: "Admin: true RunPod img2img (reference photo + prompt)",
+    adminRunpodImg2ImgHint:
+      "Uses the Z-Image img2img graph on RunPod with your character LoRA. Only admins see this while testing.",
+    adminRunpodImg2ImgNeedCharacter: "RunPod img2img needs “Use Character” with a ready identity.",
     aspectNoteFromImage: "Aspect ratio applies to the generated image (the photo is not composited, only used to build the scene description).",
+    aspectNoteImg2ImgAdmin:
+      "RunPod img2img uses the Z-Image workflow’s own canvas — aspect ratio below may not match txt2img behavior.",
   },
   ru: {
     mode: "Режим",
@@ -359,7 +364,13 @@ const COPY = {
     refImage: "Исходное фото",
     refImageHint: "1) Фото. 2) «Собрать промпт» (Grok на сервере). 3) «Сгенерировать» — тот же MCX, что и с текстом.",
     refImageHintCharImg: "1) Модель + персонаж. 2) Фото. 3) Собрать промпт, затем сгенерировать.",
+    adminRunpodImg2Img: "Админ: настоящий RunPod img2img (референс + промпт)",
+    adminRunpodImg2ImgHint:
+      "Граф Z-Image img2img на RunPod с LoRA персонажа. Видно только админам на время теста.",
+    adminRunpodImg2ImgNeedCharacter: "RunPod img2img нужен режим «С персонажем» и готовая идентичность.",
     aspectNoteFromImage: "Соотношение сторон задаёт картинку, которую генерирует модель (входная фотка в RunPod не подмешивается).",
+    aspectNoteImg2ImgAdmin:
+      "RunPod img2img использует свой холст в Z-Image — соотношение сторон может отличаться от txt2img.",
   },
 };
 
@@ -367,8 +378,8 @@ function useModelCloneXPricing() {
   const [pricing, setPricing] = useState(DEFAULT_MODELCLONE_X_PRICING);
   useEffect(() => {
     const token = localStorage.getItem("token");
-    axios
-      .get("/api/modelclone-x/config", { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+    api
+      .get("modelclone-x/config", { headers: token ? { Authorization: `Bearer ${token}` } : {} })
       .then((res) => {
         if (!res.data?.success || !res.data.pricing) return;
         const p = res.data.pricing;
@@ -432,7 +443,7 @@ function CharacterTab({ isDark, pricing }) {
     if (!modelId) { setCharacter(null); return; }
     setLoading(true);
     try {
-      const res = await axios.get(`/api/modelclone-x/characters/${modelId}`, { headers: authHeader() });
+      const res = await api.get(`modelclone-x/characters/${modelId}`, { headers: authHeader() });
       const list = Array.isArray(res.data.characters) ? res.data.characters : [];
       // Character tab manages only dedicated ModelClone-X character records.
       const mcxChar =
@@ -462,10 +473,10 @@ function CharacterTab({ isDark, pricing }) {
     }
     setPoolLoading(true);
     try {
-      const res = await axios.get(
-        `/api/modelclone-x/character/training-pool/${modelId}?loraId=${encodeURIComponent(loraId)}`,
-        { headers: authHeader() },
-      );
+      const res = await api.get(`modelclone-x/character/training-pool/${modelId}`, {
+        params: { loraId },
+        headers: authHeader(),
+      });
       const gallery = Array.isArray(res.data?.galleryImages) ? res.data.galleryImages : [];
       const trainingImages = Array.isArray(res.data?.trainingImages) ? res.data.trainingImages : [];
 
@@ -526,7 +537,7 @@ function CharacterTab({ isDark, pricing }) {
     if (!selectedModelId) { toast.error("Select a model first"); return; }
     setCreating(true);
     try {
-      const res = await axios.post("/api/modelclone-x/character/create", {
+      const res = await api.post("modelclone-x/character/create", {
         modelId: selectedModelId,
         name: charName.trim() || undefined,
         trainingMode,
@@ -549,7 +560,7 @@ function CharacterTab({ isDark, pricing }) {
     formData.append("modelId", character.modelId);
     formData.append("replaceExistingCustom", "false");
     try {
-      const res = await axios.post("/api/modelclone-x/character/upload-images", formData, {
+      const res = await api.post("modelclone-x/character/upload-images", formData, {
         headers: { ...authHeader(), "Content-Type": "multipart/form-data" },
       });
       const uploadedCount = Number(res.data?.uploadedCount || 0);
@@ -590,8 +601,8 @@ function CharacterTab({ isDark, pricing }) {
     }
     setAssigningSet(true);
     try {
-      await axios.post(
-        "/api/modelclone-x/character/assign-images",
+      await api.post(
+        "modelclone-x/character/assign-images",
         {
           modelId: selectedModelId,
           loraId: character.id,
@@ -617,7 +628,7 @@ function CharacterTab({ isDark, pricing }) {
     if (!character) return;
     setTraining(true);
     try {
-      await axios.post("/api/modelclone-x/character/train", {
+      await api.post("modelclone-x/character/train", {
         modelId: selectedModelId,
         loraId: character.id,
       }, { headers: authHeader() });
@@ -633,7 +644,7 @@ function CharacterTab({ isDark, pricing }) {
   const handleDeleteCharacter = async () => {
     if (!character || !window.confirm("Delete this character identity?")) return;
     try {
-      await axios.delete(`/api/modelclone-x/character/${character.id}`, { headers: authHeader() });
+      await api.delete(`modelclone-x/character/${character.id}`, { headers: authHeader() });
       setCharacter(null);
       setUploadedImages([]);
       toast.success("Character deleted");
@@ -985,6 +996,8 @@ function GenerateTab({ isDark, copy }) {
   const [builtPrompt, setBuiltPrompt] = useState("");
   const [imagePromptReady, setImagePromptReady] = useState(false);
   const [isBuildingPrompt, setIsBuildingPrompt] = useState(false);
+  /** Admin-only: send reference image to RunPod Z-Image img2img (server enforces role). */
+  const [adminRunpodImg2Img, setAdminRunpodImg2Img] = useState(false);
   const refFileInputRef = useRef(null);
   const [submitInFlight, setSubmitInFlight] = useState(0);
   const [results, setResults] = useState([]); // [{generationId, imageUrl, status}]
@@ -1007,7 +1020,7 @@ function GenerateTab({ isDark, copy }) {
 
   useEffect(() => {
     const token = localStorage.getItem("token");
-    axios.get("/api/modelclone-x/config", { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+    api.get("modelclone-x/config", { headers: token ? { Authorization: `Bearer ${token}` } : {} })
       .then((res) => {
         if (res.data?.success) {
           if (typeof res.data.fromImageEnabled === "boolean" && typeof res.data.runpodForModelCloneX === "boolean") {
@@ -1044,7 +1057,7 @@ function GenerateTab({ isDark, copy }) {
   useEffect(() => {
     if (!selectedModelId || mode !== "character") { setCharacters([]); setSelectedCharacterId(""); return; }
     const token = localStorage.getItem("token");
-    axios.get(`/api/modelclone-x/characters/${selectedModelId}`, { headers: { Authorization: `Bearer ${token}` } })
+    api.get(`modelclone-x/characters/${selectedModelId}`, { headers: { Authorization: `Bearer ${token}` } })
       .then((res) => {
         const ready = (res.data.characters || []).filter((c) => c.status === "ready");
         setCharacters(ready);
@@ -1065,7 +1078,7 @@ function GenerateTab({ isDark, copy }) {
     pollRefs.current[genId] = setInterval(async () => {
       try {
         const token = localStorage.getItem("token");
-        const res = await axios.get(`/api/modelclone-x/status/${genId}`, {
+        const res = await api.get(`modelclone-x/status/${genId}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         const { status, imageUrl, error } = res.data;
@@ -1098,6 +1111,7 @@ function GenerateTab({ isDark, copy }) {
     setImageExtraNotes("");
     setBuiltPrompt("");
     setImagePromptReady(false);
+    setAdminRunpodImg2Img(false);
   }, []);
 
   const handleBuildPromptFromImage = async () => {
@@ -1120,8 +1134,8 @@ function GenerateTab({ isDark, copy }) {
           console.warn("[ModelCloneX] downscale failed, using raw file:", e?.message);
         }
       }
-      const { data } = await axios.post(
-        "/api/modelclone-x/prompt-from-image",
+      const { data } = await api.post(
+        "modelclone-x/prompt-from-image",
         {
           prompt: imageExtraNotes.trim(),
           modelId: mode === "character" ? selectedModelId : null,
@@ -1162,6 +1176,17 @@ function GenerateTab({ isDark, copy }) {
     }
     if (!hasEnough) { toast.error("Insufficient balance"); return; }
 
+    if (genMode === "img" && adminRunpodImg2Img) {
+      if (user?.role !== "admin") {
+        toast.error("Not available");
+        return;
+      }
+      if (mode !== "character") {
+        toast.error(copy.adminRunpodImg2ImgNeedCharacter);
+        return;
+      }
+    }
+
     setSubmitInFlight((n) => n + 1);
     try {
       const token = localStorage.getItem("token");
@@ -1176,14 +1201,28 @@ function GenerateTab({ isDark, copy }) {
         cfg,
         loraStrength: mode === "character" ? loraStrength : undefined,
       };
-      const res = await axios.post("/api/modelclone-x/generate", body, { headers: { Authorization: `Bearer ${token}` } });
+
+      if (genMode === "img" && adminRunpodImg2Img && user?.role === "admin" && mode === "character") {
+        Object.assign(body, { modelcloneXImg2Img: true });
+        let b64 = refImageBase64;
+        if (refImagePreview) {
+          try {
+            b64 = await dataUrlToDownscaledJpegBase64(refImagePreview);
+          } catch (e) {
+            console.warn("[ModelCloneX] admin img2img downscale failed, using raw:", e?.message);
+          }
+        }
+        if (b64) Object.assign(body, { inputImageBase64: b64 });
+      }
+
+      const res = await api.post("modelclone-x/generate", body, { headers: { Authorization: `Bearer ${token}` } });
 
       let generationIds = Array.isArray(res.data?.generationIds) ? res.data.generationIds : [];
       if (!generationIds.length) {
         // Sometimes upstream/proxy returns 200 with an empty/partial body.
         // Try to recover by finding a very recent ModelClone-X generation in processing.
         try {
-          const recent = await axios.get("/api/generations", {
+          const recent = await api.get("generations", {
             params: { type: "modelclone-x", limit: 8, offset: 0 },
             headers: { Authorization: `Bearer ${token}` },
           });
@@ -1224,7 +1263,7 @@ function GenerateTab({ isDark, copy }) {
       // Recover by looking for a very recent ModelClone-X processing generation.
       try {
         const token = localStorage.getItem("token");
-        const recent = await axios.get("/api/generations", {
+        const recent = await api.get("generations", {
           params: { type: "modelclone-x", limit: 8, offset: 0 },
           headers: { Authorization: `Bearer ${token}` },
         });
@@ -1315,6 +1354,7 @@ function GenerateTab({ isDark, copy }) {
               key={id}
               onClick={() => {
                 setMode(id);
+                if (id !== "character") setAdminRunpodImg2Img(false);
               }}
               active={mode === id}
               isDark={isDark}
@@ -1455,6 +1495,30 @@ function GenerateTab({ isDark, copy }) {
                   onChange={(e) => setBuiltPrompt(e.target.value)}
                   className={`w-full min-h-[180px] px-3 py-2 rounded-xl text-sm border font-mono outline-none resize-y ${inputBase}`}
                 />
+                {user?.role === "admin" && mode === "character" && (
+                  <label
+                    className={`flex items-start gap-2.5 mt-2 cursor-pointer select-none text-xs ${
+                      isDark ? "text-slate-300" : "text-slate-700"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 rounded border-slate-400"
+                      checked={adminRunpodImg2Img}
+                      onChange={(e) => {
+                        const on = e.target.checked;
+                        setAdminRunpodImg2Img(on);
+                        if (on) setQty(1);
+                      }}
+                    />
+                    <span>
+                      <span className="font-semibold block">{copy.adminRunpodImg2Img}</span>
+                      <span className={`block mt-0.5 ${isDark ? "text-slate-500" : "text-slate-600"}`}>
+                        {copy.adminRunpodImg2ImgHint}
+                      </span>
+                    </span>
+                  </label>
+                )}
               </div>
             )}
           </div>
@@ -1561,8 +1625,13 @@ function GenerateTab({ isDark, copy }) {
       {/* Aspect ratio — same for text and "from image" (both use txt2img) */}
       <div className={panel}>
         <label className={labelBase}>{copy.aspectRatio}</label>
-        {genMode === "img" && (
+        {genMode === "img" && !(user?.role === "admin" && adminRunpodImg2Img) && (
           <p className={`text-[11px] mb-2 ${isDark ? "text-slate-500" : "text-slate-500"}`}>{copy.aspectNoteFromImage}</p>
+        )}
+        {genMode === "img" && user?.role === "admin" && adminRunpodImg2Img && (
+          <p className={`text-[11px] mb-2 ${isDark ? "text-amber-200/80" : "text-amber-900/90"}`}>
+            {copy.aspectNoteImg2ImgAdmin}
+          </p>
         )}
         <div className="flex flex-wrap gap-2">
           {ASPECT_OPTIONS.map((opt) => (
@@ -1588,10 +1657,17 @@ function GenerateTab({ isDark, copy }) {
           {[1, 2].map((n) => (
             <ControlChip
               key={n}
-              onClick={() => setQty(n)}
+              onClick={() => {
+                if (n === 2 && genMode === "img" && user?.role === "admin" && adminRunpodImg2Img) return;
+                setQty(n);
+              }}
               active={qty === n}
               isDark={isDark}
-              className="min-w-12"
+              className={`min-w-12 ${
+                n === 2 && genMode === "img" && user?.role === "admin" && adminRunpodImg2Img
+                  ? "opacity-40 pointer-events-none"
+                  : ""
+              }`}
             >
               {n}
             </ControlChip>

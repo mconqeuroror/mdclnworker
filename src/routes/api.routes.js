@@ -247,7 +247,11 @@ import {
 } from "../middleware/rateLimiter.js";
 import { getGenerationPricing, getGenerationPricingContract } from "../services/generation-pricing.service.js";
 import { getPromptTemplateValue } from "../services/prompt-template-config.service.js";
-import { isModelCloneXRunpodReady, submitModelCloneXJob } from "../services/modelcloneX.service.js";
+import {
+  isModelCloneXRunpodReady,
+  submitModelCloneXJob,
+  submitModelCloneXImg2ImgJob,
+} from "../services/modelcloneX.service.js";
 import { getMcxSceneJsonFromImageGrok } from "../services/mcxGrokImagePrompt.service.js";
 import {
   MODELCLONE_X_CATEGORY,
@@ -3502,22 +3506,39 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
     inputImageBase64 = "",
     /** When true, `prompt` is already the MCX-optimized string from prompt-from-image (skip second pass). */
     preOptimized = false,
+    /**
+     * Admin-only: submit Z-Image img2img on RunPod (reference image + optimized prompt + character LoRA).
+     * Requires `inputImageUrl` or `inputImageBase64`; does not change prompt-from-image or optimizer behavior.
+     */
+    modelcloneXImg2Img = false,
+    img2imgDenoise = 0.6,
+    seed: clientSeed = undefined,
   } = req.body;
 
   const inputImgUrl = typeof inputImageUrl === "string" ? inputImageUrl.trim() : "";
   const inputImgB64 = typeof inputImageBase64 === "string" ? String(inputImageBase64).trim() : "";
-  if (inputImgUrl || inputImgB64) {
+  const wantsImg2Img = Boolean(modelcloneXImg2Img);
+  const hasInputImage = Boolean(inputImgUrl || inputImgB64);
+
+  if (hasInputImage && !wantsImg2Img) {
     return res.status(400).json({
       success: false,
       error:
         "Upload the photo, tap “Build prompt” in the app (or POST /api/modelclone-x/prompt-from-image), " +
-        "then generate using the text only — the image is not sent with this request.",
+        "then generate using the text only — unless you are an admin testing modelcloneXImg2Img.",
     });
   }
 
   const hasTextPrompt = Boolean(typeof prompt === "string" && prompt.trim());
   if (!hasTextPrompt) {
     return res.status(400).json({ success: false, error: "Prompt is required" });
+  }
+
+  if (wantsImg2Img && !hasInputImage) {
+    return res.status(400).json({
+      success: false,
+      error: "modelcloneXImg2Img requires inputImageUrl or inputImageBase64",
+    });
   }
 
   const userText = typeof prompt === "string" ? prompt.trim() : "";
@@ -3529,6 +3550,32 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
   const { useCharacter, modelForPrompt, loraForPrompt, loraUrl, triggerWord } = ctx;
 
   const qty = quantity === 2 ? 2 : 1;
+
+  if (wantsImg2Img) {
+    const userRow = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    });
+    if (userRow?.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        error: "ModelClone-X RunPod img2img is admin-only during testing.",
+      });
+    }
+    if (!loraUrl) {
+      return res.status(400).json({
+        success: false,
+        error: "ModelClone-X img2img requires a character with a trained LoRA URL.",
+      });
+    }
+    if (qty !== 1) {
+      return res.status(400).json({
+        success: false,
+        error: "ModelClone-X img2img supports quantity 1 only.",
+      });
+    }
+  }
+
   const defaultStepsForMode = useCharacter ? 50 : 20;
   const parsedSteps = Number(steps);
   const safeSteps = Math.max(
@@ -3611,18 +3658,45 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
         kind: "modelclone-x",
       });
 
-      const jobId = await submitModelCloneXJob(
-        {
+      let jobId;
+      let img2imgSeedStored = null;
+      if (wantsImg2Img) {
+        const denoise = Math.max(0, Math.min(1, Number(img2imgDenoise) || 0.6));
+        const out = await submitModelCloneXImg2ImgJob({
+          imageUrl: inputImgUrl || null,
+          imageBase64Provided: inputImgB64 || null,
           prompt: optimizedPrompt,
-          aspectRatio,
           loraUrl,
           loraStrength: safeLoraStrength,
-          triggerWord,
+          denoise,
+          seed: clientSeed != null ? Number(clientSeed) : undefined,
           steps: safeSteps,
           cfg: safeCfg,
-        },
-        modelcloneXWebhookUrl,
-      );
+          webhookUrl: modelcloneXWebhookUrl,
+        });
+        jobId = out.runpodJobId;
+        img2imgSeedStored = out.resolvedSeed ?? null;
+      } else {
+        jobId = await submitModelCloneXJob(
+          {
+            prompt: optimizedPrompt,
+            aspectRatio,
+            loraUrl,
+            loraStrength: safeLoraStrength,
+            triggerWord,
+            steps: safeSteps,
+            cfg: safeCfg,
+          },
+          modelcloneXWebhookUrl,
+        );
+      }
+
+      const modeMeta = wantsImg2Img
+        ? "img2img-admin"
+        : skipSecondOptimizer
+          ? "txt2img-prompt-from-image"
+          : "txt2img";
+
       await prisma.generation.update({
         where: { id: gen.id },
         data: {
@@ -3630,8 +3704,15 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
           inputImageUrl: JSON.stringify({
             runpodJobId: jobId,
             provider: "runpod-modelclone-x",
-            mode: skipSecondOptimizer ? "txt2img-prompt-from-image" : "txt2img",
+            mode: modeMeta,
             preOptimized: skipSecondOptimizer,
+            modelcloneXImg2Img: wantsImg2Img,
+            ...(wantsImg2Img
+              ? {
+                  img2imgDenoise: Math.max(0, Math.min(1, Number(img2imgDenoise) || 0.6)),
+                  seed: img2imgSeedStored,
+                }
+              : {}),
           }),
         },
       });
@@ -3654,7 +3735,11 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
     success: true,
     generationIds,
     applied: {
-      mode: skipSecondOptimizer ? "txt2img-prompt-from-image" : "txt2img",
+      mode: wantsImg2Img
+        ? "img2img-admin"
+        : skipSecondOptimizer
+          ? "txt2img-prompt-from-image"
+          : "txt2img",
       steps: safeSteps,
       cfg: safeCfg,
       loraStrength: safeLoraStrength,
