@@ -85,6 +85,7 @@ class GenerationPollerService {
     // their callback is missed they would otherwise stay stuck in "processing" forever.
     await this.reconcileStaleKieGenerations();
     await this.reconcileStalePiapiGenerations();
+    await this.reconcileStaleRunningHubGenerations();
     await this.reconcileStaleWavespeedSeedreamGenerations();
     await this.reconcileStaleRunpodGenerations();
 
@@ -134,6 +135,7 @@ class GenerationPollerService {
       if (gen.replicateModel && gen.replicateModel.startsWith("kie-")) return false;
       if (gen.replicateModel && gen.replicateModel.startsWith("piapi-")) return false; // handled via PiAPI callback
       if (gen.replicateModel && gen.replicateModel.startsWith("piapi-task:")) return false; // handled via PiAPI callback
+      if (gen.replicateModel && gen.replicateModel.startsWith("runninghub-task:")) return false; // handled via RunningHub watchdog
       if (gen.replicateModel && gen.replicateModel.startsWith("wavespeed-seedream:")) return false; // completed via WaveSpeed webhook
       return true;
     });
@@ -855,6 +857,120 @@ class GenerationPollerService {
   }
 
   /**
+   * Reconcile RunningHub (Seedance 2.0 Global + Sora rhart-video-s-official) generations.
+   * RunningHub does NOT provide webhooks — this watchdog is the primary completion path.
+   *
+   * Polls POST https://www.runninghub.ai/openapi/v2/query for each processing gen whose
+   * replicateModel is tagged `runninghub-task:<taskId>`. On SUCCESS the output URL (valid
+   * for 24h) is mirrored to persistent storage before being written to the generation.
+   */
+  async reconcileStaleRunningHubGenerations() {
+    const RUNNINGHUB_API_KEY = process.env.RUNNINGHUB_API_KEY;
+    if (!RUNNINGHUB_API_KEY) return;
+
+    // RunningHub typically returns a taskId within ~1s; start polling after a brief grace
+    // period so we don't hammer the query endpoint for in-flight submissions.
+    const MIN_AGE_MS = 20 * 1000;
+    const HARD_TIMEOUT_MS = 75 * 60 * 1000; // 75 min cap (video generation)
+    const now = Date.now();
+
+    const stale = await prisma.generation.findMany({
+      where: {
+        status: "processing",
+        replicateModel: { startsWith: "runninghub-task:" },
+        createdAt: { lt: new Date(now - MIN_AGE_MS) },
+      },
+      select: { id: true, replicateModel: true, createdAt: true, type: true },
+      take: 30,
+      orderBy: { createdAt: "asc" },
+    });
+
+    if (stale.length === 0) return;
+    console.log(`[RunningHub Watchdog] Checking ${stale.length} RunningHub task(s)…`);
+
+    const { queryRunningHubTask, extractRunningHubOutputUrl } = await import("./runninghub.service.js");
+    const { mirrorProviderOutputUrl } = await import("../utils/kieUpload.js");
+
+    for (const gen of stale) {
+      const ageMs = now - new Date(gen.createdAt).getTime();
+      const taskId = gen.replicateModel.replace(/^runninghub-task:/, "").trim();
+      if (!taskId) continue;
+
+      try {
+        const poll = await queryRunningHubTask(taskId);
+        const status = String(poll?.status || "").toUpperCase();
+
+        if (status === "SUCCESS") {
+          const outputUrl = extractRunningHubOutputUrl(poll.results);
+          if (!outputUrl) {
+            await prisma.generation.update({
+              where: { id: gen.id },
+              data: {
+                status: "failed",
+                errorMessage: getErrorMessageForDb("RunningHub task completed but returned no output URL"),
+                completedAt: new Date(),
+              },
+            });
+            try { await refundGeneration(gen.id); } catch { /**/ }
+            console.warn(`[RunningHub Watchdog] ⚠ Completed but no URL ${gen.id.slice(0, 8)}`);
+            continue;
+          }
+          // RunningHub result URLs only live 24h; mirror to persistent storage immediately.
+          let finalUrl = outputUrl;
+          try {
+            finalUrl = await mirrorProviderOutputUrl(outputUrl, "video/mp4");
+          } catch (e) {
+            console.warn(`[RunningHub Watchdog] Mirror failed for ${gen.id.slice(0, 8)}: ${e.message}`);
+          }
+          await prisma.generation.update({
+            where: { id: gen.id },
+            data: {
+              status: "completed",
+              outputUrl: finalUrl,
+              completedAt: new Date(),
+              pipelinePayload: null,
+              providerResponse: {
+                runninghub: {
+                  taskId,
+                  usage: poll.usage || null,
+                  sourceUrl: outputUrl,
+                },
+                outputUrl: finalUrl,
+              },
+            },
+          });
+          console.log(`[RunningHub Watchdog] ✅ Recovered ${gen.id.slice(0, 8)} → ${finalUrl.slice(0, 80)}`);
+        } else if (status === "FAILED") {
+          const errText = poll.errorMessage
+            || (poll.failedReason && (poll.failedReason.message || JSON.stringify(poll.failedReason).slice(0, 240)))
+            || poll.errorCode
+            || "RunningHub task failed";
+          await prisma.generation.update({
+            where: { id: gen.id },
+            data: { status: "failed", errorMessage: getErrorMessageForDb(errText), completedAt: new Date() },
+          });
+          try { await refundGeneration(gen.id); } catch { /**/ }
+          console.log(`[RunningHub Watchdog] ❌ Marked failed ${gen.id.slice(0, 8)}: ${errText}`);
+        } else if (ageMs > HARD_TIMEOUT_MS) {
+          await prisma.generation.update({
+            where: { id: gen.id },
+            data: {
+              status: "failed",
+              errorMessage: getErrorMessageForDb(`RunningHub task timed out after ${Math.round(ageMs / 60000)} min (state: ${status})`),
+              completedAt: new Date(),
+            },
+          });
+          try { await refundGeneration(gen.id); } catch { /**/ }
+          console.log(`[RunningHub Watchdog] ⏱ Timeout ${gen.id.slice(0, 8)} state=${status}`);
+        }
+        // QUEUED / RUNNING → keep processing.
+      } catch (e) {
+        console.warn(`[RunningHub Watchdog] Error checking ${gen.id.slice(0, 8)}: ${e.message}`);
+      }
+    }
+  }
+
+  /**
    * Reconcile RunPod-backed generations that should be completed via callback.
    * Callback remains primary path; polling here is recovery for missed callbacks.
    */
@@ -1098,6 +1214,10 @@ const generationPoller = new GenerationPollerService();
 export default generationPoller;
 
 /** Standalone export for use in cron/admin routes that can't import the full class instance */
+export async function runRunningHubWatchdog() {
+  return generationPoller.reconcileStaleRunningHubGenerations();
+}
+
 export async function runPiapiWatchdog() {
   return generationPoller.reconcileStalePiapiGenerations();
 }

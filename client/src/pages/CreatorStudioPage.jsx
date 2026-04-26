@@ -262,11 +262,18 @@ const VIDEO_FAMILIES = [
 ];
 
 const VIDEO_DEFAULT_PRICING = Object.freeze({
+  // Legacy KIE pricing kept for backward-compatible UI fallbacks only.
   sora2Standard10Frames: 300,
   sora2Standard15Frames: 540,
   sora2High10Frames: 660,
   sora2High15Frames: 1260,
   sora2WatermarkRemoverPerSec: 6.4,
+  // Sora via RunningHub (per-second pricing).
+  soraRh720pI2vPerSec: 60,
+  soraRh1080pI2vPerSec: 100,
+  soraRh720T2vPerSec: 60,
+  soraRh1024T2vPerSec: 100,
+  soraRh1080T2vPerSec: 140,
   kling30StdNoSoundPerSec: 14,
   kling30StdSoundPerSec: 20,
   kling30ProNoSoundPerSec: 18,
@@ -298,14 +305,26 @@ const VIDEO_DEFAULT_PRICING = Object.freeze({
   wan27R2v1080pPerSec: 21.6,
   wan27Edit720pPerSec: 14.4,
   wan27Edit1080pPerSec: 21.6,
-  seedance2Standard480WithVideoPerSec: 23,
-  seedance2Standard480NoVideoPerSec: 38,
-  seedance2Standard720WithVideoPerSec: 50,
-  seedance2Standard720NoVideoPerSec: 82,
-  seedance2Fast480WithVideoPerSec: 16,
-  seedance2Fast480NoVideoPerSec: 31,
-  seedance2Fast720WithVideoPerSec: 40,
-  seedance2Fast720NoVideoPerSec: 66,
+  // Seedance 2.0 Global via RunningHub.
+  seedance2Rh480PerSec: 20,
+  seedance2Rh720PerSec: 40,
+  seedance2RhNative1080pPerSec: 100,
+  seedance2Rh1080pPerSec: 48,
+  seedance2Rh2kPerSec: 52,
+  seedance2Rh4kPerSec: 58,
+  seedance2Rh480WithVideoPerSec: 12,
+  seedance2Rh720WithVideoPerSec: 24,
+  seedance2RhNative1080pWithVideoPerSec: 60,
+  seedance2Rh1080pWithVideoBasePerSec: 24,
+  seedance2Rh1080pWithVideoAddonPerSec: 8,
+  seedance2Rh2kWithVideoBasePerSec: 24,
+  seedance2Rh2kWithVideoAddonPerSec: 12,
+  seedance2Rh4kWithVideoBasePerSec: 24,
+  seedance2Rh4kWithVideoAddonPerSec: 18,
+});
+
+const SEEDANCE_RH_MIN_BILLABLE_BY_GEN_DURATION = Object.freeze({
+  4: 7, 5: 9, 6: 10, 7: 12, 8: 14, 9: 15, 10: 17, 11: 19, 12: 20, 13: 22, 14: 24, 15: 25,
 });
 
 function toPrice(source, key) {
@@ -336,7 +355,26 @@ function getDurationConfig(family, mode) {
     if (mode === "replace" || mode === "edit") return { min: 2, max: 10, step: 1, fixed: false };
     return { min: 2, max: 15, step: 1, fixed: false };
   }
+  if (family === "sora2") {
+    // RunningHub Sora (rhart-video-s-official) only accepts 4 | 8 | 12 | 16 | 20s.
+    return { min: 4, max: 20, step: 4, fixed: false };
+  }
   return { min: 10, max: 15, step: 5, fixed: false };
+}
+
+const SORA_DURATION_OPTIONS = [4, 8, 12, 16, 20];
+const SEEDANCE_RH_RESOLUTIONS = ["480p", "720p", "native1080p", "1080p", "2k", "4k"];
+const SEEDANCE_RH_RATIOS = ["adaptive", "16:9", "9:16", "1:1", "4:3", "3:4", "21:9"];
+
+/**
+ * Sora T2V size selection is modeled as (tier token) × (aspectRatio portrait/landscape).
+ * Tier tokens: "720p" → 720x1280/1280x720, "1024p" → 1024x1792/1792x1024, "1080p" → 1080x1920/1920x1080.
+ */
+function soraSizeFromTierAndAspect(tier, aspect) {
+  const isPortrait = aspect === "portrait" || aspect === "9:16";
+  if (tier === "1080p" || tier === "native1080p") return isPortrait ? "1080x1920" : "1920x1080";
+  if (tier === "1024p" || tier === "high") return isPortrait ? "1024x1792" : "1792x1024";
+  return isPortrait ? "720x1280" : "1280x720";
 }
 
 function getVideoModesByFamily(family) {
@@ -1839,6 +1877,10 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
   const [videoSize, setVideoSize] = useState("standard");
   const [soraQuality, setSoraQuality] = useState("standard");
   const [soraRemoveWatermark, setSoraRemoveWatermark] = useState(false);
+  /** Sora RunningHub: I2V resolution (720p | 1080p). T2V uses `soraT2vTier` + aspect ratio. */
+  const [soraResolution, setSoraResolution] = useState("720p");
+  /** Sora T2V tier token — combined with aspect (portrait/landscape) to derive an explicit WxH size. */
+  const [soraT2vTier, setSoraT2vTier] = useState("720p");
   const [videoSpeed, setVideoSpeed] = useState("fast");
   const [videoAspectRatio, setVideoAspectRatio] = useState("16:9");
   const [veoSeed, setVeoSeed] = useState("");
@@ -1853,7 +1895,10 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
   const [klingElementName, setKlingElementName] = useState("");
   const [klingElementDescription, setKlingElementDescription] = useState("");
   const [klingElementMediaUrls, setKlingElementMediaUrls] = useState(["", "", "", ""]);
-  const [seedanceTaskType, setSeedanceTaskType] = useState("seedance-2");
+  const [seedanceTaskType, setSeedanceTaskType] = useState("seedance-2"); // kept for legacy provider records; no longer surfaced in the new RunningHub UI
+  const [seedanceResolution, setSeedanceResolution] = useState("720p");
+  const [seedanceGenerateAudio, setSeedanceGenerateAudio] = useState(false);
+  const [seedanceRealPersonMode, setSeedanceRealPersonMode] = useState(false);
   const [wanResolution, setWanResolution] = useState("580p");
   const [isVideoGenerating, setIsVideoGenerating] = useState(false);
   const [extendSourceId, setExtendSourceId] = useState("");
@@ -2139,7 +2184,11 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
         nFrames: videoNFrames,
         size: videoSize,
         soraQuality,
-        removeWatermark: videoFamily === "sora2" ? soraRemoveWatermark : false,
+        soraResolution: videoFamily === "sora2" ? soraResolution : undefined,
+        soraSize: videoFamily === "sora2" && videoMode !== "i2v"
+          ? soraSizeFromTierAndAspect(soraT2vTier, videoAspectRatio)
+          : undefined,
+        removeWatermark: false,
         speed: videoSpeed,
         soundEnabled,
         soundPrompt: soundPrompt.trim(),
@@ -2151,6 +2200,9 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
         klingElements: normalizedKlingElements,
         aspectRatio: videoAspectRatio,
         seedanceTaskType,
+        seedanceResolution,
+        seedanceGenerateAudio,
+        seedanceRealPersonMode,
         wanResolution,
         veoSeeds: veoSeed ? Number(veoSeed) : undefined,
         veoEnableTranslation,
@@ -2243,10 +2295,13 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
       setVideoAspectRatio((prev) => (prev === "portrait" || prev === "landscape" ? prev : "landscape"));
     } else if (videoFamily === "veo31") {
       setVideoAspectRatio((prev) => (["Auto", "16:9", "9:16"].includes(prev) ? prev : "Auto"));
+    } else if (videoFamily === "seedance2") {
+      setVideoAspectRatio((prev) =>
+        ["adaptive", "1:1", "16:9", "9:16", "4:3", "3:4", "21:9"].includes(prev) ? prev : "adaptive",
+      );
     } else if (
       videoFamily === "kling26"
       || videoFamily === "kling30"
-      || videoFamily === "seedance2"
       || videoFamily === "wan26"
       || videoFamily === "wan27"
     ) {
@@ -2257,20 +2312,18 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
   const videoPricingInfo = useMemo(() => {
     const duration = Number(videoDuration) || durationConfig.min;
     if (videoFamily === "sora2") {
-      const base =
-        videoSize === "high"
-          ? (videoNFrames === "15" ? toPrice(generationPricing, "sora2High15Frames") : toPrice(generationPricing, "sora2High10Frames"))
-          : (videoNFrames === "15" ? toPrice(generationPricing, "sora2Standard15Frames") : toPrice(generationPricing, "sora2Standard10Frames"));
-      if (soraRemoveWatermark) {
-        const wmSec = videoNFrames === "15" ? 15 : 10;
-        const wmPerSec = toPrice(generationPricing, "sora2WatermarkRemoverPerSec");
-        const wmCost = Math.ceil(wmSec * wmPerSec);
-        return {
-          cost: base + wmCost,
-          details: `Sora ${videoNFrames}s · ${videoSize} + watermark remover ${wmPerSec}/s × ${wmSec}s`,
-        };
+      if (videoMode === "i2v") {
+        const perSec = soraResolution === "1080p"
+          ? toPrice(generationPricing, "soraRh1080pI2vPerSec")
+          : toPrice(generationPricing, "soraRh720pI2vPerSec");
+        return { cost: Math.ceil(perSec * duration), details: `${perSec}/sec (Sora I2V · ${soraResolution})` };
       }
-      return { cost: base, details: `Per generation (${videoNFrames}s · ${videoSize})` };
+      const perSec = soraT2vTier === "1080p"
+        ? toPrice(generationPricing, "soraRh1080T2vPerSec")
+        : soraT2vTier === "1024p"
+          ? toPrice(generationPricing, "soraRh1024T2vPerSec")
+          : toPrice(generationPricing, "soraRh720T2vPerSec");
+      return { cost: Math.ceil(perSec * duration), details: `${perSec}/sec (Sora T2V · ${soraT2vTier} ${videoAspectRatio})` };
     }
     if (videoFamily === "kling26") {
       const bucket = duration >= 10 ? "10s" : "5s";
@@ -2330,12 +2383,45 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
       return { cost: Math.ceil(perSec * duration), details: `${perSec}/sec (WAN 2.7 ${videoMode.toUpperCase()} · ${res})` };
     }
     if (videoFamily === "seedance2") {
-      const fast = seedanceTaskType === "seedance-2-fast" || seedanceTaskType === "seedance-2-fast-preview";
-      const perSec = toPrice(generationPricing, fast ? "seedance2FastPerSec" : "seedance2StandardPerSec");
-      return { cost: Math.ceil(perSec * duration), details: `${perSec}/sec (${fast ? "Fast" : "Quality"})` };
+      const res = SEEDANCE_RH_RESOLUTIONS.includes(seedanceResolution) ? seedanceResolution : "720p";
+      const hasRefVideo = videoMode === "multi-ref" && !!videoInputVideoUrl.trim();
+      if (hasRefVideo) {
+        const gen = Math.max(4, Math.min(15, Math.round(duration)));
+        const minBillable = SEEDANCE_RH_MIN_BILLABLE_BY_GEN_DURATION[gen] || gen;
+        const billable = minBillable; // input video duration unknown client-side; use min as the preview worst-case
+        if (res === "480p" || res === "720p" || res === "native1080p") {
+          const keyMap = {
+            "480p": "seedance2Rh480WithVideoPerSec",
+            "720p": "seedance2Rh720WithVideoPerSec",
+            native1080p: "seedance2RhNative1080pWithVideoPerSec",
+          };
+          const perSec = toPrice(generationPricing, keyMap[res]);
+          return {
+            cost: Math.ceil(billable * perSec),
+            details: `${perSec}/sec × min billable ${billable}s (Seedance ${res} · reference video)`,
+          };
+        }
+        const baseKey = `seedance2Rh${res === "1080p" ? "1080p" : res === "2k" ? "2k" : "4k"}WithVideoBasePerSec`;
+        const addonKey = `seedance2Rh${res === "1080p" ? "1080p" : res === "2k" ? "2k" : "4k"}WithVideoAddonPerSec`;
+        const basePerSec = toPrice(generationPricing, baseKey);
+        const addonPerSec = toPrice(generationPricing, addonKey);
+        return {
+          cost: Math.ceil(billable * basePerSec + duration * addonPerSec),
+          details: `${basePerSec}/s × ${billable}s + ${addonPerSec}/s × ${duration}s (Seedance ${res} · reference video)`,
+        };
+      }
+      const perSecKey =
+        res === "480p" ? "seedance2Rh480PerSec"
+        : res === "720p" ? "seedance2Rh720PerSec"
+        : res === "native1080p" ? "seedance2RhNative1080pPerSec"
+        : res === "1080p" ? "seedance2Rh1080pPerSec"
+        : res === "2k" ? "seedance2Rh2kPerSec"
+        : "seedance2Rh4kPerSec";
+      const perSec = toPrice(generationPricing, perSecKey);
+      return { cost: Math.ceil(perSec * duration), details: `${perSec}/sec (Seedance ${res})` };
     }
     return { cost: 0, details: "Pricing unavailable" };
-  }, [durationConfig.min, generationPricing, kling30Quality, soraRemoveWatermark, seedanceTaskType, soundEnabled, videoDuration, videoFamily, videoMode, videoNFrames, videoSize, videoSpeed, wanResolution]);
+  }, [durationConfig.min, generationPricing, kling30Quality, seedanceResolution, soraResolution, soraT2vTier, soundEnabled, videoAspectRatio, videoDuration, videoFamily, videoInputVideoUrl, videoMode, videoSpeed, wanResolution]);
 
   return (
     <div
@@ -3291,23 +3377,33 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                     <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Duration</span>
                     <div className="flex items-center gap-1.5">
-                      <Chip active={videoNFrames === "10"} onClick={() => setVideoNFrames("10")}>10s</Chip>
-                      <Chip active={videoNFrames === "15"} onClick={() => setVideoNFrames("15")}>15s</Chip>
+                      {SORA_DURATION_OPTIONS.map((d) => (
+                        <Chip key={d} active={videoDuration === d} onClick={() => setVideoDuration(d)}>{d}s</Chip>
+                      ))}
                     </div>
-                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Quality</span>
-                    <div className="flex items-center gap-1.5">
-                      <Chip active={videoSize === "standard"} onClick={() => setVideoSize("standard")}>Standard</Chip>
-                      <Chip active={videoSize === "high"} onClick={() => setVideoSize("high")}>High</Chip>
-                    </div>
+                    {videoMode === "i2v" ? (
+                      <>
+                        <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Resolution</span>
+                        <div className="flex items-center gap-1.5">
+                          <Chip active={soraResolution === "720p"} onClick={() => setSoraResolution("720p")}>720p</Chip>
+                          <Chip active={soraResolution === "1080p"} onClick={() => setSoraResolution("1080p")}>1080p</Chip>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Size</span>
+                        <div className="flex items-center gap-1.5">
+                          <Chip active={soraT2vTier === "720p"} onClick={() => setSoraT2vTier("720p")}>720p</Chip>
+                          <Chip active={soraT2vTier === "1024p"} onClick={() => setSoraT2vTier("1024p")}>1024p</Chip>
+                          <Chip active={soraT2vTier === "1080p"} onClick={() => setSoraT2vTier("1080p")}>1080p</Chip>
+                        </div>
+                      </>
+                    )}
                     <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Aspect</span>
                     <div className="flex items-center gap-1.5">
                       <Chip active={videoAspectRatio === "portrait"} onClick={() => setVideoAspectRatio("portrait")}>Portrait</Chip>
                       <Chip active={videoAspectRatio === "landscape"} onClick={() => setVideoAspectRatio("landscape")}>Landscape</Chip>
                     </div>
-                    <button type="button" onClick={() => setSoraRemoveWatermark((v) => !v)}
-                      className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-all ${soraRemoveWatermark ? "bg-violet-600 text-white border border-violet-500" : "bg-white/5 text-slate-400 border border-white/10"}`}>
-                      Watermark {soraRemoveWatermark ? "Off" : "On"}
-                    </button>
                   </div>
                 )}
                 {videoFamily === "kling30" && (
@@ -3500,21 +3596,30 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                 )}
                 {videoFamily === "seedance2" && (
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Variant</span>
-                    <div className="flex items-center gap-1.5">
-                      <Chip active={seedanceTaskType === "seedance-2"} onClick={() => setSeedanceTaskType("seedance-2")}>Quality</Chip>
-                      <Chip active={seedanceTaskType === "seedance-2-fast"} onClick={() => setSeedanceTaskType("seedance-2-fast")}>Fast</Chip>
+                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Resolution</span>
+                    <div className="flex items-center gap-1">
+                      {SEEDANCE_RH_RESOLUTIONS.map((r) => (
+                        <Chip key={r} active={seedanceResolution === r} onClick={() => setSeedanceResolution(r)}>{r}</Chip>
+                      ))}
                     </div>
                     {(videoMode === "t2v" || videoMode === "i2v" || videoMode === "edit" || videoMode === "multi-ref") && (
                       <>
                         <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest shrink-0">Aspect</span>
                         <div className="flex items-center gap-1">
-                          {["1:1", "16:9", "9:16", "4:3", "3:4", "21:9"].map((ar) => (
+                          {SEEDANCE_RH_RATIOS.map((ar) => (
                             <Chip key={ar} active={videoAspectRatio === ar} onClick={() => setVideoAspectRatio(ar)}>{ar}</Chip>
                           ))}
                         </div>
                       </>
                     )}
+                    <button type="button" onClick={() => setSeedanceGenerateAudio((v) => !v)}
+                      className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-all ${seedanceGenerateAudio ? "bg-violet-600 text-white border border-violet-500" : "bg-white/5 text-slate-400 border border-white/10"}`}>
+                      Audio {seedanceGenerateAudio ? "On" : "Off"}
+                    </button>
+                    <button type="button" onClick={() => setSeedanceRealPersonMode((v) => !v)}
+                      className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-all ${seedanceRealPersonMode ? "bg-violet-600 text-white border border-violet-500" : "bg-white/5 text-slate-400 border border-white/10"}`}>
+                      Real person {seedanceRealPersonMode ? "On" : "Off"}
+                    </button>
                     <button
                       type="button"
                       onClick={() => setAssetManagerOpen(true)}
@@ -3809,18 +3914,30 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                   <div className="space-y-2">
                     <div>
                       <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 block mb-2">Duration</span>
-                      <div className="flex gap-1.5">
-                        <Chip active={videoNFrames === "10"} onClick={() => setVideoNFrames("10")}><span className="whitespace-nowrap">10s</span></Chip>
-                        <Chip active={videoNFrames === "15"} onClick={() => setVideoNFrames("15")}><span className="whitespace-nowrap">15s</span></Chip>
+                      <div className="flex gap-1.5 flex-wrap">
+                        {SORA_DURATION_OPTIONS.map((d) => (
+                          <Chip key={d} active={videoDuration === d} onClick={() => setVideoDuration(d)}><span className="whitespace-nowrap">{d}s</span></Chip>
+                        ))}
                       </div>
                     </div>
-                    <div>
-                      <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 block mb-2">Quality</span>
-                      <div className="flex gap-1.5">
-                        <Chip active={videoSize === "standard"} onClick={() => setVideoSize("standard")}><span className="whitespace-nowrap">Standard</span></Chip>
-                        <Chip active={videoSize === "high"} onClick={() => setVideoSize("high")}><span className="whitespace-nowrap">High</span></Chip>
+                    {videoMode === "i2v" ? (
+                      <div>
+                        <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 block mb-2">Resolution</span>
+                        <div className="flex gap-1.5">
+                          <Chip active={soraResolution === "720p"} onClick={() => setSoraResolution("720p")}><span className="whitespace-nowrap">720p</span></Chip>
+                          <Chip active={soraResolution === "1080p"} onClick={() => setSoraResolution("1080p")}><span className="whitespace-nowrap">1080p</span></Chip>
+                        </div>
                       </div>
-                    </div>
+                    ) : (
+                      <div>
+                        <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 block mb-2">Size</span>
+                        <div className="flex gap-1.5 flex-wrap">
+                          <Chip active={soraT2vTier === "720p"} onClick={() => setSoraT2vTier("720p")}><span className="whitespace-nowrap">720p</span></Chip>
+                          <Chip active={soraT2vTier === "1024p"} onClick={() => setSoraT2vTier("1024p")}><span className="whitespace-nowrap">1024p</span></Chip>
+                          <Chip active={soraT2vTier === "1080p"} onClick={() => setSoraT2vTier("1080p")}><span className="whitespace-nowrap">1080p</span></Chip>
+                        </div>
+                      </div>
+                    )}
                     <div>
                       <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 block mb-2">Aspect</span>
                       <div className="flex gap-1.5">
@@ -3828,13 +3945,6 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                         <Chip active={videoAspectRatio === "landscape"} onClick={() => setVideoAspectRatio("landscape")}><span className="whitespace-nowrap">Landscape</span></Chip>
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setSoraRemoveWatermark((v) => !v)}
-                      className={`w-full min-h-[40px] px-3 py-2 rounded-lg text-xs font-semibold transition-all border ${soraRemoveWatermark ? "bg-violet-600 text-white border-violet-500 shadow-[0_4px_12px_-4px_rgba(124,58,237,0.5)]" : "bg-white/[0.03] text-slate-300 border-white/[0.08] hover:bg-white/[0.06]"}`}
-                    >
-                      Remove Watermark · {soraRemoveWatermark ? "On" : "Off"}
-                    </button>
                   </div>
                 )}
                 {videoFamily === "kling30" && (
@@ -4087,22 +4197,35 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                 {videoFamily === "seedance2" && (
                   <div className="space-y-2">
                     <div>
-                      <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 block mb-2">Variant</span>
+                      <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 block mb-2">Resolution</span>
                       <div className="flex gap-1.5 flex-wrap">
-                      <Chip active={seedanceTaskType === "seedance-2"} onClick={() => setSeedanceTaskType("seedance-2")}><span className="whitespace-nowrap">Quality</span></Chip>
-                      <Chip active={seedanceTaskType === "seedance-2-fast"} onClick={() => setSeedanceTaskType("seedance-2-fast")}><span className="whitespace-nowrap">Fast</span></Chip>
+                        {SEEDANCE_RH_RESOLUTIONS.map((r) => (
+                          <Chip key={r} active={seedanceResolution === r} onClick={() => setSeedanceResolution(r)}><span className="whitespace-nowrap">{r}</span></Chip>
+                        ))}
                       </div>
                     </div>
                     {(videoMode === "t2v" || videoMode === "i2v" || videoMode === "edit" || videoMode === "multi-ref") && (
                       <div>
                         <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 block mb-2">Aspect</span>
                         <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-0.5 px-0.5 snap-x [scrollbar-width:thin]">
-                          {["1:1", "16:9", "9:16", "4:3", "3:4", "21:9"].map((ar) => (
+                          {SEEDANCE_RH_RATIOS.map((ar) => (
                             <Chip key={ar} active={videoAspectRatio === ar} onClick={() => setVideoAspectRatio(ar)}><span className="whitespace-nowrap">{ar}</span></Chip>
                           ))}
                         </div>
                       </div>
                     )}
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => setSeedanceGenerateAudio((v) => !v)}
+                        className={`flex-1 min-h-[40px] px-3 py-2 rounded-lg text-xs font-semibold transition-all border ${seedanceGenerateAudio ? "bg-violet-600 text-white border-violet-500 shadow-[0_4px_12px_-4px_rgba(124,58,237,0.5)]" : "bg-white/[0.03] text-slate-300 border-white/[0.08] hover:bg-white/[0.06]"}`}
+                      >
+                        Audio · {seedanceGenerateAudio ? "On" : "Off"}
+                      </button>
+                      <button type="button" onClick={() => setSeedanceRealPersonMode((v) => !v)}
+                        className={`flex-1 min-h-[40px] px-3 py-2 rounded-lg text-xs font-semibold transition-all border ${seedanceRealPersonMode ? "bg-violet-600 text-white border-violet-500 shadow-[0_4px_12px_-4px_rgba(124,58,237,0.5)]" : "bg-white/[0.03] text-slate-300 border-white/[0.08] hover:bg-white/[0.06]"}`}
+                      >
+                        Real person · {seedanceRealPersonMode ? "On" : "Off"}
+                      </button>
+                    </div>
                     <button
                       type="button"
                       onClick={() => setAssetManagerOpen(true)}

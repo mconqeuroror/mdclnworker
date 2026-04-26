@@ -2,7 +2,6 @@ import prisma from "../lib/prisma.js";
 import {
   faceSwapVideo,
 } from "../services/wavespeed.service.js";
-import { generateSeedancePiapi } from "../services/piapi.service.js";
 import {
   generateImageWithNanoBananaKie,
   generateTextToImageNanoBananaKie,
@@ -18,14 +17,19 @@ import {
   generateVideoWithWanAnimateReplaceKie,
   generateVideoWithWanTextOrImageKie,
   generateVideoWithWan27Kie,
-  generateVideoWithSora2ProKie,
   generateVideoWithKlingTextKie,
   generateVideoWithVeo31Kie,
   extendVideoWithVeo31Kie,
-  generateSeedance2Kie,
   requestVeo31Video4k,
   requestVeo31Video1080p,
 } from "../services/kie.service.js";
+import {
+  generateSeedanceI2VRunningHub,
+  generateSeedanceMultimodalRunningHub,
+  generateSoraI2VRunningHub,
+  generateSoraT2VRunningHub,
+  RUNNINGHUB_TASK_PREFIX,
+} from "../services/runninghub.service.js";
 import {
   generateImageWithIdentityWaveSpeed,
   generateImageWithSeedreamWaveSpeed,
@@ -4306,6 +4310,39 @@ async function resolveSeedanceAssetTokens(userId, promptText) {
   return { imageAssetUris, videoAssetUris, audioAssetUris };
 }
 
+// ── RunningHub minimum-billable table for Seedance multimodal WITH reference video ─
+const SEEDANCE_RH_MIN_BILLABLE_BY_GEN_DURATION = Object.freeze({
+  4: 7, 5: 9, 6: 10, 7: 12, 8: 14, 9: 15, 10: 17, 11: 19, 12: 20, 13: 22, 14: 24, 15: 25,
+});
+
+function getSeedanceRhMinBillable(durationSeconds) {
+  const rounded = Math.max(4, Math.min(15, Math.round(Number(durationSeconds) || 0)));
+  return SEEDANCE_RH_MIN_BILLABLE_BY_GEN_DURATION[rounded] || rounded;
+}
+
+function normalizeSeedanceRhResolution(value) {
+  const normalized = String(value || "720p").toLowerCase();
+  if (["480p", "720p", "native1080p", "1080p", "2k", "4k"].includes(normalized)) return normalized;
+  return "720p";
+}
+
+function normalizeSoraRhI2VResolution(value) {
+  const normalized = String(value || "720p").toLowerCase();
+  return normalized === "1080p" ? "1080p" : "720p";
+}
+
+/** Normalize a Sora T2V `size` string (maps legacy "720p"/"1080p" + aspect to explicit WxH). */
+function normalizeSoraRhT2VSize(value, aspectRatio) {
+  const raw = String(value || "").toLowerCase();
+  const allowed = ["720x1280", "1280x720", "1024x1792", "1792x1024", "1080x1920", "1920x1080"];
+  if (allowed.includes(raw)) return raw;
+  const ar = String(aspectRatio || "").toLowerCase();
+  const isPortrait = ar === "portrait" || ar === "9:16";
+  if (raw === "1080p" || raw === "native1080p") return isPortrait ? "1080x1920" : "1920x1080";
+  if (raw === "1024p" || raw === "high") return isPortrait ? "1024x1792" : "1792x1024";
+  return isPortrait ? "720x1280" : "1280x720";
+}
+
 function estimateCreatorStudioVideoCredits(pricing, payload) {
   const family = String(payload.family || "").toLowerCase();
   const mode = normalizeCreatorStudioVideoMode(family, payload.mode);
@@ -4315,18 +4352,25 @@ function estimateCreatorStudioVideoCredits(pricing, payload) {
   const speed = speedRaw === "quality" ? "quality" : speedRaw === "lite" ? "lite" : "fast";
   const sound = payload.soundEnabled === true;
   if (family === "sora2") {
-    const nFrames = String(payload.nFrames || "10") === "15" ? "15" : "10";
-    const size = String(payload.size || "standard").toLowerCase() === "high" ? "high" : "standard";
-    let base =
-      size === "high"
-        ? (nFrames === "15" ? pricing.sora2High15Frames : pricing.sora2High10Frames)
-        : (nFrames === "15" ? pricing.sora2Standard15Frames : pricing.sora2Standard10Frames);
-    if (payload.removeWatermark === true) {
-      const wmSeconds = nFrames === "15" ? 15 : 10;
-      const wmPerSec = Number(pricing.sora2WatermarkRemoverPerSec) || 0;
-      base += Math.ceil(wmSeconds * wmPerSec);
+    // Sora via RunningHub (rhart-video-s-official). I2V uses `resolution` (720p|1080p);
+    // T2V uses `size` (WxH). Both billed per generated second.
+    if (mode === "i2v") {
+      const res = normalizeSoraRhI2VResolution(payload.soraResolution);
+      const perSec = res === "1080p"
+        ? Number(pricing.soraRh1080pI2vPerSec) || 0
+        : Number(pricing.soraRh720pI2vPerSec) || 0;
+      return Math.ceil(seconds * perSec);
     }
-    return base;
+    const size = normalizeSoraRhT2VSize(payload.soraSize, payload.aspectRatio);
+    let perSec;
+    if (size === "1080x1920" || size === "1920x1080") {
+      perSec = Number(pricing.soraRh1080T2vPerSec) || 0;
+    } else if (size === "1024x1792" || size === "1792x1024") {
+      perSec = Number(pricing.soraRh1024T2vPerSec) || 0;
+    } else {
+      perSec = Number(pricing.soraRh720T2vPerSec) || 0;
+    }
+    return Math.ceil(seconds * perSec);
   }
   if (family === "kling26") {
     const bucket = seconds >= 10 ? "10s" : "5s";
@@ -4377,9 +4421,47 @@ function estimateCreatorStudioVideoCredits(pricing, payload) {
     return Math.ceil(seconds * (Number(pricing[key]) || 0));
   }
   if (family === "seedance2") {
-    const seedanceTaskTypeValue = String(payload.seedanceTaskType || "seedance-2").toLowerCase();
-    const fast = seedanceTaskTypeValue === "seedance-2-fast-preview" || seedanceTaskTypeValue === "seedance-2-fast";
-    const perSec = Number(fast ? pricing?.seedance2FastPerSec : pricing?.seedance2StandardPerSec) || 0;
+    // Seedance 2.0 Global via RunningHub. Per-second rate depends on resolution.
+    // Multimodal WITH reference video uses a different (cheaper) tier billed on
+    // max(inputDur + genDur, minBillable); upscaled tiers add a per-generated-second surcharge.
+    const resolution = normalizeSeedanceRhResolution(payload.seedanceResolution);
+    const hasRefVideo = mode === "multi-ref" && payload.hasVideoInput === true;
+    if (hasRefVideo) {
+      const inputDur = Math.max(0, Number(payload.inputVideoDurationSeconds) || 0);
+      const minBillable = getSeedanceRhMinBillable(seconds);
+      const billable = Math.max(inputDur + seconds, minBillable);
+      if (resolution === "480p") {
+        return Math.ceil(billable * (Number(pricing.seedance2Rh480WithVideoPerSec) || 0));
+      }
+      if (resolution === "720p") {
+        return Math.ceil(billable * (Number(pricing.seedance2Rh720WithVideoPerSec) || 0));
+      }
+      if (resolution === "native1080p") {
+        return Math.ceil(billable * (Number(pricing.seedance2RhNative1080pWithVideoPerSec) || 0));
+      }
+      // upscaled tiers: base × billable + addon × generated
+      let basePerSec = 0;
+      let addonPerSec = 0;
+      if (resolution === "1080p") {
+        basePerSec = Number(pricing.seedance2Rh1080pWithVideoBasePerSec) || 0;
+        addonPerSec = Number(pricing.seedance2Rh1080pWithVideoAddonPerSec) || 0;
+      } else if (resolution === "2k") {
+        basePerSec = Number(pricing.seedance2Rh2kWithVideoBasePerSec) || 0;
+        addonPerSec = Number(pricing.seedance2Rh2kWithVideoAddonPerSec) || 0;
+      } else if (resolution === "4k") {
+        basePerSec = Number(pricing.seedance2Rh4kWithVideoBasePerSec) || 0;
+        addonPerSec = Number(pricing.seedance2Rh4kWithVideoAddonPerSec) || 0;
+      }
+      return Math.ceil(billable * basePerSec + seconds * addonPerSec);
+    }
+    const perSecKey =
+      resolution === "480p" ? "seedance2Rh480PerSec"
+      : resolution === "720p" ? "seedance2Rh720PerSec"
+      : resolution === "native1080p" ? "seedance2RhNative1080pPerSec"
+      : resolution === "1080p" ? "seedance2Rh1080pPerSec"
+      : resolution === "2k" ? "seedance2Rh2kPerSec"
+      : "seedance2Rh4kPerSec";
+    const perSec = Number(pricing[perSecKey]) || 0;
     return Math.ceil(seconds * perSec);
   }
   return 0;
@@ -4840,6 +4922,8 @@ async function processCreatorStudioVideoInBackground({
   nFrames,
   size,
   soraQuality,
+  soraResolution,
+  soraSize,
   speed,
   soundEnabled,
   soundPrompt,
@@ -4853,6 +4937,8 @@ async function processCreatorStudioVideoInBackground({
   seedanceGenerateAudio,
   seedanceReturnLastFrame,
   seedanceReferenceAudioUrls,
+  seedanceRealPersonMode = false,
+  seedanceConversionSlots = [],
   wanResolution,
   audioSetting = "auto",
   originalTaskId = null,
@@ -4869,16 +4955,35 @@ async function processCreatorStudioVideoInBackground({
   const normalizedThirdImageUrl = String(thirdImageUrl || "").trim();
   const normalizedInputVideoUrl = String(inputVideoUrl || "").trim();
   try {
+    // Sora2 / Seedance2 route through RunningHub (polled via generation-poller watchdog);
+    // everything else runs on KIE with webhook callbacks.
+    const usesRunningHub = lowerFamily === "sora2" || lowerFamily === "seedance2";
     const onTaskSubmitted = async (taskId) => {
-      // All Creator-Studio video families now route through KIE (Seedance flipped from PIAPI).
-      const providerName = "kie";
+      if (usesRunningHub) {
+        await prisma.generation.update({
+          where: { id: generationId },
+          data: {
+            replicateModel: `${RUNNINGHUB_TASK_PREFIX}${taskId}`,
+            providerTaskId: taskId,
+            provider: "runninghub",
+            providerFamily: lowerFamily,
+            providerMode: normalizedMode,
+            providerType: normalizedMode,
+            parentTaskId: originalTaskId,
+            originalGenerationId: originalGenerationId || null,
+          },
+        }).catch((err) =>
+          console.warn(`[RunningHub] persist taskId failed for gen ${String(generationId).slice(0, 8)}:`, err?.message),
+        );
+        return;
+      }
       await persistKieGenerationCorrelation({
         taskId,
         generationId,
         userId,
         kind: "creator-studio-video",
         extraGenerationData: {
-          provider: providerName,
+          provider: "kie",
           providerTaskId: taskId,
           providerFamily: lowerFamily,
           providerMode: normalizedMode,
@@ -4895,18 +5000,29 @@ async function processCreatorStudioVideoInBackground({
 
     let result;
     if (lowerFamily === "sora2") {
-      result = await requestQueue.enqueue(() =>
-        generateVideoWithSora2ProKie({
-          mode: normalizedMode,
-          prompt: finalPrompt,
-          imageUrl: normalizedImageUrl,
-          nFrames: String(nFrames || "10"),
-          size: String(size || "standard"),
-          quality: String(soraQuality || "standard"),
-          aspectRatio: String(aspectRatio || "landscape"),
-          onTaskSubmitted,
-        }),
-      );
+      // RunningHub rhart-video-s-official: text-to-video-pro / image-to-video-pro.
+      // Sora I2V accepts resolution (720p|1080p) + duration; image must be 720x1280 | 1280x720 | 1024x1792 | 1792x1024.
+      // Sora T2V accepts size (explicit WxH) + duration.
+      if (normalizedMode === "i2v") {
+        result = await requestQueue.enqueue(() =>
+          generateSoraI2VRunningHub({
+            prompt: finalPrompt,
+            imageUrl: normalizedImageUrl,
+            resolution: normalizeSoraRhI2VResolution(soraResolution),
+            duration: String(durationSeconds || 8),
+            onTaskSubmitted,
+          }),
+        );
+      } else {
+        result = await requestQueue.enqueue(() =>
+          generateSoraT2VRunningHub({
+            prompt: finalPrompt,
+            size: normalizeSoraRhT2VSize(soraSize, aspectRatio),
+            duration: String(durationSeconds || 8),
+            onTaskSubmitted,
+          }),
+        );
+      }
     } else if (lowerFamily === "kling26") {
       if (normalizedMode === "i2v") {
         result = await requestQueue.enqueue(() =>
@@ -5054,13 +5170,14 @@ async function processCreatorStudioVideoInBackground({
         }),
       );
     } else if (lowerFamily === "seedance2") {
-      // Route Seedance 2 through KIE (variant: bytedance/seedance-2 or bytedance/seedance-2-fast).
-      // KIE accepts asset://<id> URIs natively in any reference URL field, so user-supplied
-      // saved-asset URIs (registered via createCreatorStudioAsset) and resolved @asset_name
-      // tokens both flow through unchanged.
-      const refImagesRaw = [normalizedReferenceImageUrl, normalizedThirdImageUrl].filter(Boolean).slice(0, 10);
+      // Route Seedance 2 through RunningHub (bytedance/seedance-2.0-global).
+      // i2v/edit → image-to-video endpoint (first/last frame).
+      // t2v/multi-ref → multimodal-video endpoint (prompt + up to 9 images / 3 videos / 3 audios).
+      const refImagesRaw = [normalizedReferenceImageUrl, normalizedThirdImageUrl].filter(Boolean).slice(0, 9);
       const refVideosRaw = normalizedInputVideoUrl ? [normalizedInputVideoUrl] : [];
-      const refAudiosRaw = Array.isArray(seedanceReferenceAudioUrls) ? seedanceReferenceAudioUrls.filter(Boolean).slice(0, 3) : [];
+      const refAudiosRaw = Array.isArray(seedanceReferenceAudioUrls)
+        ? seedanceReferenceAudioUrls.filter(Boolean).slice(0, 3)
+        : [];
 
       // Server-side resolution of @asset_name tokens in the prompt → push into the
       // appropriate reference array based on each asset's type. Tokens are kept in the
@@ -5071,45 +5188,60 @@ async function processCreatorStudioVideoInBackground({
       const tokenAudioAssets = tokenRefs?.audioAssetUris || [];
       if (tokenImageAssets.length || tokenVideoAssets.length || tokenAudioAssets.length) {
         console.log(
-          `[Seedance/KIE] Resolved @asset tokens — images=${tokenImageAssets.length} videos=${tokenVideoAssets.length} audios=${tokenAudioAssets.length}`,
+          `[Seedance/RunningHub] Resolved @asset tokens — images=${tokenImageAssets.length} videos=${tokenVideoAssets.length} audios=${tokenAudioAssets.length}`,
         );
       }
 
-      const variant = String(seedanceTaskType || "seedance-2").toLowerCase() === "seedance-2-fast"
-        || String(seedanceTaskType || "").toLowerCase() === "seedance-2-fast-preview"
-        ? "seedance-2-fast-preview"
-        : "seedance-2-preview";
       const seedanceResolutionLower = String(seedanceResolution || "720p").toLowerCase();
-      const seedanceRes = seedanceResolutionLower === "1080p" ? "1080p" : "720p";
+      const seedanceRes = ["480p", "720p", "native1080p", "1080p", "2k", "4k"].includes(seedanceResolutionLower)
+        ? seedanceResolutionLower
+        : "720p";
+      const seedanceRatioInput = String(aspectRatio || "adaptive").toLowerCase();
+      const seedanceRatio = ["adaptive", "16:9", "4:3", "1:1", "3:4", "9:16", "21:9"].includes(seedanceRatioInput)
+        ? seedanceRatioInput
+        : "adaptive";
 
-      const baseRefImages = normalizedMode === "multi-ref"
-        ? [normalizedImageUrl, ...refImagesRaw].filter(Boolean).slice(0, 12)
-        : [];
-      const baseRefVideos = normalizedMode === "multi-ref" ? refVideosRaw : [];
-      const baseRefAudios = normalizedMode === "multi-ref" ? refAudiosRaw : [];
-
-      const dedupe = (arr) => Array.from(new Set(arr.filter(Boolean)));
-      const referenceImageUrls = dedupe([...baseRefImages, ...tokenImageAssets]).slice(0, 12);
-      const referenceVideoUrls = dedupe([...baseRefVideos, ...tokenVideoAssets]).slice(0, 3);
-      const referenceAudioUrls = dedupe([...baseRefAudios, ...tokenAudioAssets]).slice(0, 3);
-
-      result = await requestQueue.enqueue(() =>
-        generateSeedance2Kie({
-          variant,
-          prompt: String(finalPrompt || ""),
-          firstFrameUrl: normalizedImageUrl || null,
-          lastFrameUrl: normalizedMode === "edit" ? (normalizedEndFrameUrl || null) : null,
-          referenceImageUrls,
-          referenceVideoUrls,
-          referenceAudioUrls,
-          returnLastFrame: !!seedanceReturnLastFrame,
-          generateAudio: !!seedanceGenerateAudio,
-          resolution: seedanceRes,
-          aspectRatio: String(aspectRatio || "16:9"),
-          duration: Number(durationSeconds) || 5,
-          onTaskCreated: onTaskSubmitted,
-        }),
-      );
+      if (normalizedMode === "i2v" || normalizedMode === "edit") {
+        result = await requestQueue.enqueue(() =>
+          generateSeedanceI2VRunningHub({
+            prompt: String(finalPrompt || ""),
+            firstFrameUrl: normalizedImageUrl || null,
+            lastFrameUrl: normalizedMode === "edit" ? (normalizedEndFrameUrl || null) : null,
+            resolution: seedanceRes,
+            duration: String(durationSeconds || 5),
+            ratio: seedanceRatio,
+            generateAudio: !!seedanceGenerateAudio,
+            realPersonMode: !!seedanceRealPersonMode,
+            conversionSlots: Array.isArray(seedanceConversionSlots) ? seedanceConversionSlots : [],
+            returnLastFrame: !!seedanceReturnLastFrame,
+            onTaskSubmitted,
+          }),
+        );
+      } else {
+        const dedupe = (arr) => Array.from(new Set(arr.filter(Boolean)));
+        const baseImages = [normalizedImageUrl, ...refImagesRaw].filter(Boolean);
+        const baseVideos = normalizedMode === "multi-ref" ? refVideosRaw : [];
+        const baseAudios = normalizedMode === "multi-ref" ? refAudiosRaw : [];
+        const imageUrls = dedupe([...baseImages, ...tokenImageAssets]).slice(0, 9);
+        const videoUrls = dedupe([...baseVideos, ...tokenVideoAssets]).slice(0, 3);
+        const audioUrls = dedupe([...baseAudios, ...tokenAudioAssets]).slice(0, 3);
+        result = await requestQueue.enqueue(() =>
+          generateSeedanceMultimodalRunningHub({
+            prompt: String(finalPrompt || ""),
+            imageUrls,
+            videoUrls,
+            audioUrls,
+            resolution: seedanceRes,
+            duration: String(durationSeconds || 5),
+            ratio: seedanceRatio,
+            generateAudio: !!seedanceGenerateAudio,
+            realPersonMode: !!seedanceRealPersonMode,
+            conversionSlots: Array.isArray(seedanceConversionSlots) ? seedanceConversionSlots : [],
+            returnLastFrame: !!seedanceReturnLastFrame,
+            onTaskSubmitted,
+          }),
+        );
+      }
     } else {
       throw new Error(`Unsupported Creator Studio video family: ${lowerFamily}`);
     }
@@ -5167,6 +5299,8 @@ export async function generateCreatorStudioVideo(req, res) {
       nFrames = "10",
       size = "standard",
       soraQuality = "standard",
+      soraResolution = "720p",
+      soraSize = "",
       removeWatermark = false,
       speed = "fast",
       soundEnabled = false,
@@ -5181,6 +5315,8 @@ export async function generateCreatorStudioVideo(req, res) {
       seedanceGenerateAudio = false,
       seedanceReturnLastFrame = false,
       seedanceReferenceAudioUrls = [],
+      seedanceRealPersonMode = false,
+      seedanceConversionSlots = [],
       wanResolution = "580p",
       audioSetting = "auto",
       originalTaskId = null,
@@ -5259,14 +5395,33 @@ export async function generateCreatorStudioVideo(req, res) {
       return res.status(400).json({ success: false, message: "Image URL is required for image-to-video mode." });
     }
     if (lowerFamily === "sora2") {
-      if (!["10", "15"].includes(String(nFrames || ""))) {
-        return res.status(400).json({ success: false, message: "Sora nFrames must be 10 or 15." });
+      // RunningHub rhart-video-s-official: duration ∈ {4,8,12,16,20}; resolution/size per mode.
+      if (![4, 8, 12, 16, 20].includes(Number(normalizedDurationSeconds))) {
+        return res.status(400).json({ success: false, message: "Sora duration must be 4, 8, 12, 16, or 20 seconds." });
       }
-      if (!["standard", "high"].includes(String(size || "").toLowerCase())) {
-        return res.status(400).json({ success: false, message: "Sora size must be standard or high." });
-      }
-      if (!["portrait", "landscape"].includes(String(aspectRatio || "").toLowerCase())) {
-        return res.status(400).json({ success: false, message: "Sora aspect ratio must be portrait or landscape." });
+      if (normalizedMode === "i2v") {
+        if (!["720p", "1080p"].includes(String(soraResolution || "").toLowerCase())) {
+          return res.status(400).json({ success: false, message: "Sora i2v resolution must be 720p or 1080p." });
+        }
+      } else {
+        // Accept explicit WxH, or a coarse token (720p/1024p/1080p) + aspectRatio (portrait/landscape).
+        const explicitSizes = ["720x1280", "1280x720", "1024x1792", "1792x1024", "1080x1920", "1920x1080"];
+        const tokenSizes = ["720p", "1024p", "1080p", "native1080p", "high", "standard"];
+        const rawSize = String(soraSize || "").toLowerCase();
+        const validSize = explicitSizes.includes(rawSize) || tokenSizes.includes(rawSize);
+        if (!validSize) {
+          return res.status(400).json({
+            success: false,
+            message: "Sora t2v size must be an explicit WxH (e.g. 1280x720) or a tier token (720p | 1024p | 1080p).",
+          });
+        }
+        if (!explicitSizes.includes(rawSize)
+          && !["portrait", "landscape", "9:16", "16:9"].includes(String(aspectRatio || "").toLowerCase())) {
+          return res.status(400).json({
+            success: false,
+            message: "Sora t2v requires aspectRatio portrait/landscape (or 9:16 / 16:9) when size is not an explicit WxH.",
+          });
+        }
       }
     }
     if (lowerFamily === "kling26") {
@@ -5360,8 +5515,13 @@ export async function generateCreatorStudioVideo(req, res) {
       }
     }
     if (lowerFamily === "seedance2") {
-      if (!["seedance-2", "seedance-2-fast", "seedance-2-preview", "seedance-2-fast-preview"].includes(String(seedanceTaskType))) {
-        return res.status(400).json({ success: false, message: "Invalid Seedance task type." });
+      // RunningHub Seedance 2.0 Global: resolution enum + ratio enum + duration 4..15.
+      const allowedSeedanceResolutions = ["480p", "720p", "native1080p", "1080p", "2k", "4k"];
+      if (!allowedSeedanceResolutions.includes(String(seedanceResolution || "").toLowerCase())) {
+        return res.status(400).json({
+          success: false,
+          message: `Seedance resolution must be one of: ${allowedSeedanceResolutions.join(", ")}.`,
+        });
       }
       if (normalizedMode === "edit" && (!normalizedImageUrl || !normalizedEndFrameUrl)) {
         return res.status(400).json({ success: false, message: "Seedance first+last mode requires both first and last frame images." });
@@ -5372,8 +5532,12 @@ export async function generateCreatorStudioVideo(req, res) {
       if (normalizedMode === "multi-ref" && normalizedInputVideoUrl && !normalizedInputVideoUrl.startsWith("asset://")) {
         normalizedInputVideoUrl = await ensureSeedanceReferenceVideoPixels(normalizedInputVideoUrl);
       }
-      if (!["1:1", "16:9", "9:16", "4:3", "3:4", "21:9"].includes(String(aspectRatio || ""))) {
-        return res.status(400).json({ success: false, message: "Seedance aspect ratio must be one of 1:1, 16:9, 9:16, 4:3, 3:4, 21:9." });
+      const allowedSeedanceRatios = ["adaptive", "1:1", "16:9", "9:16", "4:3", "3:4", "21:9"];
+      if (!allowedSeedanceRatios.includes(String(aspectRatio || ""))) {
+        return res.status(400).json({
+          success: false,
+          message: `Seedance aspect ratio must be one of: ${allowedSeedanceRatios.join(", ")}.`,
+        });
       }
     }
 
@@ -5384,6 +5548,9 @@ export async function generateCreatorStudioVideo(req, res) {
       durationSeconds: normalizedDurationSeconds,
       nFrames,
       size,
+      soraResolution,
+      soraSize,
+      aspectRatio,
       removeWatermark,
       speed,
       soundEnabled,
@@ -5409,8 +5576,8 @@ export async function generateCreatorStudioVideo(req, res) {
     await deductCredits(userId, creditsNeeded);
     creditsDeducted = creditsNeeded;
 
-    const generationProvider = "kie";
-    const generationProviderModel = `kie-${lowerFamily}-${normalizedMode}`;
+    const generationProvider = (lowerFamily === "sora2" || lowerFamily === "seedance2") ? "runninghub" : "kie";
+    const generationProviderModel = `${generationProvider}-${lowerFamily}-${normalizedMode}`;
 
     const generation = await prisma.generation.create({
       data: {
@@ -5444,6 +5611,8 @@ export async function generateCreatorStudioVideo(req, res) {
           nFrames,
           size,
           soraQuality,
+          soraResolution,
+          soraSize,
           removeWatermark,
           speed,
           soundEnabled,
@@ -5458,6 +5627,8 @@ export async function generateCreatorStudioVideo(req, res) {
           seedanceGenerateAudio,
           seedanceReturnLastFrame,
           seedanceReferenceAudioUrls,
+          seedanceRealPersonMode,
+          seedanceConversionSlots,
           wanResolution: normalizedWanResolution,
           audioSetting: String(audioSetting || "auto"),
           originalTaskId,
@@ -5484,6 +5655,8 @@ export async function generateCreatorStudioVideo(req, res) {
       nFrames,
       size,
       soraQuality,
+      soraResolution,
+      soraSize,
       speed,
       soundEnabled,
       soundPrompt,
@@ -5497,6 +5670,8 @@ export async function generateCreatorStudioVideo(req, res) {
       seedanceGenerateAudio,
       seedanceReturnLastFrame,
       seedanceReferenceAudioUrls,
+      seedanceRealPersonMode,
+      seedanceConversionSlots,
       wanResolution: normalizedWanResolution,
       audioSetting: String(audioSetting || "auto"),
       originalTaskId,

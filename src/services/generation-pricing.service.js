@@ -119,9 +119,31 @@ export const DEFAULT_GENERATION_PRICING = Object.freeze({
   kling26Sound5s: 110,
   kling26Sound10s: 220,
 
-  // Seedance 2 (piapi.ai) — flat per-second rate (provider: $0.10/s standard, $0.08/s fast → 2× markup)
+  // Seedance 2 (piapi.ai) — flat per-second rate (legacy, kept for historical generations)
   seedance2StandardPerSec: 20,
   seedance2FastPerSec: 16,
+
+  // Seedance 2.0 Global via RunningHub (bytedance/seedance-2.0-global).
+  // User pays 2× provider cost. 100 credits ≈ $1.
+  // I2V and multimodal (no reference video): per-second flat rate, billed by generated seconds.
+  seedance2Rh480PerSec: 20,          // $0.10/s × 2
+  seedance2Rh720PerSec: 40,          // $0.20/s × 2
+  seedance2RhNative1080pPerSec: 100, // $0.50/s × 2
+  seedance2Rh1080pPerSec: 48,        // $0.24/s × 2 (upscaled from 720p)
+  seedance2Rh2kPerSec: 52,           // $0.26/s × 2 (upscaled)
+  seedance2Rh4kPerSec: 58,           // $0.29/s × 2 (upscaled)
+  // Seedance Multimodal WITH reference video: billed on max(inputDuration+genDuration, minBillable).
+  // Native tiers (480/720/native1080p) use a single per-second rate.
+  seedance2Rh480WithVideoPerSec: 12,          // $0.06/s × 2
+  seedance2Rh720WithVideoPerSec: 24,          // $0.12/s × 2
+  seedance2RhNative1080pWithVideoPerSec: 60,  // $0.30/s × 2
+  // Upscaled tiers (1080p/2k/4k) with reference video: base × billable + addon × generated.
+  seedance2Rh1080pWithVideoBasePerSec: 24,   // $0.12/s × 2
+  seedance2Rh1080pWithVideoAddonPerSec: 8,   // $0.04/s × 2
+  seedance2Rh2kWithVideoBasePerSec: 24,      // $0.12/s × 2
+  seedance2Rh2kWithVideoAddonPerSec: 12,     // $0.06/s × 2
+  seedance2Rh4kWithVideoBasePerSec: 24,      // $0.12/s × 2
+  seedance2Rh4kWithVideoAddonPerSec: 18,     // $0.09/s × 2
 
   videoPrompt5s: 60,
   videoPrompt10s: 100,
