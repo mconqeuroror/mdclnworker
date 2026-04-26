@@ -9,12 +9,30 @@
  * mirror the output mp4 to Blob/R2 (RunningHub result URLs expire ~24h).
  *
  * Env: RUNNINGHUB_API_KEY, RUNNINGHUB_MOTION_APP_ID (default below), optional RUNNINGHUB_API_BASE / RUNNINGHUB_MEDIA_UPLOAD_BASE.
+ * Driving video is re-encoded to H.264 (yuv420p) + MP4 before upload (unless NSFW_MOTION_TRANSCODE=false) so
+ * Comfy VHS_LoadVideo (OpenCV) on RunningHub can decode — same fix as “could not be loaded with cv” on exotic codecs.
+ * Prefer FFMPEG_WORKER_URL + R2 (presigned PUT) like reformatter/Seedance; fallback to local ffmpeg (FFMPEG_PATH).
  *
  * The hosted app workflow may not expose prompt/duration/skip via the API; those are accepted
  * for billing / UX and stored on the generation row, but are not always sent to RunningHub.
  */
 
+import { execFile } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { promisify } from "node:util";
+import { getFfmpegWorkerBaseUrls } from "../lib/ffmpeg-worker-env.js";
+import { postTranscodeJobToWorker } from "./ffmpeg-worker-client.js";
+import { getR2PresignedPutForKey, isBlobOnlyStorageMode, isR2Configured } from "../utils/r2.js";
 import { uploadBufferToBlobOrR2 } from "../utils/kieUpload.js";
+import { getFfmpegPathSync } from "../utils/ffmpeg-path.js";
+
+const execFileAsync = promisify(execFile);
+
+/** Re-encode driving clip so OpenCV in Comfy VHS can open it (baseline H.264, no audio). */
+const NSFW_MOTION_TRANSCODE = String(process.env.NSFW_MOTION_TRANSCODE || "true").toLowerCase() !== "false";
 
 const RUNNINGHUB_API_KEY = String(process.env.RUNNINGHUB_API_KEY || "").trim();
 const DEFAULT_MOTION_APP_ID = "2048360380644204545";
@@ -75,6 +93,116 @@ function extensionFromContentType(contentType, fallback) {
     "video/webm": "webm",
   };
   return map[contentType.toLowerCase()] || fallback;
+}
+
+/**
+ * Transcode any decodable video to H.264 (yuv420p) MP4 without audio — OpenCV-friendly.
+ * @param {Buffer} inputBuffer
+ * @param {string} sourceExt — e.g. mp4, webm, mov
+ * @returns {Promise<Buffer | null>}
+ */
+async function transcodeDrivingVideoToH264OpencvFriendly(inputBuffer, sourceExt) {
+  const id = randomBytes(8).toString("hex");
+  const safeExt = String(sourceExt || "mp4").replace(/[^a-z0-9]/gi, "") || "mp4";
+  const inPath = path.join(os.tmpdir(), `rh-mo-in-${id}.${safeExt}`);
+  const outPath = path.join(os.tmpdir(), `rh-mo-out-${id}.mp4`);
+  const ff = getFfmpegPathSync();
+  try {
+    await fs.writeFile(inPath, inputBuffer);
+    const args = [
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-y",
+      "-i",
+      inPath,
+      "-c:v",
+      "libx264",
+      "-profile:v",
+      "main",
+      "-level",
+      "4.0",
+      "-preset",
+      "veryfast",
+      "-crf",
+      "23",
+      "-pix_fmt",
+      "yuv420p",
+      "-movflags",
+      "+faststart",
+      "-an",
+      outPath,
+    ];
+    await execFileAsync(ff, args, { maxBuffer: 50 * 1024 * 1024, timeout: 15 * 60 * 1000 });
+    const out = await fs.readFile(outPath);
+    if (out.length < 256) return null;
+    return out;
+  } catch (e) {
+    console.warn("[NSFW/motion] ffmpeg transcode failed:", e?.message || e);
+    return null;
+  } finally {
+    await fs.unlink(inPath).catch(() => {});
+    await fs.unlink(outPath).catch(() => {});
+  }
+}
+
+function isFfmpegWorkerR2PathAvailable() {
+  return (
+    getFfmpegWorkerBaseUrls().length > 0 &&
+    Boolean(String(process.env.FFMPEG_WORKER_API_KEY || "").trim()) &&
+    !isBlobOnlyStorageMode() &&
+    isR2Configured()
+  );
+}
+
+/**
+ * OpenCV-friendly H.264 (libx264 main, yuv420p, no audio) via the same external ffmpeg worker as reformatter.
+ * @param {string} publicDrivingUrl - Public http(s) URL the worker can fetch
+ * @returns {Promise<Buffer | null>}
+ */
+async function transcodeDrivingVideoViaFfmpegWorker(publicDrivingUrl) {
+  const u = String(publicDrivingUrl || "").trim();
+  if (!u.startsWith("http") || !isFfmpegWorkerR2PathAvailable()) return null;
+  const key = `nsfw-motion-temp/${Date.now()}_${randomBytes(8).toString("hex")}_drive_h264.mp4`;
+  let publicUrl;
+  try {
+    const presign = await getR2PresignedPutForKey(key, "video/mp4", 3600);
+    publicUrl = presign.publicUrl;
+    await postTranscodeJobToWorker({
+      inputUrl: u,
+      extraOptions: [
+        "-c:v",
+        "libx264",
+        "-profile:v",
+        "main",
+        "-level",
+        "4.0",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "23",
+        "-pix_fmt",
+        "yuv420p",
+        "-an",
+        "-movflags",
+        "+faststart",
+      ],
+      outputPutUrl: { putUrl: presign.uploadUrl, publicUrl: presign.publicUrl, contentType: "video/mp4" },
+    });
+  } catch (e) {
+    console.warn("[NSFW/motion] ffmpeg worker transcode failed:", e?.message || e);
+    return null;
+  }
+  try {
+    const res = await fetch(publicUrl, { signal: AbortSignal.timeout(600_000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length < 256) return null;
+    return buf;
+  } catch (e) {
+    console.warn("[NSFW/motion] could not download transcoded video from R2:", e?.message || e);
+    return null;
+  }
 }
 
 /**
@@ -273,13 +401,42 @@ export async function submitNsfwMotionVideo(opts, generationId = null) {
   }
 
   const imageFilename = `ref-${generationId || "g"}.${img.extension}`;
-  const videoFilename = `drive-${generationId || "g"}.${vid.extension}`;
+
+  let videoBufferToUpload = vid.buffer;
+  let videoUploadExt = vid.extension;
+  let videoContentType = vid.contentType;
+  if (NSFW_MOTION_TRANSCODE) {
+    const workerOut = await transcodeDrivingVideoViaFfmpegWorker(drvStr);
+    const tc =
+      workerOut || (await transcodeDrivingVideoToH264OpencvFriendly(vid.buffer, vid.extension));
+    if (tc) {
+      videoBufferToUpload = Buffer.from(tc);
+      videoUploadExt = "mp4";
+      videoContentType = "video/mp4";
+      const mb = videoBufferToUpload.length / (1024 * 1024);
+      const source = workerOut ? "ffmpeg worker" : "local ffmpeg";
+      console.log(
+        `[NSFW/motion] driving video transcoded (${source}) to H.264/yuv420p MP4 ≈${mb.toFixed(2)} MiB (was ${vid.extension})`,
+      );
+    } else {
+      console.warn(
+        "[NSFW/motion] H.264 transcode unavailable or failed; uploading source bytes. " +
+          "Configure FFMPEG_WORKER_URL + R2, or FFMPEG_PATH for local transcode, if OpenCV still fails (cv load error).",
+      );
+    }
+  }
+
+  const videoFilename = `drive-${generationId || "g"}.${videoUploadExt}`;
 
   let imageFieldValue;
   let videoFieldValue;
   try {
     imageFieldValue = await uploadBufferToRunningHub(img.buffer, imageFilename, img.contentType);
-    videoFieldValue = await uploadBufferToRunningHub(vid.buffer, videoFilename, vid.contentType);
+    videoFieldValue = await uploadBufferToRunningHub(
+      videoBufferToUpload,
+      videoFilename,
+      videoContentType,
+    );
   } catch (e) {
     return { success: false, error: e.message || String(e) };
   }
@@ -337,14 +494,14 @@ export async function submitNsfwMotionVideo(opts, generationId = null) {
 
   console.log(
     `[NSFW/motion] RunningHub task=${requestId} genId=${generationId || "—"} ` +
-      `up≈${((img.bytes + vid.bytes) / (1024 * 1024)).toFixed(2)} MiB`,
+      `up≈${((img.bytes + videoBufferToUpload.length) / (1024 * 1024)).toFixed(2)} MiB`,
   );
 
   return {
     success: true,
     requestId: String(requestId),
     seed: finalSeed,
-    bytes: { image: img.bytes, video: vid.bytes, mode: "runninghub" },
+    bytes: { image: img.bytes, video: videoBufferToUpload.length, mode: "runninghub" },
   };
 }
 
