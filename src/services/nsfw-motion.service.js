@@ -2,7 +2,7 @@
  * NSFW Motion Control video generation (Wan 2.2 Animate, dedicated RunPod worker).
  *
  * Single backend for all product entry points:
- *   - POST /api/nsfw/generate-motion-video (NSFW Studio + Create → Video → Recreate → NSFW Motion Control)
+ *   - POST /api/nsfw/generate-motion-video (NSFW Studio “NSFW Motion Control”, Create “Motion X”)
  *   - Generation type: nsfw-video-motion · worker: RUNPOD_MOTION_ENDPOINT_ID
  *
  * Flow: the client uploads reference + driving video to public URLs (e.g. blob) and passes them here.

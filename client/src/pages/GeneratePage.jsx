@@ -36,6 +36,7 @@ import {
 import {
   NSFW_MOTION_RUNPOD_ENGINE,
   NSFW_MOTION_CREDITS_PER_SEC,
+  MOTION_X_CREATE_LABEL,
   normalizeNsfwMotionEngine,
 } from "../constants/nsfwMotionControl.js";
 
@@ -97,11 +98,11 @@ const GENERATE_COPY = {
     videoRecreateEngineLabel: "Recreate Engine",
     videoRecreateEngineKling: "Kling",
     videoRecreateEngineWan: "Wan (faster, cheaper)",
-    videoRecreateEngineMotionX: "NSFW Motion Control",
-    videoRecreateNsfwMotionBadge: "NSFW Motion",
+    videoRecreateEngineMotionX: MOTION_X_CREATE_LABEL,
+    videoRecreateNsfwMotionBadge: MOTION_X_CREATE_LABEL,
     videoRecreateEngineHint: "Kling supports classic/ultra motion-control. Wan is faster and lower cost.",
     videoRecreateEngineHintMotionX:
-      "Wan 2.2 Animate on RunPod — same worker as POST /api/nsfw/generate-motion-video. Motion from your reference clip; most finish in ~10 minutes.",
+      "Applies motion from your reference clip to your still (Wan on RunPod). Most recreates finish in about 10 minutes.",
     videoRecreateWanResolutionLabel: "Wan Resolution",
     videoRecreateWanResolution480: "480p (fastest)",
     videoRecreateWanResolution580: "580p (balanced)",
@@ -273,11 +274,11 @@ const GENERATE_COPY = {
     videoRecreateEngineLabel: "Движок рекреейта",
     videoRecreateEngineKling: "Kling",
     videoRecreateEngineWan: "Wan (быстрее, дешевле)",
-    videoRecreateEngineMotionX: "NSFW Motion Control",
-    videoRecreateNsfwMotionBadge: "NSFW Motion",
+    videoRecreateEngineMotionX: MOTION_X_CREATE_LABEL,
+    videoRecreateNsfwMotionBadge: MOTION_X_CREATE_LABEL,
     videoRecreateEngineHint: "Kling поддерживает classic/ultra motion-control. Wan быстрее и дешевле.",
     videoRecreateEngineHintMotionX:
-      "Wan 2.2 Animate на RunPod — тот же воркер, что POST /api/nsfw/generate-motion-video. Движение с референса; обычно ~10 минут.",
+      "Движение с референс-ролика на ваш кадр (Wan на RunPod). Обычно около 10 минут.",
     videoRecreateWanResolutionLabel: "Разрешение Wan",
     videoRecreateWanResolution480: "480p (самый быстрый)",
     videoRecreateWanResolution580: "580p (баланс)",

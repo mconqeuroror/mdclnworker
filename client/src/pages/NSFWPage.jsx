@@ -164,13 +164,13 @@ const NSFW_COPY = {
     videoModeStandardI2vBadge: "5s / 8s",
     videoMotionXInfoTitle: "NSFW Motion Control (video recreate):",
     videoMotionXInfoBody:
-      "Same RunPod Wan worker as Create → Video → Recreate → NSFW Motion Control. First frame + driving video; length follows source (up to 30s). Most finish in about 10 minutes.",
+      "First frame + driving video; length follows source (up to 30s). Same Wan RunPod worker as Create → Video → Recreate → Motion X (default there). Most finish in about 10 minutes.",
     videoButtonGenerateMotionX: "Generate NSFW Motion Video",
     videoMotionXGenerating: "Generating NSFW motion video...",
     videoModeMotionXSubline: "Video recreate",
     videoGalleryMotionXSection: "NSFW Motion Control",
     videoNsfwMotionRecreateInCreate:
-      "To recreate from a reference video, use the Create tab with your model → Video → Recreate (NSFW Motion Control is the default).",
+      "To recreate from a reference video, use the Create tab with your model → Video → Recreate (Motion X is the default).",
     videoToastSelectModel: "Please select a model",
     videoToastUploadSource: "Please upload a source image",
     videoToastEnterPrompt: "Please enter a motion prompt",
@@ -397,13 +397,13 @@ const NSFW_COPY = {
     videoModeStandardI2vBadge: "5с / 8с",
     videoMotionXInfoTitle: "NSFW Motion Control (воссоздание видео):",
     videoMotionXInfoBody:
-      "Тот же RunPod Wan, что Create → Video → Recreate → NSFW Motion Control. Первый кадр + опорный ролик; длительность по исходнику (до 30 с). Обычно ~10 минут.",
+      "Первый кадр + опорный ролик; длительность по исходнику (до 30 с). Тот же Wan RunPod, что Create → Video → Recreate → Motion X (там по умолчанию). Обычно ~10 минут.",
     videoButtonGenerateMotionX: "Создать NSFW motion-видео",
     videoMotionXGenerating: "Генерация NSFW motion...",
     videoModeMotionXSubline: "Воссоздание видео",
     videoGalleryMotionXSection: "NSFW Motion Control",
     videoNsfwMotionRecreateInCreate:
-      "Воссоздание по референс-видео: вкладка Create → ваша модель → Video → Recreate (по умолчанию — NSFW Motion Control).",
+      "Воссоздание по референс-видео: вкладка Create → ваша модель → Video → Recreate (по умолчанию — Motion X).",
     videoToastSelectModel: "Пожалуйста, выберите модель",
     videoToastUploadSource: "Пожалуйста, загрузите исходное изображение",
     videoToastEnterPrompt: "Пожалуйста, введите промпт движения",

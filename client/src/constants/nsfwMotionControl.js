@@ -1,7 +1,10 @@
 /**
- * NSFW Motion Control — Wan 2.2 Animate on the dedicated RunPod worker.
+ * Wan 2.2 Animate RunPod worker — shared by Create (Video → Recreate) and NSFW Studio.
  *
- * Single source of truth for the Create tab (Video → Recreate) and NSFW Studio copy.
+ * UI naming (product choice):
+ *   - Create / avatar video recreate: **Motion X**
+ *   - NSFW Studio only: **NSFW Motion Control**
+ *
  * Backend: POST /api/nsfw/generate-motion-video → submitNsfwMotionVideo (nsfw-motion.service.js).
  * Generation type: nsfw-video-motion
  */
@@ -15,7 +18,11 @@ export const NSFW_MOTION_RUNPOD_ENGINE_LEGACY = "motion-x";
 /** Credits per second (aligned with MOTION_BASE_CREDITS_PER_SEC in nsfw.controller.js). */
 export const NSFW_MOTION_CREDITS_PER_SEC = 30;
 
-export const NSFW_MOTION_DISPLAY_NAME = "NSFW Motion Control";
+/** Create tab — Video → Recreate engine button / hints. */
+export const MOTION_X_CREATE_LABEL = "Motion X";
+
+/** NSFW Studio — gallery, info, and motion-specific actions. */
+export const NSFW_MOTION_STUDIO_LABEL = "NSFW Motion Control";
 
 export function normalizeNsfwMotionEngine(value) {
   if (value === NSFW_MOTION_RUNPOD_ENGINE_LEGACY) return NSFW_MOTION_RUNPOD_ENGINE;
