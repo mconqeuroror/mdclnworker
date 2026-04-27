@@ -389,7 +389,27 @@ function buildModelCloneXImg2ImgApiPrompt({ positivePrompt, loraUrl, loraStrengt
     throw new Error("ModelClone-X img2img requires loraUrl");
   }
   const graph = loadMcxI2iGraphPrepared();
-  const api = comfyUiGraphToApiPrompt(graph.nodes, graph.links, graph.extra);
+  const isUiGraph =
+    Boolean(graph) &&
+    Array.isArray(graph.nodes) &&
+    Array.isArray(graph.links);
+  const api = isUiGraph
+    ? comfyUiGraphToApiPrompt(graph.nodes, graph.links, graph.extra)
+    : JSON.parse(JSON.stringify(graph));
+  const uiNodeById = isUiGraph
+    ? new Map((graph.nodes || []).map((n) => [String(n.id), n]))
+    : new Map();
+
+  const assignIfMissing = (obj, key, value) => {
+    if (!obj) return;
+    if (obj[key] === undefined || obj[key] === null || obj[key] === "") {
+      obj[key] = value;
+    }
+  };
+  const toNumOr = (value, fallback) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : fallback;
+  };
 
   // New MCX i2i graph already has a String Literal prompt node (56).
   // Keep it and set the string directly to avoid link rewrites that can trigger
@@ -426,6 +446,72 @@ function buildModelCloneXImg2ImgApiPrompt({ positivePrompt, loraUrl, loraStrengt
   const resolvedSeed = seed ?? Math.floor(Math.random() * 1_000_000_000);
   if (api["383"]?.inputs) api["383"].inputs.noise_seed = resolvedSeed;
   if (api["384"]?.inputs) api["384"].inputs.noise_seed = resolvedSeed + 1;
+
+  // Some ComfyUI graph exports (notably KSamplerAdvanced + ModelSamplingAuraFlow)
+  // keep required scalar params only in `widgets_values`. If we don't materialize
+  // them, RunPod rejects the prompt with prompt_outputs_failed_validation.
+  for (const [nodeId, nodeDef] of Object.entries(api)) {
+    if (!nodeDef?.inputs || !nodeDef?.class_type) continue;
+    const classType = String(nodeDef.class_type);
+    const widgetValues = uiNodeById.get(String(nodeId))?.widgets_values || [];
+
+    if (classType === "ModelSamplingAuraFlow") {
+      // widgets_values: [shift]
+      assignIfMissing(nodeDef.inputs, "shift", toNumOr(widgetValues[0], 3));
+      continue;
+    }
+
+    if (classType === "KSamplerAdvanced") {
+      // widgets_values:
+      // [add_noise, noise_seed, control_after_generate, steps, cfg, sampler_name, scheduler, start_at_step, end_at_step, return_with_leftover_noise]
+      assignIfMissing(nodeDef.inputs, "add_noise", widgetValues[0] ?? "disable");
+      assignIfMissing(nodeDef.inputs, "noise_seed", toNumOr(widgetValues[1], resolvedSeed));
+      assignIfMissing(nodeDef.inputs, "steps", toNumOr(widgetValues[3], 10));
+      assignIfMissing(nodeDef.inputs, "cfg", toNumOr(widgetValues[4], 1));
+      assignIfMissing(nodeDef.inputs, "sampler_name", widgetValues[5] ?? "dpmpp_sde");
+      assignIfMissing(nodeDef.inputs, "scheduler", widgetValues[6] ?? "beta");
+      assignIfMissing(nodeDef.inputs, "start_at_step", toNumOr(widgetValues[7], 0));
+      assignIfMissing(nodeDef.inputs, "end_at_step", toNumOr(widgetValues[8], toNumOr(widgetValues[3], 10)));
+      assignIfMissing(nodeDef.inputs, "return_with_leftover_noise", widgetValues[9] ?? "disable");
+    }
+  }
+
+  // Hard guard by known MCX node ids so validation cannot fail even if
+  // converter output shape changes and class-based detection misses fields.
+  const forceEnsureInputs = (nodeId, requiredMap) => {
+    const node = api[String(nodeId)];
+    if (!node || typeof node !== "object") return;
+    if (!node.inputs || typeof node.inputs !== "object") node.inputs = {};
+    for (const [key, fallback] of Object.entries(requiredMap)) {
+      assignIfMissing(node.inputs, key, fallback);
+    }
+  };
+
+  forceEnsureInputs("380", {
+    shift: 3,
+  });
+
+  forceEnsureInputs("383", {
+    add_noise: "enable",
+    steps: 10,
+    cfg: 1,
+    sampler_name: "dpmpp_sde",
+    scheduler: "beta",
+    start_at_step: 0,
+    end_at_step: 5,
+    return_with_leftover_noise: "enable",
+  });
+
+  forceEnsureInputs("384", {
+    add_noise: "disable",
+    steps: 10,
+    cfg: 1,
+    sampler_name: "dpmpp_sde",
+    scheduler: "beta",
+    start_at_step: 5,
+    end_at_step: 10,
+    return_with_leftover_noise: "disable",
+  });
 
   return { api, resolvedSeed };
 }
