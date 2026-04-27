@@ -3908,7 +3908,12 @@ router.get("/modelclone-x/status/:generationId", authMiddleware, async (req, res
     // Opportunistic direct polling fallback (callbacks remain primary).
     // This makes multi-image MCX i2i results appear immediately even if webhook
     // delivery is delayed/missed for a specific run.
-    if (gen.status === "processing" && typeof gen.providerTaskId === "string" && gen.providerTaskId.trim()) {
+    const genStatus = String(gen.status || "").toLowerCase();
+    if (
+      (genStatus === "processing" || genStatus === "pending" || genStatus === "queued") &&
+      typeof gen.providerTaskId === "string" &&
+      gen.providerTaskId.trim()
+    ) {
       const now = Date.now();
       const ageMs = now - new Date(gen.createdAt).getTime();
       const lastPolledAt = _mcxStatusPollLastAt.get(gen.id) || 0;

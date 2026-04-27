@@ -270,57 +270,90 @@ export async function submitModelCloneXImg2ImgJob({
   return { runpodJobId, resolvedSeed };
 }
 
+function buildRunpodJobIdCandidates(runpodJobId) {
+  const raw = String(runpodJobId || "").trim();
+  if (!raw) return [];
+  const stripped = raw.replace(/-u\d+$/i, "");
+  return stripped && stripped !== raw ? [raw, stripped] : [raw];
+}
+
 export async function pollModelCloneXJob(runpodJobId) {
   if (!RUNPOD_API_KEY || !RUNPOD_MODELCLONE_X_ENDPOINT_ID) {
     throw new Error("ModelClone-X service not configured");
   }
 
   const base = `https://api.runpod.ai/v2/${RUNPOD_MODELCLONE_X_ENDPOINT_ID}`;
-  const url = `${base}/status/${runpodJobId}`;
+  const jobIdCandidates = buildRunpodJobIdCandidates(runpodJobId);
+  if (!jobIdCandidates.length) {
+    throw new Error("ModelClone-X poll failed: missing RunPod job id");
+  }
 
   let lastErr;
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 20_000);
-    try {
-      const resp = await fetch(url, {
-        headers: { Authorization: `Bearer ${RUNPOD_API_KEY}` },
-        signal: controller.signal,
-      });
-      clearTimeout(timer);
-      if (!resp.ok) {
-        const text = await resp.text();
-        throw new Error(`ModelClone-X poll failed ${resp.status}: ${text.slice(0, 400)}`);
+  for (let idIndex = 0; idIndex < jobIdCandidates.length; idIndex++) {
+    const candidateId = jobIdCandidates[idIndex];
+    const hasFallbackCandidate = idIndex < jobIdCandidates.length - 1;
+    const url = `${base}/status/${candidateId}`;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 20_000);
+      try {
+        const resp = await fetch(url, {
+          headers: { Authorization: `Bearer ${RUNPOD_API_KEY}` },
+          signal: controller.signal,
+        });
+        clearTimeout(timer);
+        if (!resp.ok) {
+          const text = await resp.text();
+          if (resp.status === 404 && hasFallbackCandidate) {
+            lastErr = new Error(`ModelClone-X poll 404 for ${candidateId}: ${text.slice(0, 200)}`);
+            console.warn(`[ModelCloneX] poll 404 for ${candidateId}; trying fallback id`);
+            break;
+          }
+          throw new Error(`ModelClone-X poll failed ${resp.status}: ${text.slice(0, 400)}`);
+        }
+        return resp.json();
+      } catch (err) {
+        clearTimeout(timer);
+        lastErr = err;
+        const cause = err.cause?.message || err.cause?.code || "";
+        console.warn(
+          `[ModelCloneX] poll attempt ${attempt}/3 failed for ${candidateId}: ${err.message}${cause ? ` (${cause})` : ""}`,
+        );
+        if (attempt < 3) await new Promise((r) => setTimeout(r, 2000 * attempt));
       }
-      return resp.json();
-    } catch (err) {
-      clearTimeout(timer);
-      lastErr = err;
-      const cause = err.cause?.message || err.cause?.code || "";
-      console.warn(`[ModelCloneX] poll attempt ${attempt}/3 failed: ${err.message}${cause ? ` (${cause})` : ""}`);
-      if (attempt < 3) await new Promise((r) => setTimeout(r, 2000 * attempt));
     }
   }
   throw lastErr;
 }
 
 export function extractModelCloneXImages(runpodOutput) {
+  const parseJsonMaybe = (value) => {
+    if (typeof value !== "string") return value;
+    const trimmed = value.trim();
+    if (!trimmed) return value;
+    if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return value;
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      return value;
+    }
+  };
+
   let root = runpodOutput;
   if (root == null) return [];
-  if (typeof root === "string") {
-    try {
-      root = JSON.parse(root);
-    } catch {
-      return [];
-    }
-  }
+  root = parseJsonMaybe(root);
   if (typeof root !== "object") return [];
   // Double-wrap: e.g. { output: { output: { images: [...] } } } (some RunPod webhooks)
-  let out = root?.output ?? root;
-  if (out && typeof out === "object" && out.output && (out.output.images || out.output.outputs) && !out.images) {
-    out = out.output;
+  let out = parseJsonMaybe(root?.output ?? root);
+  if (Array.isArray(out) && out.length > 0) {
+    out = parseJsonMaybe(out[0]);
   }
-  out = out?.output ?? out;
+  if (out && typeof out === "object" && out.output && !out.images) {
+    out = parseJsonMaybe(out.output);
+  }
+  if (out && typeof out === "object" && out.output && !out.images) {
+    out = parseJsonMaybe(out.output);
+  }
   if (!out || typeof out !== "object") return [];
 
   const asImageString = (img) => {
