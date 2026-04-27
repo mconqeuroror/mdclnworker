@@ -654,6 +654,15 @@ export default function AdminPage() {
     return start.toISOString().slice(0, 10);
   });
   const [dailyRangeEnd, setDailyRangeEnd] = useState(() => new Date().toISOString().slice(0, 10));
+  const [dailyRangeDraftStart, setDailyRangeDraftStart] = useState(() => {
+    const end = new Date();
+    const start = new Date();
+    start.setDate(start.getDate() - 6);
+    return start.toISOString().slice(0, 10);
+  });
+  const [dailyRangeDraftEnd, setDailyRangeDraftEnd] = useState(() =>
+    new Date().toISOString().slice(0, 10),
+  );
   const [recoverStripeId, setRecoverStripeId] = useState('');
   const [recoverResult, setRecoverResult] = useState(null);
   const [refillAuditForm, setRefillAuditForm] = useState({
@@ -953,6 +962,18 @@ export default function AdminPage() {
     }
   };
 
+  const applyDailyTrackingRange = () => {
+    if (!dailyRangeDraftStart || !dailyRangeDraftEnd) {
+      toast.error('Please select both start and end dates');
+      return;
+    }
+    let s = dailyRangeDraftStart;
+    let e = dailyRangeDraftEnd;
+    if (s > e) [s, e] = [e, s];
+    setDailyRangeStart(s);
+    setDailyRangeEnd(e);
+  };
+
   const loadAffiliateLanders = async () => {
     setAffiliateLandersLoading(true);
     try {
@@ -1030,14 +1051,22 @@ export default function AdminPage() {
   }, [showChildSafetyReports, childSafetyPage]);
 
   useEffect(() => {
-    if (showDailyTracking) {
-      loadStatsRange(dailyRangeStart, dailyRangeEnd);
-      loadStripeRevenueRange(dailyRangeStart, dailyRangeEnd, false);
-    } else {
-      loadStats(statsPeriod, statsYear, null);
-      loadStripeRevenue(statsPeriod, statsYear, false, null);
-    }
-  }, [statsPeriod, statsYear, showDailyTracking, dailyRangeStart, dailyRangeEnd]);
+    if (showDailyTracking) return;
+    loadStats(statsPeriod, statsYear, null);
+    loadStripeRevenue(statsPeriod, statsYear, false, null);
+  }, [statsPeriod, statsYear, showDailyTracking]);
+
+  useEffect(() => {
+    if (!showDailyTracking) return;
+    loadStatsRange(dailyRangeStart, dailyRangeEnd);
+    loadStripeRevenueRange(dailyRangeStart, dailyRangeEnd, false);
+  }, [showDailyTracking, dailyRangeStart, dailyRangeEnd]);
+
+  useEffect(() => {
+    if (!showDailyTracking) return;
+    setDailyRangeDraftStart(dailyRangeStart);
+    setDailyRangeDraftEnd(dailyRangeEnd);
+  }, [showDailyTracking, dailyRangeStart, dailyRangeEnd]);
 
   useEffect(() => {
     if (showDailyTracking && dailyRangeEnd) {
@@ -2938,6 +2967,9 @@ export default function AdminPage() {
                     <p className="text-[11px] text-gray-500 -mt-1 mb-3">
                       Live subs: {(stripeRevenue.subscriptions?.activeSubscriptions || 0).toLocaleString()} subscription record(s)
                       {typeof stripeRevenue.subscriptions?.dbActiveUsers === 'number' ? ` · DB-marked active users: ${stripeRevenue.subscriptions.dbActiveUsers.toLocaleString()}` : ''}
+                      {Array.isArray(stripeRevenue.subscriptions?.accounts) && stripeRevenue.subscriptions.accounts.length > 0
+                        ? ` · Stripe accounts: ${stripeRevenue.subscriptions.accounts.join(' + ')}`
+                        : ''}
                     </p>
 
                     {stripeRevenue.subscriptions?.plans?.length > 0 && (
@@ -2988,9 +3020,9 @@ export default function AdminPage() {
                     <span className="text-[10px] text-gray-500 uppercase tracking-wide">From</span>
                     <input
                       type="date"
-                      value={dailyRangeStart}
-                      max={dailyRangeEnd}
-                      onChange={(e) => setDailyRangeStart(e.target.value)}
+                      value={dailyRangeDraftStart}
+                      max={dailyRangeDraftEnd}
+                      onChange={(e) => setDailyRangeDraftStart(e.target.value)}
                       className="px-2 py-1 rounded-lg border border-white/[0.07] bg-black/40 text-[11px] text-white"
                     />
                   </div>
@@ -2998,12 +3030,23 @@ export default function AdminPage() {
                     <span className="text-[10px] text-gray-500 uppercase tracking-wide">To</span>
                     <input
                       type="date"
-                      value={dailyRangeEnd}
-                      min={dailyRangeStart}
-                      onChange={(e) => setDailyRangeEnd(e.target.value)}
+                      value={dailyRangeDraftEnd}
+                      min={dailyRangeDraftStart}
+                      onChange={(e) => setDailyRangeDraftEnd(e.target.value)}
                       className="px-2 py-1 rounded-lg border border-white/[0.07] bg-black/40 text-[11px] text-white"
                     />
                   </div>
+                  <GhostBtn
+                    onClick={applyDailyTrackingRange}
+                    disabled={
+                      !dailyRangeDraftStart ||
+                      !dailyRangeDraftEnd ||
+                      (dailyRangeDraftStart === dailyRangeStart &&
+                        dailyRangeDraftEnd === dailyRangeEnd)
+                    }
+                  >
+                    Confirm Range
+                  </GhostBtn>
                   <input
                     type="month"
                     title="Calendar month"

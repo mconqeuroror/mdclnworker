@@ -2765,8 +2765,11 @@ function setStripeCache(key, data) {
 
 function isLiveActiveStripeSubscription(sub) {
   const status = String(sub?.status || "").toLowerCase();
-  // Strict active count to match Stripe "active subscription" expectation.
-  return status === "active";
+  if (status !== "active") return false;
+  // Guard against stale/dead records that can occasionally remain in list responses.
+  if (sub?.ended_at || sub?.canceled_at) return false;
+  if (!Array.isArray(sub?.items?.data) || sub.items.data.length === 0) return false;
+  return true;
 }
 
 function stripeSubscriptionCustomerId(sub) {
@@ -2778,31 +2781,108 @@ function stripeSubscriptionCustomerId(sub) {
  * Source-of-truth live subscription set from Stripe.
  * We list account subscriptions and filter to "active-like" statuses.
  */
-async function listLiveSubscriptionsForMrr(stripeClient) {
-  const allSubs = await stripeClient.subscriptions
-    .list({
-      status: "all",
-      limit: 100,
-      expand: ["data.items.data.price"],
-    })
-    .autoPagingToArray({ limit: 10_000 });
-  return (allSubs || []).filter(isLiveActiveStripeSubscription);
+function getStripeRevenueClients() {
+  const entries = [
+    { account: "new", client: getStripeForAccount("new") },
+    { account: "legacy", client: getStripeForAccount("legacy") },
+  ];
+  const unique = [];
+  const seen = new Set();
+  for (const entry of entries) {
+    if (!entry.client || seen.has(entry.client)) continue;
+    seen.add(entry.client);
+    unique.push(entry);
+  }
+  return unique;
+}
+
+function mrrMonthlyValueFromSubscriptionItem(item) {
+  const price = item?.price;
+  const recurring = price?.recurring;
+  if (!price || !recurring) return 0;
+  if (recurring.usage_type === "metered") return 0;
+  const unitAmount = Number(price.unit_amount || 0);
+  if (!Number.isFinite(unitAmount) || unitAmount <= 0) return 0;
+  const qty = Math.max(1, Number(item?.quantity || 1));
+  const interval = String(recurring.interval || "month").toLowerCase();
+  const intervalCount = Math.max(1, Number(recurring.interval_count || 1));
+  const amount = unitAmount * qty;
+  switch (interval) {
+    case "month":
+      return Math.round(amount / intervalCount);
+    case "year":
+      return Math.round(amount / (12 * intervalCount));
+    case "week":
+      return Math.round((amount * 52) / (12 * intervalCount));
+    case "day":
+      return Math.round((amount * 365) / (12 * intervalCount));
+    default:
+      return amount;
+  }
+}
+
+async function listLiveSubscriptionsForMrr(stripeClients) {
+  const byId = new Map();
+  await Promise.all(
+    stripeClients.map(async ({ account, client }) => {
+      const allSubs = await client.subscriptions
+        .list({
+          status: "all",
+          limit: 100,
+          expand: ["data.items.data.price"],
+        })
+        .autoPagingToArray({ limit: 10_000 });
+      for (const sub of allSubs || []) {
+        if (!isLiveActiveStripeSubscription(sub)) continue;
+        if (!byId.has(sub.id)) byId.set(sub.id, { ...sub, _stripeAccount: account });
+      }
+    }),
+  );
+  return [...byId.values()];
+}
+
+async function listChargesInPeriod(stripeClients, periodStart, periodEnd) {
+  const byId = new Map();
+  await Promise.all(
+    stripeClients.map(async ({ account, client }) => {
+      const charges = await client.charges
+        .list({
+          limit: 100,
+          created: { gte: periodStart, lte: periodEnd },
+        })
+        .autoPagingToArray({ limit: 2_000 });
+      for (const charge of charges || []) {
+        if (!byId.has(charge.id)) byId.set(charge.id, { ...charge, _stripeAccount: account });
+      }
+    }),
+  );
+  return [...byId.values()];
 }
 
 /** Churn in date range — Search API filters by canceled_at (no full-table scan). */
-async function countChurnCanceledInPeriod(stripeClient, periodStart, periodEnd) {
-  try {
-    const list = await stripeClient.subscriptions
-      .search({
-        query: `status:'canceled' AND canceled_at>=${periodStart} AND canceled_at<=${periodEnd}`,
-        limit: 100,
-      })
-      .autoPagingToArray({ limit: 2_000 });
-    return list.length;
-  } catch (e) {
-    console.warn("Stripe subscriptions.search (churn) unavailable or failed:", e.message);
-    return 0;
-  }
+async function countChurnCanceledInPeriod(stripeClients, periodStart, periodEnd) {
+  const canceledSubIds = new Set();
+  await Promise.all(
+    stripeClients.map(async ({ account, client }) => {
+      try {
+        const list = await client.subscriptions
+          .search({
+            query: `status:'canceled' AND canceled_at>=${periodStart} AND canceled_at<=${periodEnd}`,
+            limit: 100,
+          })
+          .autoPagingToArray({ limit: 2_000 });
+        for (const sub of list || []) {
+          if (sub?.id) canceledSubIds.add(`${account}:${sub.id}`);
+        }
+      } catch (e) {
+        console.warn(
+          `Stripe subscriptions.search (churn) unavailable or failed for ${account}:`,
+          e.message,
+        );
+      }
+    }),
+  );
+  return canceledSubIds.size;
 }
 
 /**
@@ -2810,7 +2890,8 @@ async function countChurnCanceledInPeriod(stripeClient, periodStart, periodEnd) 
  * GET /api/admin/stripe-revenue?period=week
  */
 export async function getStripeRevenue(req, res) {
-  if (!stripe) {
+  const stripeClients = getStripeRevenueClients();
+  if (!stripeClients.length) {
     return res.status(503).json({
       success: false,
       message: "Stripe not configured",
@@ -2853,18 +2934,19 @@ export async function getStripeRevenue(req, res) {
 
     // No global Promise.race — Stripe paging can exceed 90s on larger accounts.
     const [allCharges, allActiveSubs, churnInPeriod] = await Promise.all([
-      stripe.charges
-        .list({
-          limit: 100,
-          created: { gte: periodStart, lte: periodEnd },
-        })
-        .autoPagingToArray({ limit: 2_000 }),
-      listLiveSubscriptionsForMrr(stripe),
-      countChurnCanceledInPeriod(stripe, periodStart, periodEnd),
+      listChargesInPeriod(stripeClients, periodStart, periodEnd),
+      listLiveSubscriptionsForMrr(stripeClients),
+      countChurnCanceledInPeriod(stripeClients, periodStart, periodEnd),
     ]);
     const liveActiveSubscriptionsCount = allActiveSubs.length;
     const liveActiveCustomersCount = new Set(
-      allActiveSubs.map(stripeSubscriptionCustomerId).filter(Boolean),
+      allActiveSubs
+        .map((sub) => {
+          const customerId = stripeSubscriptionCustomerId(sub);
+          if (!customerId) return null;
+          return `${sub._stripeAccount || "unknown"}:${customerId}`;
+        })
+        .filter(Boolean),
     ).size;
 
     // ── Tally charges ────────────────────────────────────────────────────────
@@ -2887,13 +2969,11 @@ export async function getStripeRevenue(req, res) {
       for (const item of (sub.items?.data || [])) {
         const price = item.price;
         if (!price) continue;
-        const amountCents  = price.unit_amount || 0;
-        const monthlyValue = price.recurring?.interval === "year"
-          ? Math.round(amountCents / 12)
-          : amountCents;
+        const monthlyValue = mrrMonthlyValueFromSubscriptionItem(item);
+        if (monthlyValue <= 0) continue;
         mrrCents += monthlyValue;
 
-        const label = price.nickname || price.id;
+        const label = price.nickname || price.id || "unknown_plan";
         planBreakdown[label] = planBreakdown[label] || { count: 0, mrrCents: 0 };
         planBreakdown[label].count    += 1;
         planBreakdown[label].mrrCents += monthlyValue;
@@ -2919,7 +2999,8 @@ export async function getStripeRevenue(req, res) {
         arrCents: mrrCents * 12,
         churnInPeriod,
         plans: planList,
-        source: "stripe_live",
+        source: "stripe_live_dual_account",
+        accounts: stripeClients.map((entry) => entry.account),
         dbActiveUsers: dbActiveSubUsersCount,
       },
     };
