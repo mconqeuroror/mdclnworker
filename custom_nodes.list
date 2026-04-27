@@ -14,11 +14,14 @@ civitai/civitai_comfy_nodes
 kijai/ComfyUI-KJNodes
 ltdrdata/ComfyUI-Manager
 glifxyz/ComfyUI-GlifNodes
+PozzettiAndrea/ComfyUI-DepthAnythingV3
 Suzie1/ComfyUI_Comfyroll_CustomNodes
 chrisgoringe/cg-use-everywhere
 alexopus/ComfyUI-Image-Saver
+giriss/comfy-image-saver
 rgthree/rgthree-comfy
 WASasquatch/was-node-suite-comfyui
 bollerdominik/ComfyUI-load-lora-from-url
+a-und-b/ComfyUI_LoRA_from_URL
 yolain/ComfyUI-Easy-Use
 
