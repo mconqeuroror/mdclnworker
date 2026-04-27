@@ -156,9 +156,6 @@ let pricingCache = null;
 let pricingCacheAt = 0;
 const MOTION_X_LEGACY_DEFAULT = 30;
 const MOTION_X_MIGRATED_DEFAULT = 6.5;
-// If a pricing row was last updated before this migration and still has motionXPerSec=30,
-// treat it as legacy default and auto-migrate to 6.5.
-const MOTION_X_MIGRATION_CUTOFF = Date.parse("2026-04-27T14:45:00.000Z");
 
 function sanitizePricingObject(input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) return {};
@@ -240,12 +237,9 @@ export async function getGenerationPricing({ forceRefresh = false } = {}) {
   });
 
   let raw = row?.values || {};
-  if (row?.updatedAt && typeof raw === "object" && raw) {
-    const updatedAtMs = Number(new Date(row.updatedAt).getTime());
+  if (typeof raw === "object" && raw) {
     const currentMotionX = Number(raw.motionXPerSec);
     if (
-      Number.isFinite(updatedAtMs) &&
-      updatedAtMs < MOTION_X_MIGRATION_CUTOFF &&
       Number.isFinite(currentMotionX) &&
       currentMotionX === MOTION_X_LEGACY_DEFAULT
     ) {
