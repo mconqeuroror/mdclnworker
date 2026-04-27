@@ -35,7 +35,6 @@ import {
 } from "lucide-react";
 import {
   NSFW_MOTION_RUNPOD_ENGINE,
-  NSFW_MOTION_CREDITS_PER_SEC,
   MOTION_X_CREATE_LABEL,
   normalizeNsfwMotionEngine,
 } from "../constants/nsfwMotionControl.js";
@@ -46,6 +45,7 @@ const VIDEO_RECREATE_ULTRA_PER_SEC = 25; // kling-3.0 motion-control 1080p
 const VIDEO_RECREATE_WAN_720_PER_SEC = 12.5;
 const VIDEO_RECREATE_WAN_580_PER_SEC = 9.5;
 const VIDEO_RECREATE_WAN_480_PER_SEC = 6;
+const DEFAULT_MOTION_X_PER_SEC = 30;
 
 const LOCALE_STORAGE_KEY = "app_locale";
 const GENERATE_COPY = {
@@ -1104,6 +1104,9 @@ function ImageGeneration() {
   const imageFaceSwapCost = Number.isFinite(generationPricing.imageFaceSwap)
     ? generationPricing.imageFaceSwap
     : 10;
+  const motionXPerSec = Number.isFinite(Number(generationPricing.motionXPerSec))
+    ? Number(generationPricing.motionXPerSec)
+    : DEFAULT_MOTION_X_PER_SEC;
   const enhancePromptCasualCost = Number.isFinite(generationPricing.enhancePromptDefault)
     ? generationPricing.enhancePromptDefault
     : 10;
@@ -2204,6 +2207,22 @@ function VideoGeneration() {
   const [recreateEngine, setRecreateEngine] = useState(NSFW_MOTION_RUNPOD_ENGINE);
   const [wanResolution, setWanResolution] = useState("580p");
 
+  const readLatestCredits = useCallback(() => {
+    const latestUser = useAuthStore.getState().user;
+    const available = Number(latestUser?.credits ?? 0);
+    return Number.isFinite(available) ? available : 0;
+  }, []);
+
+  const ensureFreshCreditsForVideo = useCallback(
+    async (requiredCredits) => {
+      const initial = readLatestCredits();
+      if (initial >= requiredCredits) return initial;
+      await refreshUserCredits();
+      return readLatestCredits();
+    },
+    [readLatestCredits, refreshUserCredits],
+  );
+
   const formatMotionDurationLabel = (sec) => {
     if (!Number.isFinite(sec) || sec <= 0) return "0";
     const t = Math.round(sec * 10) / 10;
@@ -2621,9 +2640,10 @@ function VideoGeneration() {
     // Calculate credits based on video duration (10 credits per second)
     const creditsNeeded = Math.ceil(videoDuration * videoFaceSwapPerSec);
 
-    if (credits < creditsNeeded) {
+    const availableCredits = await ensureFreshCreditsForVideo(creditsNeeded);
+    if (availableCredits < creditsNeeded) {
       toast.error(
-        `Need ${creditsNeeded} 🪙 for ${videoDuration}s video. You have ${credits} 🪙.`,
+        `Need ${creditsNeeded} 🪙 for ${videoDuration}s video. You have ${availableCredits} 🪙.`,
       );
       return;
     }
@@ -2701,8 +2721,9 @@ function VideoGeneration() {
     const estimatedDuration = Math.ceil(talkingHeadText.length / 12.5);
     const creditsNeeded = Math.max(talkingHeadMinCost, Math.ceil(estimatedDuration * talkingHeadPerSec));
 
-    if (credits < creditsNeeded) {
-      toast.error(`Need ~${creditsNeeded} 🪙. You have ${credits} 🪙.`);
+    const availableCredits = await ensureFreshCreditsForVideo(creditsNeeded);
+    if (availableCredits < creditsNeeded) {
+      toast.error(`Need ~${creditsNeeded} 🪙. You have ${availableCredits} 🪙.`);
       setShowCreditsModal(true);
       return;
     }
@@ -2797,11 +2818,12 @@ function VideoGeneration() {
         return;
       }
       const effectiveDur = Math.max(1, Math.min(30, Math.round(Number(referenceVideoDuration) || 0)));
-      const creditsNeeded = effectiveDur * NSFW_MOTION_CREDITS_PER_SEC;
+      const creditsNeeded = Math.ceil(effectiveDur * motionXPerSec);
       const durLabel = formatMotionDurationLabel(referenceVideoDuration);
-      if (credits < creditsNeeded) {
+      const availableCredits = await ensureFreshCreditsForVideo(creditsNeeded);
+      if (availableCredits < creditsNeeded) {
         toast.error(
-          `Need ${creditsNeeded} 🪙 for ${durLabel}s video. You have ${credits} 🪙.`,
+          `Need ${creditsNeeded} 🪙 for ${durLabel}s video. You have ${availableCredits} 🪙.`,
         );
         return;
       }
@@ -2888,9 +2910,10 @@ function VideoGeneration() {
       : (recreateUltraMode ? recreateUltraPerSec : recreateClassicPerSec);
     const creditsNeeded = Math.ceil(referenceVideoDuration * perSec);
     const durLabel = formatMotionDurationLabel(referenceVideoDuration);
-    if (credits < creditsNeeded) {
+    const availableCredits = await ensureFreshCreditsForVideo(creditsNeeded);
+    if (availableCredits < creditsNeeded) {
       toast.error(
-        `Need ${creditsNeeded} 🪙 for ${durLabel}s video. You have ${credits} 🪙.`,
+        `Need ${creditsNeeded} 🪙 for ${durLabel}s video. You have ${availableCredits} 🪙.`,
       );
       return;
     }
@@ -2937,7 +2960,7 @@ function VideoGeneration() {
   const recreateCreditsPerSec = recreateEngine === "wan"
     ? (wanRecreatePerSecByResolution[wanResolution] ?? VIDEO_RECREATE_WAN_580_PER_SEC)
     : recreateEngine === NSFW_MOTION_RUNPOD_ENGINE
-      ? NSFW_MOTION_CREDITS_PER_SEC
+      ? motionXPerSec
       : (recreateUltraMode ? recreateUltraPerSec : recreateClassicPerSec);
 
   const motionXRoundedSec =
@@ -2947,7 +2970,7 @@ function VideoGeneration() {
   const recreateTotalCredits =
     referenceVideoDuration > 0
       ? (recreateEngine === NSFW_MOTION_RUNPOD_ENGINE
-        ? motionXRoundedSec * NSFW_MOTION_CREDITS_PER_SEC
+        ? Math.ceil(motionXRoundedSec * motionXPerSec)
         : Math.ceil(referenceVideoDuration * recreateCreditsPerSec))
       : 0;
 
@@ -3180,7 +3203,7 @@ function VideoGeneration() {
                 </span>
                 <span className="text-[9px] text-slate-500">
                   {recreateEngine === NSFW_MOTION_RUNPOD_ENGINE
-                    ? `${copy.videoRecreateEngineMotionX} · ${NSFW_MOTION_CREDITS_PER_SEC} 🪙/s · max 30s`
+                    ? `${copy.videoRecreateEngineMotionX} · ${motionXPerSec} 🪙/s · max 30s`
                     : recreateEngine === "wan"
                       ? `${copy.videoRecreateWanDesc} · ${wanResolution}`
                       : (recreateUltraMode ? copy.videoRecreateUltraDesc : copy.videoRecreateClassicDesc)}
@@ -3265,7 +3288,7 @@ function VideoGeneration() {
               {recreateEngine === NSFW_MOTION_RUNPOD_ENGINE ? (
                 <>
                   <span className="text-slate-200 font-medium">{copy.videoRecreateEngineMotionX}:</span>{" "}
-                  {NSFW_MOTION_CREDITS_PER_SEC} <Coins className="w-2.5 h-2.5 inline" />
+                  {motionXPerSec} <Coins className="w-2.5 h-2.5 inline" />
                   /sec (duration rounded to 1–30s, billed by second).
                 </>
               ) : (

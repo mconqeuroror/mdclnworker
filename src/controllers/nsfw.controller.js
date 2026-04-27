@@ -5276,8 +5276,7 @@ export async function extendNsfwVideo(req, res) {
 // NSFW Motion Control Video (RunningHub AI app + media upload)
 // =====================================================================
 
-/** Keep in sync with `NSFW_MOTION_CREDITS_PER_SEC` in client/src/constants/nsfwMotionControl.js */
-const MOTION_BASE_CREDITS_PER_SEC = 30; // 5s ≈ 150, 8s ≈ 240, 15s ≈ 450
+const DEFAULT_MOTION_X_CREDITS_PER_SEC = 30; // fallback if pricing row is missing
 
 /** Drop-in helpers shared with the WaveSpeed video flow. */
 function clampMotionDuration(input, fallback) {
@@ -5346,7 +5345,11 @@ export async function generateNsfwMotionVideo(req, res) {
 
     const dur = clampMotionDuration(duration, 5);
     const skip = Math.max(0, Math.min(60, Math.round(Number(skipSeconds) || 0)));
-    const creditsNeeded = dur * MOTION_BASE_CREDITS_PER_SEC;
+    const pricing = await getGenerationPricing();
+    const motionXPerSec = Number.isFinite(Number(pricing?.motionXPerSec))
+      ? Number(pricing.motionXPerSec)
+      : DEFAULT_MOTION_X_CREDITS_PER_SEC;
+    const creditsNeeded = Math.ceil(dur * motionXPerSec);
 
     const model = await prisma.savedModel.findUnique({ where: { id: modelId } });
     if (!model || model.userId !== userId) {
@@ -5380,7 +5383,7 @@ export async function generateNsfwMotionVideo(req, res) {
     if (totalCredits < creditsNeeded) {
       return res.status(403).json({
         success: false,
-        message: `Need ${creditsNeeded} credits for ${dur}s motion video (max 30s). You have ${totalCredits}.`,
+        message: `Need ${creditsNeeded} credits for ${dur}s motion video (max 30s at ${motionXPerSec} cr/s). You have ${totalCredits}.`,
       });
     }
 

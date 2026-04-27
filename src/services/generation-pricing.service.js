@@ -55,6 +55,8 @@ export const DEFAULT_GENERATION_PRICING = Object.freeze({
 
   /** Legacy; recreate classic tier uses videoRecreateMotionProPerSec */
   videoRecreateStdPerSec: 10,
+  /** Motion X / NSFW Motion Control (RunningHub) */
+  motionXPerSec: 30,
   /** kling-2.6/motion-control @ 1080p (default “classic” recreate) */
   videoRecreateMotionProPerSec: 18,
   videoRecreateUltraPerSec: 25,

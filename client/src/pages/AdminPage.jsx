@@ -236,6 +236,7 @@ const GENERATION_PRICING_GROUPS = [
   {
     title: 'Video',
     fields: [
+      { key: 'motionXPerSec', label: 'Motion X (NSFW Motion Control) — credits / sec' },
       { key: 'videoRecreateMotionProPerSec', label: 'Video recreate — classic (Motion Control 2.6 · 1080p) credits / sec' },
       { key: 'videoRecreateUltraPerSec', label: 'Video recreate — ultra (Motion Control Pro+ · 1080p) credits / sec' },
       { key: 'wan22AnimateMove480pPerSec', label: 'WAN animate-move recreate — 480p credits / sec' },
