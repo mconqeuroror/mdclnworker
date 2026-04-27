@@ -339,6 +339,106 @@ export function extractModelCloneXImages(runpodOutput) {
     }
   };
 
+  const normalizeImageValue = (value) => {
+    if (typeof value !== "string") return null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (trimmed.startsWith("data:image/")) {
+      const comma = trimmed.indexOf(",");
+      if (comma > -1) {
+        const b64 = trimmed.slice(comma + 1).trim();
+        return b64 || null;
+      }
+    }
+    if (/^https?:\/\//i.test(trimmed)) return trimmed;
+    if (trimmed.length > 100) {
+      const compact = trimmed.replace(/\s+/g, "");
+      if (/^[A-Za-z0-9+/=]+$/.test(compact)) return compact;
+    }
+    return null;
+  };
+
+  const uniq = (arr) => Array.from(new Set(arr.filter(Boolean)));
+
+  const asImageString = (img) => {
+    const parsed = parseJsonMaybe(img);
+    if (typeof parsed === "string") {
+      return normalizeImageValue(parsed);
+    }
+    if (!parsed || typeof parsed !== "object") return null;
+
+    const directKeys = [
+      "base64",
+      "data",
+      "image",
+      "url",
+      "imageUrl",
+      "image_url",
+      "outputUrl",
+      "output_url",
+      "src",
+      "uri",
+    ];
+    for (const key of directKeys) {
+      const raw = parsed?.[key];
+      if (typeof raw === "string") {
+        const normalized = normalizeImageValue(raw);
+        if (normalized) return normalized;
+      }
+    }
+
+    // Some payloads wrap the URL/base64 one level deeper.
+    for (const key of ["image", "data", "output"]) {
+      const nested = parsed?.[key];
+      if (nested && typeof nested === "object") {
+        for (const nestedKey of ["url", "imageUrl", "base64", "data", "src"]) {
+          const raw = nested?.[nestedKey];
+          if (typeof raw === "string") {
+            const normalized = normalizeImageValue(raw);
+            if (normalized) return normalized;
+          }
+        }
+      }
+    }
+
+    return null;
+  };
+
+  const collectDeepImageStrings = (input, maxDepth = 10) => {
+    const collected = [];
+    const seen = new Set();
+    const push = (value) => {
+      const normalized = normalizeImageValue(value);
+      if (!normalized || seen.has(normalized)) return;
+      seen.add(normalized);
+      collected.push(normalized);
+    };
+
+    const walk = (node, depth = 0) => {
+      if (depth > maxDepth || node == null) return;
+      const parsed = parseJsonMaybe(node);
+      if (typeof parsed === "string") {
+        push(parsed);
+        return;
+      }
+      if (Array.isArray(parsed)) {
+        for (const item of parsed) walk(item, depth + 1);
+        return;
+      }
+      if (typeof parsed !== "object") return;
+
+      const direct = asImageString(parsed);
+      if (direct) push(direct);
+
+      for (const value of Object.values(parsed)) {
+        walk(value, depth + 1);
+      }
+    };
+
+    walk(input, 0);
+    return collected;
+  };
+
   let root = runpodOutput;
   if (root == null) return [];
   root = parseJsonMaybe(root);
@@ -346,7 +446,8 @@ export function extractModelCloneXImages(runpodOutput) {
   // Double-wrap: e.g. { output: { output: { images: [...] } } } (some RunPod webhooks)
   let out = parseJsonMaybe(root?.output ?? root);
   if (Array.isArray(out) && out.length > 0) {
-    out = parseJsonMaybe(out[0]);
+    const extractedArray = uniq(out.map(asImageString));
+    if (extractedArray.length > 0) return extractedArray;
   }
   if (out && typeof out === "object" && out.output && !out.images) {
     out = parseJsonMaybe(out.output);
@@ -356,18 +457,10 @@ export function extractModelCloneXImages(runpodOutput) {
   }
   if (!out || typeof out !== "object") return [];
 
-  const asImageString = (img) => {
-    if (typeof img === "string") return img;
-    if (img?.base64) return img.base64;
-    if (img?.data) return img.data;
-    if (img?.image) return img.image;
-    if (img?.url) return img.url;
-    return null;
-  };
-
   const images = out.images;
   if (Array.isArray(images) && images.length > 0) {
-    return images.map(asImageString).filter(Boolean);
+    const extracted = uniq(images.map(asImageString));
+    if (extracted.length > 0) return extracted;
   }
 
   // Compatibility fallback: some workers return ComfyUI node outputs
@@ -386,23 +479,28 @@ export function extractModelCloneXImages(runpodOutput) {
     for (const nodeId of orderedNodeIds) {
       const nodeImages = nodeOutputs?.[nodeId]?.images;
       if (!Array.isArray(nodeImages) || nodeImages.length === 0) continue;
-      const extracted = nodeImages.map(asImageString).filter(Boolean);
+      const extracted = uniq(nodeImages.map(asImageString));
       if (extracted.length > 0) return extracted;
     }
   }
 
-  if (typeof out.base64 === "string" && out.base64.length > 100) return [out.base64];
-  if (typeof out.image === "string" && out.image.length > 100) return [out.image];
-  if (typeof out.data === "string" && out.data.length > 100) return [out.data];
+  {
+    const direct = asImageString(out);
+    if (direct) return [direct];
+  }
 
   // Legacy wrapper variants occasionally place output under result/output_nodes.
   const node289 = out?.result?.output_nodes?.["289"]?.images;
   if (Array.isArray(node289) && node289.length > 0) {
-    const extracted = node289.map(asImageString).filter(Boolean);
+    const extracted = uniq(node289.map(asImageString));
     if (extracted.length > 0) return extracted;
   }
 
-  if (typeof out === "string" && out.length > 100) return [out];
+  const deepOut = collectDeepImageStrings(out);
+  if (deepOut.length > 0) return deepOut;
+
+  const deepRoot = collectDeepImageStrings(root);
+  if (deepRoot.length > 0) return deepRoot;
 
   return [];
 }
