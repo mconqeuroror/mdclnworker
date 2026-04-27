@@ -1175,29 +1175,36 @@ class GenerationPollerService {
           continue;
         }
 
-        let imageData = null;
+        let imagePayloads = [];
         if (gen.type === "upscale") {
-          imageData = extractUpscalerImage(rp);
+          const one = extractUpscalerImage(rp);
+          imagePayloads = one ? [one] : [];
         } else {
           const imgs = extractModelCloneXImages(rp);
-          imageData = imgs[0] || null;
+          imagePayloads = Array.isArray(imgs) ? imgs.filter(Boolean) : [];
         }
 
-        if (!imageData) {
+        if (!imagePayloads.length) {
           await this.markFailed(gen.id, "RunPod completed but returned no image", { refund: true });
           continue;
         }
 
-        let outputUrl = imageData;
-        if (!imageData.startsWith("http")) {
-          const buf = Buffer.from(imageData, "base64");
-          outputUrl = await uploadBufferToBlobOrR2(
-            buf,
-            gen.type === "upscale" ? "upscale" : gen.type === "nsfw" ? "nsfw" : "modelclone-x",
-            "png",
-            "image/png",
-          );
+        const outputUrls = [];
+        for (const imageData of imagePayloads) {
+          if (imageData.startsWith("http")) {
+            outputUrls.push(imageData);
+          } else {
+            const buf = Buffer.from(imageData, "base64");
+            const uploaded = await uploadBufferToBlobOrR2(
+              buf,
+              gen.type === "upscale" ? "upscale" : gen.type === "nsfw" ? "nsfw" : "modelclone-x",
+              "png",
+              "image/png",
+            );
+            outputUrls.push(uploaded);
+          }
         }
+        const outputUrl = outputUrls.length === 1 ? outputUrls[0] : JSON.stringify(outputUrls);
 
         await prisma.generation.update({
           where: { id: gen.id },

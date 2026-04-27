@@ -420,15 +420,16 @@ async function handleRunpodCallback(req, res) {
       if (st === "COMPLETED") {
         // Extract image — upscaler has dedicated format, all other RunPod image flows
         // (modelclone-x, soulx, nsfw) use the same extraction logic.
-        let imageData = null;
+        let imagePayloads = [];
         if (imageGen.type === "upscale") {
-          imageData = extractUpscalerImage(rawOut);
+          const one = extractUpscalerImage(rawOut);
+          imagePayloads = one ? [one] : [];
         } else {
           const imgs = extractModelCloneXImages(rawOut);
-          imageData = imgs[0] || null;
+          imagePayloads = Array.isArray(imgs) ? imgs.filter(Boolean) : [];
         }
 
-        if (!imageData) {
+        if (!imagePayloads.length) {
           const msg = "RunPod completed but returned no image";
           console.warn(`[RunPod webhook] ${imageGen.type} COMPLETED but no image in output for ${jobId}`);
           await refundGeneration(imageGen.id).catch(() => {});
@@ -439,18 +440,22 @@ async function handleRunpodCallback(req, res) {
           return res.status(200).json({ ok: true, type: imageGen.type, failed: true, reason: "no_image" });
         }
 
-        let outputUrl;
-        try {
-          if (imageData.startsWith("http")) {
-            outputUrl = imageData;
-          } else {
-            const buf = Buffer.from(imageData, "base64");
-            outputUrl = await uploadBufferToBlobOrR2(buf, imageGen.type, "png", "image/png");
+        const outputUrls = [];
+        for (const imageData of imagePayloads) {
+          try {
+            if (imageData.startsWith("http")) {
+              outputUrls.push(imageData);
+            } else {
+              const buf = Buffer.from(imageData, "base64");
+              const uploaded = await uploadBufferToBlobOrR2(buf, imageGen.type, "png", "image/png");
+              outputUrls.push(uploaded);
+            }
+          } catch (uploadErr) {
+            console.error(`[RunPod webhook] ${imageGen.type} upload error:`, uploadErr.message);
+            outputUrls.push(`data:image/png;base64,${imageData}`);
           }
-        } catch (uploadErr) {
-          console.error(`[RunPod webhook] ${imageGen.type} upload error:`, uploadErr.message);
-          outputUrl = `data:image/png;base64,${imageData}`;
         }
+        const outputUrl = outputUrls.length === 1 ? outputUrls[0] : JSON.stringify(outputUrls);
 
         await prisma.generation.update({
           where: { id: imageGen.id },

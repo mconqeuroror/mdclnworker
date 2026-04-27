@@ -3634,8 +3634,8 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
     return res.status(ctx.status).json({ success: false, error: ctx.error });
   }
   const { useCharacter, modelForPrompt, loraForPrompt, loraUrl, triggerWord } = ctx;
-
-  const qty = quantity === 2 ? 2 : 1;
+  const requestedQty = Math.max(1, Math.min(4, Math.round(Number(quantity) || 1)));
+  const qty = wantsImg2Img ? requestedQty : (requestedQty >= 2 ? 2 : 1);
 
   if (wantsImg2Img) {
     if (!useCharacter) {
@@ -3648,12 +3648,6 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
       return res.status(400).json({
         success: false,
         error: "ModelClone-X img2img requires a character with a trained LoRA URL.",
-      });
-    }
-    if (qty !== 1) {
-      return res.status(400).json({
-        success: false,
-        error: "ModelClone-X img2img supports quantity 1 only.",
       });
     }
   }
@@ -3673,21 +3667,34 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
   await checkAndExpireCredits(userId);
 
   // Determine credit cost
-  const baseCost =
-    qty === 2
-      ? (useCharacter ? Number(pricing.modelcloneXWithModel2 ?? 25) : Number(pricing.modelcloneXNoModel2 ?? 15))
-      : (useCharacter ? Number(pricing.modelcloneXWithModel1 ?? 15) : Number(pricing.modelcloneXNoModel1 ?? 10));
-  const extraStepsPer10 = Math.max(0, Number(pricing.modelcloneXExtraStepsPer10 ?? 5));
-  const includedStepsForPricing = useCharacter ? 50 : 20;
-  const extraStepBlocks = safeSteps > includedStepsForPricing
-    ? Math.ceil((safeSteps - includedStepsForPricing) / 10)
-    : 0;
-  const extraCostPerImage = extraStepBlocks * extraStepsPer10;
-  const costEachBase = qty === 2
-    ? [Math.ceil(baseCost / 2), Math.floor(baseCost / 2)]
-    : [baseCost];
-  const costEach = costEachBase.map((c) => c + extraCostPerImage);
-  const costPer = costEach.reduce((sum, c) => sum + c, 0);
+  let includedStepsForPricing = useCharacter ? 50 : 20;
+  let extraStepBlocks = 0;
+  let extraCostPerImage = 0;
+  let costEach = [];
+  let costPer = 0;
+  if (wantsImg2Img) {
+    // i2i pricing is per generated image; workflow quantity maps to batch size.
+    const perImage = Number(pricing.modelcloneXWithModel1 ?? 15);
+    costEach = [Math.max(0, perImage * qty)];
+    costPer = costEach[0];
+    includedStepsForPricing = 0;
+  } else {
+    const baseCost =
+      qty === 2
+        ? (useCharacter ? Number(pricing.modelcloneXWithModel2 ?? 25) : Number(pricing.modelcloneXNoModel2 ?? 15))
+        : (useCharacter ? Number(pricing.modelcloneXWithModel1 ?? 15) : Number(pricing.modelcloneXNoModel1 ?? 10));
+    const extraStepsPer10 = Math.max(0, Number(pricing.modelcloneXExtraStepsPer10 ?? 5));
+    includedStepsForPricing = useCharacter ? 50 : 20;
+    extraStepBlocks = safeSteps > includedStepsForPricing
+      ? Math.ceil((safeSteps - includedStepsForPricing) / 10)
+      : 0;
+    extraCostPerImage = extraStepBlocks * extraStepsPer10;
+    const costEachBase = qty === 2
+      ? [Math.ceil(baseCost / 2), Math.floor(baseCost / 2)]
+      : [baseCost];
+    costEach = costEachBase.map((c) => c + extraCostPerImage);
+    costPer = costEach.reduce((sum, c) => sum + c, 0);
+  }
 
   let inputPrompt = userText;
   let optimizedPrompt = userText;
@@ -3731,7 +3738,7 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
   }
 
   const generationIds = [];
-  const numJobs = qty === 2 ? 2 : 1;
+  const numJobs = wantsImg2Img ? 1 : (qty === 2 ? 2 : 1);
 
   // For qty=2, submit two separate single-image jobs
   for (let i = 0; i < numJobs; i++) {
@@ -3765,6 +3772,7 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
           prompt: optimizedPrompt,
           loraUrl,
           loraStrength: safeLoraStrength,
+          batchSize: qty,
           denoise,
           seed: clientSeed != null ? Number(clientSeed) : undefined,
           steps: safeSteps,
@@ -3806,6 +3814,7 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
             modelcloneXImg2Img: wantsImg2Img,
             ...(wantsImg2Img
               ? {
+                  batchSize: qty,
                   img2imgDenoise: Math.max(0, Math.min(1, Number(img2imgDenoise) || 0.6)),
                   seed: img2imgSeedStored,
                 }
@@ -3859,7 +3868,27 @@ router.get("/modelclone-x/status/:generationId", authMiddleware, async (req, res
     }
 
     if (gen.status === "completed") {
-      return res.json({ success: true, status: "completed", imageUrl: gen.outputUrl });
+      let imageUrls = [];
+      if (typeof gen.outputUrl === "string" && gen.outputUrl.trim()) {
+        const raw = gen.outputUrl.trim();
+        if (raw.startsWith("[")) {
+          try {
+            const arr = JSON.parse(raw);
+            if (Array.isArray(arr)) {
+              imageUrls = arr.map((u) => String(u || "").trim()).filter(Boolean);
+            }
+          } catch {
+            imageUrls = [];
+          }
+        }
+        if (!imageUrls.length) imageUrls = [raw];
+      }
+      return res.json({
+        success: true,
+        status: "completed",
+        imageUrl: imageUrls[0] || null,
+        imageUrls,
+      });
     }
     if (gen.status === "failed") {
       return res.json({ success: true, status: "failed", error: gen.errorMessage });

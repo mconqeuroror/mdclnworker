@@ -995,12 +995,6 @@ function GenerateTab({ isDark, copy }) {
   const [loraStrength, setLoraStrength] = useState(0.8);
   const [refImageBase64, setRefImageBase64] = useState(""); // raw base64, no data: prefix
   const [refImagePreview, setRefImagePreview] = useState("");
-  const [imageExtraNotes, setImageExtraNotes] = useState("");
-  const [builtPrompt, setBuiltPrompt] = useState("");
-  const [imagePromptReady, setImagePromptReady] = useState(false);
-  const [isBuildingPrompt, setIsBuildingPrompt] = useState(false);
-  /** Admin-only: send reference image to RunPod Z-Image img2img (server enforces role). */
-  const [adminRunpodImg2Img, setAdminRunpodImg2Img] = useState(false);
   const refFileInputRef = useRef(null);
   const [submitInFlight, setSubmitInFlight] = useState(0);
   const [results, setResults] = useState([]); // [{generationId, imageUrl, status}]
@@ -1012,12 +1006,16 @@ function GenerateTab({ isDark, copy }) {
   const allModels = Array.isArray(models) ? models : [];
 
   const credits = (user?.credits ?? 0) + (user?.bonusCredits ?? 0);
-  const baseCost = qty === 2
-    ? (mode === "character" ? pricing.withModel2 : pricing.noModel2)
-    : (mode === "character" ? pricing.withModel1 : pricing.noModel1);
-  const includedStepsForPricing = getIncludedStepsForMode(mode, limits);
-  const extraBlocks = steps > includedStepsForPricing ? Math.ceil((steps - includedStepsForPricing) / 10) : 0;
-  const extraCost = extraBlocks * pricing.extraStepsPer10 * qty;
+  const baseCost = genMode === "img"
+    ? pricing.withModel1 * qty
+    : (qty === 2
+      ? (mode === "character" ? pricing.withModel2 : pricing.noModel2)
+      : (mode === "character" ? pricing.withModel1 : pricing.noModel1));
+  const includedStepsForPricing = genMode === "img" ? 0 : getIncludedStepsForMode(mode, limits);
+  const extraBlocks = genMode === "img"
+    ? 0
+    : (steps > includedStepsForPricing ? Math.ceil((steps - includedStepsForPricing) / 10) : 0);
+  const extraCost = genMode === "img" ? 0 : (extraBlocks * pricing.extraStepsPer10 * qty);
   const cost = baseCost + extraCost;
   const hasEnough = credits >= cost;
 
@@ -1061,12 +1059,15 @@ function GenerateTab({ isDark, copy }) {
       setGenMode("txt");
       setRefImageBase64("");
       setRefImagePreview("");
-      setImageExtraNotes("");
-      setBuiltPrompt("");
-      setImagePromptReady(false);
-      setAdminRunpodImg2Img(false);
+      setQty(1);
     }
   }, [mode, genMode]);
+
+  useEffect(() => {
+    if (genMode === "txt" && qty > 2) {
+      setQty(2);
+    }
+  }, [genMode, qty]);
 
   // Fetch characters when model changes
   useEffect(() => {
@@ -1096,10 +1097,21 @@ function GenerateTab({ isDark, copy }) {
         const res = await api.get(`modelclone-x/status/${genId}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-        const { status, imageUrl, error } = res.data;
-        if (status === "completed" && imageUrl) {
+        const { status, imageUrl, imageUrls, error } = res.data;
+        if (status === "completed" && (imageUrl || (Array.isArray(imageUrls) && imageUrls.length))) {
           stopPoll(genId);
-          setResults((prev) => prev.map((r) => r.generationId === genId ? { ...r, status: "done", imageUrl } : r));
+          const urls = Array.isArray(imageUrls) && imageUrls.length
+            ? imageUrls
+            : (imageUrl ? [imageUrl] : []);
+          setResults((prev) => {
+            const next = prev.filter((r) => r.generationId !== genId);
+            const expanded = urls.map((url, idx) => ({
+              generationId: idx === 0 ? genId : `${genId}:${idx}`,
+              status: "done",
+              imageUrl: url,
+            }));
+            return [...expanded, ...next];
+          });
         } else if (status === "failed") {
           stopPoll(genId);
           setResults((prev) => prev.map((r) => r.generationId === genId ? { ...r, status: "failed", error } : r));
@@ -1122,59 +1134,6 @@ function GenerateTab({ isDark, copy }) {
     Object.keys(pollRefs.current).forEach(stopPoll);
   }, []);
 
-  const resetImagePromptFlow = useCallback(() => {
-    setImageExtraNotes("");
-    setBuiltPrompt("");
-    setImagePromptReady(false);
-    setAdminRunpodImg2Img(false);
-  }, []);
-
-  const handleBuildPromptFromImage = async () => {
-    if (mode === "character" && !selectedModelId) { toast.error("Select a model"); return; }
-    if (mode === "character" && !selectedCharacterId) { toast.error("Select a character identity"); return; }
-    if (!refImageBase64) { toast.error(copy.buildNeedImage); return; }
-    if (mcxServerEnv && !mcxServerEnv.fromImageEnabled) {
-      toast.error(copy.serverPhotoPromptMissing);
-      return;
-    }
-    setIsBuildingPrompt(true);
-    setImagePromptReady(false);
-    try {
-      const token = localStorage.getItem("token");
-      let b64 = refImageBase64;
-      if (refImagePreview) {
-        try {
-          b64 = await dataUrlToDownscaledJpegBase64(refImagePreview);
-        } catch (e) {
-          console.warn("[ModelCloneX] downscale failed, using raw file:", e?.message);
-        }
-      }
-      const { data } = await api.post(
-        "modelclone-x/prompt-from-image",
-        {
-          prompt: imageExtraNotes.trim(),
-          modelId: mode === "character" ? selectedModelId : null,
-          characterLoraId: mode === "character" ? selectedCharacterId : null,
-          inputImageBase64: b64,
-        },
-        {
-          headers: { Authorization: `Bearer ${token}` },
-          timeout: 120_000,
-        },
-      );
-      if (!data?.success || typeof data.optimizedPrompt !== "string") {
-        throw new Error(data?.error || "Build failed");
-      }
-      setBuiltPrompt(data.optimizedPrompt);
-      setImagePromptReady(true);
-      toast.success("Prompt ready. Review or edit, then tap Generate.");
-    } catch (err) {
-      toast.error(formatApiError(err, "Could not build prompt from image"));
-    } finally {
-      setIsBuildingPrompt(false);
-    }
-  };
-
   const handleGenerate = async () => {
     if (mode === "character" && !selectedModelId) { toast.error("Select a model"); return; }
     if (mode === "character" && !selectedCharacterId) { toast.error("Select a character identity"); return; }
@@ -1182,6 +1141,10 @@ function GenerateTab({ isDark, copy }) {
     if (genMode === "img") {
       if (mode !== "character") { toast.error(copy.adminRunpodImg2ImgNeedCharacter); return; }
       if (!refImageBase64) { toast.error(copy.buildNeedImage); return; }
+      if (mcxServerEnv && !mcxServerEnv.fromImageEnabled) {
+        toast.error(copy.serverPhotoPromptMissing);
+        return;
+      }
     }
     if (mcxServerEnv && !mcxServerEnv.runpodForModelCloneX) {
       toast.error(copy.serverRunpodMissing);
@@ -1193,16 +1156,20 @@ function GenerateTab({ isDark, copy }) {
     try {
       const token = localStorage.getItem("token");
       const body = {
-        prompt: genMode === "img" ? imageExtraNotes.trim() : prompt.trim(),
+        prompt: genMode === "img" ? "" : prompt.trim(),
         preOptimized: false,
         modelId: mode === "character" ? selectedModelId : null,
         characterLoraId: mode === "character" ? selectedCharacterId : null,
-        aspectRatio: aspect,
         quantity: qty,
-        steps,
-        cfg,
         loraStrength: mode === "character" ? loraStrength : undefined,
       };
+      if (genMode !== "img") {
+        Object.assign(body, {
+          aspectRatio: aspect,
+          steps,
+          cfg,
+        });
+      }
 
       if (genMode === "img" && mode === "character") {
         Object.assign(body, { modelcloneXImg2Img: true });
@@ -1384,9 +1351,9 @@ function GenerateTab({ isDark, copy }) {
                 if (id === "txt") {
                   setRefImageBase64("");
                   setRefImagePreview("");
-                  resetImagePromptFlow();
                 } else {
                   setPrompt("");
+                  setQty(1);
                 }
               }}
               active={genMode === id}
@@ -1421,7 +1388,6 @@ function GenerateTab({ isDark, copy }) {
                     if (!raw) return;
                     setRefImageBase64(raw);
                     setRefImagePreview(dataUrl);
-                    resetImagePromptFlow();
                   };
                   reader.readAsDataURL(f);
                 }}
@@ -1442,7 +1408,6 @@ function GenerateTab({ isDark, copy }) {
                   onClick={() => {
                     setRefImageBase64("");
                     setRefImagePreview("");
-                    resetImagePromptFlow();
                   }}
                   className={`text-xs ${isDark ? "text-rose-400" : "text-rose-600"}`}
                 >
@@ -1453,74 +1418,6 @@ function GenerateTab({ isDark, copy }) {
             {refImagePreview && (
               <div className="flex gap-2 items-start">
                 <img src={refImagePreview} alt="" className="h-20 w-auto max-w-full rounded-lg border object-contain border-white/10" />
-              </div>
-            )}
-            <div className="flex flex-col gap-1.5 pt-1 max-w-xl">
-              <span className={`text-xs font-medium ${isDark ? "text-slate-300" : "text-slate-700"}`}>{copy.additionalPrompt}</span>
-              <p className={`text-[11px] leading-relaxed ${isDark ? "text-slate-500" : "text-slate-600"}`}>{copy.additionalPromptHint}</p>
-              <textarea
-                rows={2}
-                value={imageExtraNotes}
-                onChange={(e) => {
-                  setImageExtraNotes(e.target.value);
-                }}
-                disabled={imagePromptReady}
-                className={`w-full px-3 py-2 rounded-xl text-sm border outline-none resize-none ${inputBase} ${imagePromptReady ? "opacity-60" : ""}`}
-                placeholder=""
-              />
-            </div>
-            <div className="flex flex-wrap items-center gap-2 pt-1">
-              <button
-                type="button"
-                onClick={() => void handleBuildPromptFromImage()}
-                disabled={
-                  !refImageBase64
-                  || isBuildingPrompt
-                  || (mode === "character" && (!selectedModelId || !selectedCharacterId))
-                }
-                className={`px-3 py-2 rounded-xl text-xs font-semibold border inline-flex items-center gap-1.5 transition-colors ${
-                  isDark
-                    ? "border-violet-500/50 text-violet-100 bg-violet-500/15 hover:bg-violet-500/20"
-                    : "border-violet-200 text-violet-800 bg-violet-50 hover:bg-violet-100"
-                } disabled:opacity-45 disabled:cursor-not-allowed`}
-              >
-                {isBuildingPrompt ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
-                {isBuildingPrompt ? copy.buildingPrompt : copy.buildPrompt}
-              </button>
-            </div>
-            {imagePromptReady && (
-              <div className="flex flex-col gap-1.5 pt-2 max-w-3xl w-full">
-                <span className={`text-xs font-medium ${isDark ? "text-emerald-300/90" : "text-emerald-800"}`}>{copy.builtPromptLabel}</span>
-                <textarea
-                  rows={12}
-                  value={builtPrompt}
-                  onChange={(e) => setBuiltPrompt(e.target.value)}
-                  className={`w-full min-h-[180px] px-3 py-2 rounded-xl text-sm border font-mono outline-none resize-y ${inputBase}`}
-                />
-                {user?.role === "admin" && mode === "character" && (
-                  <label
-                    className={`flex items-start gap-2.5 mt-2 cursor-pointer select-none text-xs ${
-                      isDark ? "text-slate-300" : "text-slate-700"
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      className="mt-0.5 rounded border-slate-400"
-                      checked={adminRunpodImg2Img}
-                      onChange={(e) => {
-                        const on = e.target.checked;
-                        setAdminRunpodImg2Img(on);
-                        if (on) setQty(1);
-                      }}
-                    />
-                    <span>
-                      <span className="font-semibold block">{copy.adminRunpodImg2Img}</span>
-                      <span className={`block mt-0.5 ${isDark ? "text-slate-500" : "text-slate-600"}`}>
-                        {copy.adminRunpodImg2ImgHint}
-                      </span>
-                    </span>
-                  </label>
-                )}
               </div>
             )}
           </div>
@@ -1624,47 +1521,41 @@ function GenerateTab({ isDark, copy }) {
         </div>
       )}
 
-      {/* Aspect ratio — same for text and "from image" (both use txt2img) */}
-      <div className={panel}>
-        <label className={labelBase}>{copy.aspectRatio}</label>
-        {genMode === "img" && !(user?.role === "admin" && adminRunpodImg2Img) && (
-          <p className={`text-[11px] mb-2 ${isDark ? "text-slate-500" : "text-slate-500"}`}>{copy.aspectNoteFromImage}</p>
-        )}
-        <div className="flex flex-wrap gap-2">
-          {ASPECT_OPTIONS.map((opt) => (
-            <ControlChip
-              key={opt.id}
-              onClick={() => {
-                setAspect(opt.id);
-              }}
-              active={aspect === opt.id}
-              isDark={isDark}
-            >
-              {opt.label}
-              <span className="ml-1 opacity-60">{opt.hint}</span>
-            </ControlChip>
-          ))}
+      {/* Aspect ratio is used only in text mode (img2img workflow derives size from input). */}
+      {genMode === "txt" && (
+        <div className={panel}>
+          <label className={labelBase}>{copy.aspectRatio}</label>
+          <div className="flex flex-wrap gap-2">
+            {ASPECT_OPTIONS.map((opt) => (
+              <ControlChip
+                key={opt.id}
+                onClick={() => {
+                  setAspect(opt.id);
+                }}
+                active={aspect === opt.id}
+                isDark={isDark}
+              >
+                {opt.label}
+                <span className="ml-1 opacity-60">{opt.hint}</span>
+              </ControlChip>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Quantity */}
       <div className={panel}>
         <label className={labelBase}>{copy.images}</label>
         <div className="flex gap-2">
-          {[1, 2].map((n) => (
+          {Array.from({ length: genMode === "img" ? 4 : 2 }, (_, i) => i + 1).map((n) => (
             <ControlChip
               key={n}
               onClick={() => {
-                if (n === 2 && genMode === "img") return;
                 setQty(n);
               }}
               active={qty === n}
               isDark={isDark}
-              className={`min-w-12 ${
-                n === 2 && genMode === "img"
-                  ? "opacity-40 pointer-events-none"
-                  : ""
-              }`}
+              className="min-w-12"
             >
               {n}
             </ControlChip>
@@ -1673,42 +1564,48 @@ function GenerateTab({ isDark, copy }) {
       </div>
 
       <div className={`rounded-xl border p-3 space-y-3 ${isDark ? "glass-card border-white/[0.08]" : "bg-slate-50/90 border border-slate-200/90"}`}>
-        <p className={`text-xs font-semibold ${isDark ? "text-slate-300" : "text-slate-700"}`}>{copy.advanced}</p>
-        <div className="grid sm:grid-cols-3 gap-3">
-          <label className="flex flex-col gap-1.5">
-            <span className={`text-[11px] font-medium ${isDark ? "text-slate-400" : "text-slate-600"}`}>{copy.steps}</span>
-            <input
-              type="range"
-              min={1}
-              max={limits.maxSteps}
-              step={1}
-              value={steps}
-              onChange={(e) =>
-                setSteps(
-                  Math.max(
-                    1,
-                    Math.min(
-                      limits.maxSteps,
-                      Number(e.target.value) || getDefaultStepsForMode(mode, limits),
-                    ),
-                  ),
-                )
-              }
-            />
-            <span className={`text-xs ${isDark ? "text-slate-300" : "text-slate-700"}`}>{steps}</span>
-          </label>
-          <label className="flex flex-col gap-1.5">
-            <span className={`text-[11px] font-medium ${isDark ? "text-slate-400" : "text-slate-600"}`}>{copy.cfg}</span>
-            <input
-              type="range"
-              min={limits.minCfg}
-              max={limits.maxCfg}
-              step={0.1}
-              value={cfg}
-              onChange={(e) => setCfg(Math.max(limits.minCfg, Math.min(limits.maxCfg, Number(e.target.value) || MODELCLONE_X_DEFAULT_CFG)))}
-            />
-            <span className={`text-xs ${isDark ? "text-slate-300" : "text-slate-700"}`}>{cfg.toFixed(1)}</span>
-          </label>
+        <p className={`text-xs font-semibold ${isDark ? "text-slate-300" : "text-slate-700"}`}>
+          {genMode === "img" ? copy.loraStrength : copy.advanced}
+        </p>
+        <div className={`grid gap-3 ${genMode === "txt" ? "sm:grid-cols-3" : "sm:grid-cols-1"}`}>
+          {genMode === "txt" && (
+            <>
+              <label className="flex flex-col gap-1.5">
+                <span className={`text-[11px] font-medium ${isDark ? "text-slate-400" : "text-slate-600"}`}>{copy.steps}</span>
+                <input
+                  type="range"
+                  min={1}
+                  max={limits.maxSteps}
+                  step={1}
+                  value={steps}
+                  onChange={(e) =>
+                    setSteps(
+                      Math.max(
+                        1,
+                        Math.min(
+                          limits.maxSteps,
+                          Number(e.target.value) || getDefaultStepsForMode(mode, limits),
+                        ),
+                      ),
+                    )
+                  }
+                />
+                <span className={`text-xs ${isDark ? "text-slate-300" : "text-slate-700"}`}>{steps}</span>
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className={`text-[11px] font-medium ${isDark ? "text-slate-400" : "text-slate-600"}`}>{copy.cfg}</span>
+                <input
+                  type="range"
+                  min={limits.minCfg}
+                  max={limits.maxCfg}
+                  step={0.1}
+                  value={cfg}
+                  onChange={(e) => setCfg(Math.max(limits.minCfg, Math.min(limits.maxCfg, Number(e.target.value) || MODELCLONE_X_DEFAULT_CFG)))}
+                />
+                <span className={`text-xs ${isDark ? "text-slate-300" : "text-slate-700"}`}>{cfg.toFixed(1)}</span>
+              </label>
+            </>
+          )}
           <label className={`flex flex-col gap-1.5 ${mode !== "character" ? "opacity-50" : ""}`}>
             <span className={`text-[11px] font-medium ${isDark ? "text-slate-400" : "text-slate-600"}`}>{copy.loraStrength}</span>
             <input

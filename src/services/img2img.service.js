@@ -519,6 +519,7 @@ export async function buildZImageImg2ImgRunpodInput({
   loraUrl,
   loraStrength = 0.8,
   denoise = 0.6,
+  batchSize = 1,
   seed,
   steps: _steps = null,
   cfg: _cfg = null,
@@ -535,6 +536,18 @@ export async function buildZImageImg2ImgRunpodInput({
     seed: resolvedSeed,
     stage1Denoise: numericDenoise,
   });
+
+  const numericBatchSize = Math.max(1, Math.min(4, Math.round(Number(batchSize) || 1)));
+  for (const node of Object.values(workflow)) {
+    if (!node?.inputs) continue;
+    if (Object.prototype.hasOwnProperty.call(node.inputs, "batch_size")) {
+      node.inputs.batch_size = numericBatchSize;
+      continue;
+    }
+    if (node.class_type === "EmptyLatentImage") {
+      node.inputs.batch_size = numericBatchSize;
+    }
+  }
 
   if (!workflow["250"]?.inputs || !workflow["276"]?.inputs || !workflow["305"]?.inputs) {
     throw new Error("Z-Image img2img workflow is missing expected nodes (250, 276, or 305)");
@@ -562,6 +575,7 @@ export async function submitImg2ImgJob({
   loraUrl,
   loraStrength = 0.8,
   denoise = 0.6,
+  batchSize = 1,
   seed,
   steps = null,
   cfg = null,
@@ -574,6 +588,7 @@ export async function submitImg2ImgJob({
     loraUrl,
     loraStrength,
     denoise,
+    batchSize,
     seed,
     steps,
     cfg,
