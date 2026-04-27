@@ -2222,6 +2222,9 @@ function VideoGeneration() {
   const recreateUltraPerSec = Number.isFinite(generationPricing.videoRecreateUltraPerSec)
     ? generationPricing.videoRecreateUltraPerSec
     : VIDEO_RECREATE_ULTRA_PER_SEC;
+  const motionXPerSec = Number.isFinite(Number(generationPricing.motionXPerSec))
+    ? Number(generationPricing.motionXPerSec)
+    : DEFAULT_MOTION_X_PER_SEC;
   const promptVideoCostByDuration = {
     5: Number.isFinite(generationPricing.videoPrompt5s) ? generationPricing.videoPrompt5s : 60,
     10: Number.isFinite(generationPricing.videoPrompt10s) ? generationPricing.videoPrompt10s : 100,
