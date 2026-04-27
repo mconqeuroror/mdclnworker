@@ -60,12 +60,6 @@ export const DEFAULT_GENERATION_PRICING = Object.freeze({
   /** kling-2.6/motion-control @ 1080p (default “classic” recreate) */
   videoRecreateMotionProPerSec: 18,
   videoRecreateUltraPerSec: 25,
-  wan22AnimateMove720pPerSec: 12.5,
-  wan22AnimateMove580pPerSec: 9.5,
-  wan22AnimateMove480pPerSec: 6,
-  wan22AnimateReplace720pPerSec: 12.5,
-  wan22AnimateReplace580pPerSec: 9.5,
-  wan22AnimateReplace480pPerSec: 6,
   // WAN 2.6 (official t2v / i2v), resolution-based pricing
   // 720p: 64/128/192 for 5/10/15s => 12.8 credits/sec
   // 1080p: 96/192/288 for 5/10/15s => 19.2 credits/sec
@@ -160,6 +154,11 @@ const GENERATION_PRICING_KEY_SET = new Set(GENERATION_PRICING_KEYS);
 const CACHE_TTL_MS = 5_000;
 let pricingCache = null;
 let pricingCacheAt = 0;
+const MOTION_X_LEGACY_DEFAULT = 30;
+const MOTION_X_MIGRATED_DEFAULT = 6.5;
+// If a pricing row was last updated before this migration and still has motionXPerSec=30,
+// treat it as legacy default and auto-migrate to 6.5.
+const MOTION_X_MIGRATION_CUTOFF = Date.parse("2026-04-27T14:45:00.000Z");
 
 function sanitizePricingObject(input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) return {};
@@ -237,10 +236,28 @@ export async function getGenerationPricing({ forceRefresh = false } = {}) {
 
   const row = await prisma.generationPricingConfig.findUnique({
     where: { id: "global" },
-    select: { values: true },
+    select: { values: true, updatedAt: true },
   });
 
-  const raw = row?.values || {};
+  let raw = row?.values || {};
+  if (row?.updatedAt && typeof raw === "object" && raw) {
+    const updatedAtMs = Number(new Date(row.updatedAt).getTime());
+    const currentMotionX = Number(raw.motionXPerSec);
+    if (
+      Number.isFinite(updatedAtMs) &&
+      updatedAtMs < MOTION_X_MIGRATION_CUTOFF &&
+      Number.isFinite(currentMotionX) &&
+      currentMotionX === MOTION_X_LEGACY_DEFAULT
+    ) {
+      raw = { ...raw, motionXPerSec: MOTION_X_MIGRATED_DEFAULT };
+      try {
+        await prisma.generationPricingConfig.update({
+          where: { id: "global" },
+          data: { values: raw },
+        });
+      } catch {}
+    }
+  }
   const overrides = sanitizePricingObject(raw);
   const merged = { ...DEFAULT_GENERATION_PRICING, ...overrides };
 
