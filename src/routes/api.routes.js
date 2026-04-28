@@ -251,6 +251,8 @@ import {
   isModelCloneXRunpodReady,
   submitModelCloneXJob,
   submitModelCloneXImg2ImgJob,
+  pollModelCloneXJob,
+  extractModelCloneXImages,
 } from "../services/modelcloneX.service.js";
 import { getMcxSceneJsonFromImageGrok } from "../services/mcxGrokImagePrompt.service.js";
 import { buildMcxImg2ImgPromptFromImage } from "../services/mcxImageToPrompt.service.js";
@@ -3877,6 +3879,68 @@ router.get("/modelclone-x/status/:generationId", authMiddleware, async (req, res
     }
     if (gen.status === "failed") {
       return res.json({ success: true, status: "failed", error: gen.errorMessage });
+    }
+
+    // Still processing — poll RunPod directly to recover results that may have
+    // missed the webhook (large payload, delivery failure, server restart, etc.)
+    let runpodJobId = null;
+    try {
+      const meta = gen.inputImageUrl ? JSON.parse(gen.inputImageUrl) : {};
+      runpodJobId =
+        (typeof gen.providerTaskId === "string" && gen.providerTaskId.trim()) ||
+        meta?.runpodJobId ||
+        null;
+    } catch { /* ignore parse errors */ }
+
+    if (runpodJobId) {
+      try {
+        const rp = await pollModelCloneXJob(runpodJobId);
+        const rpStatus = String(rp?.status || rp?.state || "").toUpperCase();
+
+        if (rpStatus === "COMPLETED" || rpStatus === "SUCCESS") {
+          const images = extractModelCloneXImages(rp?.output ?? rp);
+          if (images.length > 0) {
+            const { uploadBufferToBlobOrR2 } = await import("../utils/kieUpload.js");
+            const { isVercelBlobConfigured } = await import("../utils/kieUpload.js");
+            const { isR2Configured } = await import("../utils/r2.js");
+            const outputUrls = [];
+            for (const imageData of images) {
+              try {
+                if (imageData.startsWith("http")) {
+                  outputUrls.push(imageData);
+                } else if (isVercelBlobConfigured() || isR2Configured()) {
+                  const buf = Buffer.from(imageData, "base64");
+                  const uploaded = await uploadBufferToBlobOrR2(buf, "modelclone-x", "png", "image/png");
+                  outputUrls.push(uploaded);
+                } else {
+                  outputUrls.push(`data:image/png;base64,${imageData}`);
+                }
+              } catch (uploadErr) {
+                console.error("[ModelCloneX] status poll upload error:", uploadErr.message);
+                outputUrls.push(`data:image/png;base64,${imageData}`);
+              }
+            }
+            const outputUrl = outputUrls.length === 1 ? outputUrls[0] : JSON.stringify(outputUrls);
+            await prisma.generation.update({
+              where: { id: generationId },
+              data: { status: "completed", outputUrl, completedAt: new Date() },
+            });
+            console.log(`✅ [ModelCloneX] status-poll recovered ${outputUrls.length} image(s) for gen ${generationId}`);
+            const imageUrls = parseModelCloneXOutputUrls(outputUrl);
+            return res.json({ success: true, status: "completed", imageUrl: imageUrls[0] || null, imageUrls });
+          }
+        } else if (rpStatus === "FAILED" || rpStatus === "CANCELLED") {
+          const errMsg = rp?.output?.error || rp?.error || "Generation failed on RunPod";
+          await prisma.generation.update({
+            where: { id: generationId },
+            data: { status: "failed", errorMessage: String(errMsg).slice(0, 500), completedAt: new Date() },
+          });
+          return res.json({ success: true, status: "failed", error: errMsg });
+        }
+      } catch (pollErr) {
+        // Non-fatal: RunPod might not have the result yet; client will retry
+        console.warn(`[ModelCloneX] status poll failed for ${runpodJobId}: ${pollErr.message}`);
+      }
     }
 
     return res.json({ success: true, status: "processing" });
