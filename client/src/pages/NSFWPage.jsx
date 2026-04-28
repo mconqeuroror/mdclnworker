@@ -1937,7 +1937,7 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
   const [extendDuration, setExtendDuration] = useState(5);
   const [extendPrompt, setExtendPrompt] = useState("");
   const [isSubmittingExtend, setIsSubmittingExtend] = useState(false);
-  const [sourceImageMode, setSourceImageMode] = useState("gallery"); // "gallery" | "upload"
+  const [sourceImageMode, setSourceImageMode] = useState("upload"); // "upload" | "gallery"
   const [uploadedSourceImageUrl, setUploadedSourceImageUrl] = useState("");
   const [uploadedSourceImageName, setUploadedSourceImageName] = useState("");
   const [videoModal, setVideoModal] = useState(null); // { url, title, chain }
@@ -2154,33 +2154,6 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
           <label className="text-[11px] uppercase tracking-[0.15em] text-slate-400 font-medium">{copy.videoSectionSourceImage}</label>
         </div>
 
-        <div className="flex items-center gap-1.5 mb-2">
-          <button
-            onClick={() => setSourceImageMode("upload")}
-            className={`h-8 px-3 rounded-lg text-[11px] font-medium border transition-colors ${
-              sourceImageMode === "upload"
-                ? "text-white bg-white/[0.08] border-white/25"
-                : "text-slate-400 bg-transparent border-white/10 hover:text-white hover:border-white/20"
-            }`}
-            data-testid="button-video-source-mode-upload"
-          >
-            <Upload className="w-3 h-3 inline mr-1" />
-            Upload
-          </button>
-          <button
-            onClick={() => setSourceImageMode("gallery")}
-            className={`h-8 px-3 rounded-lg text-[11px] font-medium border transition-colors ${
-              sourceImageMode === "gallery"
-                ? "text-white bg-white/[0.08] border-white/25"
-                : "text-slate-400 bg-transparent border-white/10 hover:text-white hover:border-white/20"
-            }`}
-            data-testid="button-video-source-mode-gallery"
-          >
-            <Grid3X3 className="w-3 h-3 inline mr-1" />
-            Gallery
-          </button>
-        </div>
-
         {sourceImageMode === "upload" ? (
           <div className="space-y-2">
             <FileUpload
@@ -2192,67 +2165,85 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
             {uploadedSourceImageUrl && (
               <p className="text-[10px] text-slate-500 truncate">{uploadedSourceImageName || "source-image.jpg"}</p>
             )}
+            <button
+              onClick={() => setSourceImageMode("gallery")}
+              className="flex items-center gap-1.5 text-[11px] text-slate-500 hover:text-slate-300 transition-colors"
+              data-testid="button-video-source-mode-gallery"
+            >
+              <Grid3X3 className="w-3 h-3" />
+              Or pick from history
+            </button>
           </div>
         ) : (
-          <div className="p-3 rounded-xl border border-white/[0.06] bg-white/[0.02]">
-            {imagesLoading ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
-              </div>
-            ) : sourceImages.length === 0 ? (
-              <p className="text-center text-slate-500 py-8 text-sm">
-                No NSFW images yet. Generate some images first in the Generate tab.
-              </p>
-            ) : (
-              <>
-                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
-                  {sourceImages.map((gen) => {
-                    const urls = parseUrls(gen.outputUrl);
-                    return urls.map((url, idx) => {
-                      const isSelected = videoSelectedImage === url;
-                      return (
-                        <button
-                          key={`${gen.id}-${idx}`}
-                          onClick={() => setVideoSelectedImage(isSelected ? null : url)}
-                          className={`relative aspect-[3/4] rounded-lg overflow-hidden border-2 transition-all ${
-                            isSelected
-                              ? "border-fuchsia-400 ring-2 ring-fuchsia-500/30 scale-[1.02]"
-                              : "border-transparent hover:border-white/20"
-                          }`}
-                          data-testid={`button-select-video-source-${gen.id}-${idx}`}
-                        >
-                          <img src={url} alt="" className="w-full h-full object-cover" loading="lazy" />
-                          {isSelected && (
-                            <div className="absolute inset-0 bg-fuchsia-500/20 flex items-center justify-center">
-                              <CheckCircle2 className="w-6 h-6 text-fuchsia-300" />
-                            </div>
-                          )}
-                        </button>
-                      );
-                    });
-                  })}
+          <div className="space-y-2">
+            <button
+              onClick={() => { setSourceImageMode("upload"); setVideoSelectedImage(null); }}
+              className="flex items-center gap-1.5 text-[11px] text-slate-400 hover:text-white transition-colors mb-1"
+              data-testid="button-video-source-mode-upload"
+            >
+              <ChevronLeft className="w-3 h-3" />
+              Back to upload
+            </button>
+            <div className="p-3 rounded-xl border border-white/[0.06] bg-white/[0.02]">
+              {imagesLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
                 </div>
-                {totalImagePages > 1 && (
-                  <div className="flex items-center justify-center gap-2 mt-3">
-                    <button
-                      onClick={() => setVideoGalleryPage((p) => Math.max(1, p - 1))}
-                      disabled={videoGalleryPage <= 1}
-                      className="p-1.5 rounded-lg bg-white/5 border border-white/10 disabled:opacity-30"
-                    >
-                      <ChevronLeft className="w-4 h-4" />
-                    </button>
-                    <span className="text-xs text-slate-400">{videoGalleryPage} / {totalImagePages}</span>
-                    <button
-                      onClick={() => setVideoGalleryPage((p) => Math.min(totalImagePages, p + 1))}
-                      disabled={videoGalleryPage >= totalImagePages}
-                      className="p-1.5 rounded-lg bg-white/5 border border-white/10 disabled:opacity-30"
-                    >
-                      <ChevronRight className="w-4 h-4" />
-                    </button>
+              ) : sourceImages.length === 0 ? (
+                <p className="text-center text-slate-500 py-8 text-sm">
+                  No NSFW images yet. Generate some images first in the Generate tab.
+                </p>
+              ) : (
+                <>
+                  <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
+                    {sourceImages.map((gen) => {
+                      const urls = parseUrls(gen.outputUrl);
+                      return urls.map((url, idx) => {
+                        const isSelected = videoSelectedImage === url;
+                        return (
+                          <button
+                            key={`${gen.id}-${idx}`}
+                            onClick={() => setVideoSelectedImage(isSelected ? null : url)}
+                            className={`relative aspect-[3/4] rounded-lg overflow-hidden border-2 transition-all ${
+                              isSelected
+                                ? "border-fuchsia-400 ring-2 ring-fuchsia-500/30 scale-[1.02]"
+                                : "border-transparent hover:border-white/20"
+                            }`}
+                            data-testid={`button-select-video-source-${gen.id}-${idx}`}
+                          >
+                            <img src={url} alt="" className="w-full h-full object-cover" loading="lazy" />
+                            {isSelected && (
+                              <div className="absolute inset-0 bg-fuchsia-500/20 flex items-center justify-center">
+                                <CheckCircle2 className="w-6 h-6 text-fuchsia-300" />
+                              </div>
+                            )}
+                          </button>
+                        );
+                      });
+                    })}
                   </div>
-                )}
-              </>
-            )}
+                  {totalImagePages > 1 && (
+                    <div className="flex items-center justify-center gap-2 mt-3">
+                      <button
+                        onClick={() => setVideoGalleryPage((p) => Math.max(1, p - 1))}
+                        disabled={videoGalleryPage <= 1}
+                        className="p-1.5 rounded-lg bg-white/5 border border-white/10 disabled:opacity-30"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                      <span className="text-xs text-slate-400">{videoGalleryPage} / {totalImagePages}</span>
+                      <button
+                        onClick={() => setVideoGalleryPage((p) => Math.min(totalImagePages, p + 1))}
+                        disabled={videoGalleryPage >= totalImagePages}
+                        className="p-1.5 rounded-lg bg-white/5 border border-white/10 disabled:opacity-30"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
           </div>
         )}
       </div>
