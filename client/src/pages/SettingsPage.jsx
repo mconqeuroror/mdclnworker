@@ -398,7 +398,7 @@ export default function SettingsPage() {
 
       <div className="space-y-4 sm:space-y-6">
         {/* Account Info */}
-        <div className="panel rounded-xl sm:rounded-2xl p-4 sm:p-6">
+        <div className="glass-panel rounded-xl sm:rounded-2xl p-4 sm:p-6">
           <h2 className="text-lg sm:text-xl font-bold mb-3 sm:mb-4 flex items-center gap-2">
             <User className="w-4 h-4 sm:w-5 sm:h-5" />
             {t.accountInfo}
@@ -502,7 +502,7 @@ export default function SettingsPage() {
         </div>
 
         {/* Communication preferences (region + marketing language) */}
-        <div className="panel rounded-xl sm:rounded-2xl p-4 sm:p-6">
+        <div className="glass-panel rounded-xl sm:rounded-2xl p-4 sm:p-6">
           <h2 className="text-lg sm:text-xl font-bold mb-3 sm:mb-4 flex items-center gap-2">
             <FileText className="w-4 h-4 sm:w-5 sm:h-5" />
             {t.commPrefsTitle}
@@ -577,7 +577,7 @@ export default function SettingsPage() {
         </div>
 
         {/* HTTP API keys */}
-        <div className="panel rounded-xl sm:rounded-2xl p-4 sm:p-6">
+        <div className="glass-panel rounded-xl sm:rounded-2xl p-4 sm:p-6">
           <h2 className="text-lg sm:text-xl font-bold mb-2 flex items-center gap-2">
             <Key className="w-4 h-4 sm:w-5 sm:h-5 text-[var(--text-secondary)]" />
             {t.apiSectionTitle}
@@ -744,7 +744,7 @@ export default function SettingsPage() {
         </div>
 
         {/* Two-Factor Authentication */}
-        <div className="panel rounded-xl sm:rounded-2xl p-4 sm:p-6">
+        <div className="glass-panel rounded-xl sm:rounded-2xl p-4 sm:p-6">
           <h2 className="text-lg sm:text-xl font-bold mb-3 sm:mb-4 flex items-center gap-2">
             <ShieldCheck className="w-4 h-4 sm:w-5 sm:h-5 text-slate-300" />
             {t.twoFactorTitle}
@@ -881,7 +881,7 @@ export default function SettingsPage() {
 
         {/* Change Password */}
         <div
-          className="panel rounded-xl sm:rounded-2xl p-4 sm:p-6"
+          className="glass-panel rounded-xl sm:rounded-2xl p-4 sm:p-6"
         >
           <h2 className="text-lg sm:text-xl font-bold mb-3 sm:mb-4 flex items-center gap-2">
             <Lock className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -961,7 +961,7 @@ export default function SettingsPage() {
         </div>
 
         {/* Subscription & Billing Management */}
-        <div className="panel rounded-xl sm:rounded-2xl p-4 sm:p-6">
+        <div className="glass-panel rounded-xl sm:rounded-2xl p-4 sm:p-6">
             <h2 className="text-lg sm:text-xl font-bold mb-3 sm:mb-4 flex items-center gap-2">
               <CreditCard className="w-4 h-4 sm:w-5 sm:h-5" />
               {canAccessPremium ? t.subscriptionTitle : t.billingTitle}
@@ -1060,7 +1060,7 @@ export default function SettingsPage() {
         </div>
 
         {/* Legal */}
-        <div className="panel rounded-xl sm:rounded-2xl p-4 sm:p-6"
+        <div className="glass-panel rounded-xl sm:rounded-2xl p-4 sm:p-6"
         >
           <h2 className="text-lg sm:text-xl font-bold mb-3 sm:mb-4 flex items-center gap-2">
             <Shield className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -1304,3 +1304,4 @@ export default function SettingsPage() {
     </div>
   );
 }
+
