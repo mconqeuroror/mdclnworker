@@ -323,6 +323,7 @@ export default function DashboardPage() {
   const branding = useBranding();
   const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
+  const pageBg = theme === "light" ? "#eef1f7" : "#050505";
   const canAccessPremiumTabs = hasPremiumAccess(user);
   const hideRestrictedTabs = !hasRestrictedFeatureAccess(user);
   const premiumTabs = ["course", "repurposer", "reelfinder", "voice-studio"];
@@ -565,7 +566,7 @@ export default function DashboardPage() {
   ];
 
   return (
-    <div className="min-h-screen overflow-x-hidden" style={{ color: "var(--text-primary)" }}>
+    <div className="min-h-screen overflow-x-hidden" style={{ background: pageBg, color: "var(--text-primary)" }}>
       {/* Desktop Sidebar - hidden on mobile */}
       <div className="hidden md:block">
         <AppSidebar
@@ -886,7 +887,7 @@ export default function DashboardPage() {
       {/* Content - with left margin for sidebar on desktop; bottom padding clears mobile tab bar */}
       <main
         className={`relative z-10 pt-[4.5rem] md:pt-14 max-md:pb-[calc(2.75rem+env(safe-area-inset-bottom)+1.25rem)] md:pb-12 min-h-screen transition-[margin] duration-300 ease-out overflow-x-hidden ${sidebarNarrow ? "md:ml-[80px]" : "md:ml-[260px]"}`}
-        style={{ background: "var(--bg-page)" }}
+        style={{ background: pageBg }}
       >
         <div className={`relative z-10 p-3 sm:p-4 md:p-6 ${sidebarNarrow ? "mx-auto w-full max-w-[1600px]" : ""}`}>
           {activeTab === "home" && <HomePage copy={copy} theme={theme} setActiveTab={setActiveTab} setShowEarnModal={setShowEarnModal} setShowReferralModal={setShowReferralModal} onOpenCreateModel={() => { setUploadRealMode(false); setShowCreateModelModal(true); }} onOpenUploadReal={() => { setUploadRealMode(true); setShowCreateModelModal(true); }} onOpenCredits={() => setShowAddCredits(true)} />}

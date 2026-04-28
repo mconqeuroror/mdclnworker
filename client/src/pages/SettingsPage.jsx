@@ -398,11 +398,7 @@ export default function SettingsPage() {
 
       <div className="space-y-4 sm:space-y-6">
         {/* Account Info */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="panel rounded-xl sm:rounded-2xl p-4 sm:p-6"
-        >
+        <div className="panel rounded-xl sm:rounded-2xl p-4 sm:p-6">
           <h2 className="text-lg sm:text-xl font-bold mb-3 sm:mb-4 flex items-center gap-2">
             <User className="w-4 h-4 sm:w-5 sm:h-5" />
             {t.accountInfo}
@@ -503,14 +499,10 @@ export default function SettingsPage() {
               </p>
             </div>
           </div>
-        </motion.div>
+        </div>
 
         {/* Communication preferences (region + marketing language) */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="panel rounded-xl sm:rounded-2xl p-4 sm:p-6"
-        >
+        <div className="panel rounded-xl sm:rounded-2xl p-4 sm:p-6">
           <h2 className="text-lg sm:text-xl font-bold mb-3 sm:mb-4 flex items-center gap-2">
             <FileText className="w-4 h-4 sm:w-5 sm:h-5" />
             {t.commPrefsTitle}
@@ -582,14 +574,10 @@ export default function SettingsPage() {
           >
             {savingPrefs ? t.savingPrefs : t.savePreferences}
           </button>
-        </motion.div>
+        </div>
 
         {/* HTTP API keys */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="panel rounded-xl sm:rounded-2xl p-4 sm:p-6"
-        >
+        <div className="panel rounded-xl sm:rounded-2xl p-4 sm:p-6">
           <h2 className="text-lg sm:text-xl font-bold mb-2 flex items-center gap-2">
             <Key className="w-4 h-4 sm:w-5 sm:h-5 text-[var(--text-secondary)]" />
             {t.apiSectionTitle}
@@ -753,7 +741,7 @@ export default function SettingsPage() {
               </ul>
             )}
           </div>
-        </motion.div>
+        </div>
 
         {/* Two-Factor Authentication */}
         <div className="panel rounded-xl sm:rounded-2xl p-4 sm:p-6">
@@ -973,12 +961,7 @@ export default function SettingsPage() {
         </div>
 
         {/* Subscription & Billing Management */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.05 }}
-          className="panel rounded-xl sm:rounded-2xl p-4 sm:p-6"
-        >
+        <div className="panel rounded-xl sm:rounded-2xl p-4 sm:p-6">
             <h2 className="text-lg sm:text-xl font-bold mb-3 sm:mb-4 flex items-center gap-2">
               <CreditCard className="w-4 h-4 sm:w-5 sm:h-5" />
               {canAccessPremium ? t.subscriptionTitle : t.billingTitle}
@@ -1074,14 +1057,10 @@ export default function SettingsPage() {
                 </div>
               </div>
             )}
-        </motion.div>
+        </div>
 
         {/* Legal */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.1 }}
-          className="panel rounded-xl sm:rounded-2xl p-4 sm:p-6"
+        <div className="panel rounded-xl sm:rounded-2xl p-4 sm:p-6"
         >
           <h2 className="text-lg sm:text-xl font-bold mb-3 sm:mb-4 flex items-center gap-2">
             <Shield className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -1111,7 +1090,7 @@ export default function SettingsPage() {
               <span>{t.cookies}</span>
             </Link>
           </div>
-        </motion.div>
+        </div>
       </div>
 
       {/* Cancel Confirmation Modal */}
