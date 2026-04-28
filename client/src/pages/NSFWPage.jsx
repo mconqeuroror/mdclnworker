@@ -2638,7 +2638,7 @@ function NsfwVideoTab({ modelId, videoSelectedImage, setVideoSelectedImage, vide
                                 Extend +{extendDuration}s
                                 <span className="px-2 py-0.5 rounded-full bg-white/20 text-xs inline-flex items-center gap-1.5">
                                   <Coins className="w-3 h-3 text-yellow-400" />
-                                  <span>{extendDuration}</span>
+                                  <span>{extendDuration === 8 ? 80 : 50}</span>
                                 </span>
                               </>
                             )}
