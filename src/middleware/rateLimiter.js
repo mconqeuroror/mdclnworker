@@ -129,7 +129,7 @@ export const voiceDesignPreviewLimiter = rateLimit({
 
 export const generationsLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 100,
+  max: 30,
   message: {
     success: false,
     message: "Too many generation history requests. Please slow down.",
@@ -148,7 +148,7 @@ const API_WINDOW_MS = Math.max(
   60_000,
   parseInt(process.env.API_RATE_LIMIT_WINDOW_MS || String(15 * 60 * 1000), 10),
 );
-const API_MAX = Math.max(100, parseInt(process.env.API_RATE_LIMIT_MAX || "2000", 10));
+const API_MAX = Math.max(100, parseInt(process.env.API_RATE_LIMIT_MAX || "500", 10));
 
 export const apiLimiter = rateLimit({
   windowMs: API_WINDOW_MS,

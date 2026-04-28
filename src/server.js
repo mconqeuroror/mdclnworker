@@ -228,6 +228,19 @@ app.use(cookieParser());
 // API telemetry capture (traffic + edge-case signals)
 app.use(telemetryMiddleware());
 
+// IP block list — populated from env or hardcoded known-bad IPs.
+// Blocked IPs receive 403 before any route or auth logic runs.
+const BLOCKED_IPS_RAW = (process.env.BLOCKED_IPS || "31.130.167.34").split(",").map((s) => s.trim()).filter(Boolean);
+const BLOCKED_IP_SET = new Set(BLOCKED_IPS_RAW);
+app.use((req, res, next) => {
+  const ip = req.ip || "";
+  const bare = ip.replace(/^::ffff:/, "");
+  if (BLOCKED_IP_SET.has(ip) || BLOCKED_IP_SET.has(bare)) {
+    return res.status(403).json({ success: false, error: "Forbidden" });
+  }
+  next();
+});
+
 // Global rate limiting (catch-all protection)
 // Skip rate limiting for admin routes (already protected by auth + admin role check)
 app.use('/api', (req, res, next) => {

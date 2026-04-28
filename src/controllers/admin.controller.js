@@ -1126,7 +1126,8 @@ async function resolveStripeAmountCentsFromSource({ sourceType, sourceId }) {
 export async function getAllUsers(req, res) {
   try {
     const { page = 1, limit = 50, search = '' } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const safeLimit = Math.min(parseInt(limit) || 50, 200);
+    const skip = (Math.max(1, parseInt(page)) - 1) * safeLimit;
 
     const where = search
       ? {
@@ -1141,7 +1142,7 @@ export async function getAllUsers(req, res) {
       prisma.user.findMany({
         where,
         skip,
-        take: parseInt(limit),
+        take: safeLimit,
         orderBy: { createdAt: 'desc' },
         select: {
           id: true,
@@ -1182,7 +1183,7 @@ export async function getAllUsers(req, res) {
         total,
         page: parseInt(page),
         limit: parseInt(limit),
-        totalPages: Math.ceil(total / parseInt(limit))
+        totalPages: Math.ceil(total / safeLimit)
       }
     });
   } catch (error) {

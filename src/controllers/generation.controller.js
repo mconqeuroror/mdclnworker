@@ -1385,6 +1385,9 @@ export async function getGenerations(req, res) {
       return res.status(401).json({ success: false, message: "Authentication required" });
     }
     const { type, modelId, status, limit = 50, offset = 0, includeTotal = "true" } = req.query;
+    const MAX_LIMIT = 200;
+    const safeLimit = Math.min(parseInt(limit) || 50, MAX_LIMIT);
+    const safeOffset = Math.max(0, parseInt(offset) || 0);
 
     const where = { userId };
     if (type) {
@@ -1412,8 +1415,8 @@ export async function getGenerations(req, res) {
     const generations = await prisma.generation.findMany({
       where,
       orderBy: { createdAt: "desc" },
-      take: parseInt(limit),
-      skip: parseInt(offset),
+      take: safeLimit,
+      skip: safeOffset,
       select: {
         id: true,
         modelId: true,
@@ -1428,7 +1431,7 @@ export async function getGenerations(req, res) {
         providerFamily: true,
         providerMode: true,
         providerType: true,
-        providerResponse: true,
+        // providerResponse intentionally excluded from list — can contain large base64 blobs
         parentTaskId: true,
         extendEligible: true,
         originalGenerationId: true,
