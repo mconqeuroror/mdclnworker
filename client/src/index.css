@@ -732,6 +732,9 @@ html {
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   border: 1px solid var(--border-subtle);
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
+  isolation: isolate;
 }
 
 .glass-panel {
@@ -739,6 +742,9 @@ html {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--border-subtle);
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
+  isolation: isolate;
 }
 
 .glass-panel-strong {
@@ -746,6 +752,9 @@ html {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--border-medium);
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
+  isolation: isolate;
 }
 
 @layer components {
@@ -754,6 +763,9 @@ html {
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
     border: 1px solid var(--border-subtle);
+    transform: translateZ(0);
+    -webkit-transform: translateZ(0);
+    isolation: isolate;
   }
 
   .mc-glass-strong {
@@ -761,6 +773,9 @@ html {
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--border-medium);
+    transform: translateZ(0);
+    -webkit-transform: translateZ(0);
+    isolation: isolate;
   }
 
   .mc-glass-nav {
@@ -769,6 +784,9 @@ html {
     -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--border-subtle);
     box-shadow: 0 1px 0 0 var(--border-subtle);
+    transform: translateZ(0);
+    -webkit-transform: translateZ(0);
+    isolation: isolate;
   }
 
   .mc-glass-card {
@@ -776,6 +794,9 @@ html {
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
     border: 1px solid var(--border-subtle);
+    transform: translateZ(0);
+    -webkit-transform: translateZ(0);
+    isolation: isolate;
   }
 
   .mc-glass-dim {
