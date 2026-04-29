@@ -80,7 +80,7 @@ function extractSinglePromptText(raw) {
     .trim();
 }
 
-async function optimizeNanoBananaPrompt(basePrompt, context = {}) {
+export async function optimizeNanoBananaPrompt(basePrompt, context = {}) {
   const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
   const promptText = String(basePrompt || "").trim();
   if (!OPENROUTER_API_KEY || !promptText) return promptText;

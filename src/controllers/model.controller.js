@@ -6,6 +6,7 @@ import {
   generateModelPosesFromReference,
   buildModelPosesPrompts,
   optimizeModelPosesPromptBundle,
+  optimizeNanoBananaPrompt,
   isExplicitContentError,
 } from "../services/wavespeed.service.js";
 import { generateImageWithNanoBananaKie, getKieCallbackUrl } from "../services/kie.service.js";
@@ -1697,23 +1698,52 @@ export async function generateAdvancedModel(req, res) {
       : gender ? { gender } : {};
     const appearancePrefix = buildAppearancePrefix({ savedAppearance: appearanceForPrompt, age: modelAge });
 
-    const PHOTO_ASPECTS    = ["1:1", "3:4", "9:16"];
-    const PHOTO_PREFIXES   = [
-      "Close-up selfie portrait of this person, true self-captured palm/arm-length first-person POV, no second photographer, no phone/device visible in hand, no mirror reflection.",
-      "Portrait photo of this person from a slightly different angle, striking and unique but still grounded in reality.",
-      "Full body shot of this person, visually distinctive and premium while staying photorealistic.",
-    ];
-    const PHOTO_SUFFIXES   = [
-      "Masterpiece-grade quality, clear face, realistic natural skin texture, believable camera realism and cinematic lighting.",
-      "Natural expression, professional photography, premium color grading, realistic skin detail, no identity drift from references.",
-      "Shows full figure, professional photography, believable anatomy, premium lighting, natural pose, no identity drift from references.",
-    ];
-    const BLENDED_IDENTITY = "Synthesize a NEW fictional person by blending traits from the reference images. Do NOT exactly recreate any real person from the references. Keep one consistent synthesized identity across all generated shots.";
+    const PHOTO_ASPECTS = ["1:1", "3:4", "9:16"];
 
-    const builtPhotoConfigs = photoConfigs.map((cfg, i) => ({
-      fullPrompt: [appearancePrefix, BLENDED_IDENTITY, PHOTO_PREFIXES[i], cfg.prompt.trim(), PHOTO_SUFFIXES[i]].filter(Boolean).join(" "),
+    // INSTARAW-style anchors — "using reference image 1 for ultimate character consistency"
+    // is the exact phrase Nano Banana Pro responds to by locking onto the identity photo.
+    const BLENDED_IDENTITY = "using reference image 1 for ultimate character consistency in face and body anatomy. Synthesize a believable fictional person by blending traits from the provided reference images, keeping one consistent synthesized identity across all shots.";
+
+    const PHOTO_PREFIXES = [
+      // Selfie — 1:1 — palm-length first-person
+      "A person, {{APPEARANCE}}, {{BLENDED_IDENTITY}} She is looking into the camera with a natural, confident expression, capturing a true self-shot selfie — arm extended at palm length, front-facing camera angle, no visible phone or device in hand, no mirror reflection. reimagined background with softly blurred warm lifestyle interior, bokeh ambient glow, shallow depth of field. She wears a reimagined outfit: stylish casual contemporary attire, fitted top in a rich color, tasteful accessories. Her pose is reimagined as true first-person selfie POV, slight chin down for definition, eyes alive with warmth. Lighting reimagined as diffused soft frontal fill mimicking phone front-camera, color temperature 5500K, gentle catchlights in both eyes.",
+      // Portrait — 3:4 — studio 3/4 angle
+      "A person, {{APPEARANCE}}, {{BLENDED_IDENTITY}} She has a captivating, alluring expression, gazing at the lens with confident composure. reimagined background with clean studio environment, deep neutral charcoal backdrop, subtle gradient, no distracting elements. She wears a reimagined outfit: elegant tailored ensemble, form-fitting silhouette, premium fabric with visible texture, minimal statement jewelry. Her pose is reimagined as three-quarter angle to camera, chin slightly down, shoulders relaxed, natural hand placement at collarbone, crop from head to upper chest. Lighting reimagined as Rembrandt three-point setup: warm 5600K softbox key at 45° camera-left, 30% fill reflector camera-right, crisp catchlights in both eyes.",
+      // Full body — 9:16 — head to toe
+      "A person, {{APPEARANCE}}, {{BLENDED_IDENTITY}} She is standing confidently with a natural relaxed expression, full figure visible from crown to toe. reimagined background with bright contemporary urban environment, clean minimal architecture, soft ambient city light, slight environmental bokeh preserving sense of place. She wears a reimagined outfit: complete head-to-toe look — specify top, bottom, footwear, bag, jewelry — all individually described with fabric, color, and fit. Her pose is reimagined as natural contrapposto stance, weight on left leg, right hip slightly forward, confident elegant expression, three-quarter angle to camera. Lighting reimagined as clean editorial fashion lighting: overhead large softbox key, two rim lights for hair separation, even exposure head to toe, color temperature 5800K.",
+    ];
+
+    const PHOTO_SUFFIXES = [
+      "Shot on iPhone 15 Pro Max, 12mm front camera, authentic selfie grain, warm skin tone, hyperrealistic skin pores and fine hair strands.",
+      "Shot on Sony A7R V, 85mm f/1.4 G Master, ISO 400 analog grain, subtle vignette, shallow depth of field, Kodak Portra 400 color science, hyperrealistic skin texture.",
+      "Shot on Canon EOS R5, 35mm f/2L, clean fashion-editorial color grade, sharp focus head to toe, hyperrealistic fabric texture and skin detail.",
+    ];
+
+    // Build raw INSTARAW-anchored prompts, then pass each through the INSTARAW AI optimizer.
+    const rawBuiltConfigs = photoConfigs.map((cfg, i) => {
+      const prefix = PHOTO_PREFIXES[i]
+        .replace("{{APPEARANCE}}", appearancePrefix.replace("Subject appearance: ", "").replace(/\.\s*$/, "").trim())
+        .replace("{{BLENDED_IDENTITY}}", BLENDED_IDENTITY);
+      const rawPrompt = [prefix, cfg.prompt.trim(), PHOTO_SUFFIXES[i]].filter(Boolean).join(" ");
+      return { rawPrompt, referencePhotos: cfg.referencePhotos, aspectRatio: PHOTO_ASPECTS[i] };
+    });
+
+    // Run all 3 prompts through the INSTARAW optimizer in parallel (non-fatal — falls back to raw).
+    const optimizedPrompts = await Promise.all(
+      rawBuiltConfigs.map((cfg, i) =>
+        optimizeNanoBananaPrompt(cfg.rawPrompt, {
+          operation: i === 0 ? "ai-model-selfie" : i === 1 ? "ai-model-portrait" : "ai-model-fullbody",
+          aspectRatio: PHOTO_ASPECTS[i],
+          resolution: "2K",
+          referenceCount: Array.isArray(cfg.referencePhotos) ? cfg.referencePhotos.length : 1,
+        }).catch(() => cfg.rawPrompt)
+      )
+    );
+
+    const builtPhotoConfigs = rawBuiltConfigs.map((cfg, i) => ({
+      fullPrompt: optimizedPrompts[i],
       referencePhotos: cfg.referencePhotos,
-      aspectRatio: PHOTO_ASPECTS[i],
+      aspectRatio: cfg.aspectRatio,
     }));
 
     const callbackUrl = getKieCallbackUrl();
