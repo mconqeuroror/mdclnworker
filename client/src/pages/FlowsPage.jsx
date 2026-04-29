@@ -33,6 +33,8 @@ import {
   Workflow,
   Library,
   Terminal,
+  Group as GroupIcon,
+  Ungroup,
 } from "lucide-react";
 
 import { useNavigate } from "react-router-dom";
@@ -62,8 +64,10 @@ import NSFWGenNode from "../components/flows/nodes/NSFWGenNode";
 import NSFWVideoNode from "../components/flows/nodes/NSFWVideoNode";
 import NSFWMotionNode from "../components/flows/nodes/NSFWMotionNode";
 import OutputViewerNode from "../components/flows/nodes/OutputViewerNode";
+import GroupNode from "../components/flows/nodes/GroupNode";
 
 const NODE_TYPE_MAP = {
+  group:                GroupNode,
   "image-input":        ImageInputNode,
   "text-input":         TextInputNode,
   "model-selector":     ModelSelectorNode,
@@ -108,9 +112,13 @@ function FlowCanvas({ flowId, embedded = false }) {
     setFlowName, markClean, setSavedFlows,
     setNodeTypeRegistry, nodeTypes,
     startRun, resetRun, handleSSEEvent,
-    undo, redo,
+    undo, redo, groupSelection, ungroupSelection,
     runStatus, currentRunId,
   } = store;
+
+  const selectedNodes = nodes.filter((n) => n.selected);
+  const selectedNonGroupCount = selectedNodes.filter((n) => n.type !== "group").length;
+  const selectedGroupCount = selectedNodes.filter((n) => n.type === "group").length;
 
   const [libLoading, setLibLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -198,10 +206,12 @@ function FlowCanvas({ flowId, embedded = false }) {
       if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) { e.preventDefault(); undo(); }
       if ((e.ctrlKey || e.metaKey) && (e.key === "y" || (e.key === "z" && e.shiftKey))) { e.preventDefault(); redo(); }
       if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); handleSave(); }
+      if ((e.ctrlKey || e.metaKey) && e.key === "g" && !e.shiftKey) { e.preventDefault(); groupSelection(); }
+      if ((e.ctrlKey || e.metaKey) && e.key === "g" && e.shiftKey)  { e.preventDefault(); ungroupSelection(); }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [currentFlowId, currentFlowName, nodes, edges]);
+  }, [currentFlowId, currentFlowName, nodes, edges, groupSelection, ungroupSelection]);
 
   const handleSave = useCallback(async () => {
     setSaving(true);
@@ -466,6 +476,33 @@ function FlowCanvas({ flowId, embedded = false }) {
             </button>
           </div>
 
+          {/* Group / Ungroup — visible only when relevant selection exists */}
+          {(selectedNonGroupCount >= 2 || selectedGroupCount > 0) && (
+            <div className="flex items-center bg-white/[0.025] border border-white/[0.05] rounded-md overflow-hidden">
+              {selectedNonGroupCount >= 2 && (
+                <button
+                  onClick={groupSelection}
+                  title="Group selection (Ctrl+G)"
+                  className="p-1.5 hover:bg-violet-500/10 text-white/45 hover:text-violet-200 transition-colors"
+                >
+                  <GroupIcon size={12} strokeWidth={1.8} />
+                </button>
+              )}
+              {selectedGroupCount > 0 && (
+                <>
+                  {selectedNonGroupCount >= 2 && <div className="w-px h-3 bg-white/[0.05]" />}
+                  <button
+                    onClick={ungroupSelection}
+                    title="Ungroup (Ctrl+Shift+G)"
+                    className="p-1.5 hover:bg-violet-500/10 text-white/45 hover:text-violet-200 transition-colors"
+                  >
+                    <Ungroup size={12} strokeWidth={1.8} />
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+
           {/* Save */}
           <button
             onClick={handleSave}
@@ -551,8 +588,13 @@ function FlowCanvas({ flowId, embedded = false }) {
             fitViewOptions={{ padding: 0.4, maxZoom: 1.2 }}
             proOptions={{ hideAttribution: true }}
             deleteKeyCode={["Delete", "Backspace"]}
-            multiSelectionKeyCode="Shift"
-            connectionLineStyle={{ stroke: "#a78bfa", strokeWidth: 2, strokeDasharray: "4 4" }}
+            multiSelectionKeyCode={["Shift", "Meta", "Control"]}
+            selectionKeyCode={null}
+            selectionOnDrag
+            panOnDrag={[1, 2]}
+            selectNodesOnDrag={false}
+            selectionMode="partial"
+            connectionLineStyle={{ stroke: "#a78bfa", strokeWidth: 2, strokeDasharray: "5 5", strokeLinecap: "round" }}
             defaultEdgeOptions={{ type: "default", animated: false }}
             minZoom={0.25}
             maxZoom={2}

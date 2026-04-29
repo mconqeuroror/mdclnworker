@@ -71,9 +71,10 @@ export function NodePalette() {
 
   const filtered = nodeTypes.filter(
     (t) =>
-      !search ||
-      t.label.toLowerCase().includes(search.toLowerCase()) ||
-      t.description.toLowerCase().includes(search.toLowerCase())
+      !t.hidden &&
+      (!search ||
+        t.label.toLowerCase().includes(search.toLowerCase()) ||
+        t.description.toLowerCase().includes(search.toLowerCase()))
   );
 
   const grouped = {};

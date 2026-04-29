@@ -12,6 +12,11 @@ let historyStack = [];
 let historyFuture = [];
 const MAX_HISTORY = 50;
 
+// Port types where MULTIPLE inbound connections to the same handle make
+// logical sense (the engine concatenates / arrays them). Other typed inputs
+// (image/video/model/audio) replace the existing connection on re-connect.
+const MULTI_CONNECT_TYPES = new Set(["any", "text"]);
+
 export const useFlowStore = create((set, get) => ({
   // ── Canvas ──────────────────────────────────────────────────────────────
   nodes: [],
@@ -28,7 +33,30 @@ export const useFlowStore = create((set, get) => ({
     set((state) => ({ edges: applyEdgeChanges(changes, state.edges) })),
 
   onConnect: (connection) =>
-    set((state) => ({ edges: addEdge({ ...connection, animated: false }, state.edges) })),
+    set((state) => {
+      const { nodeTypes } = state;
+      const targetNode = state.nodes.find((n) => n.id === connection.target);
+      const targetReg = nodeTypes.find((t) => t.type === targetNode?.type);
+      const targetPort = targetReg?.inputs?.find((p) => p.id === connection.targetHandle);
+      const allowMulti =
+        !targetPort // unknown port — be permissive
+        || MULTI_CONNECT_TYPES.has(targetPort.type)
+        // Aggregator-style nodes (merge/output viewer) accept many.
+        || /^(merge|combine|aggregator|output)/i.test(targetReg?.type || "");
+
+      // For single-cardinality typed inputs, drop any existing edge already
+      // landing on the same target handle so the new edge replaces it.
+      const filtered = allowMulti
+        ? state.edges
+        : state.edges.filter(
+            (e) => !(e.target === connection.target && e.targetHandle === connection.targetHandle)
+          );
+
+      return {
+        edges: addEdge({ ...connection, animated: false }, filtered),
+        isDirty: true,
+      };
+    }),
 
   selectNode: (nodeId) => set({ selectedNodeId: nodeId }),
   clearSelection: () => set({ selectedNodeId: null }),
@@ -67,6 +95,85 @@ export const useFlowStore = create((set, get) => ({
       selected: false,
     };
     set((state) => ({ nodes: [...state.nodes, newNode] }));
+  },
+
+  // ── Grouping (multi-select → group container) ────────────────────────────
+  groupSelection: () => {
+    const state = get();
+    const selected = state.nodes.filter((n) => n.selected && n.type !== "group");
+    if (selected.length < 2) return;
+    get()._pushHistory();
+
+    // Bounding box of selection
+    const PADDING = 36;
+    const HEADER = 30;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    selected.forEach((n) => {
+      const w = n.width || n.style?.width || 240;
+      const h = n.height || n.style?.height || 160;
+      minX = Math.min(minX, n.position.x);
+      minY = Math.min(minY, n.position.y);
+      maxX = Math.max(maxX, n.position.x + w);
+      maxY = Math.max(maxY, n.position.y + h);
+    });
+
+    const groupId = `group-${Date.now()}`;
+    const groupNode = {
+      id: groupId,
+      type: "group",
+      position: { x: minX - PADDING, y: minY - PADDING - HEADER },
+      data: { label: "Group" },
+      style: {
+        width: maxX - minX + PADDING * 2,
+        height: maxY - minY + PADDING * 2 + HEADER,
+      },
+      selectable: true,
+      draggable: true,
+    };
+
+    const childIds = new Set(selected.map((n) => n.id));
+    const newNodes = [
+      groupNode,
+      ...state.nodes.map((n) => {
+        if (!childIds.has(n.id)) return n;
+        return {
+          ...n,
+          parentId: groupId,
+          extent: "parent",
+          position: {
+            x: n.position.x - groupNode.position.x,
+            y: n.position.y - groupNode.position.y,
+          },
+          selected: false,
+        };
+      }),
+    ];
+
+    set({ nodes: newNodes, isDirty: true });
+  },
+
+  ungroupSelection: () => {
+    const state = get();
+    const groups = state.nodes.filter((n) => n.selected && n.type === "group");
+    if (groups.length === 0) return;
+    get()._pushHistory();
+    const groupIds = new Set(groups.map((g) => g.id));
+    const newNodes = state.nodes
+      .filter((n) => !groupIds.has(n.id)) // drop the group containers
+      .map((n) => {
+        if (!n.parentId || !groupIds.has(n.parentId)) return n;
+        const parent = groups.find((g) => g.id === n.parentId);
+        return {
+          ...n,
+          parentId: undefined,
+          extent: undefined,
+          position: {
+            x: (parent?.position?.x || 0) + n.position.x,
+            y: (parent?.position?.y || 0) + n.position.y,
+          },
+        };
+      });
+    set({ nodes: newNodes, isDirty: true });
   },
 
   // ── History (undo/redo) ──────────────────────────────────────────────────

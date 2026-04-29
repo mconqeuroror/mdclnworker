@@ -781,6 +781,21 @@ export const NODE_REGISTRY = {
       return { output: values, outputType: "array" };
     },
   },
+
+  // Visual-only container for the canvas. The execution engine treats it as
+  // a pure pass-through so flows containing groups serialize and run cleanly.
+  "group": {
+    label: "Group",
+    category: "utility",
+    color: "#a78bfa",
+    description: "Visual container — has no runtime effect",
+    inputs: [],
+    outputs: [],
+    defaultData: { label: "Group" },
+    creditCost: 0,
+    hidden: true, // not shown in the palette
+    execute: async () => ({ output: null, outputType: null }),
+  },
 };
 
 // ---------------------------------------------------------------------------

@@ -7,7 +7,7 @@
  */
 
 import { memo, useState, useCallback } from "react";
-import { Handle, Position } from "@xyflow/react";
+import { Handle, Position, NodeResizer } from "@xyflow/react";
 import {
   Copy,
   Trash2,
@@ -84,9 +84,27 @@ export const BaseNode = memo(function BaseNode({
 
   return (
     <div
-      className="group relative min-w-[240px] max-w-[280px] select-none"
-      style={{ fontFamily: "var(--font-sans)" }}
+      className="group relative select-none w-full h-full"
+      style={{ fontFamily: "var(--font-sans)", minWidth: 240, minHeight: 120 }}
     >
+      {/* Resize handles — only visible/interactive when node is selected */}
+      <NodeResizer
+        isVisible={selected}
+        minWidth={220}
+        minHeight={120}
+        maxWidth={680}
+        maxHeight={900}
+        lineStyle={{ borderColor: "rgba(167,139,250,0.45)", borderWidth: 1 }}
+        handleStyle={{
+          background: "#a78bfa",
+          width: 8,
+          height: 8,
+          border: "1.5px solid #08080b",
+          borderRadius: 2,
+          boxShadow: "0 0 6px rgba(167,139,250,0.6)",
+        }}
+      />
+
       {/* Outer running glow halo */}
       {status === "running" && (
         <div
@@ -101,7 +119,7 @@ export const BaseNode = memo(function BaseNode({
 
       {/* The node card */}
       <div
-        className="relative rounded-[12px] overflow-hidden backdrop-blur-xl transition-shadow duration-300"
+        className="relative rounded-[12px] overflow-hidden backdrop-blur-xl transition-shadow duration-300 w-full h-full flex flex-col"
         style={{
           background:
             "linear-gradient(180deg, rgba(22,22,28,0.96) 0%, rgba(15,15,20,0.96) 100%)",

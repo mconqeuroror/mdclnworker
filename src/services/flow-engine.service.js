@@ -46,27 +46,50 @@ export function topoSort(nodes, edges) {
 
 // ---------------------------------------------------------------------------
 // Resolve inputs for a node from previously computed results
+//
+// When multiple edges land on the same target handle, values are collected
+// into an array. For "text" handles we also expose a joined string under the
+// same key so consumers that expect a single string keep working.
 // ---------------------------------------------------------------------------
 function resolveInputs(node, edges, results) {
-  const inputs = {};
   const incomingEdges = edges.filter(e => e.target === node.id);
 
+  // Group incoming edges by target handle so we can detect multi-fanin.
+  const byHandle = new Map();
   for (const edge of incomingEdges) {
     const sourceResult = results[edge.source];
-    const sourceHandle = edge.sourceHandle || "output";
+    if (sourceResult?.output === undefined) continue;
     const targetHandle = edge.targetHandle || "input";
+    const list = byHandle.get(targetHandle) || [];
+    list.push({
+      value: sourceResult.output,
+      type: sourceResult.outputType,
+    });
+    byHandle.set(targetHandle, list);
+  }
 
-    if (sourceResult?.output !== undefined) {
-      // Map common handles
-      const value = sourceResult.output;
-      inputs[targetHandle] = value;
+  const inputs = {};
+  for (const [handle, items] of byHandle.entries()) {
+    if (items.length === 1) {
+      inputs[handle] = items[0].value;
+    } else {
+      const values = items.map((i) => i.value);
+      // Text handles get a joined string for back-compat with single-string
+      // consumers, plus the array under `<handle>List`.
+      const allText = items.every((i) => i.type === "text" || typeof i.value === "string");
+      inputs[handle] = allText ? values.join("\n\n") : values;
+      inputs[`${handle}List`] = values;
+    }
+  }
 
-      // Also map generic aliases for convenience
+  // Generic aliases — first-wins, preserved for back-compat.
+  for (const items of byHandle.values()) {
+    for (const { value, type } of items) {
       if (!inputs.any) inputs.any = value;
-      if (sourceResult.outputType === "image" && !inputs.image) inputs.image = value;
-      if (sourceResult.outputType === "video" && !inputs.video) inputs.video = value;
-      if (sourceResult.outputType === "text" && !inputs.text) inputs.text = value;
-      if (sourceResult.outputType === "model" && !inputs.model) inputs.model = value;
+      if (type === "image" && !inputs.image) inputs.image = value;
+      if (type === "video" && !inputs.video) inputs.video = value;
+      if (type === "text"  && !inputs.text)  inputs.text  = value;
+      if (type === "model" && !inputs.model) inputs.model = value;
     }
   }
 

@@ -61,8 +61,12 @@ export default function FlowEdge({
   const isFailed = targetStatus === "failed" || sourceStatus === "failed";
 
   // Strokes — connected edges are clearly visible by default.
-  const strokeOpacity = selected || isRunning ? 1 : isCompleted ? 0.95 : 0.85;
+  // Idle edges are DASHED so they read as connections but don't compete with
+  // active flows. Running/completed/failed/selected edges become solid.
+  const strokeOpacity = selected || isRunning ? 1 : isCompleted ? 0.95 : 0.9;
   const strokeWidth = selected ? 2.5 : isRunning ? 2.25 : 2;
+  const isIdleConnection = !isRunning && !isCompleted && !isFailed && !selected;
+  const dashArray = isRunning ? "6 6" : isIdleConnection ? "5 5" : "none";
 
   return (
     <>
@@ -101,7 +105,8 @@ export default function FlowEdge({
           stroke: isFailed ? "#ef4444aa" : `url(#edge-gradient-${id})`,
           strokeWidth,
           fill: "none",
-          strokeDasharray: isRunning ? "6 6" : "none",
+          strokeDasharray: dashArray,
+          strokeLinecap: "round",
           animation: isRunning ? "flow-dash 0.8s linear infinite" : "none",
         }}
       />

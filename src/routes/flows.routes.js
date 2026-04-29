@@ -45,6 +45,7 @@ router.get("/node-types", (req, res) => {
     outputs: def.outputs,
     defaultData: def.defaultData,
     creditCost: def.creditCost,
+    hidden: def.hidden || false,
   }));
   res.json({ types, categories: NODE_CATEGORIES });
 });
