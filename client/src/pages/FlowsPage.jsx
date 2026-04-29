@@ -811,21 +811,38 @@ export default function FlowsPage({ embedded = false }) {
         /* Custom minimap */
         .flow-minimap { margin: 12px !important; }
 
-        /* Edge — safety net: every edge path gets a visible stroke even
-           if a custom edge component fails to mount one. */
+        /* Edge baseline + safety net.
+           - Inline styles set by <FlowEdge> (via BaseEdge) win over these rules,
+             so port-typed colours / running animation still apply.
+           - When inline style is missing for any reason (initial mount frame,
+             a built-in default edge, stale chunk, etc.) these rules guarantee
+             every edge path is a visible 2 px dashed violet line — the same
+             "ComfyUI-style" default the user expects. */
         .react-flow__edge-path,
         .react-flow__connection-path {
-          stroke: #a78bfa !important;
+          stroke: #a78bfa;
           stroke-width: 2px;
+          stroke-dasharray: 6 6;
           stroke-linecap: round;
+          stroke-linejoin: round;
           fill: none;
         }
-        .react-flow__edge:hover .react-flow__edge-path { stroke-width: 2.75px !important; }
+        /* The live drag preview while the user is pulling a wire. */
+        .react-flow__connection-path {
+          stroke-width: 2.25px;
+          stroke-dasharray: 5 5;
+          opacity: 0.9;
+        }
+        .react-flow__edge:hover .react-flow__edge-path,
         .react-flow__edge.selected .react-flow__edge-path,
         .react-flow__edge:focus .react-flow__edge-path,
         .react-flow__edge:focus-visible .react-flow__edge-path {
-          stroke-width: 2.75px !important;
+          stroke-width: 2.75px;
         }
+        /* Make the edge group itself never invisible — guards against any
+           Tailwind reset or external rule setting visibility:hidden. */
+        .react-flow__edge { visibility: visible; opacity: 1; }
+        .react-flow__edges { z-index: 1; }
 
         /* Handle hover */
         .react-flow__handle {
