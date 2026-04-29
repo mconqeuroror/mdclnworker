@@ -3845,10 +3845,11 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
   let costEach = [];
   let costPer = 0;
   if (wantsImg2Img) {
-    // i2i pricing is per generated image; workflow quantity maps to batch size.
+    // i2i pricing is per generated image. We submit N separate single-image jobs
+    // (not one batch job) to avoid RunPod's ~5 MB output-payload size limit.
     const perImage = Number(pricing.modelcloneXWithModel1 ?? 15);
-    costEach = [Math.max(0, perImage * qty)];
-    costPer = costEach[0];
+    costEach = Array.from({ length: qty }, () => Math.max(0, perImage));
+    costPer = costEach.reduce((sum, c) => sum + c, 0);
     includedStepsForPricing = 0;
   } else {
     const baseCost =
@@ -3910,7 +3911,9 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
   }
 
   const generationIds = [];
-  const numJobs = wantsImg2Img ? 1 : (qty === 2 ? 2 : 1);
+  // img2img: submit qty separate single-image jobs (avoids RunPod 5 MB output limit for batches).
+  // text:    submit 1 or 2 jobs based on qty (existing behaviour).
+  const numJobs = wantsImg2Img ? qty : (qty === 2 ? 2 : 1);
 
   // For qty=2, submit two separate single-image jobs
   for (let i = 0; i < numJobs; i++) {
@@ -3944,7 +3947,7 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
           prompt: optimizedPrompt,
           loraUrl,
           loraStrength: safeLoraStrength,
-          batchSize: qty,
+          batchSize: 1, // each job generates exactly 1 image; we submit qty jobs separately
           denoise,
           seed: clientSeed != null ? Number(clientSeed) : undefined,
           steps: safeSteps,
@@ -3986,7 +3989,7 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
             modelcloneXImg2Img: wantsImg2Img,
             ...(wantsImg2Img
               ? {
-                  batchSize: qty,
+                  batchSize: 1,
                   img2imgDenoise: Math.max(0, Math.min(1, Number(img2imgDenoise) || 0.6)),
                   seed: img2imgSeedStored,
                 }
@@ -4054,14 +4057,16 @@ router.get("/modelclone-x/status/:generationId", authMiddleware, async (req, res
 
     // Still processing — poll RunPod directly to recover results that may have
     // missed the webhook (large payload, delivery failure, server restart, etc.)
-    let runpodJobId = null;
-    try {
-      const meta = gen.inputImageUrl ? JSON.parse(gen.inputImageUrl) : {};
-      runpodJobId =
-        (typeof gen.providerTaskId === "string" && gen.providerTaskId.trim()) ||
-        meta?.runpodJobId ||
-        null;
-    } catch { /* ignore parse errors */ }
+    // Read providerTaskId first (outside try/catch) so a JSON parse error on
+    // inputImageUrl can never prevent us from discovering the job id.
+    let runpodJobId =
+      (typeof gen.providerTaskId === "string" && gen.providerTaskId.trim()) || null;
+    if (!runpodJobId) {
+      try {
+        const meta = gen.inputImageUrl ? JSON.parse(gen.inputImageUrl) : {};
+        runpodJobId = meta?.runpodJobId || null;
+      } catch { /* ignore parse errors */ }
+    }
 
     if (runpodJobId) {
       try {
@@ -4074,23 +4079,23 @@ router.get("/modelclone-x/status/:generationId", authMiddleware, async (req, res
             const { uploadBufferToBlobOrR2 } = await import("../utils/kieUpload.js");
             const { isVercelBlobConfigured } = await import("../utils/kieUpload.js");
             const { isR2Configured } = await import("../utils/r2.js");
-            const outputUrls = [];
-            for (const imageData of images) {
-              try {
-                if (imageData.startsWith("http")) {
-                  outputUrls.push(imageData);
-                } else if (isVercelBlobConfigured() || isR2Configured()) {
-                  const buf = Buffer.from(imageData, "base64");
-                  const uploaded = await uploadBufferToBlobOrR2(buf, "modelclone-x", "png", "image/png");
-                  outputUrls.push(uploaded);
-                } else {
-                  outputUrls.push(`data:image/png;base64,${imageData}`);
+            const canUpload = isVercelBlobConfigured() || isR2Configured();
+            // Upload all images in parallel to avoid sequential latency accumulation.
+            const outputUrls = await Promise.all(
+              images.map(async (imageData) => {
+                try {
+                  if (imageData.startsWith("http")) return imageData;
+                  if (canUpload) {
+                    const buf = Buffer.from(imageData, "base64");
+                    return await uploadBufferToBlobOrR2(buf, "modelclone-x", "png", "image/png");
+                  }
+                  return `data:image/png;base64,${imageData}`;
+                } catch (uploadErr) {
+                  console.error("[ModelCloneX] status poll upload error:", uploadErr.message);
+                  return `data:image/png;base64,${imageData}`;
                 }
-              } catch (uploadErr) {
-                console.error("[ModelCloneX] status poll upload error:", uploadErr.message);
-                outputUrls.push(`data:image/png;base64,${imageData}`);
-              }
-            }
+              }),
+            );
             const outputUrl = outputUrls.length === 1 ? outputUrls[0] : JSON.stringify(outputUrls);
             await prisma.generation.update({
               where: { id: generationId },
