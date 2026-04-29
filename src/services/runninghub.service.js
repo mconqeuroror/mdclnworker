@@ -468,7 +468,7 @@ export async function submitSynthIdRemoveJob(imageUrl) {
         fieldValue: imageUrl,
       },
     ],
-    instanceType: "default",
+    instanceType: "plus", // 48GB VRAM — SeedVR2 OOMs on default 24GB for large images
     ...(webhookUrl ? { webhookUrl } : {}),
   };
 
