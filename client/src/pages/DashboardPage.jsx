@@ -57,6 +57,7 @@ import ViralReelFinderPage from "./ViralReelFinderPage";
 import ContentReformatterPage from "./ContentReformatterPage";
 import FirstFrameExtractorPage from "./FirstFrameExtractorPage";
 import UpscalerPage from "./UpscalerPage";
+import SynthIDRemoverPage from "./SynthIDRemoverPage";
 import ModelCloneXPage from "./ModelCloneXPage";
 import GPTXTab from "./GPTXTab";
 import NSFWPage from "./NSFWPage";
@@ -377,7 +378,7 @@ export default function DashboardPage() {
       if (tabParam === "soulx") tabParam = "modelclone-x";
       if (tabParam === "nsfw") {
         setActiveTab("nsfw");
-      } else if (tabParam && ["home", "models", "generate", "creator-studio", "voice-studio", "reformatter", "frame-extractor", "upscaler", "modelclone-x", "gptx", "history", "settings", "course", "repurposer", "reelfinder", "referral"].includes(tabParam)) {
+      } else if (tabParam && ["home", "models", "generate", "creator-studio", "voice-studio", "reformatter", "frame-extractor", "upscaler", "synthid-remove", "modelclone-x", "gptx", "history", "settings", "course", "repurposer", "reelfinder", "referral"].includes(tabParam)) {
         if (premiumTabs.includes(tabParam)) {
           const hasAccess = hasPremiumAccess(freshUser);
           if (!hasAccess) {
@@ -902,6 +903,7 @@ export default function DashboardPage() {
         {activeTab === "reformatter" && <ContentReformatterPage />}
           {activeTab === "frame-extractor" && <FirstFrameExtractorPage />}
           {activeTab === "upscaler" && <UpscalerPage />}
+          {activeTab === "synthid-remove" && <SynthIDRemoverPage />}
           {activeTab === "modelclone-x" && <ModelCloneXPage />}
           {activeTab === "gptx" && <GPTXTab />}
           {activeTab === "history" && <HistoryPage />}

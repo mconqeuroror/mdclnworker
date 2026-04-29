@@ -443,3 +443,60 @@ export const RUNNINGHUB_ENUMS = Object.freeze({
   SORA_T2V_SIZES: Array.from(SORA_T2V_SIZES),
   SORA_DURATIONS: Array.from(SORA_DURATIONS),
 });
+
+// ── SynthID / Watermark Remover ───────────────────────────────────────────────
+
+const SYNTHID_REMOVER_APP_ID = "2049470466959613953";
+const SYNTHID_IMAGE_NODE_ID = "11";
+
+/**
+ * Submit a SynthID / digital watermark removal job via RunningHub AI App.
+ *
+ * @param {string} imageUrl - Publicly accessible image URL or base64 data URI
+ * @returns {Promise<{ taskId: string, status: string }>}
+ */
+export async function submitSynthIdRemoveJob(imageUrl) {
+  assertApiKey();
+  if (!imageUrl) throw new Error("[SynthIDRemove] imageUrl is required");
+
+  const webhookUrl = getRunningHubWebhookUrl();
+  const payload = {
+    nodeInfoList: [
+      {
+        nodeId: SYNTHID_IMAGE_NODE_ID,
+        fieldName: "image",
+        fieldValue: imageUrl,
+      },
+    ],
+    instanceType: "default",
+    ...(webhookUrl ? { webhookUrl } : {}),
+  };
+
+  const res = await fetch(
+    `${RUNNINGHUB_BASE_URL}/openapi/v2/run/ai-app/${SYNTHID_REMOVER_APP_ID}`,
+    {
+      method: "POST",
+      headers: rhHeaders(),
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(RUNNINGHUB_REQUEST_TIMEOUT_MS),
+    },
+  );
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(`[SynthIDRemove] HTTP ${res.status}: ${text.slice(0, 400)}`);
+  }
+  let json;
+  try { json = JSON.parse(text); } catch {
+    throw new Error(`[SynthIDRemove] Invalid JSON: ${text.slice(0, 200)}`);
+  }
+  const taskId = json?.taskId || json?.data?.taskId;
+  const errorCode = json?.errorCode || json?.data?.errorCode;
+  const errorMessage = json?.errorMessage || json?.data?.errorMessage;
+  if (errorCode || String(json?.status || "").toUpperCase() === "FAILED") {
+    throw new Error(`[SynthIDRemove] API error (${errorCode}): ${errorMessage || "unknown"}`);
+  }
+  if (!taskId) {
+    throw new Error(`[SynthIDRemove] No taskId in response: ${JSON.stringify(json).slice(0, 300)}`);
+  }
+  return { taskId: String(taskId), status: String(json?.status || "QUEUED").toUpperCase() };
+}

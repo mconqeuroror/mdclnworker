@@ -150,9 +150,11 @@ router.post("/", express.json({ limit: "4mb" }), async (req, res) => {
         console.warn(`[RunningHub Callback] ${gen.id.slice(0, 8)} SUCCESS but no URL`);
         return ack();
       }
+      const IMAGE_GENERATION_TYPES = new Set(["synthid-remove", "upscale"]);
+      const mimeHint = IMAGE_GENERATION_TYPES.has(gen.type) ? "image/png" : "video/mp4";
       let finalUrl = rawUrl;
       try {
-        finalUrl = await mirrorProviderOutputUrl(rawUrl, "video/mp4");
+        finalUrl = await mirrorProviderOutputUrl(rawUrl, mimeHint);
       } catch (e) {
         console.warn(`[RunningHub Callback] mirror failed ${gen.id.slice(0, 8)}: ${e?.message}`);
       }

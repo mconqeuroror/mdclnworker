@@ -3056,6 +3056,173 @@ router.get("/upscale/status/:generationId", authMiddleware, async (req, res) => 
   }
 });
 
+// ── SynthID / Watermark Remover ───────────────────────────────────────────────
+import { submitSynthIdRemoveJob, queryRunningHubTask, extractRunningHubOutputUrl } from "../services/runninghub.service.js";
+
+router.post(
+  "/synthid-remove",
+  authMiddleware,
+  generationLimiter,
+  upscalerUpload.single("image"), // reuse image-upload multer config (20 MB)
+  async (req, res) => {
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json({ success: false, error: "Unauthorized" });
+
+    const inputImageUrl =
+      typeof req.body?.inputImageUrl === "string" && req.body.inputImageUrl.trim()
+        ? req.body.inputImageUrl.trim()
+        : null;
+
+    if (!inputImageUrl && !req.file) {
+      return res.status(400).json({ success: false, error: "No image provided" });
+    }
+
+    const { deductCredits, checkAndExpireCredits, refundCredits, getTotalCredits } = await import("../services/credit.service.js");
+
+    let generationId = null;
+    let creditDeducted = false;
+
+    try {
+      const pricing = await getGenerationPricing();
+      const cost = Number(pricing.synthIdRemove ?? 10);
+      const user = await checkAndExpireCredits(userId);
+      const totalCredits = getTotalCredits(user);
+      if (totalCredits < cost) {
+        return res.status(402).json({
+          success: false,
+          error: `Not enough credits. SynthID removal costs ${cost} (you have ${totalCredits}).`,
+          creditsNeeded: cost,
+          creditsAvailable: totalCredits,
+        });
+      }
+
+      // Resolve image — prefer URL (already in blob), otherwise read upload buffer
+      let imagePayload;
+      if (inputImageUrl) {
+        imagePayload = inputImageUrl; // RunningHub accepts public URLs
+      } else {
+        const mime = req.file.mimetype || "image/jpeg";
+        imagePayload = `data:${mime};base64,${req.file.buffer.toString("base64")}`;
+      }
+
+      const gen = await prisma.generation.create({
+        data: {
+          userId,
+          type: "synthid-remove",
+          prompt: "",
+          creditsCost: cost,
+          status: "processing",
+          inputImageUrl: JSON.stringify({ blobUrl: inputImageUrl || null }),
+        },
+      });
+      generationId = gen.id;
+
+      await deductCredits(userId, cost);
+      creditDeducted = true;
+
+      const { taskId } = await submitSynthIdRemoveJob(imagePayload);
+
+      await prisma.generation.update({
+        where: { id: generationId },
+        data: {
+          providerTaskId: taskId,
+          inputImageUrl: JSON.stringify({ taskId, blobUrl: inputImageUrl || null }),
+        },
+      });
+
+      return res.json({ success: true, generationId, taskId });
+    } catch (err) {
+      console.error("[SynthIDRemove] submit error:", err.message);
+      if (creditDeducted && userId) {
+        try {
+          const gen = generationId ? await prisma.generation.findUnique({ where: { id: generationId }, select: { creditsCost: true } }) : null;
+          await refundCredits(userId, gen?.creditsCost || 0);
+        } catch {}
+      }
+      if (generationId) {
+        await prisma.generation.update({
+          where: { id: generationId },
+          data: { status: "failed", errorMessage: err.message.slice(0, 500) },
+        }).catch(() => {});
+      }
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  },
+);
+
+router.get("/synthid-remove/status/:generationId", authMiddleware, async (req, res) => {
+  const userId = req.user?.userId;
+  const { generationId } = req.params;
+
+  try {
+    const gen = await prisma.generation.findUnique({ where: { id: generationId } });
+    if (!gen || gen.userId !== userId) {
+      return res.status(404).json({ success: false, error: "Not found" });
+    }
+
+    if (gen.status === "completed" || gen.status === "failed") {
+      return res.json({ success: true, status: gen.status, imageUrl: gen.outputUrl ?? null, error: gen.errorMessage ?? null });
+    }
+
+    let taskId = (gen.providerTaskId || "").trim();
+    if (!taskId) {
+      try { taskId = String(JSON.parse(gen.inputImageUrl || "{}").taskId || "").trim(); } catch {}
+    }
+    if (!taskId) return res.json({ success: true, status: "processing" });
+
+    let rh;
+    try {
+      rh = await queryRunningHubTask(taskId);
+    } catch (pollErr) {
+      console.warn(`[SynthIDRemove/status] poll failed for ${generationId}: ${pollErr.message}`);
+      return res.json({ success: true, status: "processing" });
+    }
+
+    const rhStatus = String(rh.status || "").toUpperCase();
+
+    if (["FAILED", "CANCELLED", "CANCELED"].includes(rhStatus)) {
+      const errMsg = rh.errorMessage || "SynthID removal failed";
+      await prisma.generation.update({
+        where: { id: generationId },
+        data: { status: "failed", errorMessage: errMsg.slice(0, 500), completedAt: new Date() },
+      }).catch(() => {});
+      const { refundGeneration } = await import("../services/credit.service.js");
+      await refundGeneration(generationId).catch(() => {});
+      return res.json({ success: true, status: "failed", imageUrl: null, error: errMsg });
+    }
+
+    if (rhStatus !== "SUCCESS") {
+      return res.json({ success: true, status: "processing" });
+    }
+
+    const rawUrl = extractRunningHubOutputUrl(rh.results);
+    if (!rawUrl) return res.json({ success: true, status: "processing" });
+
+    const { uploadBufferToBlobOrR2 } = await import("../utils/kieUpload.js");
+    let outputUrl = rawUrl;
+    try {
+      const imgRes = await fetch(rawUrl);
+      if (imgRes.ok) {
+        const buf = Buffer.from(await imgRes.arrayBuffer());
+        const ext = rawUrl.match(/\.([a-zA-Z0-9]+)(\?|$)/)?.[1] || "png";
+        outputUrl = await uploadBufferToBlobOrR2(buf, `synthid-${generationId}.${ext}`, `image/${ext}`);
+      }
+    } catch (e) {
+      console.warn(`[SynthIDRemove/status] mirror failed: ${e?.message}`);
+    }
+
+    await prisma.generation.update({
+      where: { id: generationId },
+      data: { status: "completed", outputUrl, completedAt: new Date(), errorMessage: null },
+    }).catch(() => {});
+
+    return res.json({ success: true, status: "completed", imageUrl: outputUrl });
+  } catch (err) {
+    console.error("[SynthIDRemove/status] error:", err.message);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // MODELCLONE-X GENERATION ROUTES (legacy /api/soulx/* → 308 → /api/modelclone-x/*)
 // ─────────────────────────────────────────────────────────────────────────────

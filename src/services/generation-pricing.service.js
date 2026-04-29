@@ -15,6 +15,7 @@ export const DEFAULT_GENERATION_PRICING = Object.freeze({
   enhancePromptDefault: 10,
   enhancePromptNsfw: 10,
   upscalerImage: 5,
+  synthIdRemove: 10,
   modelcloneXNoModel1: 10,
   modelcloneXWithModel1: 15,
   modelcloneXNoModel2: 15,

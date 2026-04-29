@@ -39,6 +39,7 @@ import {
   Eye,
   EyeOff,
   Bot,
+  ShieldOff,
 } from "lucide-react";
 import { SiTelegram, SiDiscord, SiInstagram } from "react-icons/si";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -280,6 +281,7 @@ export default function AppSidebar({
     { id: "reformatter", label: copy.reformatter, icon: FileType2 },
     { id: "frame-extractor", label: copy.firstFrameExtractor, icon: ImageIcon },
     { id: "upscaler", label: copy.upscaler, icon: ZoomIn },
+    { id: "synthid-remove", label: "Watermark Remover", icon: ShieldOff },
     { id: "modelclone-x", label: copy.modelcloneX, icon: Wand2 },
     // { id: "gptx", label: copy.gptx, icon: Bot }, // hidden until approved for live
     { id: "history", label: copy.history, icon: Clock },
