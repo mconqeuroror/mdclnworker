@@ -180,6 +180,15 @@ function CheckoutForm({ item, itemType, onSuccess, onClose, paymentMethod, onSwi
   // During render (not useEffect): avoids a render→effect gap if the user taps wallet immediately.
   walletCodesRef.current = { referralCode, discountCode };
 
+  // The wallet flow needs access to a lot of constantly-changing closures
+  // (itemType, item, finalizePayment, etc.) — but if we put those in the effect
+  // deps the effect tears down + rebuilds the PaymentRequest on every parent
+  // re-render. That race makes the <PaymentRequestButtonElement> bind to a
+  // stale `pr` whose listener was already removed by cleanup → tapping Google
+  // Pay opens the sheet, no listener fires, the sheet just hangs (the "frozen
+  // checkout" bug). Keep the listener stable by reading from a ref.
+  const walletHandlerRef = useRef(null);
+
   useEffect(() => {
     if (!stripe || !displayPrice) return;
 
@@ -202,7 +211,9 @@ function CheckoutForm({ item, itemType, onSuccess, onClose, paymentMethod, onSwi
       disableWallets: ['link'],
     });
 
+    let cancelled = false;
     pr.canMakePayment().then(result => {
+      if (cancelled) return;
       setWalletCheckComplete(true);
       if (result) {
         console.log('Apple Pay / Google Pay available:', result);
@@ -211,9 +222,34 @@ function CheckoutForm({ item, itemType, onSuccess, onClose, paymentMethod, onSwi
       } else {
         console.log('Apple Pay / Google Pay not available in this browser');
       }
-    }).catch(() => setWalletCheckComplete(true));
+    }).catch(() => {
+      if (!cancelled) setWalletCheckComplete(true);
+    });
 
-    pr.on('paymentmethod', async (ev) => {
+    // Stable listener — always invokes the latest handler stored in the ref.
+    pr.on('paymentmethod', (ev) => {
+      const handler = walletHandlerRef.current;
+      if (handler) {
+        handler(ev);
+      } else {
+        // Should never happen (ref is set on every render before paint), but
+        // fail the wallet sheet rather than freezing it.
+        console.warn('Wallet: no handler registered, completing as fail');
+        try { ev.complete('fail'); } catch {}
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      pr.off('paymentmethod');
+    };
+    // Only depend on values that actually require a NEW PaymentRequest instance.
+    // Discounted totals are pushed via pr.update() in the effect below.
+  }, [stripe, displayPrice, itemType, item?.id, item?.billingCycle, displayCredits]);
+
+  // Assigning during render keeps the ref pointing at the latest closure
+  // without re-running the effect that owns the PaymentRequest instance.
+  walletHandlerRef.current = async (ev) => {
       // Hide wallet button after any attempt to prevent stale UI
       setPaymentAttempted(true);
       setLoading(true);
@@ -329,7 +365,7 @@ function CheckoutForm({ item, itemType, onSuccess, onClose, paymentMethod, onSwi
 
       } catch (err) {
         console.error('Wallet payment error:', err);
-        ev.complete('fail');
+        try { ev.complete('fail'); } catch {}
         const errorMsg = err.response?.data?.error || err.message || 'Payment failed';
         clearPendingStripeConfirmation();
         setError(errorMsg);
@@ -337,12 +373,7 @@ function CheckoutForm({ item, itemType, onSuccess, onClose, paymentMethod, onSwi
         setGeneratingModel(false);
         setPaymentSuccess(false);
       }
-    });
-
-    return () => {
-      pr.off('paymentmethod');
     };
-  }, [stripe, displayPrice, itemType, item, displayCredits, finalizePayment]);
 
   useEffect(() => {
     const pr = paymentRequest;
