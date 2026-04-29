@@ -13,8 +13,8 @@ export const DEFAULT_GENERATION_PRICING = Object.freeze({
   imageFaceSwap: 10,
   analyzeLooks: 10,
   describeTargetImage: 10,
-  enhancePromptDefault: 10,
-  enhancePromptNsfw: 10,
+  enhancePromptDefault: 1,
+  enhancePromptNsfw: 1,
   upscalerImage: 5,
   synthIdRemove: 20,
   modelcloneXNoModel1: 10,
@@ -240,12 +240,32 @@ export async function getGenerationPricing({ forceRefresh = false } = {}) {
 
   let raw = row?.values || {};
   if (typeof raw === "object" && raw) {
+    let migrated = false;
+
+    // motionX legacy migration
     const currentMotionX = Number(raw.motionXPerSec);
-    if (
-      Number.isFinite(currentMotionX) &&
-      currentMotionX === MOTION_X_LEGACY_DEFAULT
-    ) {
+    if (Number.isFinite(currentMotionX) && currentMotionX === MOTION_X_LEGACY_DEFAULT) {
       raw = { ...raw, motionXPerSec: MOTION_X_MIGRATED_DEFAULT };
+      migrated = true;
+    }
+
+    // Prompt enhancer: old default was 10, new default is 1
+    if (Number(raw.enhancePromptDefault) === 10) {
+      raw = { ...raw, enhancePromptDefault: 1 };
+      migrated = true;
+    }
+    if (Number(raw.enhancePromptNsfw) === 10) {
+      raw = { ...raw, enhancePromptNsfw: 1 };
+      migrated = true;
+    }
+
+    // SynthID Remover: old default was 10, new default is 20
+    if (Number(raw.synthIdRemove) === 10) {
+      raw = { ...raw, synthIdRemove: 20 };
+      migrated = true;
+    }
+
+    if (migrated && row) {
       try {
         await prisma.generationPricingConfig.update({
           where: { id: "global" },
