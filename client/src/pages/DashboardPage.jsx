@@ -1845,7 +1845,7 @@ function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, 
 
       {/* Start Creating CTA */}
       <div 
-        className="rounded-2xl p-5 backdrop-blur-2xl shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)]"
+        className="rounded-2xl p-5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)]"
         style={{ 
           background: 'var(--bg-elevated)',
           border: '1px solid var(--mc-glass-border)',
@@ -1866,7 +1866,7 @@ function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, 
           </div>
           <button
             onClick={() => { setActiveTab("generate"); }}
-            className="btn-primary w-full sm:w-auto px-6 py-3 rounded-xl font-semibold transition-opacity hover:opacity-95"
+            className="btn-primary w-full sm:w-auto px-6 py-3 rounded-xl font-semibold"
             data-testid="button-start-generating"
           >
             <span className="flex items-center justify-center gap-2">

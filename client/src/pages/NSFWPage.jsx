@@ -4075,6 +4075,9 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
   const loraProCost = Number.isFinite(Number(generationPricing.loraTrainingPro))
     ? Number(generationPricing.loraTrainingPro)
     : 1500;
+  const nsfwImageDoubleCost = Number.isFinite(Number(generationPricing.nsfwImageDouble))
+    ? Number(generationPricing.nsfwImageDouble)
+    : 50;
   const nsfwVideoMinCost = Number.isFinite(Number(generationPricing.videoPrompt5s))
     ? Number(generationPricing.videoPrompt5s)
     : 50;
@@ -6422,8 +6425,8 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
                         <Coins className="w-3 h-3 text-yellow-400" />
                         <span>
                           {imageQuantity === 2
-                            ? (skipFaceSwap ? "50" : "70")
-                            : (skipFaceSwap ? "30" : "40")}
+                            ? (skipFaceSwap ? nsfwImageDoubleCost : nsfwImageDoubleCost + faceSwapExtraCost * 2)
+                            : (skipFaceSwap ? nsfwImageBaseCost : nsfwFaceSwapCost)}
                         </span>
                       </span>
                     </>

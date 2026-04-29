@@ -171,7 +171,8 @@ const GENERATION_PRICING_GROUPS = [
     fields: [
       { key: 'imageIdentity', label: 'Image — identity' },
       { key: 'imagePromptCasual', label: 'Image — casual prompt' },
-      { key: 'imagePromptNsfw', label: 'Image — NSFW prompt' },
+      { key: 'imagePromptNsfw', label: 'NSFW Studio — 1 image (per image)' },
+      { key: 'nsfwImageDouble', label: 'NSFW Studio — 2 images bundle price' },
       { key: 'imageFaceSwap', label: 'Image — face swap' },
       { key: 'analyzeLooks', label: 'Analyze looks' },
       { key: 'describeTargetImage', label: 'Describe target image' },

@@ -2839,7 +2839,10 @@ export async function generateNsfwImage(req, res) {
       });
     }
 
-    const baseCredits = imageQuantity === 2 ? CREDITS_PER_NSFW_DOUBLE : CREDITS_PER_NSFW_IMAGE;
+    const nsfwPricing = await getGenerationPricing();
+    const costSingle = Math.max(1, Number(nsfwPricing.imagePromptNsfw ?? CREDITS_PER_NSFW_IMAGE));
+    const costDouble = Math.max(1, Number(nsfwPricing.nsfwImageDouble ?? CREDITS_PER_NSFW_DOUBLE));
+    const baseCredits = imageQuantity === 2 ? costDouble : costSingle;
     const creditsNeeded = baseCredits;
     const user = await checkAndExpireCredits(userId);
     const totalCredits = getTotalCredits(user);
