@@ -907,7 +907,11 @@ export default function DashboardPage() {
           {activeTab === "synthid-remove" && <SynthIDRemoverPage />}
           {activeTab === "modelclone-x" && <ModelCloneXPage />}
           {activeTab === "gptx" && <GPTXTab />}
-          {activeTab === "flows" && <FlowsPage embedded />}
+          {activeTab === "flows" &&
+            typeof window !== "undefined" &&
+            !/(^|\.)modelclone\.app$/i.test(window.location.hostname) && (
+              <FlowsPage embedded />
+            )}
           {activeTab === "history" && <HistoryPage />}
           {activeTab === "settings" && <SettingsPage />}
           {!hideRestrictedTabs && activeTab === "nsfw" && (

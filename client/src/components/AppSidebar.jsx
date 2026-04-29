@@ -273,6 +273,11 @@ export default function AppSidebar({
     window.location.assign(nextUrl);
   };
 
+  // AI Flows is testing-only — auto-hidden on the live `modelclone.app` domain.
+  const isFlowsAllowedHost =
+    typeof window !== "undefined" &&
+    !/(^|\.)modelclone\.app$/i.test(window.location.hostname);
+
   const mainNavItems = [
     { id: "home", label: copy.dashboard, icon: Home },
     { id: "models", label: copy.myModels, icon: Users },
@@ -284,7 +289,7 @@ export default function AppSidebar({
     { id: "upscaler", label: copy.upscaler, icon: ZoomIn },
     { id: "synthid-remove", label: "Watermark Remover", icon: ShieldOff },
     { id: "modelclone-x", label: copy.modelcloneX, icon: Wand2 },
-    { id: "flows", label: "AI Flows", icon: Workflow },
+    ...(isFlowsAllowedHost ? [{ id: "flows", label: "AI Flows", icon: Workflow }] : []),
     // { id: "gptx", label: copy.gptx, icon: Bot }, // hidden until approved for live
     { id: "history", label: copy.history, icon: Clock },
     { id: "settings", label: copy.settings, icon: SettingsIcon },
