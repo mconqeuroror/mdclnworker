@@ -55,13 +55,14 @@ export default function FlowEdge({
   }, [sourceNode, targetNode, sourceHandleId, targetHandleId, nodeTypes]);
 
   const targetStatus = nodeStatuses[target]?.status;
+  const sourceStatus = nodeStatuses[source]?.status;
   const isRunning = targetStatus === "running";
-  const isCompleted = nodeStatuses[source]?.status === "completed";
-  const isFailed = targetStatus === "failed";
+  const isCompleted = sourceStatus === "completed" || targetStatus === "completed";
+  const isFailed = targetStatus === "failed" || sourceStatus === "failed";
 
-  // Strokes for the active state
-  const strokeOpacity = isCompleted || isRunning ? 0.85 : selected ? 0.7 : 0.45;
-  const strokeWidth = selected || isRunning ? 2 : 1.5;
+  // Strokes — connected edges are clearly visible by default.
+  const strokeOpacity = selected || isRunning ? 1 : isCompleted ? 0.95 : 0.85;
+  const strokeWidth = selected ? 2.5 : isRunning ? 2.25 : 2;
 
   return (
     <>
@@ -81,17 +82,15 @@ export default function FlowEdge({
         )}
       </defs>
 
-      {/* Soft glow underlay for running/selected edges */}
-      {(isRunning || selected) && (
-        <path
-          d={edgePath}
-          fill="none"
-          stroke={isRunning ? sourceColor : targetColor}
-          strokeWidth={6}
-          strokeOpacity={isRunning ? 0.18 : 0.12}
-          style={{ filter: "blur(3px)" }}
-        />
-      )}
+      {/* Soft glow underlay — always present on connected edges */}
+      <path
+        d={edgePath}
+        fill="none"
+        stroke={isRunning ? sourceColor : isCompleted ? sourceColor : targetColor}
+        strokeWidth={isRunning || selected ? 7 : 5}
+        strokeOpacity={isRunning ? 0.25 : selected ? 0.18 : isCompleted ? 0.14 : 0.10}
+        style={{ filter: "blur(3px)" }}
+      />
 
       {/* Main edge */}
       <BaseEdge
