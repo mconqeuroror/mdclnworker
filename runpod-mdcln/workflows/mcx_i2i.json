@@ -27,6 +27,11 @@
       ],
       "outputs": [
         {
+          "name": "image_passthrough",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
           "name": "width",
           "type": "INT",
           "links": [
@@ -1627,7 +1632,7 @@
     [
       2471,
       400,
-      0,
+      1,
       354,
       0,
       "INT"
@@ -1635,7 +1640,7 @@
     [
       2472,
       400,
-      1,
+      2,
       354,
       1,
       "INT"
