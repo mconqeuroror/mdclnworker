@@ -10,6 +10,7 @@ import { IDENTITY_RECREATE_MODEL_CLOTHES } from "../constants/identityRecreation
 import { validateSeedreamEditImages } from "../utils/fileValidation.js";
 import {
   INSTARAW_NANO_BANANA_SYSTEM_PROMPT,
+  INSTARAW_NANO_BANANA_TEXT_TO_IMAGE_SYSTEM,
   buildModelSelfiePrompt,
   buildModelPortraitPrompt,
   buildModelFullBodyPrompt,
@@ -85,28 +86,74 @@ export async function optimizeNanoBananaPrompt(basePrompt, context = {}) {
   const promptText = String(basePrompt || "").trim();
   if (!OPENROUTER_API_KEY || !promptText) return promptText;
 
-  // Use the INSTARAW-style system prompt from the prompt service (overridable via DB template).
-  // This produces the "reimagined" image-edit instruction format that Nano Banana Pro responds
-  // to with dramatically better character consistency and cinematic quality.
+  const refs = Number.parseInt(String(context.referenceCount ?? 0), 10);
+  const hasReferenceImages = Number.isFinite(refs) && refs > 0;
+
+  // Route by mode:
+  // - edit/img2img (has refs): INSTARAW edit prompt (reference-image anchor + reimagined sections)
+  // - text-to-image (0 refs): dedicated portrait system that forbids reference-only phrasing
+  const systemTemplateKey = hasReferenceImages
+    ? "nanoBananaModelPromptEnhancerSystem"
+    : "nanoBananaTextToImagePromptEnhancerSystem";
+  const systemFallback = hasReferenceImages
+    ? INSTARAW_NANO_BANANA_SYSTEM_PROMPT
+    : INSTARAW_NANO_BANANA_TEXT_TO_IMAGE_SYSTEM;
   let systemPrompt = await getPromptTemplateValue(
-    "nanoBananaModelPromptEnhancerSystem",
-    INSTARAW_NANO_BANANA_SYSTEM_PROMPT,
+    systemTemplateKey,
+    systemFallback,
   );
   if (!systemPrompt || !systemPrompt.trim()) {
-    systemPrompt = INSTARAW_NANO_BANANA_SYSTEM_PROMPT;
+    systemPrompt = systemFallback;
   }
   // Operation-specific addendum injected after the base system prompt.
-  const operationAddendum = `\n\nOperation-specific guidance for this call:\n- operation: ${String(context.operation || "general")}\n- aspect ratio: ${String(context.aspectRatio || "unspecified")}\n- resolution: ${String(context.resolution || "2K")}\n- reference images provided: ${String(context.referenceCount || 0)}\n${context.operation === "ai-model-selfie" ? "- ENFORCE: palm/arm-length first-person selfie POV, no visible phone, no mirror, no second photographer." : ""}${context.operation === "ai-model-fullbody" ? "- ENFORCE: full figure visible from crown to toes, include explicit footwear in outfit description." : ""}`;
+  const op = String(context.operation || "general");
+  const operationAddendum = [
+    "",
+    "",
+    "Operation-specific guidance for this call:",
+    `- mode: ${hasReferenceImages ? "image-edit-with-references" : "text-to-image-no-reference"}`,
+    `- operation: ${op}`,
+    `- aspect ratio: ${String(context.aspectRatio || "unspecified")}`,
+    `- resolution: ${String(context.resolution || "2K")}`,
+    `- reference images provided: ${String(context.referenceCount || 0)}`,
+    op === "ai-model-selfie"
+      ? "- ENFORCE: palm/arm-length first-person selfie POV, no visible phone, no mirror, no second photographer."
+      : "",
+    op === "ai-model-fullbody"
+      ? "- ENFORCE: full figure visible from crown to toes, include explicit footwear in outfit description."
+      : "",
+    !hasReferenceImages
+      ? "- STRICT: do not mention 'reference image', 'reimagined', or edit-only language."
+      : "",
+    !hasReferenceImages
+      ? "- STRICT: preserve every explicit identity marker in the prompt (heritage, age, hair color/length/texture, eye color, lip size, face type, body type)."
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
   systemPrompt = `${systemPrompt}${operationAddendum}`;
 
-  const defaultWrapper = `Convert the following base instruction into a complete INSTARAW-style image edit instruction for Nano Banana Pro. Follow the mandatory structure in your system prompt exactly. Preserve all identity and reference constraints.
+  const defaultWrapperEdit = `Convert the following base instruction into a complete INSTARAW-style image edit instruction for Nano Banana Pro. Follow the mandatory structure in your system prompt exactly. Preserve all identity and reference constraints.
+
+Base instruction:
+{{PROMPT}}
+`;
+  const defaultWrapperT2I = `Convert the following base instruction into a complete text-to-image portrait prompt for Nano Banana Pro.
+
+Requirements:
+- Preserve every identity marker exactly.
+- Do not mention reference images.
+- Do not use "reimagined".
+- Output one dense natural-language paragraph only.
 
 Base instruction:
 {{PROMPT}}
 `;
   const wrapperTemplate = await getPromptTemplateValue(
-    "nanoBananaModelPromptEnhancerUserWrapper",
-    defaultWrapper,
+    hasReferenceImages
+      ? "nanoBananaModelPromptEnhancerUserWrapper"
+      : "nanoBananaTextToImagePromptEnhancerUserWrapper",
+    hasReferenceImages ? defaultWrapperEdit : defaultWrapperT2I,
   );
   const userMessage = String(wrapperTemplate || "")
     .replaceAll("{{OPERATION}}", String(context.operation || "general"))
@@ -135,7 +182,18 @@ Base instruction:
     if (!response.ok) return promptText;
     const data = await response.json();
     const candidate = extractSinglePromptText(data?.choices?.[0]?.message?.content);
-    const optimized = candidate || promptText;
+    let optimized = candidate || promptText;
+
+    // Safety rail for phase-1 face generation: if the optimizer still returns
+    // edit-only wording, drop back to the raw base prompt rather than shipping
+    // contradictory instructions that cause generic faces.
+    if (
+      !hasReferenceImages &&
+      /reference image|reference photo|\breimagined\b/i.test(optimized)
+    ) {
+      optimized = promptText;
+    }
+
     if (String(process.env.MODEL_PROMPT_DEBUG || "").toLowerCase() === "true") {
       const changed = optimized !== promptText;
       console.log(
@@ -983,7 +1041,7 @@ async function generateReferenceImage(params, opts = {}) {
 
     // Generate reference image
     console.log("\nðŸ“ Generating reference image...");
-    const finalPromptRaw = `${basePrompt}, face portrait, looking at camera, neutral background`;
+    const finalPromptRaw = `${basePrompt}, face portrait, looking at camera, neutral background, high-detail facial anatomy, non-generic facial structure, realistic asymmetry, visible iris texture, natural skin pores, no beauty-filter smoothing, avoid default stock-photo face`;
     const finalPrompt = await optimizeNanoBananaPrompt(finalPromptRaw, {
       operation: "ai-model-reference",
       aspectRatio: "1:1",
