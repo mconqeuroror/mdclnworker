@@ -6108,7 +6108,7 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
                   </>
                 )}
 
-                {((nsfwGenerateMode === "simple" && simplePlanReady) || nsfwGenerateMode === "custom") && (
+                {((nsfwGenerateMode === "simple" && simplePlanReady) || nsfwGenerateMode === "custom" || nsfwGenerateMode === "advanced") && (
                 <>
                 {/* Aspect ratio for the generation request (backend) */}
                 <div>
