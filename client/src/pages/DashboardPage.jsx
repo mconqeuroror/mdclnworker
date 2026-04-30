@@ -44,6 +44,8 @@ import {
   Moon,
   Eye,
   EyeOff,
+  ZoomIn,
+  ShieldOff,
 } from "lucide-react";
 import { SiTelegram, SiDiscord } from "react-icons/si";
 import toast from "react-hot-toast";
@@ -109,6 +111,9 @@ const COPY = {
     mobileNavVoiceStudio: "Voice Studio",
     mobileNavReformatter: "Reformatter",
     mobileNavFirstFrame: "First Frame",
+    mobileNavUpscaler: "Upscaler",
+    mobileNavSynthIdRemover: "SynthID Remover",
+    mobileNavModelCloneX: "ModelClone-X",
     mobileNavHistory: "History",
     mobileNavSettings: "Settings",
     mobileNavCourses: "Courses",
@@ -201,6 +206,9 @@ const COPY = {
     mobileNavVoiceStudio: "╨ô╨╛╨╗╨╛╤ü╨╛╨▓╨░╤Å ╤ü╤é╤â╨┤╨╕╤Å",
     mobileNavReformatter: "╨á╨╡╤ä╨╛╨╝╨░╤é╨╡╤Ç",
     mobileNavFirstFrame: "1-╨╣ ╨║╨░╨┤╤Ç",
+    mobileNavUpscaler: "Апскейлер",
+    mobileNavSynthIdRemover: "SynthID Remover",
+    mobileNavModelCloneX: "ModelClone-X",
     mobileNavHistory: "╨ÿ╤ü╤é╨╛╤Ç╨╕╤Å",
     mobileNavSettings: "╨¥╨░╤ü╤é╤Ç╨╛╨╣╨║╨╕",
     mobileNavCourses: "╨Ü╤â╤Ç╤ü╤ï",
@@ -570,6 +578,9 @@ export default function DashboardPage() {
     { id: 'voice-studio', label: copy.mobileNavVoiceStudio, icon: Mic, premium: true },
     { id: 'reformatter', label: copy.mobileNavReformatter, icon: FileType2 },
     { id: 'frame-extractor', label: copy.mobileNavFirstFrame, icon: ImageIcon },
+    { id: 'upscaler', label: copy.mobileNavUpscaler, icon: ZoomIn },
+    { id: 'synthid-remove', label: copy.mobileNavSynthIdRemover, icon: ShieldOff },
+    { id: 'modelclone-x', label: copy.mobileNavModelCloneX, icon: Wand2 },
     { id: 'history', label: copy.mobileNavHistory, icon: Clock },
     { id: 'settings', label: copy.mobileNavSettings, icon: SettingsIcon },
     ...(hideRestrictedTabs ? [] : [{ id: 'course', label: copy.mobileNavCourses, icon: BookOpen, premium: true }]),

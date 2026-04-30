@@ -410,7 +410,7 @@ export const NODE_REGISTRY = {
       const { taskId } = await submitSynthIdRemoveJob(imageBase64 || imageUrl);
       await prisma.generation.update({ where: { id: gen.id }, data: { providerTaskId: taskId } });
 
-      const maxWait = 6 * 60 * 1000;
+      const maxWait = 60 * 60 * 1000;
       const start = Date.now();
       while (Date.now() - start < maxWait) {
         await new Promise(r => setTimeout(r, 5000));

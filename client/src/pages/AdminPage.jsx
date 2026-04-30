@@ -182,7 +182,7 @@ const GENERATION_PRICING_GROUPS = [
     title: 'ModelClone-X, Upscaler & LoRA training',
     fields: [
       { key: 'upscalerImage', label: 'Upscaler — per image' },
-      { key: 'synthIdRemove', label: 'Watermark Remover — per image' },
+      { key: 'synthIdRemove', label: 'SynthID Remover — per image' },
       { key: 'modelcloneXNoModel1', label: 'ModelClone-X — 1 image (no character)' },
       { key: 'modelcloneXWithModel1', label: 'ModelClone-X — 1 image (with character)' },
       { key: 'modelcloneXNoModel2', label: 'ModelClone-X — 2 images (no character)' },

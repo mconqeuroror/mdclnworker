@@ -297,9 +297,10 @@ const RUNNINGHUB_MOTION_RETAIN_SECONDS_RAW = String(
 
 const SUBMIT_TIMEOUT_MS = 90_000;
 const QUERY_TIMEOUT_MS = 30_000;
-const UPLOAD_TIMEOUT_MS = 600_000;
+/** Motion X uploads / source URL fetches can be large; allow up to 1h per request. */
+const UPLOAD_TIMEOUT_MS = 60 * 60 * 1000;
 const MOTION_URL_FETCH_MAX_BYTES = 450 * 1024 * 1024;
-const URL_FETCH_TIMEOUT_MS = 600_000;
+const URL_FETCH_TIMEOUT_MS = 60 * 60 * 1000;
 
 if (!RUNNINGHUB_API_KEY) {
   console.warn("⚠️ RUNNINGHUB_API_KEY not set — NSFW motion control (Motion X) will not work");
@@ -1074,7 +1075,7 @@ function firstVideoResultUrl(queryLike) {
   return null;
 }
 
-const RH_FETCH_TIMEOUT_MS = 600_000;
+const RH_FETCH_TIMEOUT_MS = 60 * 60 * 1000;
 
 /**
  * Download a temporary RunningHub / COS URL and mirror to our blob storage.

@@ -2701,19 +2701,25 @@ export async function cleanupStuckGenerations(req, res) {
       45,
       Math.min(300, Number(process.env.NSFW_STUCK_CLEANUP_MINUTES) || 200),
     );
-    /** Motion X (RunningHub workflow) often exceeds 15–45m; must not hit image-timeout cleanup before webhook/poller. */
+    /** Motion X (RunningHub) can run 1h+; stuck cleanup only after this age. */
     const NSFW_MOTION_HUB_STUCK_MINUTES = Math.max(
-      75,
-      Math.min(300, Number(process.env.NSFW_MOTION_STUCK_CLEANUP_MINUTES) || 90),
+      90,
+      Math.min(480, Number(process.env.NSFW_MOTION_STUCK_CLEANUP_MINUTES) || 120),
+    );
+    /** SynthID / watermark strip (RunningHub ai-app) — same long-tail as motion. */
+    const SYNTHID_REMOVE_STUCK_MINUTES = Math.max(
+      60,
+      Math.min(180, Number(process.env.SYNTHID_REMOVE_STUCK_CLEANUP_MINUTES) || 60),
     );
     const nowMs = Date.now();
     const imageCutoffMs = nowMs - IMAGE_TIMEOUT_MINUTES * 60 * 1000;
     const videoCutoffMs = nowMs - VIDEO_TIMEOUT_MINUTES * 60 * 1000;
     const nsfwCutoffMs = nowMs - NSFW_CLEANUP_TIMEOUT_MINUTES * 60 * 1000;
     const nsfwMotionHubCutoffMs = nowMs - NSFW_MOTION_HUB_STUCK_MINUTES * 60 * 1000;
+    const synthidRemoveCutoffMs = nowMs - SYNTHID_REMOVE_STUCK_MINUTES * 60 * 1000;
 
     console.log(
-      `\n🔍 Checking for stuck generations (image>${IMAGE_TIMEOUT_MINUTES}m, video>${VIDEO_TIMEOUT_MINUTES}m, nsfw>${NSFW_CLEANUP_TIMEOUT_MINUTES}m, nsfw-motion-hub>${NSFW_MOTION_HUB_STUCK_MINUTES}m)...`,
+      `\n🔍 Checking for stuck generations (image>${IMAGE_TIMEOUT_MINUTES}m, video>${VIDEO_TIMEOUT_MINUTES}m, nsfw>${NSFW_CLEANUP_TIMEOUT_MINUTES}m, nsfw-motion-hub>${NSFW_MOTION_HUB_STUCK_MINUTES}m, synthid-remove>${SYNTHID_REMOVE_STUCK_MINUTES}m)...`,
     );
 
     // Cleanup temp creator-studio masks (target 1h lifetime).
@@ -2752,6 +2758,7 @@ export async function cleanupStuckGenerations(req, res) {
       const t = String(gen.type || "");
       const isVideoLike = videoLikeTypes.has(t);
       if (t === "nsfw-video-motion") return createdMs < nsfwMotionHubCutoffMs;
+      if (t === "synthid-remove") return createdMs < synthidRemoveCutoffMs;
       if (isVideoLike) return createdMs < videoCutoffMs;
       if (t === "nsfw") return createdMs < nsfwCutoffMs;
       return createdMs < imageCutoffMs;

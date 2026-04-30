@@ -871,7 +871,7 @@ class GenerationPollerService {
     // RunningHub typically returns a taskId within ~1s; start polling after a brief grace
     // period so we don't hammer the query endpoint for in-flight submissions.
     const MIN_AGE_MS = 20 * 1000;
-    const HARD_TIMEOUT_MS = 75 * 60 * 1000; // 75 min cap (video generation)
+    const HARD_TIMEOUT_MS = 120 * 60 * 1000; // 2h cap (Motion X / long RunningHub jobs)
     const now = Date.now();
 
     const stale = await prisma.generation.findMany({
