@@ -1030,15 +1030,36 @@ export async function checkNsfwMotionStatus(jobId) {
  */
 const MOTION_X_FINAL_RESULT_INDEX = 2;
 
-function motionXPreferredResultUrl(queryLike) {
-  if (!queryLike || !Array.isArray(queryLike.results)) return null;
-  const row = queryLike.results[MOTION_X_FINAL_RESULT_INDEX];
-  if (!row) return null;
+function resultHttpUrl(row) {
+  if (!row || typeof row !== "object") return null;
   const u = row.url;
   if (typeof u === "string" && u.trim().startsWith("http")) return u.trim();
   const txt = row.text;
   if (typeof txt === "string" && txt.trim().startsWith("http")) return txt.trim();
   return null;
+}
+
+function resultLooksLikeVideo(row, url = resultHttpUrl(row)) {
+  if (!url) return false;
+  const outputType = String(row?.outputType || row?.type || row?.mimeType || row?.contentType || "").toLowerCase();
+  if (outputType.includes("video") || ["mp4", "mov", "webm", "m4v"].includes(outputType)) return true;
+
+  const haystack = [
+    url,
+    row?.fileName,
+    row?.filename,
+    row?.name,
+    row?.path,
+  ].filter(Boolean).join(" ").toLowerCase();
+  return /\.(mp4|mov|webm|m4v)(?:[?#]|$)/i.test(haystack);
+}
+
+function motionXPreferredResultUrl(queryLike) {
+  if (!queryLike || !Array.isArray(queryLike.results)) return null;
+  const row = queryLike.results[MOTION_X_FINAL_RESULT_INDEX];
+  if (!row) return null;
+  const url = resultHttpUrl(row);
+  return resultLooksLikeVideo(row, url) ? url : null;
 }
 
 /**
@@ -1047,18 +1068,8 @@ function motionXPreferredResultUrl(queryLike) {
 function firstVideoResultUrl(queryLike) {
   if (!queryLike || !Array.isArray(queryLike.results)) return null;
   for (const r of queryLike.results) {
-    if (!r) continue;
-    const ot = String(r.outputType || "").toLowerCase();
-    if (r.url && (ot === "mp4" || ot === "webm" || ot === "mov" || (ot && ot.includes("video")))) {
-      return r.url;
-    }
-  }
-  for (const r of queryLike.results) {
-    if (r?.url && (String(r.url).toLowerCase().endsWith(".mp4") || String(r.url).includes("video")))
-      return r.url;
-  }
-  for (const r of queryLike.results) {
-    if (r?.url) return r.url;
+    const url = resultHttpUrl(r);
+    if (resultLooksLikeVideo(r, url)) return url;
   }
   return null;
 }
@@ -1079,19 +1090,28 @@ async function mirrorHttpVideoToOurStorage(publicUrl) {
     r = await fetch(publicUrl, { signal: c.signal });
   } catch (e) {
     clearTimeout(t);
+    console.warn("[NSFW/motion] output mirror fetch failed:", e?.message || e);
     return null;
   }
   clearTimeout(t);
-  if (!r.ok) return null;
-  const ab = await r.arrayBuffer();
-  const buf = Buffer.from(ab);
-  if (buf.length < 64) return null;
-  const ct = pickContentType(r.headers, "video/mp4");
-  const isPng = (ct || "").toLowerCase().includes("image/png");
-  if (isPng) {
-    return uploadBufferToBlobOrR2(buf, "nsfw-video-motion", "png", "image/png");
+  if (!r.ok) {
+    console.warn(`[NSFW/motion] output mirror fetch HTTP ${r.status}`);
+    return null;
   }
-  return uploadBufferToBlobOrR2(buf, "nsfw-video-motion", "mp4", "video/mp4");
+  try {
+    const ab = await r.arrayBuffer();
+    const buf = Buffer.from(ab);
+    if (buf.length < 64) return null;
+    const ct = pickContentType(r.headers, "video/mp4");
+    const isPng = (ct || "").toLowerCase().includes("image/png");
+    if (isPng) {
+      return uploadBufferToBlobOrR2(buf, "nsfw-video-motion", "png", "image/png");
+    }
+    return uploadBufferToBlobOrR2(buf, "nsfw-video-motion", "mp4", "video/mp4");
+  } catch (e) {
+    console.warn("[NSFW/motion] output mirror upload failed:", e?.message || e);
+    return null;
+  }
 }
 
 /**
@@ -1115,16 +1135,16 @@ export async function materializeNsfwMotionOutputFromRunpodResponse(rp) {
   if (!rp || typeof rp !== "object") return null;
 
   const preferred = motionXPreferredResultUrl(rp);
-  if (preferred) {
-    return mirrorHttpVideoToOurStorage(preferred);
-  }
-  const vUrl = firstVideoResultUrl(rp);
+  const vUrl = preferred || firstVideoResultUrl(rp);
   if (vUrl) {
-    return mirrorHttpVideoToOurStorage(vUrl);
+    const mirrored = await mirrorHttpVideoToOurStorage(vUrl);
+    return mirrored || vUrl;
   }
   if (Array.isArray(rp.results) && rp.results[0]?.text && typeof rp.results[0].text === "string") {
-    if (rp.results[0].text.trim().startsWith("http")) {
-      return mirrorHttpVideoToOurStorage(rp.results[0].text.trim());
+    const textUrl = rp.results[0].text.trim();
+    if (textUrl.startsWith("http") && resultLooksLikeVideo(rp.results[0], textUrl)) {
+      const mirrored = await mirrorHttpVideoToOurStorage(textUrl);
+      return mirrored || textUrl;
     }
   }
   return null;

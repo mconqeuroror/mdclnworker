@@ -42,6 +42,7 @@ import {
   submitNsfwMotionVideo,
   isNsfwMotionConfigured,
 } from "../services/nsfw-motion.service.js";
+import { RUNNINGHUB_TASK_PREFIX } from "../services/runninghub.service.js";
 import { generateImageWithNanoBananaKie, generateImageWithSeedream5Lite } from "../services/kie.service.js";
 import requestQueue from "../services/queue.service.js";
 import {
@@ -5468,7 +5469,7 @@ export async function generateNsfwMotionVideo(req, res) {
     await prisma.generation.update({
       where: { id: generation.id },
       data: {
-        replicateModel: submission.requestId,
+        replicateModel: `${RUNNINGHUB_TASK_PREFIX}${submission.requestId}`,
         providerTaskId: submission.requestId,
         provider: "runninghub-motion",
         inputImageUrl: JSON.stringify({
