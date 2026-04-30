@@ -21,6 +21,17 @@ Repo: [mconqeuroror/mdclnworker](https://github.com/mconqeuroror/mdclnworker)
 | `depthanything/da3_base.safetensors` | `depth-anything/DA3-BASE` | ~1.1GB | DepthAnythingV3 cache (optional prefetch) |
 | `unet/zImageTurboNSFW_62BF16.safetensors` | Place on network volume / S3 (same basename in `checkpoints/`) | ~12–23GB | UNETLoader `247` + CheckpointLoaderSimple `304` |
 | `upscale_models/4xFaceUpDAT.pth` | `Acly/Upscaler` | 148MB | UpscaleModelLoader (UltimateSDUpscale) |
+| `diffusion_models/zImageTurboNSFW_43BF16AIO.safetensors` (+ symlink in `checkpoints/`) | Civitai `2682644` (auth required, env `CIVITAI_API_TOKEN`) | ~6GB | NSFW debug / fallback diffusion model |
+| `checkpoints/pornworksRealPorn_Illustrious_v4_04.safetensors` | Civitai `2114370` (auth required, env `CIVITAI_API_TOKEN`) | ~6GB | Illustrious-base NSFW checkpoint (debug) |
+
+### Civitai downloads (optional)
+
+The two files above are pulled at runtime by `start.sh` via `download_civitai`,
+which uses `https://civitai.com/api/download/models/<id>` (the `civitai.red`
+mirror returns 404 and was retired). Auth is sent as
+`Authorization: Bearer ${CIVITAI_API_TOKEN}` — set this env var on the RunPod
+endpoint/template (Civitai → Account → API Keys). If the token is missing the
+worker logs `[SKIP]` for these files and continues to boot normally.
 
 User/pose LoRAs are loaded **by URL** via `LoadLoraFromUrlOrPath` (no bake needed).
 

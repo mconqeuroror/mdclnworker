@@ -49,6 +49,52 @@ download_if_missing() {
     fi
 }
 
+# Civitai download with token-from-env. civitai.red 404s — use civitai.com.
+# Token comes from CIVITAI_API_TOKEN (RunPod env). Without it, this skips
+# silently so the worker still boots without these optional NSFW assets.
+download_civitai() {
+    local url="$1"        # full civitai.com /api/download/models/<id>?... URL (no token)
+    local dest="$2"
+    local name="$(basename "$dest")"
+
+    if [ -f "$dest" ]; then
+        local sz=$(stat -c%s "$dest" 2>/dev/null || echo 0)
+        if [ "$sz" -gt 1000000 ]; then
+            echo "  [OK] Already exists: $name ($(du -h "$dest" | cut -f1))"
+            return 0
+        fi
+        echo "  [FIX] Replacing corrupt/empty $name (${sz} bytes)..."
+        rm -f "$dest"
+    fi
+
+    if [ -z "${CIVITAI_API_TOKEN:-}" ]; then
+        echo "  [SKIP] $name — CIVITAI_API_TOKEN not set in worker env."
+        return 0
+    fi
+
+    echo "  [DL] Civitai: $name ..."
+    mkdir -p "$(dirname "$dest")"
+    # -c          — resume partial downloads on retry
+    # --max-redirect=50 — civitai redirects to a presigned R2/B2 URL
+    # --tries=3   — transient 502s from civitai are common
+    # Authorization header is preferred over inline ?token= so the secret
+    # never lands in process listings or proxy logs.
+    if wget -q --show-progress \
+        -c \
+        --max-redirect=50 \
+        --tries=3 \
+        --user-agent="ModelClone-Worker/1.0" \
+        --header="Authorization: Bearer ${CIVITAI_API_TOKEN}" \
+        -O "${dest}.tmp" \
+        "$url" 2>&1; then
+        mv "${dest}.tmp" "$dest"
+        echo "  [OK] Downloaded: $name ($(du -h "$dest" | cut -f1))"
+    else
+        echo "  [!!] FAILED Civitai download: $name (will retry next boot)"
+        rm -f "${dest}.tmp"
+    fi
+}
+
 setup_models() {
     local target_dir="$1"
 
@@ -63,13 +109,13 @@ setup_models() {
     mkdir -p "${target_dir}/unet"
 
     echo ""
-    echo "--- [1/7] VAE: ae.safetensors (335MB) ---"
+    echo "--- [1/9] VAE: ae.safetensors (335MB) ---"
     download_if_missing \
         "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors" \
         "${target_dir}/vae/ae.safetensors"
 
     echo ""
-    echo "--- [2/7] Text encoder: qwen_3_4b.safetensors (8GB) ---"
+    echo "--- [2/9] Text encoder: qwen_3_4b.safetensors (8GB) ---"
     download_if_missing \
         "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/text_encoders/qwen_3_4b.safetensors" \
         "${target_dir}/text_encoders/qwen_3_4b.safetensors"
@@ -78,7 +124,7 @@ setup_models() {
             "${target_dir}/clip/qwen_3_4b.safetensors"
 
     echo ""
-    echo "--- [3/7] Diffusion model: z_image_turbo_bf16.safetensors (~12.3GB) ---"
+    echo "--- [3/9] Diffusion model: z_image_turbo_bf16.safetensors (~12.3GB) ---"
     download_if_missing \
         "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/diffusion_models/z_image_turbo_bf16.safetensors" \
         "${target_dir}/diffusion_models/z_image_turbo_bf16.safetensors"
@@ -87,13 +133,13 @@ setup_models() {
             "${target_dir}/checkpoints/z_image_turbo_bf16.safetensors"
 
     echo ""
-    echo "--- [4/7] ControlNet patch: Z-Image-Turbo-Fun-Controlnet-Union (~3.1GB) ---"
+    echo "--- [4/9] ControlNet patch: Z-Image-Turbo-Fun-Controlnet-Union (~3.1GB) ---"
     download_if_missing \
         "https://huggingface.co/alibaba-pai/Z-Image-Turbo-Fun-Controlnet-Union/resolve/main/Z-Image-Turbo-Fun-Controlnet-Union.safetensors" \
         "${target_dir}/model_patches/Z-Image-Turbo-Fun-Controlnet-Union.safetensors"
 
     echo ""
-    echo "--- [5/7] UNet: zImageTurboNSFW_62BF16.safetensors (network volume / S3) ---"
+    echo "--- [5/9] UNet: zImageTurboNSFW_62BF16.safetensors (network volume / S3) ---"
     echo "  (No public HuggingFace auto-download for this file — place it under unet/ on the volume.)"
     if [ ! -f "${target_dir}/unet/zImageTurboNSFW_62BF16.safetensors" ]; then
         echo ""
@@ -118,14 +164,14 @@ setup_models() {
     fi
 
     echo ""
-    echo "--- [6/7] Upscaler: 4xFaceUpDAT.pth ---"
+    echo "--- [6/9] Upscaler: 4xFaceUpDAT.pth ---"
     mkdir -p "${target_dir}/upscale_models"
     download_if_missing \
         "https://huggingface.co/Acly/Upscaler/resolve/main/4xFaceUpDAT.pth" \
         "${target_dir}/upscale_models/4xFaceUpDAT.pth"
 
     echo ""
-    echo "--- [7/7] DepthAnythingV3 cache: da3_base.safetensors (~1.1GB) ---"
+    echo "--- [7/9] DepthAnythingV3 cache: da3_base.safetensors (~1.1GB) ---"
     if [ ! -f "${target_dir}/depthanything/da3_base.safetensors" ]; then
         TARGET_DEPTH_DIR="${target_dir}/depthanything" python3 - <<'PYEOF'
 import os
@@ -152,6 +198,26 @@ PYEOF
     else
         echo "  [OK] Already exists: da3_base.safetensors"
     fi
+
+    echo ""
+    echo "--- [8/9] Civitai: zImageTurboNSFW_43BF16AIO.safetensors (diffusion_models, ~6GB) ---"
+    # Civitai model 2682644, BF16 AIO build. Goes into diffusion_models/ (NOT
+    # unet/ — start.sh explicitly purges the v4.3 file from unet/ above).
+    download_civitai \
+        "https://civitai.com/api/download/models/2682644?type=Model&format=SafeTensor&size=pruned&fp=fp16" \
+        "${target_dir}/diffusion_models/zImageTurboNSFW_43BF16AIO.safetensors"
+    # Mirror into checkpoints/ so CheckpointLoaderSimple workflows resolve it.
+    if [ -f "${target_dir}/diffusion_models/zImageTurboNSFW_43BF16AIO.safetensors" ]; then
+        ln -sfn "${target_dir}/diffusion_models/zImageTurboNSFW_43BF16AIO.safetensors" \
+                "${target_dir}/checkpoints/zImageTurboNSFW_43BF16AIO.safetensors"
+    fi
+
+    echo ""
+    echo "--- [9/9] Civitai: pornworksRealPorn_Illustrious_v4_04.safetensors (checkpoints, ~6GB) ---"
+    # Civitai model 2114370, Illustrious base, full FP16 build.
+    download_civitai \
+        "https://civitai.com/api/download/models/2114370?type=Model&format=SafeTensor&size=full&fp=fp16" \
+        "${target_dir}/checkpoints/pornworksRealPorn_Illustrious_v4_04.safetensors"
 }
 
 # -----------------------------------------------
