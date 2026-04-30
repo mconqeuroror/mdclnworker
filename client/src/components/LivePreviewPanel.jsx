@@ -49,7 +49,15 @@ export default function LivePreviewPanel({
   const isProcessing = latestGeneration?.status === 'processing' || latestGeneration?.status === 'pending';
   const isCompleted = latestGeneration?.status === 'completed';
   const isFailed = latestGeneration?.status === 'failed';
-  const isVideo = type === 'video' || type === 'faceswap-video' || type === 'recreate-video' || type === 'face-swap' || type === 'prompt-video' || type === 'talking-head';
+  const isVideo =
+    type === "video" ||
+    type === "faceswap-video" ||
+    type === "recreate-video" ||
+    type === "face-swap" ||
+    type === "prompt-video" ||
+    type === "talking-head" ||
+    type === "nsfw-video-motion" ||
+    type === "creator-studio-video";
   const parsedProgress = Number(latestGeneration?.progressPercent);
   const hasLiveProgress = Number.isFinite(parsedProgress) && parsedProgress >= 0;
   const liveProgress = hasLiveProgress ? Math.max(0, Math.min(100, Math.round(parsedProgress))) : null;

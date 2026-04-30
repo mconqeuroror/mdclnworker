@@ -31,7 +31,16 @@ import LazyVideo from "../components/LazyVideo";
 import { getThumbnailUrl, getMediumUrl } from "../utils/imageUtils";
 import { downloadFromPublicUrl, fetchPublicAssetBlob } from "../utils/directDownload";
 
-const VIDEO_TYPES = ["video", "faceswap", "face-swap", "prompt-video", "talking-head", "recreate-video", "creator-studio-video"];
+const VIDEO_TYPES = [
+  "video",
+  "faceswap",
+  "face-swap",
+  "prompt-video",
+  "talking-head",
+  "recreate-video",
+  "creator-studio-video",
+  "nsfw-video-motion",
+];
 const PAGE_SIZE = 200;
 const REFRESH_PAGE_SIZE = 60;
 const CONTENT_TYPE_OPTIONS = ["all", "image", "prompt-based", "video", "face-swap", "talking-head", "recreate-video", "creator-studio"];
@@ -117,6 +126,7 @@ const PAGE_COPY = {
     genTypeNsfwVideoExtend: "NSFW Extend",
     genTypeRecreateVideo: "Recreate Video",
     genTypeCreatorStudio: "Creator Studio",
+    genTypeMotionX: "Motion X",
   },
   ru: {
     title: "История",
@@ -185,6 +195,7 @@ const PAGE_COPY = {
     genTypeNsfwVideoExtend: "Продление NSFW",
     genTypeRecreateVideo: "Пересоздание видео",
     genTypeCreatorStudio: "Студия автора",
+    genTypeMotionX: "Motion X",
   },
 };
 
@@ -243,6 +254,7 @@ function generationTypeLabel(genType, copy) {
     "recreate-video": copy.genTypeRecreateVideo,
     "creator-studio": copy.genTypeCreatorStudio,
     "creator-studio-video": copy.genTypeCreatorStudio,
+    "nsfw-video-motion": copy.genTypeMotionX,
   };
   const label = map[genType];
   if (label) return label;
@@ -312,7 +324,44 @@ function parseOutputUrls(outputUrl) {
 
 function isVideoUrl(url) {
   const lower = (url || "").toLowerCase();
-  return lower.includes(".mp4") || lower.includes(".webm");
+  return (
+    lower.includes(".mp4") ||
+    lower.includes(".webm") ||
+    lower.includes(".m4v") ||
+    lower.includes(".mov") ||
+    lower.includes("video/mp4") ||
+    lower.includes("/video/")
+  );
+}
+
+/** Valid image URL for <video poster> — inputImageUrl is often JSON for recreate / Motion X. */
+function resolveVideoPosterUrl(generation) {
+  const pr = generation?.providerResponse;
+  const fromProvider = pr?.thumbnailUrl || pr?.thumbnail;
+  if (typeof fromProvider === "string" && fromProvider.startsWith("http")) return fromProvider;
+
+  const raw = generation?.inputImageUrl;
+  if (!raw || typeof raw !== "string") return undefined;
+  const t = raw.trim();
+  if (t.startsWith("http")) return t;
+  if (t.startsWith("{") || t.startsWith("[")) {
+    try {
+      const j = JSON.parse(t);
+      const candidates = [
+        j.referenceImageUrl,
+        j.figure2IdentityImage,
+        j.imageUrl,
+        j.faceImageUrl,
+        Array.isArray(j.identityImages) ? j.identityImages[0] : null,
+      ];
+      for (const c of candidates) {
+        if (typeof c === "string" && c.startsWith("http")) return c;
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return undefined;
 }
 
 function matchesType(genType, selectedType) {
@@ -323,7 +372,17 @@ function matchesType(genType, selectedType) {
     return ["image", "prompt-image", "face-swap-image", "nsfw"].includes(genType);
   }
   if (selectedType === "video") {
-    return ["video", "prompt-video", "face-swap", "talking-head", "nsfw-video", "nsfw-video-extend", "recreate-video"].includes(genType);
+    return [
+      "video",
+      "prompt-video",
+      "face-swap",
+      "talking-head",
+      "nsfw-video",
+      "nsfw-video-extend",
+      "recreate-video",
+      "nsfw-video-motion",
+      "creator-studio-video",
+    ].includes(genType);
   }
   if (selectedType === "prompt-based") {
     return ["prompt-image", "prompt-video"].includes(genType);
@@ -1031,7 +1090,7 @@ const GenerationCard = memo(function GenerationCard({ generation, models, isSele
   const urls = parseOutputUrls(generation.outputUrl);
   const primaryUrl = urls[0] || "";
   const isVideo = VIDEO_TYPES.includes(generation.type) || isVideoUrl(primaryUrl);
-  const videoPoster = generation.providerResponse?.thumbnailUrl || generation.providerResponse?.thumbnail || generation.inputImageUrl || undefined;
+  const videoPoster = resolveVideoPosterUrl(generation);
   const providerModelTag = String(generation.providerModel || "").replace(/^kie-/, "").replace(/^piapi-/, "");
   const providerModeTag = String(generation.providerMode || generation.providerType || "").trim();
 
@@ -1171,7 +1230,7 @@ const GenerationListItem = memo(function GenerationListItem({ generation, models
   const urls = parseOutputUrls(generation.outputUrl);
   const primaryUrl = urls[0] || "";
   const isVideo = VIDEO_TYPES.includes(generation.type) || isVideoUrl(primaryUrl);
-  const videoPoster = generation.providerResponse?.thumbnailUrl || generation.providerResponse?.thumbnail || generation.inputImageUrl || undefined;
+  const videoPoster = resolveVideoPosterUrl(generation);
   const providerModelTag = String(generation.providerModel || "").replace(/^kie-/, "").replace(/^piapi-/, "");
   const providerModeTag = String(generation.providerMode || generation.providerType || "").trim();
 
@@ -1261,6 +1320,7 @@ const PreviewModal = memo(function PreviewModal({ item, onClose, onDownload }) {
   const [activeIndex, setActiveIndex] = useState(0);
   const activeUrl = urls[activeIndex] || "";
   const isVideo = VIDEO_TYPES.includes(item.type) || isVideoUrl(activeUrl);
+  const modalPoster = resolveVideoPosterUrl(item);
 
   let loraInfo = null;
   try {
@@ -1300,7 +1360,16 @@ const PreviewModal = memo(function PreviewModal({ item, onClose, onDownload }) {
         <div className="flex-1 min-h-0 overflow-auto p-3 sm:p-4">
           <div className="flex items-center justify-center">
             {isVideo ? (
-              <video src={activeUrl} controls autoPlay loop className="max-w-full max-h-[65vh] rounded-lg object-contain" />
+              <video
+                src={activeUrl}
+                poster={modalPoster}
+                controls
+                playsInline
+                autoPlay
+                muted
+                loop
+                className="max-w-full max-h-[65vh] rounded-lg object-contain bg-black"
+              />
             ) : (
               <div className="relative">
                 <img src={activeUrl} alt={copy.altGenerated} className="max-w-full max-h-[65vh] rounded-lg object-contain" />
