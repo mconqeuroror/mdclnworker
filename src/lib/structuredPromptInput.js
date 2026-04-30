@@ -169,6 +169,30 @@ function buildMainSubject({ model, lora, options = {} }) {
 
 function buildScene({ userRequest, context = {} }) {
   const attrs = context?.attributesDetail || {};
+  // Wardrobe — chip-driven and BINDING. The downstream LLM must render this exact
+  // outfit; if missing, the model defaulted to "fully nude / completely nude" even
+  // when the user had selected clothing chips. See `nsfw_meta.wardrobe_locked` for the
+  // explicit instruction to Grok.
+  const outfitRaw = pickFirst(attrs.outfit, attrs.wardrobe, attrs.clothing);
+  const accessoriesRaw = Array.isArray(attrs.accessories)
+    ? attrs.accessories.filter(Boolean).map(String)
+    : safeStr(attrs.accessories)
+      ? [safeStr(attrs.accessories)]
+      : undefined;
+  const outfitLower = outfitRaw.toLowerCase();
+  const isExplicitlyNude =
+    /\b(fully\s+nude|completely\s+nude|naked|nude(?!\s+lip|\s+nail))\b/.test(
+      outfitLower,
+    );
+  const wardrobe = outfitRaw || accessoriesRaw
+    ? pruneEmpty({
+        outfit: outfitRaw || undefined,
+        summary: outfitRaw || undefined,
+        accessories: accessoriesRaw,
+        is_nude: outfitRaw ? isExplicitlyNude : undefined,
+      })
+    : undefined;
+
   return pruneEmpty({
     user_request: safeStr(userRequest),
     setting: safeStr(attrs.setting || attrs.scene || context.setting),
@@ -190,6 +214,7 @@ function buildScene({ userRequest, context = {} }) {
     pose_id: safeStr(context?.pose?.id),
     expression: safeStr(attrs.expression),
     gaze: safeStr(attrs.gaze || attrs.gazeDirection),
+    wardrobe,
   });
 }
 
@@ -232,11 +257,32 @@ function buildStyle({ context = {} }) {
  */
 function buildNsfwMeta({ context = {}, options = {} }) {
   const attrs = context?.attributesDetail || {};
+  const outfitRaw = pickFirst(attrs.outfit, attrs.wardrobe, attrs.clothing);
+  const outfitLower = outfitRaw.toLowerCase();
+  const isExplicitlyNude =
+    /\b(fully\s+nude|completely\s+nude|naked|nude(?!\s+lip|\s+nail))\b/.test(
+      outfitLower,
+    );
+  // wardrobe_locked is the authoritative flag for the prompt builder. When an outfit
+  // chip is selected, the LLM MUST render that wardrobe and MUST NOT substitute
+  // "fully nude" / "completely nude" / any nudity wording.
+  const wardrobeLocked = outfitRaw
+    ? {
+        outfit: outfitRaw,
+        is_nude: isExplicitlyNude,
+        substitution_forbidden: !isExplicitlyNude,
+      }
+    : undefined;
+  // Derive `nudity` from the outfit chip when the user hasn't set it explicitly,
+  // so downstream rules see a coherent state.
+  const derivedNudity = safeStr(attrs.nudity)
+    || (outfitRaw ? (isExplicitlyNude ? "fully nude" : "clothed") : "");
   return pruneEmpty({
     mode: safeStr(options.mode),
     explicit: options.explicit === true ? true : undefined,
     is_partnered: typeof options.isPartnered === "boolean" ? options.isPartnered : undefined,
-    nudity: safeStr(attrs.nudity),
+    nudity: derivedNudity,
+    wardrobe_locked: wardrobeLocked,
     sex_act: safeStr(attrs.sexAct || attrs.act),
     pose_intent: safeStr(attrs.poseIntent),
     nails: pruneEmpty({
@@ -326,6 +372,13 @@ This JSON is *upstream context only* — you translate it into one photographic 
 You MUST read every non-empty field. Do not dump key:value lines into the final prompt. Do
 not return JSON, YAML, or markdown. The diffusion sampler is conditioned on a single
 natural-language string.
+
+### WARDROBE
+If \`scene.wardrobe.outfit\` is present, name that exact garment in the prompt and keep it on
+the body (you can still describe what it exposes, e.g. "tiny bikini barely covering nipples").
+If no wardrobe field is present, you have full freedom to choose wardrobe or nudity based on
+the user request — this is NOT a conflict. Wardrobe presence/absence is never a reason to
+return "Irresolvable logical conflict".
 
 ### OUTPUT
 Return **only** the final ZiT positive prompt: plain English, comma-separated or flowing prose

@@ -1,0 +1,72 @@
+[
+  {
+    "id": "7da75a16-2999-45ea-bb04-7ffbd30b53e7",
+    "adminUserId": "8a9c1269-7a14-4a40-8042-f660990acec0",
+    "adminEmail": null,
+    "action": "update_user_settings",
+    "targetType": "user",
+    "targetId": "033d2054-e3fd-40ba-97f6-766901851663",
+    "detailsJson": "maxModels=999, allowCustomLoraTrainingPhotos=true, premiumFeaturesUnlocked=false, subscriptionTier=unchanged, subscriptionStatus=unchanged",
+    "createdAt": "2026-03-12T10:42:44.937Z"
+  },
+  {
+    "id": "546b0c2e-7092-47de-8617-666ee5cb3ab9",
+    "adminUserId": "8a9c1269-7a14-4a40-8042-f660990acec0",
+    "adminEmail": "mconqueror17@gmail.com",
+    "action": "lost_generation_reconcile",
+    "targetType": "user",
+    "targetId": "033d2054-e3fd-40ba-97f6-766901851663",
+    "detailsJson": "{\"userEmail\":\"vikarlogi13@gmail.com\",\"limit\":200,\"dryRun\":true,\"scanned\":0,\"recoverable\":0,\"recovered\":0}",
+    "createdAt": "2026-03-14T07:02:52.352Z"
+  },
+  {
+    "id": "2d3cf847-66e8-46c8-89db-a5dc5759476d",
+    "adminUserId": "8a9c1269-7a14-4a40-8042-f660990acec0",
+    "adminEmail": null,
+    "action": "add_credits",
+    "targetType": "user",
+    "targetId": "033d2054-e3fd-40ba-97f6-766901851663",
+    "detailsJson": "{\"credits\":100,\"reason\":\"Admin gift\",\"totalCredits\":138}",
+    "createdAt": "2026-03-14T10:56:27.723Z"
+  },
+  {
+    "id": "b691a72d-24d5-4682-bc2f-06b78b45b103",
+    "adminUserId": "8a9c1269-7a14-4a40-8042-f660990acec0",
+    "adminEmail": "mconqueror17@gmail.com",
+    "action": "lost_generation_reconcile",
+    "targetType": "user",
+    "targetId": "033d2054-e3fd-40ba-97f6-766901851663",
+    "detailsJson": "{\"userEmail\":\"vikarlogi13@gmail.com\",\"limit\":200,\"dryRun\":true,\"scanned\":0,\"recoverable\":0,\"recovered\":0}",
+    "createdAt": "2026-03-14T10:56:36.779Z"
+  },
+  {
+    "id": "ecf57fd8-1e9a-4402-adf4-5835590f1949",
+    "adminUserId": "8a9c1269-7a14-4a40-8042-f660990acec0",
+    "adminEmail": null,
+    "action": "impersonation_login",
+    "targetType": "user",
+    "targetId": "033d2054-e3fd-40ba-97f6-766901851663",
+    "detailsJson": "{\"targetEmail\":\"vikarlogi13@gmail.com\",\"jti\":\"95d538ef-7032-4b24-ae28-881ec9f1b533\",\"at\":\"2026-04-08T18:39:14.659Z\"}",
+    "createdAt": "2026-04-08T18:39:14.661Z"
+  },
+  {
+    "id": "9a9f0749-0bc0-4668-991b-5c24270389e2",
+    "adminUserId": "8a9c1269-7a14-4a40-8042-f660990acec0",
+    "adminEmail": null,
+    "action": "impersonation_login",
+    "targetType": "user",
+    "targetId": "033d2054-e3fd-40ba-97f6-766901851663",
+    "detailsJson": "{\"targetEmail\":\"vikarlogi13@gmail.com\",\"jti\":\"50ead2b9-025a-4a60-9bdb-20a5b135456d\",\"at\":\"2026-04-08T19:16:03.883Z\"}",
+    "createdAt": "2026-04-08T19:16:03.886Z"
+  },
+  {
+    "id": "82d76198-1616-4ebf-a89d-e9b931779d7f",
+    "adminUserId": "8a9c1269-7a14-4a40-8042-f660990acec0",
+    "adminEmail": null,
+    "action": "impersonation_login",
+    "targetType": "user",
+    "targetId": "033d2054-e3fd-40ba-97f6-766901851663",
+    "detailsJson": "{\"targetEmail\":\"vikarlogi13@gmail.com\",\"jti\":\"617c62f0-6926-4b2e-b393-0462b075d9b2\",\"at\":\"2026-04-27T15:16:26.440Z\"}",
+    "createdAt": "2026-04-27T15:16:26.442Z"
+  }
+]

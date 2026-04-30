@@ -81,9 +81,8 @@ export function isCreatorStudioVideoExtendEligible(family, mode) {
 }
 
 export function normalizeRecreateEngine(value) {
-  return String(value || "").toLowerCase() === RECREATE_ENGINE.WAN
-    ? RECREATE_ENGINE.WAN
-    : RECREATE_ENGINE.KLING;
+  // WAN recreate is retired; force all recreate requests onto Kling engines.
+  return RECREATE_ENGINE.KLING;
 }
 
 export function normalizeWanResolution(value) {
@@ -95,9 +94,7 @@ export function normalizeWanResolution(value) {
 }
 
 export function getRecreateReplicateModel({ engine, ultra = false, wanResolution = "580p" }) {
-  const normalizedEngine = normalizeRecreateEngine(engine);
-  if (normalizedEngine === RECREATE_ENGINE.WAN) {
-    return `kie-wan-2-2-animate-move-${normalizeWanResolution(wanResolution)}`;
-  }
+  void engine;
+  void wanResolution;
   return ultra ? "kie-kling-3.0-motion-control" : "kie-kling-2.6-motion-control";
 }

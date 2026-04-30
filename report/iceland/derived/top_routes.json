@@ -1,0 +1,190 @@
+[
+  {
+    "route": "/api/generations",
+    "count": 4979
+  },
+  {
+    "route": "/api/drafts/generate-image",
+    "count": 1793
+  },
+  {
+    "route": "/api/auth/profile",
+    "count": 1064
+  },
+  {
+    "route": "/api/models",
+    "count": 571
+  },
+  {
+    "route": "/api/generations/monthly-stats",
+    "count": 342
+  },
+  {
+    "route": "/api/generate/advanced",
+    "count": 278
+  },
+  {
+    "route": "/api/generations/:uuid",
+    "count": 198
+  },
+  {
+    "route": "/api/upload/presign",
+    "count": 98
+  },
+  {
+    "route": "/api/drafts/nsfw",
+    "count": 83
+  },
+  {
+    "route": "/api/nsfw/loras/:uuid",
+    "count": 42
+  },
+  {
+    "route": "/api/drafts/generate-video",
+    "count": 37
+  },
+  {
+    "route": "/api/nsfw/:token",
+    "count": 31
+  },
+  {
+    "route": "/api/upload/blob",
+    "count": 31
+  },
+  {
+    "route": "/api/upload",
+    "count": 24
+  },
+  {
+    "route": "/api/nsfw/training-status/:uuid",
+    "count": 17
+  },
+  {
+    "route": "/api/nsfw/training-images/:uuid",
+    "count": 16
+  },
+  {
+    "route": "/api/generations/batch-delete",
+    "count": 14
+  },
+  {
+    "route": "/api/upload/config",
+    "count": 13
+  },
+  {
+    "route": "/api/nsfw/appearance/:uuid",
+    "count": 12
+  },
+  {
+    "route": "/api/drafts/prompt-image",
+    "count": 8
+  },
+  {
+    "route": "/api/generate/enhance-prompt",
+    "count": 8
+  },
+  {
+    "route": "/api/nsfw/generate-prompt",
+    "count": 6
+  },
+  {
+    "route": "/api/models/:uuid",
+    "count": 6
+  },
+  {
+    "route": "/api/nsfw/generate",
+    "count": 5
+  },
+  {
+    "route": "/api/drafts/nsfw-img2img",
+    "count": 5
+  },
+  {
+    "route": "/api/onboarding/lock-offer",
+    "count": 4
+  },
+  {
+    "route": "/api/nsfw/auto-select",
+    "count": 4
+  },
+  {
+    "route": "/api/drafts/upload",
+    "count": 3
+  },
+  {
+    "route": "/api/stripe/:token",
+    "count": 3
+  },
+  {
+    "route": "/api/voices",
+    "count": 2
+  },
+  {
+    "route": "/api/generate/video-prompt",
+    "count": 2
+  },
+  {
+    "route": "/api/nsfw/nudes-pack-poses",
+    "count": 2
+  },
+  {
+    "route": "/api/onboarding/trial-generate",
+    "count": 1
+  },
+  {
+    "route": "/api/generate/analyze-looks",
+    "count": 1
+  },
+  {
+    "route": "/api/onboarding/trial-upload",
+    "count": 1
+  },
+  {
+    "route": "/api/stripe/confirm-payment",
+    "count": 1
+  },
+  {
+    "route": "/api/generate/image-faceswap",
+    "count": 1
+  },
+  {
+    "route": "/api/generate/video-motion",
+    "count": 1
+  },
+  {
+    "route": "/api/auth/2fa/status",
+    "count": 1
+  },
+  {
+    "route": "/api/stripe/subscription-status",
+    "count": 1
+  },
+  {
+    "route": "/api/course/status",
+    "count": 1
+  },
+  {
+    "route": "/api/nsfw/lora/create",
+    "count": 1
+  },
+  {
+    "route": "/api/nsfw/train-lora",
+    "count": 1
+  },
+  {
+    "route": "/api/img2img/describe",
+    "count": 1
+  },
+  {
+    "route": "/api/generate/image-identity",
+    "count": 1
+  },
+  {
+    "route": "/api/download",
+    "count": 1
+  },
+  {
+    "route": "/api/nsfw/appearance/save",
+    "count": 1
+  }
+]

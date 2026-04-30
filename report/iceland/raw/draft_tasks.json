@@ -1,0 +1,116 @@
+[
+  {
+    "id": "cmmnfxm9p000bla041bywqkgn",
+    "userId": "033d2054-e3fd-40ba-97f6-766901851663",
+    "feature": "prompt-image",
+    "data": {
+      "prompt": "",
+      "useNsfw": true,
+      "useCustomPrompt": false
+    },
+    "imageUrls": [],
+    "updatedAt": "2026-03-12T21:29:01.920Z"
+  },
+  {
+    "id": "cmmpemcd1000jla04dxdhho6w",
+    "userId": "033d2054-e3fd-40ba-97f6-766901851663",
+    "feature": "generate-video",
+    "data": {
+      "method": "prompt",
+      "faceImage": null,
+      "sourceVideo": null,
+      "targetGender": "female",
+      "selectedModel": "6d0a4376-10d5-41f3-80ff-7123108a6f57",
+      "selectedVoice": "vz3dx89akMq5gofrv9Bi",
+      "languageFilter": "en",
+      "referenceVideo": null,
+      "talkingHeadText": "",
+      "promptVideoImage": null,
+      "talkingHeadImage": null,
+      "promptVideoPrompt": "",
+      "talkingHeadPrompt": "",
+      "keepAudioFromVideo": true,
+      "videoStartingImage": null,
+      "promptVideoDuration": 5
+    },
+    "imageUrls": [],
+    "updatedAt": "2026-03-13T21:23:52.982Z"
+  },
+  {
+    "id": "cmmnsxn9y0019jp04qk6obgp5",
+    "userId": "033d2054-e3fd-40ba-97f6-766901851663",
+    "feature": "nsfw-img2img",
+    "data": {
+      "denoise": 0.65,
+      "outputUrl": null,
+      "sourceMode": "upload",
+      "loraStrength": 0.8,
+      "editablePrompt": "",
+      "rawDescription": "",
+      "sourceImageUrl": null
+    },
+    "imageUrls": [],
+    "updatedAt": "2026-03-15T09:52:53.360Z"
+  },
+  {
+    "id": "cmmrkwq8c003pjp04zgv3ljwy",
+    "userId": "033d2054-e3fd-40ba-97f6-766901851663",
+    "feature": "nsfw",
+    "data": {
+      "genConfig": {
+        "blurEnabled": true,
+        "blurStrength": 0.3,
+        "grainEnabled": true,
+        "loraStrength": 0,
+        "grainStrength": 0.06
+      },
+      "activePhase": "generate",
+      "customPrompt": "",
+      "skipFaceSwap": true,
+      "currentLoraId": null,
+      "faceSwapImage": null,
+      "selectedModel": "6d0a4376-10d5-41f3-80ff-7123108a6f57",
+      "chipSelections": {
+        "bodyType": "athletic body",
+        "eyeColor": "blue eyes",
+        "hairType": "long straight hair",
+        "skinTone": "fair skin",
+        "hairColor": "blonde hair",
+        "breastSize": "medium sized breasts"
+      },
+      "selectedPreset": "bent_over",
+      "generatedPrompt": "",
+      "simplePlanReady": false,
+      "adminSamplerTest": {
+        "cfg": 3,
+        "steps": 50,
+        "enabled": false
+      },
+      "nsfwGenerateMode": "simple",
+      "sceneDescription": "bent over showing ass, hands pulling panties down, looking back over shoulder at camera, visible pussy from behind, standing in bedroom, playful smirk",
+      "trainingSelections": [],
+      "selectedAspectRatio": "1024x1024"
+    },
+    "imageUrls": [],
+    "updatedAt": "2026-04-08T18:56:40.812Z"
+  },
+  {
+    "id": "cmnqemg7s001gjw040esgzrc4",
+    "userId": "033d2054-e3fd-40ba-97f6-766901851663",
+    "feature": "generate-image",
+    "data": {
+      "imageMode": "advanced",
+      "clothesMode": "model",
+      "targetImage": null,
+      "advancedModel": "seedream",
+      "selectedModel": "da8b1145-afa7-4e83-be9a-1e7c643c9389",
+      "advancedPrompt": "",
+      "identityPromptEdit": "",
+      "faceSwapSourceImage": null,
+      "faceSwapTargetImage": null,
+      "advancedReferencePhotos": []
+    },
+    "imageUrls": [],
+    "updatedAt": "2026-04-08T19:00:04.868Z"
+  }
+]

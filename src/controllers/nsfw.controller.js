@@ -3779,7 +3779,91 @@ async function runNsfwPromptGenerationForModel(
 
     const result = await response.json();
     const rawContent = result.choices?.[0]?.message?.content || "";
-    return parseNsfwGrokPromptOutput(rawContent);
+    const parsed = parseNsfwGrokPromptOutput(rawContent);
+    try {
+      return enforceWardrobeLock(parsed, attributesDetail);
+    } catch (lockErr) {
+      console.warn("[nsfw] enforceWardrobeLock failed, returning raw prompt:", lockErr?.message || lockErr);
+      return parsed;
+    }
+}
+
+/**
+ * Server-side safety net for NSFW prompt generation.
+ *
+ * When the user picked a clothed outfit chip (e.g. "tiny bikini", "red lingerie set"),
+ * the upstream LLM occasionally still emits "fully nude" / "completely nude" / "naked"
+ * phrasing — likely because the NSFW system prompt biases toward nudity. The structured
+ * input + system rule already tell Grok the wardrobe is binding; this is the last-mile
+ * guarantee for the user. We strip the offending phrases and, if the wardrobe is
+ * absent from the prompt body, splice it in so the diffusion model still gets it.
+ */
+function enforceWardrobeLock(prompt, attributesDetail = {}) {
+  if (typeof prompt !== "string" || !prompt.trim()) return prompt;
+  if (isNsfwPromptLogicalConflict(prompt)) return prompt;
+  const outfit = String(
+    attributesDetail?.outfit
+      || attributesDetail?.wardrobe
+      || attributesDetail?.clothing
+      || "",
+  ).trim();
+  if (!outfit) return prompt;
+  const isNudeChip = /\b(fully\s+nude|completely\s+nude|naked|nude(?!\s+lip|\s+nail))\b/i.test(outfit);
+  if (isNudeChip) return prompt; // user actually picked nude — leave it alone
+
+  // Strip leaked nudity phrases (whole-comma-segment + inline). Keep things conservative:
+  // only kill phrases that imply *full* nudity, not "exposed nipple" / "breasts visible"
+  // since those can legitimately accompany "tiny bikini" or "ripped clothes".
+  const NUDE_PATTERNS = [
+    /\bcompletely\s+nude\b/gi,
+    /\bfully\s+nude\b/gi,
+    /\bentirely\s+nude\b/gi,
+    /\btotally\s+nude\b/gi,
+    /\bin\s+the\s+nude\b/gi,
+    /\bcompletely\s+naked\b/gi,
+    /\bfully\s+naked\b/gi,
+    /\bstark\s+naked\b/gi,
+    /\bbuck\s+naked\b/gi,
+    /\bnaked\s+body\b/gi,
+    /\bno\s+clothes\b/gi,
+    /\bno\s+clothing\b/gi,
+    /\bnothing\s+on\b/gi,
+    /\bbare\s+all\b/gi,
+    /\bin\s+(?:the\s+)?nude\b/gi,
+  ];
+  let cleaned = prompt;
+  for (const re of NUDE_PATTERNS) cleaned = cleaned.replace(re, "");
+
+  // Drop standalone segments that became just "nude" / "naked" after cleanup.
+  cleaned = cleaned
+    .split(",")
+    .map((seg) => seg.trim())
+    .filter((seg) => seg && !/^(?:nude|naked|topless|bare)$/i.test(seg))
+    .join(", ");
+
+  // Collapse extra whitespace / repeated commas left by removals.
+  cleaned = cleaned
+    .replace(/\s{2,}/g, " ")
+    .replace(/,\s*,+/g, ",")
+    .replace(/^[\s,]+|[\s,]+$/g, "")
+    .trim();
+
+  // If the wardrobe is entirely missing from the cleaned prompt, splice it in once
+  // near the front so the sampler still sees the clothing the user picked.
+  const outfitLower = outfit.toLowerCase();
+  const headWords = outfitLower.split(/\s+/).slice(0, 2).join(" ");
+  if (headWords && !cleaned.toLowerCase().includes(headWords)) {
+    // Insert after the first comma segment (typically trigger word / framing) — never
+    // at position 0 which would shadow the LoRA trigger.
+    const firstComma = cleaned.indexOf(",");
+    if (firstComma > 0) {
+      cleaned = `${cleaned.slice(0, firstComma + 1)} wearing ${outfit},${cleaned.slice(firstComma + 1)}`;
+    } else {
+      cleaned = `${cleaned}, wearing ${outfit}`;
+    }
+  }
+
+  return cleaned;
 }
 
 export async function generateNsfwPrompt(req, res) {
@@ -3804,12 +3888,38 @@ export async function generateNsfwPrompt(req, res) {
       return res.status(404).json({ success: false, message: "Model not found" });
     }
 
-    const generatedPrompt = await runNsfwPromptGenerationForModel(
+    let generatedPrompt = await runNsfwPromptGenerationForModel(
       model,
       userRequest,
       clientDetail,
       clientAttributes,
     );
+    // Conflict-on-empty-wardrobe recovery: a stale stored system-prompt template can still
+    // contain the old strict wardrobe block that returns "Irresolvable logical conflict"
+    // when the user supplied no outfit chip. Retry once with the outfit hint stripped so
+    // the prompt always completes — only kicks in when the request had NO clothed outfit.
+    if (
+      isNsfwPromptLogicalConflict(generatedPrompt)
+      && !String(clientDetail?.outfit || clientDetail?.wardrobe || clientDetail?.clothing || "").trim()
+    ) {
+      try {
+        const stripped = { ...clientDetail };
+        delete stripped.outfit;
+        delete stripped.wardrobe;
+        delete stripped.clothing;
+        const retry = await runNsfwPromptGenerationForModel(
+          model,
+          userRequest,
+          stripped,
+          clientAttributes,
+        );
+        if (!isNsfwPromptLogicalConflict(retry) && typeof retry === "string" && retry.trim()) {
+          generatedPrompt = retry;
+        }
+      } catch (retryErr) {
+        console.warn("[nsfw] wardrobe-empty retry failed:", retryErr?.message || retryErr);
+      }
+    }
     if (isNsfwPromptLogicalConflict(generatedPrompt)) {
       return res.status(400).json({
         success: false,

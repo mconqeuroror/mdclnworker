@@ -1,0 +1,508 @@
+{
+  "reportReference": "INC-2026-04-27-IS-NCII-001",
+  "reportDate": "2026-04-27",
+  "targetEmail": "vikarlogi13@gmail.com",
+  "userId": "033d2054-e3fd-40ba-97f6-766901851663",
+  "userRegion": "IS",
+  "accountCreatedAt": "2026-03-11T10:48:20.700Z",
+  "lastUpdatedAt": "2026-04-27T15:16:19.073Z",
+  "ipHashes": [
+    {
+      "ipHash": "0447037f4dbaebaa5d9f8bc3",
+      "count": 2740
+    },
+    {
+      "ipHash": "420548c978de616b7823b7d4",
+      "count": 2252
+    },
+    {
+      "ipHash": "614e028a3532cc1fcc77be1d",
+      "count": 1544
+    },
+    {
+      "ipHash": "e3246934d88efa3b30798fdf",
+      "count": 290
+    },
+    {
+      "ipHash": "349b1dcb699d8e2c5627aa8c",
+      "count": 270
+    },
+    {
+      "ipHash": "e2a142cf348cbb8bf41c7b6c",
+      "count": 226
+    },
+    {
+      "ipHash": "5362e6874dfce842116e4db8",
+      "count": 184
+    },
+    {
+      "ipHash": "7be83988527a73f26549215b",
+      "count": 177
+    },
+    {
+      "ipHash": "1325f573b3a9b2c9eac78705",
+      "count": 151
+    },
+    {
+      "ipHash": "82afb2943939b7699d15ad06",
+      "count": 140
+    },
+    {
+      "ipHash": "7a5152c136a93bfd2fa603bf",
+      "count": 139
+    },
+    {
+      "ipHash": "31f752bda27b5f2cbdff7284",
+      "count": 115
+    },
+    {
+      "ipHash": "f24ee8075539dd7182e833c0",
+      "count": 113
+    },
+    {
+      "ipHash": "8dc5b622fdde6083f1e49c64",
+      "count": 113
+    },
+    {
+      "ipHash": "9a5b28b4243de3d13bce3a3a",
+      "count": 109
+    },
+    {
+      "ipHash": "e043a00785262999d6bec58a",
+      "count": 106
+    },
+    {
+      "ipHash": "539ed200b72b2a391a00cadb",
+      "count": 103
+    },
+    {
+      "ipHash": "3f3b2ba65b61361a8b96edd2",
+      "count": 94
+    },
+    {
+      "ipHash": "2b440e26de6e1ae88b534cd9",
+      "count": 63
+    },
+    {
+      "ipHash": "02b84a75c6651bea6c6db70a",
+      "count": 63
+    }
+  ],
+  "firstRequestAt": "2026-03-11T10:51:39.468Z",
+  "lastRequestAt": "2026-04-27T15:40:24.648Z",
+  "counts": {
+    "models": 7,
+    "generations": 231,
+    "nsfwLikeGenerations": 200,
+    "childSafetyIncidents": 0,
+    "creditTransactions": 283,
+    "cryptoPayments": 0,
+    "apiRequestMetrics": 9716,
+    "telemetryEvents": 52,
+    "adminAuditLogs": 7,
+    "trainedLoras": 1
+  },
+  "topRoutes": [
+    {
+      "route": "/api/generations",
+      "count": 4979
+    },
+    {
+      "route": "/api/drafts/generate-image",
+      "count": 1793
+    },
+    {
+      "route": "/api/auth/profile",
+      "count": 1064
+    },
+    {
+      "route": "/api/models",
+      "count": 571
+    },
+    {
+      "route": "/api/generations/monthly-stats",
+      "count": 342
+    },
+    {
+      "route": "/api/generate/advanced",
+      "count": 278
+    },
+    {
+      "route": "/api/generations/:uuid",
+      "count": 198
+    },
+    {
+      "route": "/api/upload/presign",
+      "count": 98
+    },
+    {
+      "route": "/api/drafts/nsfw",
+      "count": 83
+    },
+    {
+      "route": "/api/nsfw/loras/:uuid",
+      "count": 42
+    },
+    {
+      "route": "/api/drafts/generate-video",
+      "count": 37
+    },
+    {
+      "route": "/api/nsfw/:token",
+      "count": 31
+    },
+    {
+      "route": "/api/upload/blob",
+      "count": 31
+    },
+    {
+      "route": "/api/upload",
+      "count": 24
+    },
+    {
+      "route": "/api/nsfw/training-status/:uuid",
+      "count": 17
+    },
+    {
+      "route": "/api/nsfw/training-images/:uuid",
+      "count": 16
+    },
+    {
+      "route": "/api/generations/batch-delete",
+      "count": 14
+    },
+    {
+      "route": "/api/upload/config",
+      "count": 13
+    },
+    {
+      "route": "/api/nsfw/appearance/:uuid",
+      "count": 12
+    },
+    {
+      "route": "/api/drafts/prompt-image",
+      "count": 8
+    },
+    {
+      "route": "/api/generate/enhance-prompt",
+      "count": 8
+    },
+    {
+      "route": "/api/nsfw/generate-prompt",
+      "count": 6
+    },
+    {
+      "route": "/api/models/:uuid",
+      "count": 6
+    },
+    {
+      "route": "/api/nsfw/generate",
+      "count": 5
+    },
+    {
+      "route": "/api/drafts/nsfw-img2img",
+      "count": 5
+    },
+    {
+      "route": "/api/onboarding/lock-offer",
+      "count": 4
+    },
+    {
+      "route": "/api/nsfw/auto-select",
+      "count": 4
+    },
+    {
+      "route": "/api/drafts/upload",
+      "count": 3
+    },
+    {
+      "route": "/api/stripe/:token",
+      "count": 3
+    },
+    {
+      "route": "/api/voices",
+      "count": 2
+    },
+    {
+      "route": "/api/generate/video-prompt",
+      "count": 2
+    },
+    {
+      "route": "/api/nsfw/nudes-pack-poses",
+      "count": 2
+    },
+    {
+      "route": "/api/onboarding/trial-generate",
+      "count": 1
+    },
+    {
+      "route": "/api/generate/analyze-looks",
+      "count": 1
+    },
+    {
+      "route": "/api/onboarding/trial-upload",
+      "count": 1
+    },
+    {
+      "route": "/api/stripe/confirm-payment",
+      "count": 1
+    },
+    {
+      "route": "/api/generate/image-faceswap",
+      "count": 1
+    },
+    {
+      "route": "/api/generate/video-motion",
+      "count": 1
+    },
+    {
+      "route": "/api/auth/2fa/status",
+      "count": 1
+    },
+    {
+      "route": "/api/stripe/subscription-status",
+      "count": 1
+    },
+    {
+      "route": "/api/course/status",
+      "count": 1
+    },
+    {
+      "route": "/api/nsfw/lora/create",
+      "count": 1
+    },
+    {
+      "route": "/api/nsfw/train-lora",
+      "count": 1
+    },
+    {
+      "route": "/api/img2img/describe",
+      "count": 1
+    },
+    {
+      "route": "/api/generate/image-identity",
+      "count": 1
+    },
+    {
+      "route": "/api/download",
+      "count": 1
+    },
+    {
+      "route": "/api/nsfw/appearance/save",
+      "count": 1
+    }
+  ],
+  "generationsByDay": [
+    {
+      "day": "2026-03-11",
+      "count": 2
+    },
+    {
+      "day": "2026-03-12",
+      "count": 53
+    },
+    {
+      "day": "2026-03-13",
+      "count": 1
+    },
+    {
+      "day": "2026-03-14",
+      "count": 74
+    },
+    {
+      "day": "2026-03-15",
+      "count": 42
+    },
+    {
+      "day": "2026-03-16",
+      "count": 22
+    },
+    {
+      "day": "2026-03-17",
+      "count": 25
+    },
+    {
+      "day": "2026-03-26",
+      "count": 3
+    },
+    {
+      "day": "2026-04-03",
+      "count": 2
+    },
+    {
+      "day": "2026-04-07",
+      "count": 2
+    },
+    {
+      "day": "2026-04-08",
+      "count": 5
+    }
+  ],
+  "topPromptKeywords": [
+    {
+      "keyword": "nude",
+      "count": 132
+    },
+    {
+      "keyword": "showing",
+      "count": 118
+    },
+    {
+      "keyword": "nipples",
+      "count": 115
+    },
+    {
+      "keyword": "fully",
+      "count": 110
+    },
+    {
+      "keyword": "full",
+      "count": 79
+    },
+    {
+      "keyword": "pussy",
+      "count": 67
+    },
+    {
+      "keyword": "while",
+      "count": 66
+    },
+    {
+      "keyword": "naked",
+      "count": 64
+    },
+    {
+      "keyword": "face",
+      "count": 60
+    },
+    {
+      "keyword": "out",
+      "count": 58
+    },
+    {
+      "keyword": "mirror",
+      "count": 50
+    },
+    {
+      "keyword": "selfie",
+      "count": 45
+    },
+    {
+      "keyword": "tits",
+      "count": 43
+    },
+    {
+      "keyword": "body",
+      "count": 43
+    },
+    {
+      "keyword": "camera",
+      "count": 41
+    },
+    {
+      "keyword": "skin",
+      "count": 40
+    },
+    {
+      "keyword": "way",
+      "count": 38
+    },
+    {
+      "keyword": "athletic",
+      "count": 37
+    },
+    {
+      "keyword": "eyes",
+      "count": 35
+    },
+    {
+      "keyword": "looking",
+      "count": 35
+    },
+    {
+      "keyword": "posing",
+      "count": 34
+    },
+    {
+      "keyword": "sweaty",
+      "count": 34
+    },
+    {
+      "keyword": "nothing",
+      "count": 34
+    },
+    {
+      "keyword": "hair",
+      "count": 33
+    },
+    {
+      "keyword": "over",
+      "count": 33
+    },
+    {
+      "keyword": "unconscious",
+      "count": 33
+    },
+    {
+      "keyword": "legs",
+      "count": 32
+    },
+    {
+      "keyword": "skinny",
+      "count": 32
+    },
+    {
+      "keyword": "back",
+      "count": 31
+    },
+    {
+      "keyword": "pose",
+      "count": 31
+    },
+    {
+      "keyword": "bed",
+      "count": 30
+    },
+    {
+      "keyword": "suit",
+      "count": 30
+    },
+    {
+      "keyword": "straight",
+      "count": 28
+    },
+    {
+      "keyword": "sauna",
+      "count": 26
+    },
+    {
+      "keyword": "athlete",
+      "count": 25
+    },
+    {
+      "keyword": "lengthy",
+      "count": 25
+    },
+    {
+      "keyword": "arms",
+      "count": 25
+    },
+    {
+      "keyword": "bedroom",
+      "count": 24
+    },
+    {
+      "keyword": "torn",
+      "count": 24
+    },
+    {
+      "keyword": "detailed",
+      "count": 24
+    }
+  ],
+  "witnessContext": [
+    "Investigator statement: account allegedly generated non-consensual NSFW content using classmates' photos.",
+    "Investigator identified victim 'Yasmin Petra' from a TikTok screenshot in generated/source imagery.",
+    "Victim reportedly knows suspect identity and is assisting with identifying additional victims."
+  ]
+}
