@@ -53,7 +53,10 @@ User/pose LoRAs are loaded **by URL** via `LoadLoraFromUrlOrPath` (no bake neede
 | `easy loraStackApply` helpers | `yolain/ComfyUI-Easy-Use` |
 | Core samplers / loaders | ComfyUI built-in |
 
-## Quick deploy
+**First cold boot:** `ComfyUI-Crystools`, `ComfyUI-DepthAnythingV3`, `ComfyUI-Easy-Use`,
+`was-node-suite-comfyui`, and `ComfyUI_UltimateSDUpscale` are **not** in the Docker
+layer — `start.sh` clones them and runs `pip install -r requirements.txt` before
+ComfyUI starts (shrinks build/export time; adds one-time startup latency on a fresh volume).
 
 ### 1. Build & push image
 ```bash
