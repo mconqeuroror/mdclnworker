@@ -5,21 +5,20 @@ CUSTOM_NODES_DIR="/workspace/ComfyUI/custom_nodes"
 mkdir -p "${CUSTOM_NODES_DIR}"
 
 # Required node packs for NSFW generation workflows.
+# Runtime-only packs (clone + pip in start.sh — smaller Docker export):
+#   crystian/ComfyUI-Crystools, PozzettiAndrea/ComfyUI-DepthAnythingV3,
+#   yolain/ComfyUI-Easy-Use, WASasquatch/was-node-suite-comfyui,
+#   ssitu/ComfyUI_UltimateSDUpscale
 REQUIRED_REPOS=(
   "Acly/comfyui-tooling-nodes"
   "bollerdominik/ComfyUI-load-lora-from-url"
   "glifxyz/ComfyUI-GlifNodes"
-  "PozzettiAndrea/ComfyUI-DepthAnythingV3"
   "Suzie1/ComfyUI_Comfyroll_CustomNodes"
   "Derfuu/Derfuu_ComfyUI_ModdedNodes"
-  "crystian/ComfyUI-Crystools"
   "alexopus/ComfyUI-Image-Saver"
   "giriss/comfy-image-saver"
   "a-und-b/ComfyUI_LoRA_from_URL"
-  "yolain/ComfyUI-Easy-Use"
   "rgthree/rgthree-comfy"
-  "WASasquatch/was-node-suite-comfyui"
-  "ssitu/ComfyUI_UltimateSDUpscale"
 )
 
 echo ">>> Installing custom nodes..."

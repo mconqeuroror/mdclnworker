@@ -370,6 +370,34 @@ else
     echo "  [OK] comfy-image-saver installed!"
 fi
 
+echo ""
+echo "--- Checking crystian/ComfyUI-Crystools ---"
+CRYSTOOLS_DIR="${COMFYUI_DIR}/custom_nodes/ComfyUI-Crystools"
+if [ -d "${CRYSTOOLS_DIR}" ]; then
+    echo "  [OK] ComfyUI-Crystools already installed"
+else
+    echo "  [!!] ComfyUI-Crystools missing — installing..."
+    git clone --depth 1 "https://github.com/crystian/ComfyUI-Crystools.git" "${CRYSTOOLS_DIR}"
+    if [ -f "${CRYSTOOLS_DIR}/requirements.txt" ]; then
+        pip install -q --no-cache-dir -r "${CRYSTOOLS_DIR}/requirements.txt" || true
+    fi
+    echo "  [OK] ComfyUI-Crystools installed!"
+fi
+
+echo ""
+echo "--- Checking WASasquatch/was-node-suite-comfyui ---"
+WAS_SUITE_DIR="${COMFYUI_DIR}/custom_nodes/was-node-suite-comfyui"
+if [ -d "${WAS_SUITE_DIR}" ]; then
+    echo "  [OK] was-node-suite-comfyui already installed"
+else
+    echo "  [!!] was-node-suite-comfyui missing — installing..."
+    git clone --depth 1 "https://github.com/WASasquatch/was-node-suite-comfyui.git" "${WAS_SUITE_DIR}"
+    if [ -f "${WAS_SUITE_DIR}/requirements.txt" ]; then
+        pip install -q --no-cache-dir -r "${WAS_SUITE_DIR}/requirements.txt" || true
+    fi
+    echo "  [OK] was-node-suite-comfyui installed!"
+fi
+
 # Remove old node packages if they exist (superseded)
 rm -rf "${COMFYUI_DIR}/custom_nodes/ComfyUI-EasyCivitai-XTNodes" 2>/dev/null || true
 
@@ -429,7 +457,7 @@ COMFYUI_PID=$!
 echo ">>> ComfyUI PID: ${COMFYUI_PID}"
 
 echo ">>> Waiting for ComfyUI to be ready..."
-MAX_WAIT=300
+MAX_WAIT=540
 WAITED=0
 while [ $WAITED -lt $MAX_WAIT ]; do
     if curl -s http://127.0.0.1:8188/system_stats > /dev/null 2>&1; then

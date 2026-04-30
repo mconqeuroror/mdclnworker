@@ -78,8 +78,6 @@ RUN test -d /workspace/ComfyUI/custom_nodes/ComfyUI_Comfyroll_CustomNodes || \
     (echo "ERROR: Suzie1/ComfyUI_Comfyroll_CustomNodes failed to clone" && exit 1)
 RUN test -d /workspace/ComfyUI/custom_nodes/Derfuu_ComfyUI_ModdedNodes || \
     (echo "ERROR: Derfuu/Derfuu_ComfyUI_ModdedNodes failed to clone" && exit 1)
-RUN test -d /workspace/ComfyUI/custom_nodes/ComfyUI-Crystools || \
-    (echo "ERROR: crystian/ComfyUI-Crystools failed to clone" && exit 1)
 RUN test -d /workspace/ComfyUI/custom_nodes/ComfyUI-Image-Saver || \
     (echo "ERROR: alexopus/ComfyUI-Image-Saver failed to clone" && exit 1)
 RUN test -d /workspace/ComfyUI/custom_nodes/comfy-image-saver || \
@@ -88,14 +86,11 @@ RUN test -d /workspace/ComfyUI/custom_nodes/rgthree-comfy || \
     (echo "ERROR: rgthree/rgthree-comfy failed to clone" && exit 1)
 RUN test -d /workspace/ComfyUI/custom_nodes/comfyui-tooling-nodes || \
     (echo "ERROR: Acly/comfyui-tooling-nodes failed to clone" && exit 1)
-RUN test -d /workspace/ComfyUI/custom_nodes/was-node-suite-comfyui || \
-    (echo "ERROR: WASasquatch/was-node-suite-comfyui failed to clone" && exit 1)
-RUN test -d /workspace/ComfyUI/custom_nodes/ComfyUI-DepthAnythingV3 || \
-    (echo "ERROR: PozzettiAndrea/ComfyUI-DepthAnythingV3 failed to clone" && exit 1)
 RUN test -d /workspace/ComfyUI/custom_nodes/ComfyUI_LoRA_from_URL || \
     (echo "ERROR: a-und-b/ComfyUI_LoRA_from_URL failed to clone" && exit 1)
-RUN test -d /workspace/ComfyUI/custom_nodes/ComfyUI-Easy-Use || \
-    (echo "ERROR: yolain/ComfyUI-Easy-Use failed to clone" && exit 1)
+# ComfyUI-Crystools, ComfyUI-DepthAnythingV3, ComfyUI-Easy-Use,
+# was-node-suite-comfyui, ComfyUI_UltimateSDUpscale: cloned at container boot in
+# start.sh (large pip deps — keeps image export under RunPod build timeouts).
 # Install pip requirements for every custom node (python3 -m pip to hit the
 # same 3.10 env ComfyUI runs under).
 RUN for dir in /workspace/ComfyUI/custom_nodes/*/; do \
