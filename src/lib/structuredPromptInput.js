@@ -381,8 +381,13 @@ the user request — this is NOT a conflict. Wardrobe presence/absence is never 
 return "Irresolvable logical conflict".
 
 ### OUTPUT
-Return **only** the final ZiT positive prompt: plain English, comma-separated or flowing prose
-as required by the system rules. No \`\`\` fences. If you cannot satisfy the request as one
+Return **only** the final ZiT positive prompt as a **single string** with this structure:
+1. LoRA trigger(s) at position 0 (Latin, unchanged).
+2. **English** identity block from main_subject (face/body facts — locks ethnicity-dependent face shape).
+3. **Simplified Chinese** scene body: shot → pose → wardrobe mechanism → visible anatomy → environment (≤2 anchors) → lighting (≤2 sentences, no technical lighting jargon) → mood → camera technicals.
+4. Final line **exactly in English:** Photorealistic, sharp focus, natural skin texture.
+
+Use flowing prose; no key:value dumps, no \`\`\` fences. If you cannot satisfy the request as one
 coherent image, return exactly:
 Irresolvable logical conflict in request - please clarify`;
 

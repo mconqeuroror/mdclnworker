@@ -38,6 +38,10 @@ import {
   getPromptTemplateValue,
   upsertPromptTemplateOverrides,
 } from "../services/prompt-template-config.service.js";
+import { getDefaultNsfwPromptGeneratorSystemPromptForAdmin } from "../lib/nsfwZit62PromptBuilder.js";
+import { DEFAULT_ENHANCE_PROMPT_NSFW_SYSTEM } from "../lib/defaultPrompts/enhancePromptNsfwSystem.js";
+import { getDefaultImg2imgInjectSystemPromptForAdmin } from "../lib/defaultPrompts/img2imgInjectSystemPrompt.js";
+import { DEFAULT_MCX_IMG2IMG_SYSTEM_PROMPT } from "../services/mcxImageToPrompt.service.js";
 import {
   DEFAULT_WINBACK_EMAIL_TEMPLATE,
   getWinbackEmailTemplate,
@@ -77,6 +81,10 @@ const SENDGRID_MAX_EMAILS_PER_MINUTE = Math.max(
 );
 const SENDGRID_WINDOW_MS = 60_000;
 
+/** In-repo defaults surfaced in Admin so empty DB still shows the full editable prompts. */
+const NSFW_ZIT_SYSTEM_PROMPT_ADMIN_DEFAULT = getDefaultNsfwPromptGeneratorSystemPromptForAdmin();
+const IMG2IMG_INJECT_SYSTEM_PROMPT_ADMIN_DEFAULT = getDefaultImg2imgInjectSystemPromptForAdmin();
+
 const PROMPT_TEMPLATE_KNOWN_KEYS = [
   "modelcloneXPromptOptimizerSystem",
   "modelcloneXPromptOptimizerUserWrapper",
@@ -93,6 +101,7 @@ const PROMPT_TEMPLATE_KNOWN_KEYS = [
   "nudesPackPromptGeneratorUserWrapper",
   "describeTargetImageSystemPrompt",
   "img2imgInjectSystemPrompt",
+  "modelcloneXImg2ImgSystemPrompt",
   "falCaptionSystemPrompt",
   "falLoraSelectorSystemPrompt",
   "nsfwLoraStrengthSystemPrompt",
@@ -178,28 +187,24 @@ Rules:
 - Keep it under 200 words, one clean paragraph
 - STRICT SFW POLICY: no nudity, no explicit sexual acts, no exposed genitals, no explicit erotic phrasing
 - If user asks for explicit/NSFW content, rewrite to a tasteful SFW equivalent while preserving composition/mood`,
-  nsfwPromptGenerator:
-    "Default: src/lib/nsfwZit62PromptBuilder.js (buildNsfwZitGrokSystemPrompt) + NSFW_ZIT_INPUT_BRIEF — ZiT 6.2 plain-text positive prompt, structured JSON to Grok is input-only. Override in DB; include STRUCTURED NSFW INPUT in the system prompt (or the app will append the brief) if you replace the full text.",
-  nsfwTextPromptGenerator:
-    "Same stack as nsfwPromptGenerator (runNsfwPromptGenerationForModel). Use DB key nsfwPromptGenerator; this key is for legacy / alternate admin labels only.",
+  nsfwPromptGenerator: NSFW_ZIT_SYSTEM_PROMPT_ADMIN_DEFAULT,
+  nsfwTextPromptGenerator: NSFW_ZIT_SYSTEM_PROMPT_ADMIN_DEFAULT,
   nsfwTextPromptUserWrapper:
     "**Scene / user request:**\n{{REQUEST}}\n\n**Model appearance (weave in naturally; do not paste as a list):**\n{{ATTRIBUTE_SUMMARY}}",
   nudesPackTextPromptUserWrapper:
-    "Nudes pack — pose {{POSE_ID}} ({{POSE_TITLE}}). Read the model appearance and scene below. Write ONE fluent NSFW image prompt paragraph per the system rules (not JSON, not a bulleted list).\n\n**Scene / pose (source of truth for the act):**\n{{REQUEST}}\n\n**Model appearance (weave in naturally; do not paste as a list):**\n{{ATTRIBUTE_SUMMARY}}",
+    "Nudes pack — pose {{POSE_ID}} ({{POSE_TITLE}}). Read the model appearance and scene below. Write ONE NSFW image prompt string per the system rules: triggers → English identity → Simplified Chinese scene → final English quality line — not JSON, not a bulleted list.\n\n**Scene / pose (source of truth for the act):**\n{{REQUEST}}\n\n**Model appearance (weave in naturally; do not paste as a list):**\n{{ATTRIBUTE_SUMMARY}}",
   analyzeLooksSystemPrompt:
     "You are an expert at analyzing photos of people to determine physical appearance for AI model configuration. Return one JSON object for the same person across all photos, using exact allowed option values and age as integer 1-120.",
   enhancePromptNanoBananaSystem:
     "You are a creative director prompt engineer for Nano Banana Pro. Rewrite user ideas into production-ready prompts with specific subject/action/context/composition/style, preserve user intent and modelLooks, keep results photoreal and distinctive, and enforce true selfie POV constraints when selfie is requested.",
-  enhancePromptNsfwSystem:
-    "Default: inline in src/routes/api.routes.js (POST /generate/enhance-prompt, mode nsfw) — Z-Image Turbo 60–110 words, four-sentence + quality suffix + hard bans. Override in DB to replace.",
-  nudesPackPromptGeneratorSystem:
-    "Nudes pack uses runNsfwPromptGenerationForModel (ZiT 6.2 text output; key nudesPackPromptGeneratorSystem or nsfwPromptGenerator). Ignored if you only set nsfwPromptGenerator.",
+  enhancePromptNsfwSystem: DEFAULT_ENHANCE_PROMPT_NSFW_SYSTEM,
+  nudesPackPromptGeneratorSystem: NSFW_ZIT_SYSTEM_PROMPT_ADMIN_DEFAULT,
   nudesPackPromptGeneratorUserWrapper:
-    "Compose one final ZiT NSFW prompt string (plain text, not JSON) for this nudes-pack item. The JSON bundle + raw request are source-of-truth.\n\n{{REQUEST_JSON}}\n\n{{REQUEST}}",
+    "Compose one final ZiT NSFW prompt string per the system bilingual rules (plain text, not JSON). JSON bundle + raw request are source-of-truth.\n\n{{REQUEST_JSON}}\n\n{{REQUEST}}",
   describeTargetImageSystemPrompt:
     'You are an expert at describing reference images for AI identity recreation. Start with model name, describe scene/pose/camera/lighting/background/mood, avoid identity-trait details, keep under 150 words, output one paragraph only.',
-  img2imgInjectSystemPrompt:
-    "Default: inline in src/services/img2img.service.js (injectModelIntoPrompt) — ZIT img2img inject + POV templates; getPromptTemplateValue('img2imgInjectSystemPrompt', …) wraps the default. Override in DB to replace.",
+  img2imgInjectSystemPrompt: IMG2IMG_INJECT_SYSTEM_PROMPT_ADMIN_DEFAULT,
+  modelcloneXImg2ImgSystemPrompt: DEFAULT_MCX_IMG2IMG_SYSTEM_PROMPT,
   falCaptionSystemPrompt:
     "You are an expert image captioner for Z-Image Turbo LoRA training datasets. Start each caption with trigger word (+ locked subject class if provided), describe visible pose/camera/clothing/environment/lighting/style, avoid fixed identity over-specification, and keep concise training-stable captions.",
   falLoraSelectorSystemPrompt:
