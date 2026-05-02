@@ -146,6 +146,8 @@ const NSFW_COPY = {
     sectionNegativePrompt: "Negative Prompt",
     sectionResolution: "Resolution",
     sectionQuantity: "Quantity",
+    workflowBeta: "Beta 2.0",
+    workflowBetaHint: "Dual-UNET + refine stack (experimental).",
     modeQuality: "Quality",
     modeSpeed: "Speed",
     modeCustom: "Custom",
@@ -388,6 +390,8 @@ const NSFW_COPY = {
     sectionNegativePrompt: "Негативный промпт",
     sectionResolution: "Разрешение",
     sectionQuantity: "Количество",
+    workflowBeta: "Бета 2.0",
+    workflowBetaHint: "Два UNET + доработка (экспериментально).",
     modeQuality: "Качество",
     modeSpeed: "Скорость",
     modeCustom: "Пользовательский",
@@ -4095,6 +4099,7 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
   const [sceneDescription, setSceneDescription] = useState("");
   const [generatedPrompt, setGeneratedPrompt] = useState("");
   const [isGeneratingNsfw, setIsGeneratingNsfw] = useState(false);
+  const [nsfwWorkflowBeta, setNsfwWorkflowBeta] = useState(false);
   const [nudesPackModalOpen, setNudesPackModalOpen] = useState(false);
   const [nudesPackComingSoonOpen, setNudesPackComingSoonOpen] = useState(false);
   const [isSubmittingNudesPack, setIsSubmittingNudesPack] = useState(false);
@@ -5057,6 +5062,7 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
         options: {
           quickFlow: nsfwGenerateMode === "simple",
           loraStrength: genConfig.loraStrength || null,
+          nsfwWorkflowBeta,
           ...(user?.role === "admin" && adminSamplerTest.enabled
             ? {
                 adminNsfwOverrides: {
@@ -6485,6 +6491,23 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
                       </span>
                     </button>
                   </div>
+                </div>
+
+                {/* Beta 2.0 workflow (dual UNET + refine) */}
+                <div className="flex items-center gap-3 mb-4">
+                  <button
+                    type="button"
+                    data-testid="button-nsfw-workflow-beta"
+                    onClick={() => setNsfwWorkflowBeta((v) => !v)}
+                    className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all border ${
+                      nsfwWorkflowBeta
+                        ? "bg-violet-500/25 border-violet-400/50 text-violet-100"
+                        : "bg-slate-800/50 border-slate-600/40 text-slate-400 hover:bg-slate-700/50"
+                    }`}
+                  >
+                    {copy.workflowBeta}
+                  </button>
+                  <span className="text-xs text-slate-500 max-w-[220px] leading-snug">{copy.workflowBetaHint}</span>
                 </div>
 
                 {/* Generate Button */}

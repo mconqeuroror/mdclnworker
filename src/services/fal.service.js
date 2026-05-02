@@ -1323,42 +1323,38 @@ function loadNsfwCoreWorkflowGraph() {
   return null;
 }
 
-// ─── Pro workflow (clean output — no grain/blur) ─────────────────────────────
+// ─── NSFW default “base” T2I (single UNET 43 + easy loraStackApply + AuraFlow + CR latent) ─
 
-let _nsfwProApiCache = null; // Reset whenever nsfw_pro_api.json is updated on disk.
-function loadNsfwProWorkflow() {
-  if (_nsfwProApiCache) return JSON.parse(JSON.stringify(_nsfwProApiCache));
+let _nsfwBaseApiCache = null;
+function loadNsfwBaseWorkflow() {
+  if (_nsfwBaseApiCache) return JSON.parse(JSON.stringify(_nsfwBaseApiCache));
   const candidates = [
-    path.join(process.cwd(), "runpod-mdcln", "workflows", "nsfw_pro_api.json"),
-    path.join(__dirname, "..", "..", "runpod-mdcln", "workflows", "nsfw_pro_api.json"),
+    path.join(process.cwd(), "runpod-mdcln", "workflows", "nsfw_base_api.json"),
+    path.join(__dirname, "..", "..", "runpod-mdcln", "workflows", "nsfw_base_api.json"),
   ];
   for (const p of candidates) {
     try {
       if (fs.existsSync(p)) {
-        _nsfwProApiCache = JSON.parse(fs.readFileSync(p, "utf8"));
-        console.log("[Pro workflow] Loaded nsfw_pro_api.json from:", p);
-        return JSON.parse(JSON.stringify(_nsfwProApiCache));
+        _nsfwBaseApiCache = JSON.parse(fs.readFileSync(p, "utf8"));
+        console.log("[NSFW base] Loaded nsfw_base_api.json from:", p);
+        return JSON.parse(JSON.stringify(_nsfwBaseApiCache));
       }
     } catch (e) {
-      console.warn("[Pro workflow] Load failed:", p, e?.message);
+      console.warn("[NSFW base] Load failed:", p, e?.message);
     }
   }
   return null;
 }
 
 /**
- * Build a ComfyUI API workflow using the new Pro pipeline:
- *   UNet → LoRA chain → KSampler (beta scheduler) → VAEDecode → SaveImage (node 289)
- *
- * NOTE: NSFW now always bypasses SeedVR2 upscaling so generations return
- * directly from the base decode + post-processing chain.
+ * Default NSFW txt2img: UNET → LoadLoraFromUrl + easy loraStackApply → ModelSamplingAuraFlow
+ * → KSampler → VAEDecode → SaveImage (**node 17**). Negative path is ConditioningZeroOut(positive).
  */
-function buildComfyWorkflowPro(params) {
+function buildComfyWorkflowNsfwBase(params) {
   const {
     prompt,
     loraUrl,
     girlLoraStrength,
-    postProcessing = {},
     seed,
     width = 1344,
     height = 768,
@@ -1366,75 +1362,113 @@ function buildComfyWorkflowPro(params) {
     steps,
     cfg,
     negativePrompt: explicitNegativePrompt,
-    useWorkflowPostProcessing = false,
   } = params;
 
-  const wf = loadNsfwProWorkflow();
+  const wf = loadNsfwBaseWorkflow();
   if (!wf) {
-    console.warn("[Pro workflow] nsfw_pro_api.json not found — falling back to core workflow");
+    console.warn("[NSFW base] nsfw_base_api.json not found — falling back to core workflow");
     return null;
   }
 
-  // ── LoRA (node 363 = LoadLoraFromUrlOrPath, node 364 = CR Apply LoRA Stack) ─
-  // Single slot: girl identity LoRA URL fed through the URL stack into KSampler.
-  if (wf["363"]) {
-    const strength = Math.min(1, Math.max(0, Number(girlLoraStrength) || 0.6));
-    wf["363"].inputs.num_loras = 1;
-    wf["363"].inputs.lora_1_url = loraUrl ?? "";
-    wf["363"].inputs.lora_1_strength = strength;
+  if (wf["20"]?.inputs) {
+    const strength = Math.min(1, Math.max(0, Number(girlLoraStrength) || 0.75));
+    wf["20"].inputs.mode = "simple";
+    wf["20"].inputs.num_loras = 1;
+    wf["20"].inputs.lora_1_url = loraUrl ?? "";
+    wf["20"].inputs.lora_1_strength = strength;
+    wf["20"].inputs.lora_1_model_strength = strength;
+    wf["20"].inputs.lora_1_clip_strength = strength;
   }
 
-  // ── Aspect ratio (node 50) ──────────────────────────────────────────────────
-  if (wf["50"]) {
-    wf["50"].inputs.width = Number(width) || 1344;
-    wf["50"].inputs.height = Number(height) || 768;
-    wf["50"].inputs.aspect_ratio = aspectRatio;
-    wf["50"].inputs.swap_dimensions = "Off";
+  if (wf["30"]?.inputs) {
+    wf["30"].inputs.width = Number(width) || 1024;
+    wf["30"].inputs.height = Number(height) || 1024;
+    wf["30"].inputs.aspect_ratio = aspectRatio;
+    wf["30"].inputs.swap_dimensions = "Off";
   }
 
-  // ── Sampler (node 276) ──────────────────────────────────────────────────────
-  if (wf["276"]) {
+  if (wf["24"]?.inputs) {
     if (steps != null && Number.isFinite(Number(steps))) {
-      wf["276"].inputs.steps = Math.min(150, Math.max(1, Math.round(Number(steps))));
+      wf["24"].inputs.steps = Math.min(150, Math.max(1, Math.round(Number(steps))));
     }
     if (cfg != null && Number.isFinite(Number(cfg))) {
-      wf["276"].inputs.cfg = Number(cfg);
+      wf["24"].inputs.cfg = Number(cfg);
+    }
+    if (seed != null) {
+      wf["24"].inputs.seed = seed;
     }
   }
 
-  // ── Seed (node 57) ─────────────────────────────────────────────────────────
-  if (seed != null && wf["57"]) {
-    wf["57"].inputs.seed = seed;
+  if (wf["5"]?.inputs) {
+    wf["5"].inputs.text = prompt || "";
   }
 
-  // ── Prompts ─────────────────────────────────────────────────────────────────
-  let negText = wf["41"]?.inputs?.string ?? DEFAULT_NSFW_NEGATIVE_PROMPT;
-  if (explicitNegativePrompt != null && String(explicitNegativePrompt).trim() !== "") {
-    negText = String(explicitNegativePrompt).trim();
+  void explicitNegativePrompt;
+
+  return wf;
+}
+
+// ─── NSFW “2.0” beta: merged dual UNET + MCX-style refine stack → SaveImage node 43 ─────────
+
+let _nsfw2ApiCache = null;
+function loadNsfw2Workflow() {
+  if (_nsfw2ApiCache) return JSON.parse(JSON.stringify(_nsfw2ApiCache));
+  const candidates = [
+    path.join(process.cwd(), "runpod-mdcln", "workflows", "nsfw_2_api.json"),
+    path.join(__dirname, "..", "..", "runpod-mdcln", "workflows", "nsfw_2_api.json"),
+  ];
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) {
+        _nsfw2ApiCache = JSON.parse(fs.readFileSync(p, "utf8"));
+        console.log("[NSFW 2.0] Loaded nsfw_2_api.json from:", p);
+        return JSON.parse(JSON.stringify(_nsfw2ApiCache));
+      }
+    } catch (e) {
+      console.warn("[NSFW 2.0] Load failed:", p, e?.message);
+    }
   }
-  if (isOralBlowjobScenePrompt(prompt) && !/\bdisembodied penis\b/i.test(negText)) {
-    negText = `${negText}, ${NSFW_NEG_ORAL_DISCONNECTED_PHALLUS}`;
+  return null;
+}
+
+function buildComfyWorkflowNsfw2(params) {
+  const { prompt, loraUrl, girlLoraStrength, seed, width = 768, height = 1344 } = params;
+
+  const wf = loadNsfw2Workflow();
+  if (!wf) {
+    console.warn("[NSFW 2.0] nsfw_2_api.json not found");
+    return null;
   }
-  const posText = prompt || "";
 
-  // Inline String Literal refs then remove those nodes
-  inlineStringLiteralRefsInApiWorkflow(wf, { 41: negText, 56: posText });
-  delete wf["41"];
-  delete wf["56"];
+  const w2 = Math.max(64, Math.round((Number(width) || 768) * 2));
+  const h2 = Math.max(64, Math.round((Number(height) || 1344) * 2));
+  if (wf["30"]?.inputs) {
+    wf["30"].inputs.width = w2;
+    wf["30"].inputs.height = h2;
+    wf["30"].inputs.batch_size = wf["30"].inputs.batch_size ?? 1;
+  }
 
-  // Remove grain/blur nodes — VAEDecode feeds directly to SaveImage
-  delete wf["284"];
-  delete wf["286"];
-  if (wf["289"]) wf["289"].inputs.images = ["25", 0];
+  if (wf["33"]?.inputs) {
+    wf["33"].inputs.text = prompt || "";
+  }
 
-  // Guarantee SeedVR2 is not present (guard for stale cache).
-  delete wf["359"];
-  delete wf["360"];
-  delete wf["361"];
-  delete wf["362"];
-  delete wf["369"];
-  // LoadLoraFromUrlOrPath (363) + CR Apply LoRA Stack (364) are the correct nodes.
-  // Node 364 must stay — KSampler model wires through it.
+  if (wf["5"]?.inputs && loraUrl) {
+    const strength = Math.min(1, Math.max(0, Number(girlLoraStrength) || 0.6));
+    wf["5"].inputs.mode = "simple";
+    wf["5"].inputs.num_loras = 1;
+    wf["5"].inputs.lora_1_url = loraUrl;
+    wf["5"].inputs.lora_1_strength = strength;
+    wf["5"].inputs.lora_1_model_strength = strength;
+    wf["5"].inputs.lora_1_clip_strength = strength;
+  }
+
+  const baseSeed =
+    seed != null && Number.isFinite(Number(seed))
+      ? Math.trunc(Number(seed))
+      : Math.floor(Math.random() * 2 ** 32);
+  if (wf["34"]?.inputs) wf["34"].inputs.noise_seed = baseSeed;
+  if (wf["41"]?.inputs) wf["41"].inputs.noise_seed = baseSeed;
+  if (wf["45"]?.inputs) wf["45"].inputs.seed = baseSeed;
 
   return wf;
 }
@@ -2049,11 +2083,15 @@ function bypassUpscaleChainInNsfwCoreApi(apiWorkflow) {
 }
 
 function buildComfyWorkflow(params) {
-  // Route to Pro workflow unless NSFW_WORKFLOW_VERSION=core is explicitly set
   if (process.env.NSFW_WORKFLOW_VERSION !== "core") {
-    const proResult = buildComfyWorkflowPro(params);
-    if (proResult) return proResult;
-    console.warn("[buildComfyWorkflow] Pro workflow failed — falling back to core workflow");
+    if (params.nsfwWorkflowVariant === "2.0") {
+      const beta = buildComfyWorkflowNsfw2(params);
+      if (beta) return beta;
+      console.warn("[buildComfyWorkflow] NSFW 2.0 failed — using base pipeline");
+    }
+    const baseResult = buildComfyWorkflowNsfwBase(params);
+    if (baseResult) return baseResult;
+    console.warn("[buildComfyWorkflow] NSFW base failed — falling back to core workflow");
   }
 
   const {
@@ -2420,6 +2458,8 @@ export async function submitNsfwGeneration(params, webhookUrl = null, generation
     nudesPack = false,
     /** @type {import('../../shared/nudesPackPoses.js').NudesPackAdditiveLoraHint | null | undefined} */
     packAdditiveLoraHint = null,
+    /** Dual-UNET + refine (`nsfw_2_api.json`); SaveImage node 43. */
+    nsfwWorkflowBeta = false,
   } = options;
   const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
   const normalizeStrength = (value, fallback) => {
@@ -2517,6 +2557,11 @@ export async function submitNsfwGeneration(params, webhookUrl = null, generation
     console.log(`🧪 Admin NSFW sampler override: steps=${baseSteps}, cfg=${baseCfg}`);
   }
 
+  const nsfwWorkflowVariant = nsfwWorkflowBeta === true ? "2.0" : "base";
+  if (nsfwWorkflowVariant === "2.0") {
+    console.log("🧪 NSFW workflow: Beta 2.0 (dual UNET + refine)");
+  }
+
   const workflow = buildComfyWorkflow({
     prompt,
     loraUrl,
@@ -2537,6 +2582,7 @@ export async function submitNsfwGeneration(params, webhookUrl = null, generation
     height: resSpec.height,
     aspectRatio: resSpec.aspect_ratio,
     negativePrompt: options.negativePrompt,
+    nsfwWorkflowVariant,
   });
 
   console.log("\n📋 ============================================");
@@ -2555,11 +2601,13 @@ export async function submitNsfwGeneration(params, webhookUrl = null, generation
       ? resolveRunpodWebhookUrl({ generationId: String(generationId), kind: "nsfw" })
       : resolveRunpodWebhookUrl());
 
+  const nsfwOutputNodeId = nsfwWorkflowVariant === "2.0" ? "43" : "17";
+
   const runpodJobId = await submitRunpodJob(
     {
       input: {
         prompt: workflow,
-        output_node_id: "289",
+        output_node_id: nsfwOutputNodeId,
         meta: generationId ? { generationId: String(generationId), kind: "nsfw" } : { kind: "nsfw" },
       },
     },
@@ -2717,7 +2765,7 @@ export function normalizeRunpodNsfwOutput(raw) {
   // Prefer node 289 (SaveImage in NSFW workflow), then any node with images.
   const outputs = o?.outputs;
   if (outputs && typeof outputs === "object") {
-    const preferredNodeIds = ["289", ...Object.keys(outputs).filter((k) => k !== "289")];
+    const preferredNodeIds = ["17", "43", "289", ...Object.keys(outputs).filter((k) => k !== "17" && k !== "43" && k !== "289")];
     for (const nodeId of preferredNodeIds) {
       const nodeOut = outputs[nodeId];
       if (!hasImages(nodeOut)) continue;
@@ -2731,7 +2779,7 @@ export function normalizeRunpodNsfwOutput(raw) {
   // Legacy variant: { result: { output_nodes: { "<nodeId>": { images: [...] } } } }
   const outputNodes = o?.result?.output_nodes;
   if (outputNodes && typeof outputNodes === "object") {
-    const preferredNodeIds = ["289", ...Object.keys(outputNodes).filter((k) => k !== "289")];
+    const preferredNodeIds = ["17", "43", "289", ...Object.keys(outputNodes).filter((k) => k !== "17" && k !== "43" && k !== "289")];
     for (const nodeId of preferredNodeIds) {
       const nodeOut = outputNodes[nodeId];
       if (!hasImages(nodeOut)) continue;

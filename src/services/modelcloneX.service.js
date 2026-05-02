@@ -57,7 +57,7 @@ export const MODELCLONE_X_CREDITS = {
 /** MCX 5.2 nolora SaveImage node id (lora graph uses `43`; legacy soul-x txt2img used `369`). */
 export const MODELCLONE_X_OUTPUT_NODE = "42";
 /** Try these SaveImage node ids when parsing txt2img RunPod output (order matters). */
-const MODELCLONE_X_TXT2IMG_OUTPUT_NODE_IDS = ["42", "43", "369"];
+const MODELCLONE_X_TXT2IMG_OUTPUT_NODE_IDS = ["42", "43", "17", "289", "369"];
 /** ModelClone-X img2img (new mcx_i2i graph) SaveImage node id. */
 const MODELCLONE_X_IMG2IMG_OUTPUT_NODE = "368";
 /** Legacy MCX img2img SaveImage node id from older exports. */
