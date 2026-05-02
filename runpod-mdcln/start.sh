@@ -98,6 +98,17 @@ download_civitai() {
 setup_models() {
     local target_dir="$1"
 
+    # RunPod S3-backed network volumes can persist symlink INODEs as tiny placeholder objects.
+    # Those land in checkpoints/ with the same basename as real UNETs and Comfy may load them
+    # → safetensors shape errors. Set SKIP_CHECKPOINT_WEIGHT_SYMLINKS=1 on those endpoints.
+    link_ckpt_weight() {
+        if [ "${SKIP_CHECKPOINT_WEIGHT_SYMLINKS:-0}" = "1" ]; then
+            echo "  [SKIP] checkpoints/ symlink (SKIP_CHECKPOINT_WEIGHT_SYMLINKS=1): $2"
+            return 0
+        fi
+        ln -sfn "$1" "$2"
+    }
+
     mkdir -p "${target_dir}/checkpoints"
     mkdir -p "${target_dir}/clip"
     mkdir -p "${target_dir}/text_encoders"
@@ -131,8 +142,8 @@ setup_models() {
         "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/diffusion_models/z_image_turbo_bf16.safetensors" \
         "${target_dir}/diffusion_models/z_image_turbo_bf16.safetensors"
     # Also expose as a classic checkpoint for CheckpointLoaderSimple workflows.
-    ln -sfn "${target_dir}/diffusion_models/z_image_turbo_bf16.safetensors" \
-            "${target_dir}/checkpoints/z_image_turbo_bf16.safetensors"
+    link_ckpt_weight "${target_dir}/diffusion_models/z_image_turbo_bf16.safetensors" \
+        "${target_dir}/checkpoints/z_image_turbo_bf16.safetensors"
 
     echo ""
     echo "--- [4/9] ControlNet patch: Z-Image-Turbo-Fun-Controlnet-Union (~3.1GB) ---"
@@ -160,8 +171,8 @@ setup_models() {
 
     # Symlink UNet into checkpoints/ so CheckpointLoaderSimple (refiner) finds the same file
     if [ -f "${target_dir}/unet/zImageTurboNSFW_62BF16.safetensors" ]; then
-        ln -sf "${target_dir}/unet/zImageTurboNSFW_62BF16.safetensors" \
-               "${target_dir}/checkpoints/zImageTurboNSFW_62BF16.safetensors"
+        link_ckpt_weight "${target_dir}/unet/zImageTurboNSFW_62BF16.safetensors" \
+            "${target_dir}/checkpoints/zImageTurboNSFW_62BF16.safetensors"
         echo "  [OK] Symlinked UNet into checkpoints/"
     fi
 
@@ -202,16 +213,24 @@ PYEOF
     fi
 
     echo ""
-    echo "--- [8/9] Civitai: zImageTurboNSFW_43BF16AIO.safetensors (diffusion_models, ~6GB) ---"
-    # Civitai model 2682644, BF16 AIO build. Goes into diffusion_models/ (NOT
-    # unet/ — start.sh explicitly purges the v4.3 file from unet/ above).
-    download_civitai \
-        "https://civitai.com/api/download/models/2682644?type=Model&format=SafeTensor&size=pruned&fp=fp16" \
-        "${target_dir}/diffusion_models/zImageTurboNSFW_43BF16AIO.safetensors"
+    echo "--- [8/9] zImageTurboNSFW_43BF16AIO.safetensors (diffusion_models, ~6GB) ---"
+    # Prefer a direct HTTPS mirror when set — no Civitai token.
+    # Use only if this URL is the same artifact as Civitai model 2682644 (e.g. your mirror or presigned copy).
+    #   ZIT_43BF16_MIRROR_URL="https://..."
+    # Otherwise Civitai model 2682644 (requires CIVITAI_API_TOKEN on the worker).
+    Z43="${target_dir}/diffusion_models/zImageTurboNSFW_43BF16AIO.safetensors"
+    if [ -n "${ZIT_43BF16_MIRROR_URL:-}" ]; then
+        echo "  [INFO] ZIT_43BF16_MIRROR_URL set — downloading without Civitai."
+        download_if_missing "${ZIT_43BF16_MIRROR_URL}" "${Z43}"
+    else
+        download_civitai \
+            "https://civitai.com/api/download/models/2682644?type=Model&format=SafeTensor&size=pruned&fp=fp16" \
+            "${Z43}"
+    fi
     # Mirror into checkpoints/ so CheckpointLoaderSimple workflows resolve it.
-    if [ -f "${target_dir}/diffusion_models/zImageTurboNSFW_43BF16AIO.safetensors" ]; then
-        ln -sfn "${target_dir}/diffusion_models/zImageTurboNSFW_43BF16AIO.safetensors" \
-                "${target_dir}/checkpoints/zImageTurboNSFW_43BF16AIO.safetensors"
+    if [ -f "${Z43}" ]; then
+        link_ckpt_weight "${Z43}" \
+            "${target_dir}/checkpoints/zImageTurboNSFW_43BF16AIO.safetensors"
     fi
 
     echo ""
@@ -232,6 +251,23 @@ PYEOF
     download_if_missing \
         "https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth" \
         "${target_dir}/sams/sam_vit_b_01ec64.pth"
+
+    # Object-backed volumes sometimes persist symlinks as tiny stub files in checkpoints/
+    # with the same basename as real UNETs → Comfy loads garbage and safetensors crashes.
+    for stub in \
+        zImageTurboNSFW_62BF16.safetensors \
+        z_image_turbo_bf16.safetensors \
+        zImageTurboNSFW_43BF16AIO.safetensors \
+        zImageTurboNSFW_20BF16AIO.safetensors; do
+        p="${target_dir}/checkpoints/${stub}"
+        if [ -f "$p" ]; then
+            sz=$(stat -c%s "$p" 2>/dev/null || echo 0)
+            if [ "$sz" -lt 1048576 ]; then
+                echo "  [FIX] Removing checkpoints stub ${stub} (${sz} bytes; real weights live in unet/ or diffusion_models/)"
+                rm -f "$p"
+            fi
+        fi
+    done
 }
 
 # -----------------------------------------------

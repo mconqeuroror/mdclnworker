@@ -21,7 +21,7 @@ Repo: [mconqeuroror/mdclnworker](https://github.com/mconqeuroror/mdclnworker)
 | `depthanything/da3_base.safetensors` | `depth-anything/DA3-BASE` | ~1.1GB | DepthAnythingV3 cache (optional prefetch) |
 | `unet/zImageTurboNSFW_62BF16.safetensors` | Place on network volume / S3 (same basename in `checkpoints/`) | ~12–23GB | UNETLoader `247` + CheckpointLoaderSimple `304` |
 | `upscale_models/4xFaceUpDAT.pth` | `Acly/Upscaler` | 148MB | UpscaleModelLoader (UltimateSDUpscale) |
-| `diffusion_models/zImageTurboNSFW_43BF16AIO.safetensors` (+ symlink in `checkpoints/`) | Civitai `2682644` (auth required, env `CIVITAI_API_TOKEN`) | ~6GB | NSFW debug / fallback diffusion model |
+| `diffusion_models/zImageTurboNSFW_43BF16AIO.safetensors` (+ symlink in `checkpoints/`) | Civitai `2682644` (auth required, env `CIVITAI_API_TOKEN`) | ~6GB | Optional smaller NSFW UNET — **not** used by `modelclonex_*_api.json` (those merge `unet/zImageTurboNSFW_62BF16.safetensors` + `z_image_turbo_bf16` so volume-only pods pass UNETLoader validation) |
 | `checkpoints/pornworksRealPorn_Illustrious_v4_04.safetensors` | Civitai `2114370` (auth required, env `CIVITAI_API_TOKEN`) | ~6GB | Illustrious-base NSFW checkpoint (debug) |
 | `ultralytics/bbox/face_yolov8m.pt` | `Bingsu/adetailer` (HF) | ~50MB | Impact / FaceDetailer bbox |
 | `sams/sam_vit_b_01ec64.pth` | Meta Segment Anything | ~375MB | Impact SAMLoader (typical default) |
