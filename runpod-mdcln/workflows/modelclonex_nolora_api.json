@@ -19,7 +19,7 @@
   },
   "23": {
     "class_type": "EmptyLatentImage",
-    "inputs": { "width": 768, "height": 1344, "batch_size": 1 }
+    "inputs": { "width": 1536, "height": 2688, "batch_size": 1 }
   },
   "24": {
     "class_type": "ModelMergeSimple",
