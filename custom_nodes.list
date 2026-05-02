@@ -8,6 +8,15 @@
 # LoadLoraFromUrlOrPath (250) → bollerdominik/ComfyUI-load-lora-from-url
 # ETN_ApplyMaskToImage → Acly/comfyui-tooling-nodes
 Acly/comfyui-tooling-nodes
+# Impact Pack + Subpack (FaceDetailer, SAMLoader, UltralyticsDetectorProvider, ImpactImageInfo, …)
+ltdrdata/ComfyUI-Impact-Pack
+ltdrdata/ComfyUI-Impact-Subpack
+# MaskPreview+, image utils — used by MCX / nano workflows
+cubiq/ComfyUI_essentials
+# EveryPersonSegDetail — zit-nano2 workflow
+CoiiChan/comfyui-every-person-seg-coii
+# KIE_NanoBananaPro_Image — set KIE_API_KEY in RunPod env (start.sh writes kie_key.txt)
+gateway/ComfyUI-Kie-API
 Derfuu/Derfuu_ComfyUI_ModdedNodes
 # crystian/ComfyUI-Crystools  → baked out of image; start.sh clones on first boot
 civitai/civitai_comfy_nodes

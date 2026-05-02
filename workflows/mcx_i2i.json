@@ -1,9 +1,52 @@
 {
   "id": "d0efaa2e-cbbc-4f7c-a5b8-12d490c47050",
   "revision": 0,
-  "last_node_id": 399,
-  "last_link_id": 2467,
+  "last_node_id": 400,
+  "last_link_id": 2472,
   "nodes": [
+    {
+      "id": 400,
+      "type": "easy imageSize",
+      "pos": [
+        -6751.334882527479,
+        -7751.662333394637
+      ],
+      "size": [
+        150.901953125,
+        86
+      ],
+      "flags": {},
+      "order": 14,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 2470
+        }
+      ],
+      "outputs": [
+        {
+          "name": "width",
+          "type": "INT",
+          "links": [
+            2471
+          ]
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "links": [
+            2472
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfyui-easy-use",
+        "Node name for S&R": "easy imageSize"
+      },
+      "widgets_values": []
+    },
     {
       "id": 341,
       "type": "ImageScaleToTotalPixels",
@@ -56,7 +99,8 @@
           "name": "IMAGE",
           "type": "IMAGE",
           "links": [
-            2304
+            2304,
+            2470
           ]
         }
       ],
@@ -67,8 +111,8 @@
         "widget_ue_connectable": {}
       },
       "widgets_values": [
-        "nearest-exact",
-        1,
+        "lanczos",
+        2,
         1
       ]
     },
@@ -147,7 +191,6 @@
           "name": "depth",
           "type": "IMAGE",
           "links": [
-            2306,
             2446
           ]
         },
@@ -214,43 +257,6 @@
         false,
         false
       ]
-    },
-    {
-      "id": 344,
-      "type": "PreviewImage",
-      "pos": [
-        -7307.475557023244,
-        -8093.965416415055
-      ],
-      "size": [
-        325.7281799316406,
-        324.3557840983067
-      ],
-      "flags": {},
-      "order": 15,
-      "mode": 0,
-      "inputs": [
-        {
-          "label": "images",
-          "name": "images",
-          "type": "IMAGE",
-          "link": 2306
-        }
-      ],
-      "outputs": [
-        {
-          "label": "image_urls",
-          "name": "image_urls",
-          "type": "STRING"
-        }
-      ],
-      "properties": {
-        "cnr_id": "comfy-core",
-        "ver": "0.17.0",
-        "Node name for S&R": "PreviewImage",
-        "widget_ue_connectable": {}
-      },
-      "widgets_values": []
     },
     {
       "id": 343,
@@ -494,7 +500,7 @@
         26
       ],
       "flags": {},
-      "order": 17,
+      "order": 16,
       "mode": 0,
       "inputs": [
         {
@@ -688,7 +694,7 @@
           "widget": {
             "name": "width"
           },
-          "link": null
+          "link": 2471
         },
         {
           "label": "height",
@@ -697,7 +703,7 @@
           "widget": {
             "name": "height"
           },
-          "link": null
+          "link": 2472
         },
         {
           "label": "batch_size",
@@ -742,7 +748,7 @@
         46
       ],
       "flags": {},
-      "order": 20,
+      "order": 19,
       "mode": 0,
       "inputs": [
         {
@@ -800,7 +806,7 @@
         748.7171902126729
       ],
       "flags": {},
-      "order": 21,
+      "order": 20,
       "mode": 0,
       "inputs": [
         {
@@ -1199,7 +1205,7 @@
         334
       ],
       "flags": {},
-      "order": 18,
+      "order": 17,
       "mode": 0,
       "inputs": [
         {
@@ -1262,7 +1268,7 @@
         334
       ],
       "flags": {},
-      "order": 19,
+      "order": 18,
       "mode": 0,
       "inputs": [
         {
@@ -1325,7 +1331,7 @@
         146.01405511402754
       ],
       "flags": {},
-      "order": 16,
+      "order": 15,
       "mode": 0,
       "inputs": [
         {
@@ -1420,14 +1426,6 @@
       342,
       0,
       "DA3MODEL"
-    ],
-    [
-      2306,
-      342,
-      0,
-      344,
-      0,
-      "IMAGE"
     ],
     [
       2319,
@@ -1612,6 +1610,30 @@
       383,
       0,
       "MODEL"
+    ],
+    [
+      2470,
+      341,
+      0,
+      400,
+      0,
+      "IMAGE"
+    ],
+    [
+      2471,
+      400,
+      0,
+      354,
+      0,
+      "INT"
+    ],
+    [
+      2472,
+      400,
+      1,
+      354,
+      1,
+      "INT"
     ]
   ],
   "groups": [
@@ -1679,10 +1701,10 @@
     ],
     "workflowRendererVersion": "LG",
     "ds": {
-      "scale": 0.395944840179237,
+      "scale": 0.12421845522150847,
       "offset": [
-        7141.144975965987,
-        7766.04403117044
+        10049.991604734152,
+        9288.50171595895
       ]
     },
     "frontendVersion": "1.41.20",

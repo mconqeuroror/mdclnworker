@@ -107,6 +107,8 @@ setup_models() {
     mkdir -p "${target_dir}/model_patches"
     mkdir -p "${target_dir}/depthanything"
     mkdir -p "${target_dir}/unet"
+    mkdir -p "${target_dir}/ultralytics/bbox"
+    mkdir -p "${target_dir}/sams"
 
     echo ""
     echo "--- [1/9] VAE: ae.safetensors (335MB) ---"
@@ -218,6 +220,18 @@ PYEOF
     download_civitai \
         "https://civitai.com/api/download/models/2114370?type=Model&format=SafeTensor&size=full&fp=fp16" \
         "${target_dir}/checkpoints/pornworksRealPorn_Illustrious_v4_04.safetensors"
+
+    echo ""
+    echo "--- [Extra] Impact FaceDetailer: face_yolov8m.pt (ultralytics bbox) ---"
+    download_if_missing \
+        "https://huggingface.co/Bingsu/adetailer/resolve/main/face_yolov8m.pt" \
+        "${target_dir}/ultralytics/bbox/face_yolov8m.pt"
+
+    echo ""
+    echo "--- [Extra] Impact SAMLoader: sam_vit_b_01ec64.pth (~375MB) ---"
+    download_if_missing \
+        "https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth" \
+        "${target_dir}/sams/sam_vit_b_01ec64.pth"
 }
 
 # -----------------------------------------------
@@ -233,7 +247,7 @@ if [ -d "$VOLUME_DIR" ]; then
 
     echo ""
     echo ">>> Symlinking network volume models into ComfyUI..."
-    for subdir in checkpoints clip loras vae unet diffusion_models text_encoders model_patches depthanything upscale_models; do
+    for subdir in checkpoints clip loras vae unet diffusion_models text_encoders model_patches depthanything upscale_models ultralytics sams; do
         mkdir -p "${VOLUME_MODELS}/${subdir}"
         rm -rf "${MODELS_DIR}/${subdir}"
         ln -sfn "${VOLUME_MODELS}/${subdir}" "${MODELS_DIR}/${subdir}"
@@ -415,6 +429,94 @@ else
     echo "  [OK] ComfyUI_UltimateSDUpscale installed!"
 fi
 
+echo ""
+echo "--- Checking ltdrdata/ComfyUI-Impact-Pack ---"
+IMPACT_PACK_DIR="${COMFYUI_DIR}/custom_nodes/ComfyUI-Impact-Pack"
+if [ -d "${IMPACT_PACK_DIR}" ]; then
+    echo "  [OK] ComfyUI-Impact-Pack already installed"
+else
+    echo "  [!!] ComfyUI-Impact-Pack missing — installing..."
+    git clone --depth 1 "https://github.com/ltdrdata/ComfyUI-Impact-Pack.git" "${IMPACT_PACK_DIR}"
+    if [ -f "${IMPACT_PACK_DIR}/requirements.txt" ]; then
+        pip install -q --no-cache-dir -r "${IMPACT_PACK_DIR}/requirements.txt" || true
+    fi
+    if [ -f "${IMPACT_PACK_DIR}/install.py" ]; then
+        ( cd "${IMPACT_PACK_DIR}" && python3 install.py ) || true
+    fi
+    echo "  [OK] ComfyUI-Impact-Pack installed!"
+fi
+
+echo ""
+echo "--- Checking ltdrdata/ComfyUI-Impact-Subpack ---"
+IMPACT_SUB_DIR="${COMFYUI_DIR}/custom_nodes/ComfyUI-Impact-Subpack"
+if [ -d "${IMPACT_SUB_DIR}" ]; then
+    echo "  [OK] ComfyUI-Impact-Subpack already installed"
+else
+    echo "  [!!] ComfyUI-Impact-Subpack missing — installing..."
+    git clone --depth 1 "https://github.com/ltdrdata/ComfyUI-Impact-Subpack.git" "${IMPACT_SUB_DIR}"
+    if [ -f "${IMPACT_SUB_DIR}/requirements.txt" ]; then
+        pip install -q --no-cache-dir -r "${IMPACT_SUB_DIR}/requirements.txt" || true
+    fi
+    if [ -f "${IMPACT_SUB_DIR}/install.py" ]; then
+        ( cd "${IMPACT_SUB_DIR}" && python3 install.py ) || true
+    fi
+    echo "  [OK] ComfyUI-Impact-Subpack installed!"
+fi
+
+echo ""
+echo "--- Checking cubiq/ComfyUI_essentials ---"
+ESSENTIALS_DIR="${COMFYUI_DIR}/custom_nodes/ComfyUI_essentials"
+if [ -d "${ESSENTIALS_DIR}" ]; then
+    echo "  [OK] ComfyUI_essentials already installed"
+else
+    echo "  [!!] ComfyUI_essentials missing — installing..."
+    git clone --depth 1 "https://github.com/cubiq/ComfyUI_essentials.git" "${ESSENTIALS_DIR}"
+    if [ -f "${ESSENTIALS_DIR}/requirements.txt" ]; then
+        pip install -q --no-cache-dir -r "${ESSENTIALS_DIR}/requirements.txt" || true
+    fi
+    echo "  [OK] ComfyUI_essentials installed!"
+fi
+
+echo ""
+echo "--- Checking CoiiChan/comfyui-every-person-seg-coii ---"
+EVERY_PERSON_DIR="${COMFYUI_DIR}/custom_nodes/comfyui-every-person-seg-coii"
+if [ -d "${EVERY_PERSON_DIR}" ]; then
+    echo "  [OK] comfyui-every-person-seg-coii already installed"
+else
+    echo "  [!!] comfyui-every-person-seg-coii missing — installing..."
+    git clone --depth 1 "https://github.com/CoiiChan/comfyui-every-person-seg-coii.git" "${EVERY_PERSON_DIR}"
+    if [ -f "${EVERY_PERSON_DIR}/requirements.txt" ]; then
+        pip install -q --no-cache-dir -r "${EVERY_PERSON_DIR}/requirements.txt" || true
+    fi
+    echo "  [OK] comfyui-every-person-seg-coii installed!"
+fi
+
+echo ""
+echo "--- Checking gateway/ComfyUI-Kie-API ---"
+KIE_DIR="${COMFYUI_DIR}/custom_nodes/ComfyUI-Kie-API"
+if [ -d "${KIE_DIR}" ]; then
+    echo "  [OK] ComfyUI-Kie-API already installed"
+else
+    echo "  [!!] ComfyUI-Kie-API missing — installing..."
+    git clone --depth 1 "https://github.com/gateway/ComfyUI-Kie-API.git" "${KIE_DIR}"
+    echo "  [OK] ComfyUI-Kie-API installed!"
+fi
+
+# Kie.ai API key for KIE_NanoBananaPro_Image (optional; omit if workflows skip KIE nodes)
+if [ -n "${KIE_API_KEY:-}" ] && [ -d "${KIE_DIR}" ]; then
+    mkdir -p "${KIE_DIR}/config"
+    printf '%s' "${KIE_API_KEY}" > "${KIE_DIR}/config/kie_key.txt"
+    chmod 600 "${KIE_DIR}/config/kie_key.txt" 2>/dev/null || true
+    echo ""
+    echo ">>> Wrote KIE API key to ComfyUI-Kie-API/config/kie_key.txt (from env KIE_API_KEY)"
+elif [ -n "${KIE_API_KEY:-}" ]; then
+    echo ""
+    echo ">>> [WARN] KIE_API_KEY set but ${KIE_DIR} is missing — install ComfyUI-Kie-API first"
+else
+    echo ""
+    echo ">>> [INFO] KIE_API_KEY unset — Kie.ai nodes require kie_key.txt for API calls"
+fi
+
 # Clean up old SeedVR2/JoyCaption nodes from previous builds
 rm -rf "${COMFYUI_DIR}/custom_nodes/ComfyUI-SeedVR2_VideoUpscaler" 2>/dev/null || true
 rm -rf "${COMFYUI_DIR}/custom_nodes/ComfyUI_LayerStyle_Advance" 2>/dev/null || true
@@ -509,6 +611,28 @@ if missing:
         print(f"    - {n}")
 else:
     print(">>> All required node types validated OK")
+
+mcx_extended = {
+    "FaceDetailer",
+    "SAMLoader",
+    "UltralyticsDetectorProvider",
+    "ImpactImageInfo",
+    "MaskPreview+",
+    "EveryPersonSegDetail",
+    "KIE_NanoBananaPro_Image",
+    "QwenImageDiffsynthControlnet",
+    "ModelPatchLoader",
+    "ImageScaleToTotalPixels",
+    "ResizeImageMaskNode",
+    "DepthAnything_V3",
+}
+mx_missing = sorted([n for n in mcx_extended if n not in data])
+if mx_missing:
+    print(">>> WARN: MCX / FaceDetailer / KIE workflow nodes missing:")
+    for n in mx_missing:
+        print(f"    - {n}")
+else:
+    print(">>> Extended MCX / Impact / KIE / DA3 node types OK")
 
 REQUIRED_UPSCALE = "4xFaceUpDAT.pth"
 

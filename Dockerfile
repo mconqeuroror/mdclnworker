@@ -24,9 +24,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /workspace
 
 # -----------------------------------------------
-# 2. Clone ComfyUI pinned to v0.16.4 (last version before sqlalchemy dep)
+# 2. Clone ComfyUI — v0.17.2 (latest stable patch in 0.17.x; matches workflows
+#    that need core nodes: ModelPatchLoader, QwenImageDiffsynthControlnet,
+#    ImageScaleToTotalPixels, ResizeImageMaskNode, etc.)
 # -----------------------------------------------
-RUN git clone --depth 1 --branch v0.16.4 https://github.com/comfyanonymous/ComfyUI.git /workspace/ComfyUI
+RUN git clone --depth 1 --branch v0.17.2 https://github.com/comfyanonymous/ComfyUI.git /workspace/ComfyUI
 
 # -----------------------------------------------
 # 3. ComfyUI requirements + hf_transfer
@@ -38,6 +40,8 @@ RUN git clone --depth 1 --branch v0.16.4 https://github.com/comfyanonymous/Comfy
 # -----------------------------------------------
 RUN python3 -m pip install --no-cache-dir -r /workspace/ComfyUI/requirements.txt
 
+# sqlalchemy/aiosqlite: ComfyUI 0.17+ may list these; install explicitly so
+# custom nodes / Manager / caching remain stable on the RunPod 3.10 runtime.
 RUN python3 -m pip install --no-cache-dir \
     "huggingface-hub>=0.25.0" \
     hf_transfer \
@@ -60,7 +64,9 @@ RUN mkdir -p /workspace/ComfyUI/models/checkpoints \
              /workspace/ComfyUI/models/unet \
              /workspace/ComfyUI/models/diffusion_models \
              /workspace/ComfyUI/models/model_patches \
-             /workspace/ComfyUI/models/depthanything
+             /workspace/ComfyUI/models/depthanything \
+             /workspace/ComfyUI/models/ultralytics/bbox \
+             /workspace/ComfyUI/models/sams
 
 # -----------------------------------------------
 # 6. Custom nodes  [changes occasionally — cached independently of models above]
@@ -88,6 +94,16 @@ RUN test -d /workspace/ComfyUI/custom_nodes/comfyui-tooling-nodes || \
     (echo "ERROR: Acly/comfyui-tooling-nodes failed to clone" && exit 1)
 RUN test -d /workspace/ComfyUI/custom_nodes/ComfyUI_LoRA_from_URL || \
     (echo "ERROR: a-und-b/ComfyUI_LoRA_from_URL failed to clone" && exit 1)
+RUN test -d /workspace/ComfyUI/custom_nodes/ComfyUI-Impact-Pack || \
+    (echo "ERROR: ltdrdata/ComfyUI-Impact-Pack failed to clone" && exit 1)
+RUN test -d /workspace/ComfyUI/custom_nodes/ComfyUI-Impact-Subpack || \
+    (echo "ERROR: ltdrdata/ComfyUI-Impact-Subpack failed to clone" && exit 1)
+RUN test -d /workspace/ComfyUI/custom_nodes/ComfyUI_essentials || \
+    (echo "ERROR: cubiq/ComfyUI_essentials failed to clone" && exit 1)
+RUN test -d /workspace/ComfyUI/custom_nodes/comfyui-every-person-seg-coii || \
+    (echo "ERROR: CoiiChan/comfyui-every-person-seg-coii failed to clone" && exit 1)
+RUN test -d /workspace/ComfyUI/custom_nodes/ComfyUI-Kie-API || \
+    (echo "ERROR: gateway/ComfyUI-Kie-API failed to clone" && exit 1)
 # ComfyUI-Crystools, ComfyUI-DepthAnythingV3, ComfyUI-Easy-Use,
 # was-node-suite-comfyui, ComfyUI_UltimateSDUpscale: cloned at container boot in
 # start.sh (large pip deps — keeps image export under RunPod build timeouts).

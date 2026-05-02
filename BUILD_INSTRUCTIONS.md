@@ -23,6 +23,8 @@ Repo: [mconqeuroror/mdclnworker](https://github.com/mconqeuroror/mdclnworker)
 | `upscale_models/4xFaceUpDAT.pth` | `Acly/Upscaler` | 148MB | UpscaleModelLoader (UltimateSDUpscale) |
 | `diffusion_models/zImageTurboNSFW_43BF16AIO.safetensors` (+ symlink in `checkpoints/`) | Civitai `2682644` (auth required, env `CIVITAI_API_TOKEN`) | ~6GB | NSFW debug / fallback diffusion model |
 | `checkpoints/pornworksRealPorn_Illustrious_v4_04.safetensors` | Civitai `2114370` (auth required, env `CIVITAI_API_TOKEN`) | ~6GB | Illustrious-base NSFW checkpoint (debug) |
+| `ultralytics/bbox/face_yolov8m.pt` | `Bingsu/adetailer` (HF) | ~50MB | Impact / FaceDetailer bbox |
+| `sams/sam_vit_b_01ec64.pth` | Meta Segment Anything | ~375MB | Impact SAMLoader (typical default) |
 
 ### Civitai downloads (optional)
 
@@ -34,6 +36,10 @@ endpoint/template (Civitai → Account → API Keys). If the token is missing th
 worker logs `[SKIP]` for these files and continues to boot normally.
 
 User/pose LoRAs are loaded **by URL** via `LoadLoraFromUrlOrPath` (no bake needed).
+
+### Kie.ai (optional)
+
+For workflows using **KIE_NanoBananaPro_Image**, set RunPod env **`KIE_API_KEY`**. `start.sh` writes `custom_nodes/ComfyUI-Kie-API/config/kie_key.txt` at boot.
 
 ## Custom nodes (NSFW workflows)
 
@@ -51,7 +57,11 @@ User/pose LoRAs are loaded **by URL** via `LoadLoraFromUrlOrPath` (no bake neede
 | `UltimateSDUpscale` | `ssitu/ComfyUI_UltimateSDUpscale` |
 | `DepthAnythingV3` nodes | `PozzettiAndrea/ComfyUI-DepthAnythingV3` |
 | `easy loraStackApply` helpers | `yolain/ComfyUI-Easy-Use` |
-| Core samplers / loaders | ComfyUI built-in |
+| Core samplers / loaders / **ModelPatchLoader**, **QwenImageDiffsynthControlnet**, etc. | ComfyUI **v0.17.2** (pinned in `Dockerfile`) |
+| `FaceDetailer`, `SAMLoader`, `UltralyticsDetectorProvider`, `ImpactImageInfo` | `ltdrdata/ComfyUI-Impact-Pack` + `ltdrdata/ComfyUI-Impact-Subpack` |
+| `MaskPreview+`, essentials | `cubiq/ComfyUI_essentials` |
+| `EveryPersonSegDetail` | `CoiiChan/comfyui-every-person-seg-coii` |
+| `KIE_NanoBananaPro_Image` | `gateway/ComfyUI-Kie-API` (+ RunPod env **`KIE_API_KEY`** → `kie_key.txt`; Kie.ai credits) |
 
 **First cold boot:** `ComfyUI-Crystools`, `ComfyUI-DepthAnythingV3`, `ComfyUI-Easy-Use`,
 `was-node-suite-comfyui`, and `ComfyUI_UltimateSDUpscale` are **not** in the Docker
@@ -81,7 +91,7 @@ docker push yourdockerhub/modelclone-worker:latest
 | `setup_custom_nodes.sh` | Clone list during image build |
 | `setup_models.sh` | Bake VAE/CLIP/upscaler; UNet must be copied separately |
 | `workflow_api.json` | Reference workflow (keep UNET filename in sync) |
-| `workflows/mcx_i2i.json` | Z-Image Turbo i2i **UI** workflow (reference). Some nodes were saved with Comfy **0.17.x** metadata; the image may pin an older Comfy — if Comfy reports unknown nodes (e.g. `ImageScaleToTotalPixels`, `QwenImageDiffsynthControlnet`), bump the ComfyUI tag in `Dockerfile` to match. |
+| `workflows/mcx_i2i.json` | Z-Image Turbo i2i **UI** workflow (reference). Requires Comfy **≥ v0.17.x** for nodes such as `ImageScaleToTotalPixels` / `QwenImageDiffsynthControlnet` (image pins **v0.17.2**). |
 
 ## Troubleshooting
 
