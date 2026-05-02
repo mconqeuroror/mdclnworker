@@ -108,8 +108,6 @@ export function buildModelCloneXPayload({
   loraUrl = null,
   loraStrength = 0.8,
   triggerWord = null,
-  steps = null,
-  cfg = 2,
 }) {
   const variant = loraUrl ? "lora" : "nolora";
   const wf = loadWorkflow(variant);
@@ -149,21 +147,6 @@ export function buildModelCloneXPayload({
       wf["50"].inputs.aspect_ratio = arValue;
     }
 
-    if (wf["276"]?.inputs) {
-      const defaultStepsForMode = loraUrl ? 50 : 20;
-      const parsedSteps = Number(steps);
-      const safeSteps = Math.max(
-        1,
-        Math.min(Math.round(Number.isFinite(parsedSteps) ? parsedSteps : defaultStepsForMode), 100),
-      );
-      wf["276"].inputs.steps = safeSteps;
-      if (cfg != null) {
-        const parsedCfg = Number(cfg);
-        const safeCfg = Math.max(0, Math.min(6, Number.isFinite(parsedCfg) ? parsedCfg : 2));
-        wf["276"].inputs.cfg = safeCfg;
-      }
-    }
-
     if (variant === "lora" && wf["374"]) {
       const strength = Math.min(1, Math.max(0, Number(loraStrength) || 0.8));
       wf["374"].inputs.lora_1_url = loraUrl;
@@ -201,21 +184,8 @@ export function buildModelCloneXPayload({
   const baseSeed = Math.floor(Math.random() * 2 ** 32);
   if (wf[adv1Id]?.inputs) wf[adv1Id].inputs.noise_seed = baseSeed;
   if (wf[adv2Id]?.inputs) wf[adv2Id].inputs.noise_seed = baseSeed;
-  if (wf[ksamplerFinalId]?.inputs) wf[ksamplerFinalId].inputs.seed = baseSeed;
-
-  const defaultFinalSteps = 4;
-  const parsedSteps = Number(steps);
-  const safeFinalSteps = Math.max(
-    1,
-    Math.min(20, Math.round(Number.isFinite(parsedSteps) ? parsedSteps : defaultFinalSteps)),
-  );
   if (wf[ksamplerFinalId]?.inputs) {
-    wf[ksamplerFinalId].inputs.steps = safeFinalSteps;
-    if (cfg != null) {
-      const parsedCfg = Number(cfg);
-      const safeCfg = Math.max(0, Math.min(6, Number.isFinite(parsedCfg) ? parsedCfg : 1));
-      wf[ksamplerFinalId].inputs.cfg = safeCfg;
-    }
+    wf[ksamplerFinalId].inputs.seed = baseSeed;
   }
 
   if (variant === "lora" && wf["5"]?.inputs && loraUrl) {
