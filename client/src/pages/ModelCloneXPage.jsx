@@ -188,7 +188,13 @@ const COPY = {
     characterIdentity: "Character Identity",
     noReadyLora: "No ready LoRA for this model. Train one in Character tab or use existing NSFW LoRA.",
     prompt: "Prompt",
+    promptInputMode: "Prompt style",
+    promptModeAi: "AI-enhanced",
+    promptModeAiHint: "Default — your text is expanded for Z-Image / MCX before generation.",
+    promptModeCustom: "Custom",
+    promptModeCustomHint: "Your text is sent as-is (character mode may still prepend the trigger word if it’s missing).",
     promptPlaceholder: "Describe the scene — lighting, setting, mood, clothing…",
+    promptPlaceholderCustom: "Full prompt as you want it in the graph (tags, weights, long form)…",
     additionalPrompt: "Optional notes for Grok",
     additionalPromptHint: "Optional extra instructions for the background photo-to-prompt process.",
     buildPrompt: "Build prompt from photo",
@@ -245,7 +251,13 @@ const COPY = {
     characterIdentity: "Идентичность персонажа",
     noReadyLora: "Для этой модели нет готовой LoRA. Обучите её во вкладке Character или используйте существующую NSFW LoRA.",
     prompt: "Промпт",
+    promptInputMode: "Стиль промпта",
+    promptModeAi: "Через ИИ",
+    promptModeAiHint: "По умолчанию — текст дорабатывается для Z-Image / MCX перед генерацией.",
+    promptModeCustom: "Свой текст",
+    promptModeCustomHint: "Текст уходит как есть (для персонажа триггер может быть добавлен автоматически).",
     promptPlaceholder: "Опишите сцену — свет, окружение, настроение, одежду…",
+    promptPlaceholderCustom: "Полный промпт так, как его должна видеть модель…",
     additionalPrompt: "Заметки для Grok (по желанию)",
     additionalPromptHint: "Необязательные дополнительные инструкции для фонового преобразования фото в промпт.",
     buildPrompt: "Собрать промпт с фото",
@@ -904,6 +916,8 @@ function GenerateTab({ isDark, copy }) {
   const [characters, setCharacters] = useState([]);
   const [aspect, setAspect] = useState("9:16");
   const [qty, setQty] = useState(1);
+  /** "ai" = LLM expand (default); "custom" = POST useCustomPrompt / skip optimizer */
+  const [promptInputMode, setPromptInputMode] = useState("ai");
   const [prompt, setPrompt] = useState("");
   const [loraStrength, setLoraStrength] = useState(0.8);
   const [refImageBase64, setRefImageBase64] = useState(""); // raw base64, no data: prefix
@@ -1050,6 +1064,7 @@ function GenerateTab({ isDark, copy }) {
       const body = {
         prompt: genMode === "img" ? "" : prompt.trim(),
         preOptimized: false,
+        useCustomPrompt: genMode === "txt" && promptInputMode === "custom",
         modelId: mode === "character" ? selectedModelId : null,
         characterLoraId: mode === "character" ? selectedCharacterId : null,
         quantity: qty,
@@ -1459,10 +1474,32 @@ function GenerateTab({ isDark, copy }) {
       {/* Main prompt: text-to-image only (image mode uses optional field above) */}
       {genMode === "txt" && (
         <div className={panel}>
-          <label className={labelBase}>{copy.prompt}</label>
+          <label className={labelBase}>{copy.promptInputMode}</label>
+          <div className="flex flex-wrap gap-2">
+            <ControlChip
+              active={promptInputMode === "ai"}
+              onClick={() => setPromptInputMode("ai")}
+              isDark={isDark}
+            >
+              {copy.promptModeAi}
+            </ControlChip>
+            <ControlChip
+              active={promptInputMode === "custom"}
+              onClick={() => setPromptInputMode("custom")}
+              isDark={isDark}
+            >
+              {copy.promptModeCustom}
+            </ControlChip>
+          </div>
+          <p
+            className={`text-[11px] leading-snug mt-1.5 mb-2 ${isDark ? "text-slate-500" : "text-slate-600"}`}
+          >
+            {promptInputMode === "custom" ? copy.promptModeCustomHint : copy.promptModeAiHint}
+          </p>
+          <label className={`${labelBase} mt-1`}>{copy.prompt}</label>
           <textarea
             rows={3}
-            placeholder={copy.promptPlaceholder}
+            placeholder={promptInputMode === "custom" ? copy.promptPlaceholderCustom : copy.promptPlaceholder}
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             className={`w-full px-3 py-2.5 rounded-xl text-sm border outline-none resize-none ${inputBase}`}

@@ -3792,6 +3792,8 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
     inputImageBase64 = "",
     /** When true, `prompt` is already the MCX-optimized string from prompt-from-image (skip second pass). */
     preOptimized = false,
+    /** Text-to-image: skip LLM prompt expansion and send `prompt` as-is (character trigger word may still be prepended in Comfy). */
+    useCustomPrompt = false,
     /**
      * Submit Z-Image img2img on RunPod (reference image + converted prompt + character LoRA).
      * Requires `inputImageUrl` or `inputImageBase64`.
@@ -3828,6 +3830,8 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
 
   const userText = typeof prompt === "string" ? prompt.trim() : "";
   const skipSecondOptimizer = Boolean(preOptimized);
+  const wantsCustomTxtPrompt =
+    !wantsImg2Img && !skipSecondOptimizer && Boolean(useCustomPrompt);
   const ctx = await resolveModelCloneXGenerationContext(userId, modelId, characterLoraId);
   if (!ctx.ok) {
     return res.status(ctx.status).json({ success: false, error: ctx.error });
@@ -3917,6 +3921,9 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
     optimizedPrompt = built.optimizedPrompt;
   } else if (skipSecondOptimizer) {
     console.log("[ModelCloneX] generate: using pre-optimized prompt (from build step)");
+  } else if (wantsCustomTxtPrompt) {
+    optimizedPrompt = inputPrompt;
+    console.log("[ModelCloneX] generate: custom prompt (skipping AI optimizer)");
   } else {
     try {
       const identityContext = useCharacter ? buildModelCloneXModelIdentityContext(modelForPrompt, loraForPrompt) : "";
@@ -4002,7 +4009,9 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
         ? "img2img"
         : skipSecondOptimizer
           ? "txt2img-prompt-from-image"
-          : "txt2img";
+          : wantsCustomTxtPrompt
+            ? "txt2img-custom-prompt"
+            : "txt2img";
 
       await prisma.generation.update({
         where: { id: gen.id },
@@ -4013,6 +4022,7 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
             provider: "runpod-modelclone-x",
             mode: modeMeta,
             preOptimized: skipSecondOptimizer,
+            useCustomPrompt: wantsCustomTxtPrompt,
             modelcloneXImg2Img: wantsImg2Img,
             ...(wantsImg2Img
               ? {
@@ -4047,10 +4057,13 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
         ? "img2img"
         : skipSecondOptimizer
           ? "txt2img-prompt-from-image"
-          : "txt2img",
+          : wantsCustomTxtPrompt
+            ? "txt2img-custom-prompt"
+            : "txt2img",
       steps: wantsImg2Img ? safeStepsForImg2 : null,
       cfg: wantsImg2Img ? safeCfgForImg2 : null,
       loraStrength: safeLoraStrength,
+      useCustomPrompt: wantsCustomTxtPrompt,
       includedStepsForPricing,
       extraStepBlocks,
       extraCostPerImage,
