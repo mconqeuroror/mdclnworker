@@ -847,11 +847,10 @@ export default function FlowsPage({ embedded = false }) {
         /* Custom minimap */
         .flow-minimap { margin: 12px !important; }
 
-        /* React Flow's own CSS vars — these are the *canonical* way to
-           colour the default edge. By setting them here (scoped to our
-           page only), every default-rendered edge gets a fat violet wire
-           automatically, and per-edge `style.stroke` from flowStore still
-           overrides when present. */
+        /* React Flow's own CSS vars — the canonical way to colour the
+           default edge. Scoped to our page only, so every default edge
+           gets a fat violet wire automatically. Per-edge style.stroke
+           from flowStore still overrides when present. */
         .react-flow {
           --xy-edge-stroke: #a78bfa;
           --xy-edge-stroke-default: #a78bfa;
