@@ -43,7 +43,6 @@ import { useAuthStore } from "../store";
 import { NodePalette } from "../components/flows/NodePalette";
 import { FlowLibrary } from "../components/flows/FlowLibrary";
 import { ExecutionPanel } from "../components/flows/ExecutionPanel";
-import FlowEdge from "../components/flows/FlowEdge";
 
 // Node types
 import ImageInputNode from "../components/flows/nodes/ImageInputNode";
@@ -94,7 +93,9 @@ const NODE_TYPE_MAP = {
   "output-viewer":      OutputViewerNode,
 };
 
-const EDGE_TYPES = { default: FlowEdge, smoothstep: FlowEdge, bezier: FlowEdge };
+// No custom EDGE_TYPES — we rely on React Flow's built-in default edge
+// renderer and style it via CSS vars. Per-port colour is carried on each
+// edge's `style.stroke` which the default renderer respects.
 
 function authHeader() {
   const token = useAuthStore.getState().token;
@@ -593,7 +594,11 @@ function FlowCanvas({ flowId, embedded = false }) {
             onDrop={onDrop}
             onDragOver={onDragOver}
             nodeTypes={NODE_TYPE_MAP}
-            edgeTypes={EDGE_TYPES}
+            // No custom edgeTypes — using React Flow's built-in default edge
+            // renderer (known-good, battle-tested). Per-port colour still
+            // comes through via each edge's `style.stroke` which the default
+            // renderer honours. This eliminates an entire failure mode
+            // (custom edge component never rendering / being mis-mapped).
             isValidConnection={isValidConnection}
             fitView
             fitViewOptions={{ padding: 0.4, maxZoom: 1.2 }}
@@ -610,7 +615,7 @@ function FlowCanvas({ flowId, embedded = false }) {
             defaultEdgeOptions={{
               type: "default",
               animated: false,
-              style: { stroke: "#a78bfa", strokeWidth: 2.5 },
+              style: { stroke: "#a78bfa", strokeWidth: 3 },
             }}
             minZoom={0.25}
             maxZoom={2}
@@ -648,6 +653,28 @@ function FlowCanvas({ flowId, embedded = false }) {
                 overflow: "hidden",
               }}
             />
+
+            {/* Live debug badge — shows how many edges are in state right
+                now. If you connect two nodes and this increments but no
+                wire appears, the bug is in the edge RENDERER. If it stays
+                at 0, the bug is in the CONNECT handler. Remove once fixed. */}
+            <Panel position="top-left" className="pointer-events-none">
+              <div
+                style={{
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 10,
+                  padding: "4px 8px",
+                  borderRadius: 6,
+                  background: "rgba(0,0,0,0.6)",
+                  color: "#a78bfa",
+                  border: "1px solid rgba(167,139,250,0.25)",
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                }}
+              >
+                edges: {edges.length} · nodes: {nodes.length}
+              </div>
+            </Panel>
 
             {/* Empty state */}
             {nodes.length === 0 && (
@@ -820,27 +847,52 @@ export default function FlowsPage({ embedded = false }) {
         /* Custom minimap */
         .flow-minimap { margin: 12px !important; }
 
-        /* Edge baseline — only kicks in when a path has no inline style
-           (stale bundle, built-in default edge, first paint frame). The
-           real port-typed colour comes from <FlowEdge>'s inline style
-           which wins over these rules. No !important on stroke so we
-           never fight FlowEdge. */
+        /* React Flow's own CSS vars — these are the *canonical* way to
+           colour the default edge. By setting them here (scoped to our
+           page only), every default-rendered edge gets a fat violet wire
+           automatically, and per-edge `style.stroke` from flowStore still
+           overrides when present. */
+        .react-flow {
+          --xy-edge-stroke: #a78bfa;
+          --xy-edge-stroke-default: #a78bfa;
+          --xy-edge-stroke-width: 3;
+          --xy-edge-stroke-width-default: 3;
+          --xy-edge-stroke-selected: #c4b5fd;
+          --xy-edge-stroke-selected-default: #c4b5fd;
+          --xy-connectionline-stroke: #a78bfa;
+          --xy-connectionline-stroke-default: #a78bfa;
+          --xy-connectionline-stroke-width: 3;
+          --xy-connectionline-stroke-width-default: 3;
+        }
+
+        /* Edge safety-net: guarantees a visible stroke even before React
+           Flow's CSS vars kick in, and stops any Tailwind reset from
+           washing the line out. */
         .react-flow__edge-path,
         .react-flow__connection-path {
           stroke: #a78bfa;
-          stroke-width: 2.5px;
+          stroke-width: 3px;
           stroke-linecap: round;
           stroke-linejoin: round;
           fill: none;
+        }
+        /* Hover / selection widen the wire. */
+        .react-flow__edge:hover .react-flow__edge-path {
+          stroke-width: 4px;
+        }
+        .react-flow__edge.selected .react-flow__edge-path {
+          stroke: #c4b5fd;
+          stroke-width: 4px;
         }
         /* Live drag preview while user is pulling a wire. */
         .react-flow__connection-path {
           opacity: 0.95;
         }
-        /* Make sure nothing clips or hides the edge layer. */
-        .react-flow__edge { visibility: visible !important; opacity: 1 !important; pointer-events: stroke; }
-        .react-flow__edges { z-index: 1; overflow: visible !important; }
-        .react-flow__edges svg { overflow: visible !important; }
+        /* Defensive: nothing clips or hides the edge SVG. */
+        .react-flow__edge       { visibility: visible !important; opacity: 1 !important; pointer-events: stroke; }
+        .react-flow__edges      { z-index: 1; overflow: visible !important; }
+        .react-flow__edges svg  { overflow: visible !important; }
+        svg.react-flow__edges   { overflow: visible !important; }
 
         /* Handle hover */
         .react-flow__handle {
