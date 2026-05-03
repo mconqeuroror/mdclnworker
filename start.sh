@@ -105,7 +105,16 @@ setup_models() {
     mkdir -p "${target_dir}/loras"
     mkdir -p "${target_dir}/diffusion_models"
     mkdir -p "${target_dir}/model_patches"
+    mkdir -p "${target_dir}/depthanything3"
     mkdir -p "${target_dir}/depthanything"
+    if [ -f "${target_dir}/depthanything/da3_base.safetensors" ] && [ ! -f "${target_dir}/depthanything3/da3_base.safetensors" ]; then
+        echo "  [MIGRATE] depthanything/da3_base.safetensors -> depthanything3/ (DepthAnything V3 expects depthanything3/)"
+        mv "${target_dir}/depthanything/da3_base.safetensors" "${target_dir}/depthanything3/da3_base.safetensors"
+    fi
+    if [ -f "${target_dir}/depthanything/model.safetensors" ] && [ ! -f "${target_dir}/depthanything3/da3_base.safetensors" ]; then
+        echo "  [MIGRATE] depthanything/model.safetensors -> depthanything3/da3_base.safetensors"
+        mv "${target_dir}/depthanything/model.safetensors" "${target_dir}/depthanything3/da3_base.safetensors"
+    fi
     mkdir -p "${target_dir}/unet"
     mkdir -p "${target_dir}/ultralytics/bbox"
     mkdir -p "${target_dir}/sams"
@@ -174,8 +183,8 @@ setup_models() {
 
     echo ""
     echo "--- [7/9] DepthAnythingV3 cache: da3_base.safetensors (~1.1GB) ---"
-    if [ ! -f "${target_dir}/depthanything/da3_base.safetensors" ]; then
-        TARGET_DEPTH_DIR="${target_dir}/depthanything" python3 - <<'PYEOF'
+    if [ ! -f "${target_dir}/depthanything3/da3_base.safetensors" ]; then
+        TARGET_DEPTH_DIR="${target_dir}/depthanything3" python3 - <<'PYEOF'
 import os
 try:
     from huggingface_hub import hf_hub_download
@@ -184,12 +193,20 @@ except Exception:
 
 depth_dir = os.environ["TARGET_DEPTH_DIR"]
 os.makedirs(depth_dir, exist_ok=True)
-hf_hub_download(
-    repo_id="depth-anything/DA3-BASE",
-    filename="da3_base.safetensors",
-    local_dir=depth_dir,
-    local_dir_use_symlinks=False,
-)
+repo_id = "depth-anything/DA3-BASE"
+target_name = "da3_base.safetensors"
+hf_name = "model.safetensors"
+target_path = os.path.join(depth_dir, target_name)
+if not os.path.isfile(target_path):
+    hf_hub_download(
+        repo_id=repo_id,
+        filename=hf_name,
+        local_dir=depth_dir,
+        local_dir_use_symlinks=False,
+    )
+    hf_default = os.path.join(depth_dir, hf_name)
+    if os.path.isfile(hf_default) and not os.path.isfile(target_path):
+        os.rename(hf_default, target_path)
 print("DepthAnythingV3 cache ready.")
 PYEOF
         if [ $? -eq 0 ]; then
@@ -247,7 +264,7 @@ if [ -d "$VOLUME_DIR" ]; then
 
     echo ""
     echo ">>> Symlinking network volume models into ComfyUI..."
-    for subdir in checkpoints clip loras vae unet diffusion_models text_encoders model_patches depthanything upscale_models ultralytics sams; do
+    for subdir in checkpoints clip loras vae unet diffusion_models text_encoders model_patches depthanything3 upscale_models ultralytics sams; do
         mkdir -p "${VOLUME_MODELS}/${subdir}"
         rm -rf "${MODELS_DIR}/${subdir}"
         ln -sfn "${VOLUME_MODELS}/${subdir}" "${MODELS_DIR}/${subdir}"
@@ -336,10 +353,13 @@ if [ -d "${DEPTHANYTHING_DIR}" ]; then
 else
     echo "  [!!] ComfyUI-DepthAnythingV3 missing — installing..."
     git clone --depth 1 "https://github.com/PozzettiAndrea/ComfyUI-DepthAnythingV3.git" "${DEPTHANYTHING_DIR}"
-    if [ -f "${DEPTHANYTHING_DIR}/requirements.txt" ]; then
-        pip install -q --no-cache-dir -r "${DEPTHANYTHING_DIR}/requirements.txt" || true
-    fi
-    echo "  [OK] ComfyUI-DepthAnythingV3 installed!"
+fi
+# comfy-env must be on Comfy's Python (3.10); plain `pip` on this image targets another interpreter.
+if [ -f "${DEPTHANYTHING_DIR}/requirements.txt" ]; then
+    python3 -m pip install -q --no-cache-dir -r "${DEPTHANYTHING_DIR}/requirements.txt" || true
+fi
+if [ -f "${DEPTHANYTHING_DIR}/install.py" ]; then
+    (cd "${DEPTHANYTHING_DIR}" && python3 install.py) || true
 fi
 
 echo ""
