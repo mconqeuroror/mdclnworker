@@ -552,7 +552,12 @@ function FlowCanvas({ flowId, embedded = false }) {
           </button>
         </div>
 
-        {/* ── ReactFlow canvas ── */}
+        {/* ── ReactFlow canvas ──
+            Aurora + grain overlays are pushed BEHIND the react-flow viewport
+            by explicit z-index; otherwise the absolute-positioned overlays
+            would stack on top of the (static-flow) ReactFlow component and
+            — even though they're "pointer-events: none" — can visually
+            obscure thin edge strokes at low opacity. */}
         <div
           className="flex-1 relative"
           style={{ background: "#08080b" }}
@@ -561,6 +566,7 @@ function FlowCanvas({ flowId, embedded = false }) {
           <div
             className="absolute inset-0 pointer-events-none"
             style={{
+              zIndex: 0,
               background: `
                 radial-gradient(40% 35% at 25% 35%, rgba(124, 58, 237, 0.10) 0%, transparent 60%),
                 radial-gradient(35% 30% at 80% 70%, rgba(245, 158, 11, 0.06) 0%, transparent 60%),
@@ -572,11 +578,13 @@ function FlowCanvas({ flowId, embedded = false }) {
           <div
             className="absolute inset-0 pointer-events-none opacity-[0.018] mix-blend-overlay"
             style={{
+              zIndex: 0,
               backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' /%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' /%3E%3C/svg%3E")`,
             }}
           />
 
           <ReactFlow
+            style={{ position: "absolute", inset: 0, zIndex: 10 }}
             nodes={nodes}
             edges={edges}
             onNodesChange={onNodesChange}
@@ -598,11 +606,11 @@ function FlowCanvas({ flowId, embedded = false }) {
             selectionKeyCode={["Shift"]}
             selectionMode="partial"
             connectionLineType="bezier"
-            connectionLineStyle={{ stroke: "#a78bfa", strokeWidth: 2.5, strokeDasharray: "5 5", strokeLinecap: "round", opacity: 0.95 }}
+            connectionLineStyle={{ stroke: "#a78bfa", strokeWidth: 2.5, strokeLinecap: "round", opacity: 0.95 }}
             defaultEdgeOptions={{
               type: "default",
               animated: false,
-              style: { stroke: "#a78bfa", strokeWidth: 2.1 },
+              style: { stroke: "#a78bfa", strokeWidth: 2.5 },
             }}
             minZoom={0.25}
             maxZoom={2}
@@ -812,40 +820,27 @@ export default function FlowsPage({ embedded = false }) {
         /* Custom minimap */
         .flow-minimap { margin: 12px !important; }
 
-        /* Edge baseline + safety net.
-           - Inline attributes set by <FlowEdge> win over these rules, so
-             port-typed colours / running animation still apply.
-           - When an edge renders before our custom component mounts (default
-             edge type, built-in drag preview, stale chunk, etc.) these rules
-             guarantee every edge path is a visible 2 px dashed violet line. */
+        /* Edge baseline — only kicks in when a path has no inline style
+           (stale bundle, built-in default edge, first paint frame). The
+           real port-typed colour comes from <FlowEdge>'s inline style
+           which wins over these rules. No !important on stroke so we
+           never fight FlowEdge. */
         .react-flow__edge-path,
         .react-flow__connection-path {
           stroke: #a78bfa;
-          stroke-width: 2.1px;
-          stroke-dasharray: 6 6;
+          stroke-width: 2.5px;
           stroke-linecap: round;
           stroke-linejoin: round;
           fill: none;
-          stroke-opacity: 0.95;
         }
-        /* The live drag preview while the user is pulling a wire. */
+        /* Live drag preview while user is pulling a wire. */
         .react-flow__connection-path {
-          stroke-width: 2.5px;
-          stroke-dasharray: 5 5;
           opacity: 0.95;
         }
-        .react-flow__edge:hover .react-flow__edge-path,
-        .react-flow__edge.selected .react-flow__edge-path,
-        .react-flow__edge:focus .react-flow__edge-path,
-        .react-flow__edge:focus-visible .react-flow__edge-path {
-          stroke-width: 2.8px;
-          stroke-opacity: 1;
-        }
-        /* Make the edge group itself never invisible — guards against any
-           Tailwind reset or external rule setting visibility:hidden. */
+        /* Make sure nothing clips or hides the edge layer. */
         .react-flow__edge { visibility: visible !important; opacity: 1 !important; pointer-events: stroke; }
-        .react-flow__edges { z-index: 1; overflow: visible; }
-        .react-flow__edges svg { overflow: visible; }
+        .react-flow__edges { z-index: 1; overflow: visible !important; }
+        .react-flow__edges svg { overflow: visible !important; }
 
         /* Handle hover */
         .react-flow__handle {
