@@ -64,7 +64,7 @@ RUN mkdir -p /workspace/ComfyUI/models/checkpoints \
              /workspace/ComfyUI/models/unet \
              /workspace/ComfyUI/models/diffusion_models \
              /workspace/ComfyUI/models/model_patches \
-             /workspace/ComfyUI/models/depthanything \
+             /workspace/ComfyUI/models/depthanything3 \
              /workspace/ComfyUI/models/ultralytics/bbox \
              /workspace/ComfyUI/models/sams
 

@@ -18,7 +18,7 @@ Repo: [mconqeuroror/mdclnworker](https://github.com/mconqeuroror/mdclnworker)
 | `diffusion_models/z_image_turbo_bf16.safetensors` | `Comfy-Org/z_image_turbo` | ~12.3GB | Z-Image Turbo diffusion model |
 | `checkpoints/z_image_turbo_bf16.safetensors` (symlink) | local symlink to `diffusion_models/z_image_turbo_bf16.safetensors` | ~12.3GB | Classic checkpoint loader compatibility |
 | `model_patches/Z-Image-Turbo-Fun-Controlnet-Union.safetensors` | `alibaba-pai/Z-Image-Turbo-Fun-Controlnet-Union` | ~3.1GB | ControlNet patch for Z-Image Turbo |
-| `depthanything/da3_base.safetensors` | `depth-anything/DA3-BASE` | ~1.1GB | DepthAnythingV3 cache (optional prefetch) |
+| `depthanything3/da3_base.safetensors` | `depth-anything/DA3-BASE` (`model.safetensors` on HF, renamed locally) | ~1.1GB | DepthAnythingV3 / MCX i2i |
 | `unet/zImageTurboNSFW_62BF16.safetensors` | Place on network volume / S3 (same basename in `checkpoints/`) | ~12–23GB | UNETLoader `247` + CheckpointLoaderSimple `304` |
 | `upscale_models/4xFaceUpDAT.pth` | `Acly/Upscaler` | 148MB | UpscaleModelLoader (UltimateSDUpscale) |
 | `diffusion_models/zImageTurboNSFW_43BF16AIO.safetensors` (+ symlink in `checkpoints/`) | Civitai `2682644` (auth required, env `CIVITAI_API_TOKEN`) | ~6GB | Optional smaller NSFW UNET — **not** used by `modelclonex_*_api.json` (those merge `unet/zImageTurboNSFW_62BF16.safetensors` + `z_image_turbo_bf16` so volume-only pods pass UNETLoader validation) |
