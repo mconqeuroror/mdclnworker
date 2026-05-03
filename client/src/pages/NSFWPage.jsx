@@ -42,6 +42,7 @@ import {
   RefreshCw,
   Search,
   Upload,
+  MessageCircleHeart,
 } from "lucide-react";
 import {
   MagnifyingGlass,
@@ -77,6 +78,7 @@ import CourseTipBanner from "../components/CourseTipBanner";
 import NudesPackModal from "../components/NudesPackModal";
 import TutorialInfoLink from "../components/TutorialInfoLink";
 import FileUpload from "../components/FileUpload";
+import SextingScriptsTab from "../components/nsfw/SextingScriptsTab";
 import { useTutorialCatalog } from "../hooks/useTutorialCatalog";
 import {
   getNudesPackTotalCredits,
@@ -5312,13 +5314,16 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
 
       {/* Phase Tabs */}
       <div
-        className="grid grid-cols-2 xl:grid-cols-4 gap-2 sm:gap-3 mb-4 sm:mb-6 p-1.5 rounded-2xl glass-card"
+        className="grid grid-cols-2 xl:grid-cols-5 gap-2 sm:gap-3 mb-4 sm:mb-6 p-1.5 rounded-2xl glass-card"
       >
         {[
           { key: "training", label: copy.phaseTrainModel, sub: copy.phaseCreateLora, Icon: Wand2, locked: false },
           { key: "generate", label: copy.phaseGenerate, sub: isLoraReady ? copy.phaseNsfwReady : copy.phaseTrainFirst, Icon: Flame, locked: !isLoraReady },
           { key: "video", label: copy.phaseVideo, sub: isLoraReady ? copy.phaseImageToVideo : copy.phaseTrainFirst, Icon: Video, locked: !isLoraReady, testId: "button-video-tab" },
           { key: "img2img", label: copy.phaseImg2img, sub: isLoraReady ? copy.phasePhotoSwap : copy.phaseTrainFirst, Icon: ScanSearch, locked: !isLoraReady, testId: "button-img2img-tab" },
+          // Scripts: works without a trained LoRA for browsing / authoring, but
+          // running a script still requires one — enforced on the Run button.
+          { key: "scripts", label: "Scripts", sub: isLoraReady ? "Sexting sequences" : "Works without LoRA", Icon: MessageCircleHeart, locked: false, testId: "button-scripts-tab" },
         ].map(({ key, label, sub, Icon, locked, testId }) => {
           const active = activePhase === key;
           return (
@@ -6465,6 +6470,18 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
                 chipSelections={chipSelections}
                 nsfwImageCost={nsfwImageBaseCost}
               />
+            )}
+
+            {/* ===== SEXTING SCRIPTS TAB ===== */}
+            {activePhase === "scripts" && (
+              <div className="mt-6">
+                <SextingScriptsTab
+                  selectedModel={selectedModel}
+                  isLoraReady={isLoraReady}
+                  onImageReady={appendCompletedNsfwToLivePreview}
+                  onOpenCreditsModal={() => setShowCreditsModal(true)}
+                />
+              </div>
             )}
           </div>
 

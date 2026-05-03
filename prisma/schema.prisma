@@ -96,6 +96,8 @@ model User {
   gptxConversations             GptxConversation[]
   flows                         Flow[]
   flowRuns                      FlowRun[]
+  sextingScripts                SextingScript[]
+  sextingScriptRuns             SextingScriptRun[]
 
   @@index([referredByUserId])
 }
@@ -1053,5 +1055,64 @@ model FlowRun {
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([flowId])
+  @@index([userId])
+}
+
+/// Sexting Scripts — reusable NSFW photo-sequence blueprints.
+///
+/// A "script" captures N scene descriptions + their AI-expanded base prompts.
+/// The base prompts use `{{TRIGGER}}` / `{{OUTFIT}}` / `{{ENVIRONMENT}}`
+/// placeholders; at run time the outfit + environment are generated fresh
+/// (one per run) and the trigger is filled from the selected trained LoRA,
+/// so every pic within one run has the same look/setting but each run is
+/// unique.
+///
+/// Built-in scripts live in this table with `isBuiltIn=true` and `userId=null`;
+/// users see them alongside their own saved scripts.
+model SextingScript {
+  id                 String             @id @default(uuid())
+  userId             String?
+  slug               String?            @unique
+  name               String
+  description        String?
+  isBuiltIn          Boolean            @default(false)
+  isPublic           Boolean            @default(false)
+  picCount           Int
+  creditsPerPic      Int
+  /// Array of user-written scene descriptions (one per pic).
+  sceneDescriptions  Json               @default("[]")
+  /// Array of AI-expanded prompt templates (one per pic) with
+  /// `{{TRIGGER}}` / `{{OUTFIT}}` / `{{ENVIRONMENT}}` placeholders.
+  basePrompts        Json               @default("[]")
+  /// Optional theme text injected into the outfit/environment generation
+  /// prompt so the per-run look fits the script's vibe.
+  themeHint          String?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  user               User?              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  runs               SextingScriptRun[]
+
+  @@index([userId])
+  @@index([isBuiltIn])
+}
+
+/// Sexting Scripts — a single execution run grouping N generations.
+model SextingScriptRun {
+  id              String        @id @default(uuid())
+  scriptId        String
+  userId          String
+  modelId         String
+  outfit          String
+  environment    String
+  generationIds   Json          @default("[]")
+  status          String        @default("running")
+  creditsSpent    Int           @default(0)
+  errorMessage    String?
+  createdAt       DateTime      @default(now())
+  completedAt     DateTime?
+  script          SextingScript @relation(fields: [scriptId], references: [id], onDelete: Cascade)
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([scriptId])
   @@index([userId])
 }

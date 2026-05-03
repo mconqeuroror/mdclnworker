@@ -23,6 +23,7 @@ import {
 } from './services/telemetry.service.js';
 import { processPendingBlobRemirrorQueue } from "./services/blob-remirror-queue.service.js";
 import { runSignupNoPurchaseWinbackCampaign } from "./services/signup-winback-email.service.js";
+import { seedBuiltInSextingScripts } from "./seeds/sexting-scripts.seed.js";
 
 dotenv.config();
 
@@ -710,6 +711,13 @@ if (!process.env.VERCEL) {
     } catch (error) {
       console.error('MuscleMommy gallery import failed (non-fatal):', error.message);
     }
+  }
+
+  // Seed built-in Sexting Scripts (idempotent, safe on every boot).
+  try {
+    await seedBuiltInSextingScripts();
+  } catch (err) {
+    console.warn("Sexting-scripts seed failed (non-fatal):", err?.message || err);
   }
 
   // Start background generation poller

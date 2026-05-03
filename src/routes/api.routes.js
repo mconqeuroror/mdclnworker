@@ -125,6 +125,18 @@ import {
   adminRecoverFailedNsfwRunpod,
   recoverStaleLoraTrainings,
 } from "../controllers/nsfw.controller.js";
+import {
+  listSextingScripts,
+  getSextingScript,
+  generateScriptBasePrompts,
+  createSextingScript,
+  updateSextingScript,
+  regenerateScriptPicPrompt,
+  deleteSextingScript,
+  runSextingScript,
+  getSextingScriptRun,
+  listSextingScriptRuns,
+} from "../controllers/sexting-scripts.controller.js";
 import multer from "multer";
 import { handleUpload } from "@vercel/blob/client";
 import { isVercelBlobConfigured, uploadBufferToBlob } from "../utils/kieUpload.js";
@@ -641,6 +653,21 @@ router.get("/nsfw/test-face-ref-status/:requestId", authMiddleware, testFaceRefS
 router.post("/nsfw/generate-video", authMiddleware, generationLimiter, generateNsfwVideoFromImage);
 router.post("/nsfw/extend-video", authMiddleware, generationLimiter, extendNsfwVideo);
 router.post("/nsfw/generate-motion-video", authMiddleware, generationLimiter, generateNsfwMotionVideo);
+
+// ── Sexting Scripts (NSFW Studio) ────────────────────────────────────────
+// A sexting script is a reusable N-pic blueprint: scene descriptions + AI-expanded
+// prompt templates with {{TRIGGER}} / {{OUTFIT}} / {{ENVIRONMENT}} placeholders.
+// Running it fans out N NSFW generations through the standard pipeline.
+router.get("/nsfw/sexting-scripts", authMiddleware, listSextingScripts);
+router.get("/nsfw/sexting-scripts/runs", authMiddleware, listSextingScriptRuns);
+router.get("/nsfw/sexting-scripts/runs/:runId", authMiddleware, getSextingScriptRun);
+router.get("/nsfw/sexting-scripts/:id", authMiddleware, getSextingScript);
+router.post("/nsfw/sexting-scripts/generate-base-prompts", authMiddleware, generationLimiter, generateScriptBasePrompts);
+router.post("/nsfw/sexting-scripts", authMiddleware, generationLimiter, createSextingScript);
+router.patch("/nsfw/sexting-scripts/:id", authMiddleware, updateSextingScript);
+router.post("/nsfw/sexting-scripts/:id/regenerate-pic-prompt", authMiddleware, generationLimiter, regenerateScriptPicPrompt);
+router.delete("/nsfw/sexting-scripts/:id", authMiddleware, deleteSextingScript);
+router.post("/nsfw/sexting-scripts/:id/run", authMiddleware, generationLimiter, runSextingScript);
 
 // ============================================
 // AUTH ROUTES (with rate limiting and input validation)
