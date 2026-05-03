@@ -90,6 +90,7 @@ function resolveInputs(node, edges, results) {
       if (type === "video" && !inputs.video) inputs.video = value;
       if (type === "text"  && !inputs.text)  inputs.text  = value;
       if (type === "model" && !inputs.model) inputs.model = value;
+      if (type === "audio" && !inputs.audio) inputs.audio = value;
     }
   }
 

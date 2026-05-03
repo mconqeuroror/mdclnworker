@@ -4,6 +4,13 @@
  * Design language: dark workshop. Subtle gradient header bar, monospace tech
  * label + sans display label, micro-status orb, layered shadows, hairline
  * dividers, and an inline preview pane that fades into the panel.
+ *
+ * Ports are rendered *inline* with their visible dot + label. That way the
+ * clickable <Handle /> is always exactly where the user sees the port (no
+ * absolute-pixel maths to drift out of alignment) and React Flow's internal
+ * handle-position calculation always matches the DOM — which is what drives
+ * edge path endpoints. This is the canonical pattern from the React Flow
+ * docs and is what makes connections reliably render as visible edges.
  */
 
 import { memo, useState, useCallback } from "react";
@@ -53,9 +60,21 @@ const STATUS_PILL_COLOR = {
   skipped:   "text-white/40 bg-white/[0.04] border-white/[0.08]",
 };
 
-// Approximate vertical spacing between port handles
-const PORT_ROW_HEIGHT = 18;
-const PORT_FIRST_OFFSET = 56;
+// Shared Handle base style — position kept inline so React Flow gets a stable
+// DOM position to measure. We deliberately DO NOT set `position: absolute`
+// here: React Flow's built-in `.react-flow__handle` stylesheet already does.
+function handleStyle(portType) {
+  const color = PORT_COLORS[portType] || PORT_COLORS.any;
+  return {
+    background: color,
+    width: 10,
+    height: 10,
+    border: "1.5px solid #08080b",
+    boxShadow: `0 0 0 1px ${color}55, 0 0 6px ${color}55`,
+    borderRadius: 999,
+    zIndex: 2,
+  };
+}
 
 export const BaseNode = memo(function BaseNode({
   id,
@@ -82,10 +101,19 @@ export const BaseNode = memo(function BaseNode({
   const handleDelete = useCallback(() => deleteNode(id), [id, deleteNode]);
   const handleDuplicate = useCallback(() => duplicateNode(id), [id, duplicateNode]);
 
+  // Max rows per column — used to align the port rail evenly.
+  const maxRows = Math.max(inputs.length, outputs.length);
+
   return (
     <div
-      className="group relative select-none w-full h-full"
-      style={{ fontFamily: "var(--font-sans)", minWidth: 240, minHeight: 120 }}
+      className="group relative select-none"
+      style={{
+        fontFamily: "var(--font-sans)",
+        minWidth: 240,
+        minHeight: 120,
+        width: "100%",
+        height: "100%",
+      }}
     >
       {/* Resize handles — only visible/interactive when node is selected */}
       <NodeResizer
@@ -119,7 +147,7 @@ export const BaseNode = memo(function BaseNode({
 
       {/* The node card */}
       <div
-        className="relative rounded-[12px] overflow-hidden backdrop-blur-xl transition-shadow duration-300 w-full h-full flex flex-col"
+        className="relative rounded-[12px] backdrop-blur-xl transition-shadow duration-300 w-full h-full flex flex-col"
         style={{
           background:
             "linear-gradient(180deg, rgba(22,22,28,0.96) 0%, rgba(15,15,20,0.96) 100%)",
@@ -141,7 +169,7 @@ export const BaseNode = memo(function BaseNode({
       >
         {/* ── Header bar ── */}
         <div
-          className="relative flex items-center justify-between px-3 py-2 cursor-pointer"
+          className="relative flex items-center justify-between px-3 py-2 cursor-pointer rounded-t-[12px]"
           onClick={() => setCollapsed((c) => !c)}
           style={{
             background: `linear-gradient(180deg, ${headerColor}22 0%, ${headerColor}08 100%)`,
@@ -150,7 +178,7 @@ export const BaseNode = memo(function BaseNode({
         >
           {/* category color stripe */}
           <div
-            className="absolute left-0 top-0 bottom-0 w-[2px]"
+            className="absolute left-0 top-0 bottom-0 w-[2px] rounded-tl-[12px]"
             style={{ background: `linear-gradient(180deg, ${headerColor} 0%, ${headerColor}40 100%)` }}
           />
 
@@ -217,46 +245,85 @@ export const BaseNode = memo(function BaseNode({
           </div>
         </div>
 
-        {/* ── Port rail (input/output ribbons) ── */}
+        {/* ── Port rail ──
+            Handles live inline with their visible label + dot so React Flow
+            always has accurate coordinates to draw edges from/to. Each side
+            is an independent column; the `maxRows` filler keeps both sides
+            vertically centered when one side has fewer ports. */}
         {(inputs.length > 0 || outputs.length > 0) && (
           <div
-            className="grid gap-y-1 py-1.5 px-3"
+            className="grid gap-x-3 py-2.5 px-0"
             style={{
               gridTemplateColumns: "1fr 1fr",
               borderBottom: !collapsed ? "1px solid rgba(255,255,255,0.04)" : "none",
             }}
           >
-            <div className="flex flex-col gap-1">
-              {inputs.map((p) => (
-                <div key={p.id} className="flex items-center gap-1.5 -ml-1">
-                  <span
-                    className="w-1 h-1 rounded-full flex-shrink-0"
-                    style={{ background: PORT_COLORS[p.type] || PORT_COLORS.any }}
-                  />
-                  <span
-                    className="text-[8px] uppercase tracking-[0.06em] text-white/35 truncate"
-                    style={{ fontFamily: "var(--font-mono)" }}
+            {/* Inputs column (left) */}
+            <div className="flex flex-col gap-1.5">
+              {Array.from({ length: maxRows }).map((_, i) => {
+                const p = inputs[i];
+                if (!p) return <div key={`in-spacer-${i}`} style={{ height: 14 }} />;
+                const color = PORT_COLORS[p.type] || PORT_COLORS.any;
+                return (
+                  <div
+                    key={`in-${p.id}`}
+                    className="relative flex items-center gap-2 pl-3 pr-1"
+                    style={{ height: 14 }}
                   >
-                    {p.label}
-                  </span>
-                </div>
-              ))}
+                    <Handle
+                      type="target"
+                      position={Position.Left}
+                      id={p.id}
+                      style={{ ...handleStyle(p.type), left: -5 }}
+                      title={`${p.label} · ${p.type}`}
+                    />
+                    <span
+                      className="w-1 h-1 rounded-full flex-shrink-0"
+                      style={{ background: color }}
+                    />
+                    <span
+                      className="text-[8.5px] uppercase tracking-[0.08em] text-white/55 truncate font-medium"
+                      style={{ fontFamily: "var(--font-mono)" }}
+                    >
+                      {p.label}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
-            <div className="flex flex-col gap-1 items-end">
-              {outputs.map((p) => (
-                <div key={p.id} className="flex items-center gap-1.5 -mr-1">
-                  <span
-                    className="text-[8px] uppercase tracking-[0.06em] text-white/35 truncate"
-                    style={{ fontFamily: "var(--font-mono)" }}
+
+            {/* Outputs column (right) */}
+            <div className="flex flex-col gap-1.5 items-end">
+              {Array.from({ length: maxRows }).map((_, i) => {
+                const p = outputs[i];
+                if (!p) return <div key={`out-spacer-${i}`} style={{ height: 14 }} />;
+                const color = PORT_COLORS[p.type] || PORT_COLORS.any;
+                return (
+                  <div
+                    key={`out-${p.id}`}
+                    className="relative flex items-center gap-2 pr-3 pl-1 justify-end w-full"
+                    style={{ height: 14 }}
                   >
-                    {p.label}
-                  </span>
-                  <span
-                    className="w-1 h-1 rounded-full flex-shrink-0"
-                    style={{ background: PORT_COLORS[p.type] || PORT_COLORS.any }}
-                  />
-                </div>
-              ))}
+                    <span
+                      className="text-[8.5px] uppercase tracking-[0.08em] text-white/55 truncate font-medium"
+                      style={{ fontFamily: "var(--font-mono)" }}
+                    >
+                      {p.label}
+                    </span>
+                    <span
+                      className="w-1 h-1 rounded-full flex-shrink-0"
+                      style={{ background: color }}
+                    />
+                    <Handle
+                      type="source"
+                      position={Position.Right}
+                      id={p.id}
+                      style={{ ...handleStyle(p.type), right: -5 }}
+                      title={`${p.label} · ${p.type}`}
+                    />
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
@@ -306,6 +373,8 @@ export const BaseNode = memo(function BaseNode({
                 >
                   {outputType === "video" ? (
                     <video src={nodeOutput} className="w-full max-h-36 object-contain" controls muted playsInline />
+                  ) : outputType === "audio" ? (
+                    <audio src={nodeOutput} controls className="w-full" />
                   ) : outputType === "image" ||
                     (typeof nodeOutput === "string" && nodeOutput.match(/\.(jpg|jpeg|png|webp|gif)/i)) ? (
                     <img src={nodeOutput} alt="Output" className="w-full max-h-36 object-contain" />
@@ -335,44 +404,6 @@ export const BaseNode = memo(function BaseNode({
           </div>
         )}
       </div>
-
-      {/* ── Handles (positioned outside the visual card) ── */}
-      {inputs.map((port, i) => (
-        <Handle
-          key={`tgt-${port.id}`}
-          type="target"
-          position={Position.Left}
-          id={port.id}
-          style={{
-            top: PORT_FIRST_OFFSET + i * PORT_ROW_HEIGHT,
-            background: PORT_COLORS[port.type] || PORT_COLORS.any,
-            width: 8,
-            height: 8,
-            border: "1.5px solid #08080b",
-            left: -4,
-            boxShadow: `0 0 0 1px ${PORT_COLORS[port.type] || PORT_COLORS.any}55, 0 0 6px ${PORT_COLORS[port.type] || PORT_COLORS.any}44`,
-          }}
-          title={`${port.label} · ${port.type}`}
-        />
-      ))}
-      {outputs.map((port, i) => (
-        <Handle
-          key={`src-${port.id}`}
-          type="source"
-          position={Position.Right}
-          id={port.id}
-          style={{
-            top: PORT_FIRST_OFFSET + i * PORT_ROW_HEIGHT,
-            background: PORT_COLORS[port.type] || PORT_COLORS.any,
-            width: 8,
-            height: 8,
-            border: "1.5px solid #08080b",
-            right: -4,
-            boxShadow: `0 0 0 1px ${PORT_COLORS[port.type] || PORT_COLORS.any}55, 0 0 6px ${PORT_COLORS[port.type] || PORT_COLORS.any}44`,
-          }}
-          title={`${port.label} · ${port.type}`}
-        />
-      ))}
     </div>
   );
 });

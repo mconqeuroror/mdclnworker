@@ -35,6 +35,9 @@ export const useFlowStore = create((set, get) => ({
   onConnect: (connection) =>
     set((state) => {
       const { nodeTypes } = state;
+      if (!connection.source || !connection.target) return state;
+      if (connection.source === connection.target) return state;
+
       const targetNode = state.nodes.find((n) => n.id === connection.target);
       const targetReg = nodeTypes.find((t) => t.type === targetNode?.type);
       const targetPort = targetReg?.inputs?.find((p) => p.id === connection.targetHandle);
@@ -52,11 +55,23 @@ export const useFlowStore = create((set, get) => ({
             (e) => !(e.target === connection.target && e.targetHandle === connection.targetHandle)
           );
 
+      // Explicit edge id so React Flow never falls back to nanoid/auto-id
+      // mid-render (which can cause a race where the new edge briefly has no
+      // type and is skipped by the custom edgeTypes map).
+      const edgeId = `e-${connection.source}_${connection.sourceHandle || "out"}-${connection.target}_${connection.targetHandle || "in"}-${Date.now()}`;
+
+      const newEdge = {
+        id: edgeId,
+        source: connection.source,
+        target: connection.target,
+        sourceHandle: connection.sourceHandle ?? null,
+        targetHandle: connection.targetHandle ?? null,
+        type: "default",
+        animated: false,
+      };
+
       return {
-        edges: addEdge(
-          { ...connection, type: "default", animated: false },
-          filtered
-        ),
+        edges: addEdge(newEdge, filtered),
         isDirty: true,
       };
     }),

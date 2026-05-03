@@ -1,24 +1,26 @@
 /**
- * FlowEdge — canonical React Flow custom edge using <BaseEdge />.
+ * FlowEdge — custom React Flow edge.
  *
- * This is the documented pattern from https://reactflow.dev/api-reference/components/base-edge
- * and the same shape working ComfyUI-style React Flow projects use. <BaseEdge /> handles the
- * invisible interaction overlay and the proper className wiring (`react-flow__edge-path`),
- * which means React Flow's own CSS is happy and our custom styling layers on top via the
- * `style` prop (inline styles beat any CSS, so nothing can silently make the edge invisible).
+ * Minimal, rock-solid implementation:
+ *   1. Compute a bezier path from the endpoints React Flow passes in.
+ *   2. Render ONE visible <path> with the canonical `react-flow__edge-path`
+ *      className so React Flow's interaction handling + our CSS baseline
+ *      both latch on correctly.
+ *   3. Render a second wider transparent <path> to make clicking the edge
+ *      forgiving (the "interaction zone").
  *
- * Visual states:
- *   - idle      → dashed violet (`5 5`), faint glow underlay
- *   - running   → animated travelling dash, brighter glow, thicker stroke
- *   - completed → solid, slightly muted
- *   - failed    → solid red
- *   - selected  → thicker, full opacity
+ * No BaseEdge, no glow underlay, no store subscriptions — keeping the edge
+ * component as stateless & synchronous as possible means it renders on the
+ * very first frame after onConnect, which is the only way the user sees the
+ * line the moment they drop the connection.
  *
- * Port-typed colours: image=violet, video=amber, text=cyan, model=emerald, audio=pink,
- *                      any=slate. Falls back to violet if the source port type can't be resolved.
+ * Colour, dashing, animation and width are all driven by the `data` object
+ * React Flow hands us (set from flowStore when the edge is created / updated).
+ * Falls back to a sensible violet dashed line when nothing is set so the edge
+ * is ALWAYS visible.
  */
 
-import { BaseEdge, getBezierPath } from "@xyflow/react";
+import { getBezierPath } from "@xyflow/react";
 import { useFlowStore } from "../../store/flowStore";
 
 const PORT_COLORS = {
@@ -33,22 +35,23 @@ const PORT_COLORS = {
 const DEFAULT_STROKE = "#a78bfa";
 const FAILED_STROKE  = "#ef4444";
 
-export default function FlowEdge({
-  id,
-  source,
-  target,
-  sourceX,
-  sourceY,
-  targetX,
-  targetY,
-  sourcePosition,
-  targetPosition,
-  sourceHandleId,
-  selected,
-  markerEnd,
-  markerStart,
-  interactionWidth,
-}) {
+export default function FlowEdge(props) {
+  const {
+    id,
+    source,
+    target,
+    sourceX,
+    sourceY,
+    targetX,
+    targetY,
+    sourcePosition,
+    targetPosition,
+    sourceHandleId,
+    selected,
+    markerEnd,
+    markerStart,
+  } = props;
+
   const [edgePath] = getBezierPath({
     sourceX,
     sourceY,
@@ -59,9 +62,9 @@ export default function FlowEdge({
     curvature: 0.32,
   });
 
-  // Resolve a concrete colour from the source port type. We pull from our Zustand store
-  // directly (not React Flow's internal store) so this never depends on internal lookups
-  // that might not be ready on first render.
+  // Resolve port colour by looking up the source node's output port. Pulling
+  // from our Zustand store (not React Flow's internal store) keeps this
+  // resilient to mount-order edge cases.
   const nodes        = useFlowStore((s) => s.nodes);
   const nodeTypes    = useFlowStore((s) => s.nodeTypes);
   const nodeStatuses = useFlowStore((s) => s.nodeStatuses);
@@ -81,50 +84,41 @@ export default function FlowEdge({
   const isFailed    = targetStatus === "failed" || sourceStatus === "failed";
   const isIdle      = !isRunning && !isCompleted && !isFailed;
 
-  const stroke      = isFailed ? FAILED_STROKE : portColor;
-  const strokeWidth = selected ? 2.6 : isRunning ? 2.4 : 2.1;
-  // Idle and running both use a dash; completed/failed go solid.
+  const stroke = isFailed ? FAILED_STROKE : portColor;
+  const strokeWidth = selected ? 2.8 : isRunning ? 2.5 : 2.1;
   const strokeDasharray = isRunning ? "8 6" : isIdle ? "6 6" : undefined;
-  const strokeOpacity   = selected ? 1 : isIdle ? 0.85 : 0.95;
-
-  // Inline style — beats any CSS rule short of !important and survives every render frame.
-  const edgeStyle = {
-    stroke,
-    strokeWidth,
-    strokeDasharray,
-    strokeOpacity,
-    strokeLinecap: "round",
-    strokeLinejoin: "round",
-    fill: "none",
-    animation: isRunning ? "flow-dash 0.7s linear infinite" : undefined,
-  };
-
-  // Soft glow underlay — separate <path> drawn behind BaseEdge. We render it inside a wrapping
-  // <g> alongside <BaseEdge /> so React Flow's internal edge group still gets the proper
-  // `.react-flow__edge-path` element from BaseEdge.
-  const glowStyle = {
-    stroke,
-    strokeWidth: selected ? 8 : isRunning ? 7 : 5,
-    strokeOpacity: isRunning ? 0.32 : selected ? 0.24 : isCompleted ? 0.18 : 0.16,
-    strokeLinecap: "round",
-    fill: "none",
-    filter: "blur(2.5px)",
-    pointerEvents: "none",
-  };
+  const strokeOpacity = selected ? 1 : isIdle ? 0.92 : 0.95;
 
   return (
     <>
-      {/* Glow underlay — purely decorative, no interaction. */}
-      <path d={edgePath} style={glowStyle} />
-      {/* Canonical React Flow edge — gets `react-flow__edge-path` className,
-          interaction overlay, marker support, label slot, etc. */}
-      <BaseEdge
+      {/* The actual visible edge — canonical `react-flow__edge-path` class
+          so React Flow's CSS hooks (selection, hover) still apply. Inline
+          style wins over stylesheet rules so port-colour + animation are
+          guaranteed. */}
+      <path
         id={id}
-        path={edgePath}
-        style={edgeStyle}
+        d={edgePath}
+        className="react-flow__edge-path"
+        fill="none"
+        stroke={stroke}
+        strokeWidth={strokeWidth}
+        strokeDasharray={strokeDasharray}
+        strokeOpacity={strokeOpacity}
+        strokeLinecap="round"
+        strokeLinejoin="round"
         markerEnd={markerEnd}
         markerStart={markerStart}
-        interactionWidth={interactionWidth ?? 22}
+        style={{
+          animation: isRunning ? "flow-dash 0.7s linear infinite" : undefined,
+        }}
+      />
+      {/* Wide transparent interaction strip so edges are easy to click / hover. */}
+      <path
+        d={edgePath}
+        className="react-flow__edge-interaction"
+        fill="none"
+        stroke="transparent"
+        strokeWidth={22}
       />
     </>
   );

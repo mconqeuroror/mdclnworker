@@ -122,6 +122,22 @@ export const NODE_REGISTRY = {
     },
   },
 
+  "audio-input": {
+    label: "Audio Input",
+    category: "inputs",
+    color: "#60a5fa",
+    description: "Upload an audio file or provide a URL",
+    inputs: [],
+    outputs: [{ id: "audio", type: "audio", label: "Audio" }],
+    defaultData: { audioUrl: "", mode: "url" },
+    creditCost: 0,
+    execute: async (inputs, nodeData) => {
+      const url = nodeData.audioUrl || inputs.audioUrl;
+      if (!url) throw new Error("Audio Input: no audio URL provided");
+      return { output: url, outputType: "audio" };
+    },
+  },
+
   // â”€â”€ IMAGE GENERATION NODES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   "enhance-prompt": {
@@ -600,10 +616,11 @@ export const NODE_REGISTRY = {
     label: "Talking Head",
     category: "video",
     color: "#f59e0b",
-    description: "Animate a portrait with audio",
+    description: "Lip-sync a portrait to audio (Kling V2 AI Avatar)",
     inputs: [
       { id: "image", type: "image", label: "Portrait" },
       { id: "audio", type: "audio", label: "Audio" },
+      { id: "text", type: "text", label: "Prompt (opt)" },
     ],
     outputs: [{ id: "video", type: "video", label: "Video" }],
     defaultData: {},
@@ -615,16 +632,133 @@ export const NODE_REGISTRY = {
       const user = await checkAndExpireCredits(userId);
       if (getTotalCredits(user) < cost) throw new Error(`Not enough credits (need ${cost})`);
       await deductCredits(userId, cost);
-      onProgress?.({ message: "Submitting talking headâ€¦" });
+      onProgress?.({ message: "Submitting talking head…" });
+      const { generateTalkingHead } = await import("./wavespeed.service.js");
       const gen = await prisma.generation.create({
-        data: { userId, type: "talking-head", status: "processing", prompt: "talking-head", creditsCost: cost, replicateModel: "kie-talking-head" },
+        data: {
+          userId,
+          type: "talking-head",
+          status: "processing",
+          prompt: (inputs.text || nodeData.prompt || "talking-head").slice(0, 500),
+          creditsCost: cost,
+          replicateModel: "wavespeed-kling-v2-avatar",
+        },
       });
-      const outputUrl = await pollGeneration(gen.id, onProgress);
-      return { output: outputUrl, outputType: "video", creditsUsed: cost };
+      try {
+        const result = await generateTalkingHead(inputs.image, inputs.audio, inputs.text || nodeData.prompt || null);
+        const outputUrl = result?.outputUrl;
+        if (!outputUrl) throw new Error("Talking Head: no output URL returned");
+        await prisma.generation.update({
+          where: { id: gen.id },
+          data: { status: "completed", outputUrl, completedAt: new Date() },
+        });
+        return { output: outputUrl, outputType: "video", creditsUsed: cost };
+      } catch (err) {
+        await prisma.generation.update({
+          where: { id: gen.id },
+          data: { status: "failed", errorMessage: err.message },
+        }).catch(() => {});
+        throw err;
+      }
     },
   },
 
-  // â”€â”€ NSFW NODES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── AUDIO / VOICE NODES ───────────────────────────────────────────────────
+
+  "voice-gen": {
+    label: "Voice Generation",
+    category: "audio",
+    color: "#f472b6",
+    description: "Generate speech with your model's cloned voice",
+    inputs: [
+      { id: "model", type: "model", label: "Model" },
+      { id: "text", type: "text", label: "Script" },
+    ],
+    outputs: [{ id: "audio", type: "audio", label: "Audio" }],
+    defaultData: { stability: 0.5, similarityBoost: 0.75, style: 0.0 },
+    creditCost: 25,
+    execute: async (inputs, nodeData, userId, onProgress) => {
+      const { textToSpeech, uploadAudioToR2 } = await import("./elevenlabs.service.js");
+      const { VOICE_TTS_MODEL_ID, estimateVoiceAudioCredits } =
+        await import("./voice-platform.service.js");
+      const model = inputs.model;
+      if (!model) throw new Error("Voice Gen: model required");
+      const script = (inputs.text || nodeData.script || "").trim();
+      if (!script) throw new Error("Voice Gen: script text is empty");
+
+      // Resolve the best voice id: prefer the default ModelVoice row, fall
+      // back to the legacy elevenLabsVoiceId on SavedModel.
+      let voiceId = null;
+      const defaultVoice = await prisma.modelVoice.findFirst({
+        where: { modelId: model.id, isDefault: true },
+      });
+      voiceId = defaultVoice?.elevenLabsVoiceId || model.elevenLabsVoiceId;
+      if (!voiceId) throw new Error("Voice Gen: model has no voice configured");
+
+      const cost = estimateVoiceAudioCredits(script.length, false);
+      const user = await checkAndExpireCredits(userId);
+      if (getTotalCredits(user) < cost) throw new Error(`Not enough credits (need ${cost})`);
+      await deductCredits(userId, cost);
+
+      onProgress?.({ message: "Generating voice audio…" });
+      const audioBuffer = await textToSpeech(script, voiceId, {
+        modelId: VOICE_TTS_MODEL_ID,
+        stability: nodeData.stability ?? 0.5,
+        similarityBoost: nodeData.similarityBoost ?? 0.75,
+        style: nodeData.style ?? 0.0,
+      });
+      onProgress?.({ message: "Uploading audio…" });
+      const { url } = await uploadAudioToR2(audioBuffer);
+      return { output: url, outputType: "audio", creditsUsed: cost };
+    },
+  },
+
+  "sfx-gen": {
+    label: "Sound Effect",
+    category: "audio",
+    color: "#f472b6",
+    description: "Generate a sound effect or ambient audio from a description",
+    inputs: [{ id: "text", type: "text", label: "Prompt" }],
+    outputs: [{ id: "audio", type: "audio", label: "Audio" }],
+    defaultData: { durationSeconds: 5 },
+    creditCost: 12,
+    execute: async (inputs, nodeData, userId, onProgress) => {
+      const prompt = (inputs.text || nodeData.prompt || "").trim();
+      if (!prompt) throw new Error("SFX: prompt required");
+      const cost = 12;
+      const user = await checkAndExpireCredits(userId);
+      if (getTotalCredits(user) < cost) throw new Error(`Not enough credits (need ${cost})`);
+      await deductCredits(userId, cost);
+
+      const apiKey = process.env.ELEVENLABS_API_KEY;
+      if (!apiKey) throw new Error("SFX: ELEVENLABS_API_KEY not set");
+
+      onProgress?.({ message: "Generating sound effect…" });
+      const res = await fetch("https://api.elevenlabs.io/v1/sound-generation", {
+        method: "POST",
+        headers: {
+          "xi-api-key": apiKey,
+          "Content-Type": "application/json",
+          "Accept": "audio/mpeg",
+        },
+        body: JSON.stringify({
+          text: prompt,
+          duration_seconds: Math.min(22, Math.max(0.5, Number(nodeData.durationSeconds) || 5)),
+          prompt_influence: 0.3,
+        }),
+      });
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "");
+        throw new Error(`SFX: ElevenLabs error ${res.status}: ${errText.slice(0, 200)}`);
+      }
+      const buf = Buffer.from(await res.arrayBuffer());
+      const { uploadAudioToR2 } = await import("./elevenlabs.service.js");
+      const { url } = await uploadAudioToR2(buf);
+      return { output: url, outputType: "audio", creditsUsed: cost };
+    },
+  },
+
+  // ── NSFW NODES ────────────────────────────────────────────────────────────
 
   "nsfw-gen": {
     label: "NSFW Generation",
@@ -805,6 +939,7 @@ export const NODE_CATEGORIES = {
   inputs:  { label: "Inputs",        color: "#60a5fa" },
   images:  { label: "Image Gen",     color: "#a78bfa" },
   video:   { label: "Video Gen",     color: "#f59e0b" },
+  audio:   { label: "Audio / Voice", color: "#f472b6" },
   nsfw:    { label: "NSFW Studio",   color: "#f87171" },
   outputs: { label: "Outputs",       color: "#34d399" },
   utility: { label: "Utility",       color: "#94a3b8" },

@@ -29,6 +29,9 @@ import {
   Download,
   Shuffle,
   Layers,
+  Music,
+  AudioWaveform,
+  Waves,
 } from "lucide-react";
 import { useFlowStore } from "../../store/flowStore";
 
@@ -36,6 +39,7 @@ const CATEGORY_LABELS = {
   inputs:  { label: "Inputs",      color: "#60a5fa" },
   images:  { label: "Image",       color: "#a78bfa" },
   video:   { label: "Video",       color: "#f59e0b" },
+  audio:   { label: "Audio",       color: "#f472b6" },
   nsfw:    { label: "NSFW",        color: "#f87171" },
   outputs: { label: "Output",      color: "#34d399" },
   utility: { label: "Utility",     color: "#94a3b8" },
@@ -45,6 +49,7 @@ const NODE_ICONS = {
   "image-input":        ImageIcon,
   "text-input":         Type,
   "model-selector":     User,
+  "audio-input":        Music,
   "enhance-prompt":     Sparkles,
   "nana-banana-avatar": Banana,
   "seedream-avatar":    Sprout,
@@ -56,6 +61,8 @@ const NODE_ICONS = {
   "video-prompt":       Film,
   "video-motion":       Wind,
   "talking-head":       Mic,
+  "voice-gen":          AudioWaveform,
+  "sfx-gen":            Waves,
   "nsfw-gen":           Flame,
   "nsfw-video":         Video,
   "nsfw-video-extend":  Rewind,

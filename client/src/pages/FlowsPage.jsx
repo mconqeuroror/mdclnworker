@@ -65,12 +65,16 @@ import NSFWVideoNode from "../components/flows/nodes/NSFWVideoNode";
 import NSFWMotionNode from "../components/flows/nodes/NSFWMotionNode";
 import OutputViewerNode from "../components/flows/nodes/OutputViewerNode";
 import GroupNode from "../components/flows/nodes/GroupNode";
+import AudioInputNode from "../components/flows/nodes/AudioInputNode";
+import VoiceGenNode from "../components/flows/nodes/VoiceGenNode";
+import SfxGenNode from "../components/flows/nodes/SfxGenNode";
 
 const NODE_TYPE_MAP = {
   group:                GroupNode,
   "image-input":        ImageInputNode,
   "text-input":         TextInputNode,
   "model-selector":     ModelSelectorNode,
+  "audio-input":        AudioInputNode,
   "enhance-prompt":     EnhancePromptNode,
   "nana-banana-avatar": NanaBananaNode,
   "seedream-avatar":    SeedreamNode,
@@ -82,6 +86,8 @@ const NODE_TYPE_MAP = {
   "video-prompt":       VideoPromptNode,
   "video-motion":       VideoMotionNode,
   "talking-head":       TalkingHeadNode,
+  "voice-gen":          VoiceGenNode,
+  "sfx-gen":            SfxGenNode,
   "nsfw-gen":           NSFWGenNode,
   "nsfw-video":         NSFWVideoNode,
   "nsfw-motion":        NSFWMotionNode,
@@ -291,24 +297,15 @@ function FlowCanvas({ flowId, embedded = false }) {
     resetRun();
   }, [currentRunId]);
 
+  // Connection guard. We stay permissive here and do the final validation
+  // inside onConnect (flowStore) — that way a partially-loaded registry, a
+  // fresh node, or an "any"-typed port never silently rejects a drop. Only
+  // self-loops are hard-blocked.
   const isValidConnection = useCallback((connection) => {
-    // Never connect a node to itself.
+    if (!connection?.source || !connection?.target) return false;
     if (connection.source === connection.target) return false;
-    // If the registry hasn't loaded yet, be permissive so the user can still
-    // wire things up — port-type validation kicks in once it loads.
-    if (!nodeTypes.length) return true;
-    const sourceNode = nodes.find((n) => n.id === connection.source);
-    const targetNode = nodes.find((n) => n.id === connection.target);
-    if (!sourceNode || !targetNode) return true;
-    const sourceReg = nodeTypes.find((t) => t.type === sourceNode.type);
-    const targetReg = nodeTypes.find((t) => t.type === targetNode.type);
-    const sourcePort = sourceReg?.outputs?.find((p) => p.id === connection.sourceHandle);
-    const targetPort = targetReg?.inputs?.find((p) => p.id === connection.targetHandle);
-    // If either port can't be resolved (custom node, missing handle), allow it.
-    if (!sourcePort || !targetPort) return true;
-    if (targetPort.type === "any" || sourcePort.type === "any") return true;
-    return sourcePort.type === targetPort.type;
-  }, [nodes, nodeTypes]);
+    return true;
+  }, []);
 
   const isRunning = runStatus === "running" || runStatus === "pending";
 
@@ -601,8 +598,12 @@ function FlowCanvas({ flowId, embedded = false }) {
             selectionKeyCode={["Shift"]}
             selectionMode="partial"
             connectionLineType="bezier"
-            connectionLineStyle={{ stroke: "#a78bfa", strokeWidth: 2.25, strokeDasharray: "5 5", strokeLinecap: "round" }}
-            defaultEdgeOptions={{ type: "default", animated: false, style: { stroke: "#a78bfa" } }}
+            connectionLineStyle={{ stroke: "#a78bfa", strokeWidth: 2.5, strokeDasharray: "5 5", strokeLinecap: "round", opacity: 0.95 }}
+            defaultEdgeOptions={{
+              type: "default",
+              animated: false,
+              style: { stroke: "#a78bfa", strokeWidth: 2.1 },
+            }}
             minZoom={0.25}
             maxZoom={2}
           >
@@ -812,37 +813,39 @@ export default function FlowsPage({ embedded = false }) {
         .flow-minimap { margin: 12px !important; }
 
         /* Edge baseline + safety net.
-           - Inline styles set by <FlowEdge> (via BaseEdge) win over these rules,
-             so port-typed colours / running animation still apply.
-           - When inline style is missing for any reason (initial mount frame,
-             a built-in default edge, stale chunk, etc.) these rules guarantee
-             every edge path is a visible 2 px dashed violet line — the same
-             "ComfyUI-style" default the user expects. */
+           - Inline attributes set by <FlowEdge> win over these rules, so
+             port-typed colours / running animation still apply.
+           - When an edge renders before our custom component mounts (default
+             edge type, built-in drag preview, stale chunk, etc.) these rules
+             guarantee every edge path is a visible 2 px dashed violet line. */
         .react-flow__edge-path,
         .react-flow__connection-path {
           stroke: #a78bfa;
-          stroke-width: 2px;
+          stroke-width: 2.1px;
           stroke-dasharray: 6 6;
           stroke-linecap: round;
           stroke-linejoin: round;
           fill: none;
+          stroke-opacity: 0.95;
         }
         /* The live drag preview while the user is pulling a wire. */
         .react-flow__connection-path {
-          stroke-width: 2.25px;
+          stroke-width: 2.5px;
           stroke-dasharray: 5 5;
-          opacity: 0.9;
+          opacity: 0.95;
         }
         .react-flow__edge:hover .react-flow__edge-path,
         .react-flow__edge.selected .react-flow__edge-path,
         .react-flow__edge:focus .react-flow__edge-path,
         .react-flow__edge:focus-visible .react-flow__edge-path {
-          stroke-width: 2.75px;
+          stroke-width: 2.8px;
+          stroke-opacity: 1;
         }
         /* Make the edge group itself never invisible — guards against any
            Tailwind reset or external rule setting visibility:hidden. */
-        .react-flow__edge { visibility: visible; opacity: 1; }
-        .react-flow__edges { z-index: 1; }
+        .react-flow__edge { visibility: visible !important; opacity: 1 !important; pointer-events: stroke; }
+        .react-flow__edges { z-index: 1; overflow: visible; }
+        .react-flow__edges svg { overflow: visible; }
 
         /* Handle hover */
         .react-flow__handle {

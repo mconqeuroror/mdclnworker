@@ -238,6 +238,66 @@ export const FLOW_TEMPLATES = [
       { id: "e5", source: "faceswap-1", sourceHandle: "image", target: "out-1", targetHandle: "any", type: "smoothstep" },
     ],
   },
+
+  {
+    id: "template-talking-avatar",
+    name: "Talking Avatar",
+    description: "Generate an avatar → record script → synthesize your model's voice → lip-sync into a talking-head video.",
+    thumbnail: null,
+    nodes: [
+      {
+        id: "model-sel-1",
+        type: "model-selector",
+        position: { x: 60, y: 120 },
+        data: { modelId: "", label: "Model" },
+      },
+      {
+        id: "text-prompt-1",
+        type: "text-input",
+        position: { x: 60, y: 320 },
+        data: { text: "Close-up cinematic portrait, soft window light, 35mm film", label: "Image Prompt" },
+      },
+      {
+        id: "nana-1",
+        type: "nana-banana-avatar",
+        position: { x: 340, y: 180 },
+        data: { resolution: "2K", aspectRatio: "9:16", label: "Generate Avatar" },
+      },
+      {
+        id: "script-1",
+        type: "text-input",
+        position: { x: 60, y: 520 },
+        data: { text: "Hey! Today I want to show you something special…", label: "Script" },
+      },
+      {
+        id: "voice-1",
+        type: "voice-gen",
+        position: { x: 340, y: 440 },
+        data: { stability: 0.5, similarityBoost: 0.8, style: 0.1, label: "My Voice" },
+      },
+      {
+        id: "talking-1",
+        type: "talking-head",
+        position: { x: 640, y: 280 },
+        data: { label: "Lip-Sync Video" },
+      },
+      {
+        id: "out-1",
+        type: "output-viewer",
+        position: { x: 940, y: 280 },
+        data: { label: "Final Video" },
+      },
+    ],
+    edges: [
+      { id: "e1", source: "model-sel-1", sourceHandle: "model", target: "nana-1", targetHandle: "model", type: "default" },
+      { id: "e2", source: "text-prompt-1", sourceHandle: "text", target: "nana-1", targetHandle: "text", type: "default" },
+      { id: "e3", source: "model-sel-1", sourceHandle: "model", target: "voice-1", targetHandle: "model", type: "default" },
+      { id: "e4", source: "script-1", sourceHandle: "text", target: "voice-1", targetHandle: "text", type: "default" },
+      { id: "e5", source: "nana-1", sourceHandle: "image", target: "talking-1", targetHandle: "image", type: "default" },
+      { id: "e6", source: "voice-1", sourceHandle: "audio", target: "talking-1", targetHandle: "audio", type: "default" },
+      { id: "e7", source: "talking-1", sourceHandle: "video", target: "out-1", targetHandle: "any", type: "default" },
+    ],
+  },
 ];
 
 export default FLOW_TEMPLATES;
