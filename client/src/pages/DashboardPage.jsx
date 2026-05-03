@@ -374,6 +374,9 @@ export default function DashboardPage() {
   const [sidebarDesktopHovered, setSidebarDesktopHovered] = useState(false);
   /** Narrow rail (80px) only when pinned collapsed and not hovering the sidebar on desktop */
   const sidebarNarrow = isSidebarCollapsed && !sidebarDesktopHovered;
+  const isTestingOnlyHost =
+    typeof window !== "undefined" &&
+    !/(^|\.)modelclone\.app$/i.test(window.location.hostname);
   const [voiceStudioInitialModelId, setVoiceStudioInitialModelId] = useState(null);
   const [creatorStudioInitialPrompt, setCreatorStudioInitialPrompt] = useState("");
 
@@ -391,6 +394,9 @@ export default function DashboardPage() {
       const urlParams = new URLSearchParams(window.location.search);
       let tabParam = urlParams.get("tab");
       if (tabParam === "soulx") tabParam = "modelclone-x";
+      if ((tabParam === "gptx" || tabParam === "flows") && !isTestingOnlyHost) {
+        tabParam = "home";
+      }
       if (tabParam === "nsfw") {
         setActiveTab("nsfw");
       } else if (tabParam && ["home", "models", "generate", "creator-studio", "voice-studio", "reformatter", "frame-extractor", "upscaler", "synthid-remove", "modelclone-x", "gptx", "flows", "history", "settings", "course", "repurposer", "reelfinder", "referral"].includes(tabParam)) {
@@ -923,10 +929,9 @@ export default function DashboardPage() {
           {activeTab === "upscaler" && <UpscalerPage />}
           {activeTab === "synthid-remove" && <SynthIDRemoverPage />}
           {activeTab === "modelclone-x" && <ModelCloneXPage />}
-          {activeTab === "gptx" && <GPTXTab />}
+          {activeTab === "gptx" && isTestingOnlyHost && <GPTXTab />}
           {activeTab === "flows" &&
-            typeof window !== "undefined" &&
-            !/(^|\.)modelclone\.app$/i.test(window.location.hostname) && (
+            isTestingOnlyHost && (
               <FlowsPage embedded />
             )}
           {activeTab === "history" && <HistoryPage />}

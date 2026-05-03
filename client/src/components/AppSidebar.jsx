@@ -275,8 +275,8 @@ export default function AppSidebar({
     window.location.assign(nextUrl);
   };
 
-  // AI Flows is testing-only — auto-hidden on the live `modelclone.app` domain.
-  const isFlowsAllowedHost =
+  // Testing-only tools are auto-hidden on the live `modelclone.app` domain.
+  const isTestingOnlyHost =
     typeof window !== "undefined" &&
     !/(^|\.)modelclone\.app$/i.test(window.location.hostname);
 
@@ -291,8 +291,8 @@ export default function AppSidebar({
     { id: "upscaler", label: copy.upscaler, icon: ZoomIn },
     { id: "synthid-remove", label: copy.synthidRemover, icon: ShieldOff },
     { id: "modelclone-x", label: copy.modelcloneX, icon: Wand2 },
-    ...(isFlowsAllowedHost ? [{ id: "flows", label: "AI Flows", icon: Workflow }] : []),
-    // { id: "gptx", label: copy.gptx, icon: Bot }, // hidden until approved for live
+    ...(isTestingOnlyHost ? [{ id: "flows", label: "AI Flows", icon: Workflow }] : []),
+    ...(isTestingOnlyHost ? [{ id: "gptx", label: copy.gptx, icon: Bot }] : []),
     { id: "history", label: copy.history, icon: Clock },
     { id: "settings", label: copy.settings, icon: SettingsIcon },
     { id: "course", label: copy.courses, icon: BookOpen, premium: true },
