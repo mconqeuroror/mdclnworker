@@ -577,7 +577,24 @@ export async function runSextingScript(req, res) {
       });
       generationIds.push(generation.id);
 
+      // Resolve the RunPod callback URL with this generation's id embedded in
+      // the query string — RunPod will hit `/api/runpod/callback?generationId=...&kind=nsfw`
+      // when the job finishes, and the callback handler uses that query param
+      // to find the right Generation row and mark it completed. Exact same
+      // mechanism as regular `/nsfw/generate`; the poller is a safety net.
       const webhookUrl = resolveRunpodWebhookUrl({ generationId: generation.id, kind: "nsfw" });
+      console.log(
+        `[sexting-scripts] run=${run.id} pic=${i + 1}/${script.picCount} ` +
+        `genId=${generation.id} webhook=${webhookUrl ? webhookUrl.slice(0, 80) + "…" : "(MISSING)"} ` +
+        `loraStrength=default mode=full(quickFlow=false)`,
+      );
+      if (!webhookUrl) {
+        console.warn(
+          "[sexting-scripts] RunPod webhook URL could not be resolved — set CALLBACK_BASE_URL " +
+          "or RUNPOD_WEBHOOK_URL in env. Falling back to the 30-minute poller.",
+        );
+      }
+
       try {
         const submission = await submitNsfwGeneration(
           {
@@ -588,15 +605,36 @@ export async function runSextingScript(req, res) {
             sceneDescription: scenes[i] || finalPrompt,
             chipSelections: {},
             options: {
-              quickFlow: false,
-              loraStrength: null,
-              postProcessing,
+              quickFlow: false,        // Full-quality flow (Z-Image Turbo + Refiner), same as main NSFW gen
+              loraStrength: null,      // Default 0.65 identity strength
+              postProcessing,          // Blur + grain defaults
               resolution: resSpec.presetId,
             },
           },
           webhookUrl,
           generation.id,
         );
+
+        // Fail-fast: `submitNsfwGeneration` can RETURN { success: false }
+        // rather than throw (missing RUNPOD_API_KEY / RUNPOD_BASE_URL, empty
+        // prompt, etc.). Without this check, the generation sits in
+        // "processing" forever because no job was ever submitted.
+        if (!submission || submission.success === false || !submission.requestId) {
+          const reason = submission?.error || "RunPod submission returned no job id";
+          console.error(`[sexting-scripts] submit returned failure for ${generation.id}: ${reason}`);
+          await prisma.generation.update({
+            where: { id: generation.id },
+            data: {
+              status: "failed",
+              errorMessage: reason,
+              completedAt: new Date(),
+            },
+          });
+          try { await refundGeneration(generation.id); } catch { /**/ }
+          continue;
+        }
+
+        console.log(`[sexting-scripts] submitted genId=${generation.id} runpodJobId=${submission.requestId}`);
         await prisma.generation.update({
           where: { id: generation.id },
           data: {
@@ -608,7 +646,7 @@ export async function runSextingScript(req, res) {
           },
         });
       } catch (submitErr) {
-        console.error("[sexting-scripts] submit failed:", submitErr);
+        console.error(`[sexting-scripts] submit threw for ${generation.id}:`, submitErr);
         await prisma.generation.update({
           where: { id: generation.id },
           data: {
