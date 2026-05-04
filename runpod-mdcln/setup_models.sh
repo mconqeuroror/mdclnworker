@@ -30,7 +30,14 @@ mkdir -p "${MODELS_DIR}/loras"
 mkdir -p "${MODELS_DIR}/unet"
 mkdir -p "${MODELS_DIR}/diffusion_models"
 mkdir -p "${MODELS_DIR}/model_patches"
+mkdir -p "${MODELS_DIR}/depthanything3"
 mkdir -p "${MODELS_DIR}/depthanything"
+if [ -f "${MODELS_DIR}/depthanything/da3_base.safetensors" ] && [ ! -f "${MODELS_DIR}/depthanything3/da3_base.safetensors" ]; then
+    mv "${MODELS_DIR}/depthanything/da3_base.safetensors" "${MODELS_DIR}/depthanything3/da3_base.safetensors"
+fi
+if [ -f "${MODELS_DIR}/depthanything/model.safetensors" ] && [ ! -f "${MODELS_DIR}/depthanything3/da3_base.safetensors" ]; then
+    mv "${MODELS_DIR}/depthanything/model.safetensors" "${MODELS_DIR}/depthanything3/da3_base.safetensors"
+fi
 mkdir -p "${MODELS_DIR}/upscale_models"
 
 echo ">>> Downloading NSFW generation models (all from HuggingFace)..."
@@ -68,18 +75,26 @@ download_hf \
   echo "  [WARN] Upscaler download failed during build — will be downloaded at container start via start.sh"
 
 echo "  [opt] Pre-caching DepthAnythingV3 model: da3_base.safetensors..."
-TARGET_DEPTH_DIR="${MODELS_DIR}/depthanything" python3 - <<'PYEOF' || true
+TARGET_DEPTH_DIR="${MODELS_DIR}/depthanything3" python3 - <<'PYEOF' || true
 import os
 from huggingface_hub import hf_hub_download
 
 depth_dir = os.environ["TARGET_DEPTH_DIR"]
 os.makedirs(depth_dir, exist_ok=True)
-hf_hub_download(
-    repo_id="depth-anything/DA3-BASE",
-    filename="da3_base.safetensors",
-    local_dir=depth_dir,
-    local_dir_use_symlinks=False,
-)
+repo_id = "depth-anything/DA3-BASE"
+target_name = "da3_base.safetensors"
+hf_name = "model.safetensors"
+target_path = os.path.join(depth_dir, target_name)
+if not os.path.isfile(target_path):
+    hf_hub_download(
+        repo_id=repo_id,
+        filename=hf_name,
+        local_dir=depth_dir,
+        local_dir_use_symlinks=False,
+    )
+    hf_default = os.path.join(depth_dir, hf_name)
+    if os.path.isfile(hf_default) and not os.path.isfile(target_path):
+        os.rename(hf_default, target_path)
 print("DepthAnythingV3 cache ready.")
 PYEOF
 

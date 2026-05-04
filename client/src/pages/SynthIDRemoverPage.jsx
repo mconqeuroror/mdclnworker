@@ -22,6 +22,8 @@ function toErrMsg(v, fallback = "Something went wrong.") {
 
 const DEFAULT_COST = 10;
 const POLL_INTERVAL_MS = 4000;
+/** RunningHub SynthID jobs can take many minutes; keep polling up to 1h. */
+const POLL_MAX_MS = 60 * 60 * 1000;
 
 function formatBytes(bytes) {
   if (bytes < 1024) return `${bytes} B`;
@@ -123,9 +125,9 @@ export default function SynthIDRemoverPage() {
         } else if (st === "failed") {
           stopPoll();
           setStatus("error");
-          setErrorMsg(toErrMsg(error, "Watermark removal failed. Your credits have been refunded."));
+          setErrorMsg(toErrMsg(error, "SynthID removal failed. Your credits have been refunded."));
         }
-        if (elapsed > 5 * 60 * 1000) {
+        if (elapsed > POLL_MAX_MS) {
           stopPoll();
           setStatus("error");
           setErrorMsg("Timed out. Please try again.");
@@ -169,7 +171,7 @@ export default function SynthIDRemoverPage() {
 
   const downloadResult = () => {
     if (!outputUrl) return;
-    void downloadFromPublicUrl(outputUrl, `watermark_removed_${Date.now()}.png`);
+    void downloadFromPublicUrl(outputUrl, `synthid_removed_${Date.now()}.png`);
   };
 
   const isRunning = status === "uploading" || status === "processing";
@@ -185,7 +187,7 @@ export default function SynthIDRemoverPage() {
               <ShieldOff className="w-5 h-5 text-[var(--accent)]" />
             </div>
             <h1 className="text-2xl md:text-3xl font-bold text-[var(--text-primary)]">
-              Watermark Remover
+              SynthID Remover
             </h1>
           </div>
           <p className="text-sm text-[var(--text-muted)] ml-[52px]">
@@ -266,7 +268,7 @@ export default function SynthIDRemoverPage() {
                       style={{ background: "rgba(34,197,94,0.15)", border: "1px solid rgba(34,197,94,0.3)", color: "#86efac" }}
                     >
                       <Sparkles className="w-3 h-3" />
-                      Watermark Removed
+                      SynthID removed
                     </div>
                     <button
                       onClick={downloadResult}
@@ -293,7 +295,7 @@ export default function SynthIDRemoverPage() {
                     </div>
                     <div className="text-center">
                       <p className="font-medium mb-1 text-[var(--text-primary)]">
-                        {status === "uploading" ? "Uploading…" : "Removing watermark…"}
+                        {status === "uploading" ? "Uploading…" : "Removing SynthID…"}
                       </p>
                       <p className="text-sm text-[var(--text-muted)]">
                         {status === "processing" ? "AI is cleaning the image — usually 30–90 s" : "Sending to worker…"}
@@ -360,7 +362,7 @@ export default function SynthIDRemoverPage() {
             ) : status === "done" ? (
               <><Sparkles className="w-4 h-4" />Done!</>
             ) : (
-              <><ShieldOff className="w-4 h-4" />Remove Watermark — {creditCost} <Coins className="w-3 h-3" /></>
+              <><ShieldOff className="w-4 h-4" />Remove SynthID — {creditCost} <Coins className="w-3 h-3" /></>
             )}
           </motion.button>
         </motion.div>

@@ -54,7 +54,10 @@ export const MODELCLONE_X_CREDITS = {
   withModel_2: 25,
 };
 
-export const MODELCLONE_X_OUTPUT_NODE = "369";
+/** MCX 5.2 nolora SaveImage node id (lora graph uses `43`; legacy soul-x txt2img used `369`). */
+export const MODELCLONE_X_OUTPUT_NODE = "42";
+/** Try these SaveImage node ids when parsing txt2img RunPod output (order matters). */
+const MODELCLONE_X_TXT2IMG_OUTPUT_NODE_IDS = ["42", "43", "17", "289", "369"];
 /** ModelClone-X img2img (new mcx_i2i graph) SaveImage node id. */
 const MODELCLONE_X_IMG2IMG_OUTPUT_NODE = "368";
 /** Legacy MCX img2img SaveImage node id from older exports. */
@@ -67,6 +70,15 @@ const ASPECT_RATIO_MAP = {
   "16:9": "16:9 landscape 1344x768",
   "3:4": "3:4 portrait 896x1152",
   "4:3": "4:3 landscape 1152x896",
+};
+
+/** Empty latent size for MCX 5.2 AuraFlow merge graph — 2× the former 1× base (1:1 = 2048²). */
+const MCX_T2I_RESOLUTION = {
+  "1:1": { width: 2048, height: 2048 },
+  "9:16": { width: 1536, height: 2688 },
+  "16:9": { width: 2688, height: 1536 },
+  "3:4": { width: 1792, height: 2304 },
+  "4:3": { width: 2304, height: 1792 },
 };
 
 function loadWorkflow(variant) {
@@ -96,8 +108,6 @@ export function buildModelCloneXPayload({
   loraUrl = null,
   loraStrength = 0.8,
   triggerWord = null,
-  steps = null,
-  cfg = 2,
 }) {
   const variant = loraUrl ? "lora" : "nolora";
   const wf = loadWorkflow(variant);
@@ -107,59 +117,90 @@ export function buildModelCloneXPayload({
     delete wf[nodeId];
   }
 
-  if (wf["57"]) {
-    wf["57"].inputs.seed = Math.floor(Math.random() * 2 ** 32);
-  }
-
   let finalPrompt = (prompt || "").trim();
   if (triggerWord && finalPrompt && !finalPrompt.toLowerCase().includes(triggerWord.toLowerCase())) {
     finalPrompt = `${triggerWord}, ${finalPrompt}`;
   }
 
-  const negativeFromNode41 =
-    typeof wf["41"]?.inputs?.string === "string"
-      ? wf["41"].inputs.string
-      : "";
-  if (wf["2"]?.inputs) {
-    wf["2"].inputs.text = finalPrompt;
-  }
-  if (wf["1"]?.inputs && typeof wf["1"].inputs.text !== "string") {
-    wf["1"].inputs.text = negativeFromNode41;
-  }
-  delete wf["41"];
-  delete wf["56"];
+  const isLegacySoulXT2I = Boolean(wf["276"]);
 
-  const arValue = ASPECT_RATIO_MAP[aspectRatio] || ASPECT_RATIO_MAP["9:16"];
-  if (wf["50"]) {
-    wf["50"].inputs.aspect_ratio = arValue;
-  }
-
-  if (wf["276"]?.inputs) {
-    const defaultStepsForMode = loraUrl ? 50 : 20;
-    const parsedSteps = Number(steps);
-    const safeSteps = Math.max(
-      1,
-      Math.min(100, Math.round(Number.isFinite(parsedSteps) ? parsedSteps : defaultStepsForMode)),
-    );
-    wf["276"].inputs.steps = safeSteps;
-    if (cfg != null) {
-      const parsedCfg = Number(cfg);
-      const safeCfg = Math.max(0, Math.min(6, Number.isFinite(parsedCfg) ? parsedCfg : 2));
-      wf["276"].inputs.cfg = safeCfg;
+  if (isLegacySoulXT2I) {
+    if (wf["57"]) {
+      wf["57"].inputs.seed = Math.floor(Math.random() * 2 ** 32);
     }
+
+    const negativeFromNode41 =
+      typeof wf["41"]?.inputs?.string === "string"
+        ? wf["41"].inputs.string
+        : "";
+    if (wf["2"]?.inputs) {
+      wf["2"].inputs.text = finalPrompt;
+    }
+    if (wf["1"]?.inputs && typeof wf["1"].inputs.text !== "string") {
+      wf["1"].inputs.text = negativeFromNode41;
+    }
+    delete wf["41"];
+    delete wf["56"];
+
+    const arValue = ASPECT_RATIO_MAP[aspectRatio] || ASPECT_RATIO_MAP["9:16"];
+    if (wf["50"]) {
+      wf["50"].inputs.aspect_ratio = arValue;
+    }
+
+    if (variant === "lora" && wf["374"]) {
+      const strength = Math.min(1, Math.max(0, Number(loraStrength) || 0.8));
+      wf["374"].inputs.lora_1_url = loraUrl;
+      wf["374"].inputs.lora_1_strength = strength;
+      wf["374"].inputs.lora_1_model_strength = strength;
+      wf["374"].inputs.lora_1_clip_strength = strength;
+    }
+
+    return {
+      prompt: wf,
+      output_node_id: "369",
+      output_type: "image",
+    };
   }
 
-  if (variant === "lora" && wf["374"]) {
+  // MCX 5.2 T2I: dual UNET merge + AuraFlow + two KSamplerAdvanced + final KSampler (optional easy loraStackApply).
+  const emptyLatentId = variant === "lora" ? "30" : "23";
+  const mainEncodeId = variant === "lora" ? "33" : "25";
+  const ksamplerFinalId = variant === "lora" ? "45" : "34";
+  const adv1Id = variant === "lora" ? "34" : "26";
+  const adv2Id = variant === "lora" ? "41" : "32";
+  const outputNodeId = variant === "lora" ? "43" : "42";
+
+  const res = MCX_T2I_RESOLUTION[aspectRatio] || MCX_T2I_RESOLUTION["9:16"];
+  if (wf[emptyLatentId]?.inputs) {
+    wf[emptyLatentId].inputs.width = res.width;
+    wf[emptyLatentId].inputs.height = res.height;
+    wf[emptyLatentId].inputs.batch_size = wf[emptyLatentId].inputs.batch_size ?? 1;
+  }
+
+  if (wf[mainEncodeId]?.inputs) {
+    wf[mainEncodeId].inputs.text = finalPrompt;
+  }
+
+  const baseSeed = Math.floor(Math.random() * 2 ** 32);
+  if (wf[adv1Id]?.inputs) wf[adv1Id].inputs.noise_seed = baseSeed;
+  if (wf[adv2Id]?.inputs) wf[adv2Id].inputs.noise_seed = baseSeed;
+  if (wf[ksamplerFinalId]?.inputs) {
+    wf[ksamplerFinalId].inputs.seed = baseSeed;
+  }
+
+  if (variant === "lora" && wf["5"]?.inputs && loraUrl) {
     const strength = Math.min(1, Math.max(0, Number(loraStrength) || 0.8));
-    wf["374"].inputs.lora_1_url = loraUrl;
-    wf["374"].inputs.lora_1_strength = strength;
-    wf["374"].inputs.lora_1_model_strength = strength;
-    wf["374"].inputs.lora_1_clip_strength = strength;
+    wf["5"].inputs.mode = "simple";
+    wf["5"].inputs.num_loras = 1;
+    wf["5"].inputs.lora_1_url = loraUrl;
+    wf["5"].inputs.lora_1_strength = strength;
+    wf["5"].inputs.lora_1_model_strength = strength;
+    wf["5"].inputs.lora_1_clip_strength = strength;
   }
 
   return {
     prompt: wf,
-    output_node_id: MODELCLONE_X_OUTPUT_NODE,
+    output_node_id: outputNodeId,
     output_type: "image",
   };
 }
@@ -467,14 +508,15 @@ export function extractModelCloneXImages(runpodOutput) {
   // under { outputs: { "<nodeId>": { images: [...] } } }.
   const nodeOutputs = out.outputs;
   if (nodeOutputs && typeof nodeOutputs === "object") {
-    const preferred = String(MODELCLONE_X_OUTPUT_NODE);
+    const txt2imgPreferred = MODELCLONE_X_TXT2IMG_OUTPUT_NODE_IDS.map(String);
     const i2i = String(MODELCLONE_X_IMG2IMG_OUTPUT_NODE);
     const i2iLegacy = String(MODELCLONE_X_IMG2IMG_OUTPUT_NODE_LEGACY);
+    const preferredSet = new Set([...txt2imgPreferred, i2i, i2iLegacy]);
     const orderedNodeIds = [
-      preferred,
+      ...txt2imgPreferred,
       i2i,
       i2iLegacy,
-      ...Object.keys(nodeOutputs).filter((k) => k !== preferred && k !== i2i && k !== i2iLegacy),
+      ...Object.keys(nodeOutputs).filter((k) => !preferredSet.has(k)),
     ];
     for (const nodeId of orderedNodeIds) {
       const nodeImages = nodeOutputs?.[nodeId]?.images;

@@ -54,6 +54,7 @@ router.get("/", (req, res) => {
       "Stripe calls these URLs on payment events. NEW handles all new charges; legacy handles grandfathered subscription rebills/cancels until they expire.",
     eventsUsed: [
       "invoice.payment_succeeded",
+      "invoice.payment_failed",
       "checkout.session.completed",
       "payment_intent.succeeded",
       "customer.subscription.deleted",
@@ -91,6 +92,35 @@ function userWhereForCustomer(account, stripeCustomerId) {
     };
   }
   return { stripeCustomerId };
+}
+
+function buildSubscriptionCancelledUpdate(user, accountName, subscriptionId) {
+  const isLegacyOnlyEvent =
+    accountName === "legacy" &&
+    user.legacyStripeSubscriptionId === subscriptionId &&
+    user.stripeSubscriptionId &&
+    user.stripeSubscriptionId !== subscriptionId;
+
+  return {
+    isLegacyOnlyEvent,
+    data: isLegacyOnlyEvent
+      ? {
+          legacyStripeSubscriptionId: null,
+        }
+      : {
+          subscriptionStatus: "cancelled",
+          stripeSubscriptionId: null,
+          subscriptionTier: null,
+          subscriptionBillingCycle: null,
+          subscriptionCredits: 0,
+          creditsExpireAt: null,
+          subscriptionCancelledAt: new Date(),
+          legacyStripeSubscriptionId:
+            user.legacyStripeSubscriptionId === subscriptionId
+              ? null
+              : user.legacyStripeSubscriptionId,
+        },
+  };
 }
 
 async function finalizeSpecialOfferModelReady(modelId, updates = {}) {
@@ -1366,6 +1396,91 @@ function buildWebhookHandler(account) {
           break;
         }
 
+        case "invoice.payment_failed": {
+          const invoice = event.data.object;
+          const subscriptionIdRaw = invoice.subscription;
+          const subscriptionId =
+            typeof subscriptionIdRaw === "string"
+              ? subscriptionIdRaw
+              : subscriptionIdRaw?.id ?? null;
+
+          if (!subscriptionId) {
+            console.warn("⚠️ invoice.payment_failed: missing subscription ID on invoice", invoice.id);
+            break;
+          }
+
+          const stripeCustomerId =
+            typeof invoice.customer === "string" ? invoice.customer : invoice.customer?.id || null;
+
+          let user = await prisma.user.findFirst({
+            where: userWhereForSubscription(accountName, subscriptionId),
+          });
+
+          // Fallbacks for first-cycle failures where local subscription links may not be populated yet.
+          if (!user && stripeCustomerId) {
+            user = await prisma.user.findFirst({
+              where: userWhereForCustomer(accountName, stripeCustomerId),
+            });
+          }
+          if (!user) {
+            try {
+              const subObj = await stripe.subscriptions.retrieve(subscriptionId);
+              const metadataUserId = subObj.metadata?.userId || null;
+              if (metadataUserId) {
+                user = await prisma.user.findUnique({ where: { id: metadataUserId } });
+              }
+            } catch (subLookupErr) {
+              console.warn("⚠️ invoice.payment_failed: could not resolve user from subscription metadata:", subLookupErr.message);
+            }
+          }
+
+          // Critical behavior: first rebill failure should immediately end the subscription to stop retries.
+          try {
+            const subSnapshot = await stripe.subscriptions.retrieve(subscriptionId);
+            if (subSnapshot.status !== "canceled") {
+              await stripe.subscriptions.cancel(subscriptionId);
+              console.warn(
+                `❌ invoice.payment_failed: canceled subscription ${subscriptionId} immediately after failed payment (invoice ${invoice.id})`,
+              );
+            } else {
+              console.log(`ℹ️ invoice.payment_failed: subscription ${subscriptionId} already canceled`);
+            }
+          } catch (cancelErr) {
+            console.error(
+              `❌ invoice.payment_failed: failed to cancel subscription ${subscriptionId}:`,
+              cancelErr.message,
+            );
+          }
+
+          if (user) {
+            const cancellationUpdate = buildSubscriptionCancelledUpdate(
+              user,
+              accountName,
+              subscriptionId,
+            );
+
+            await prisma.user.update({
+              where: { id: user.id },
+              data: cancellationUpdate.data,
+            });
+
+            if (cancellationUpdate.isLegacyOnlyEvent) {
+              console.log(
+                `🧹 Legacy subscription ${subscriptionId} payment failed — cleared legacy link for user ${user.id}; NEW subscription stays untouched`,
+              );
+            } else {
+              console.warn(
+                `⚠️ invoice.payment_failed: user ${user.id} subscription set to cancelled and subscription credits cleared`,
+              );
+            }
+          } else {
+            console.warn(
+              `⚠️ invoice.payment_failed: could not find local user for subscription ${subscriptionId} (invoice ${invoice.id})`,
+            );
+          }
+          break;
+        }
+
         case "customer.subscription.deleted": {
           const subscription = event.data.object;
           const stripeCustomerId =
@@ -1439,9 +1554,9 @@ function buildWebhookHandler(account) {
             typeof subscription.customer === "string"
               ? subscription.customer
               : subscription.customer?.id || null;
-          const activeStatuses = new Set(["active", "trialing", "past_due"]);
+          const activeStatuses = new Set(["active", "trialing"]);
           // Do not treat `paused` (e.g. pause collection) like cancellation — wiping credits there was incorrect.
-          const inactiveStatuses = new Set(["canceled", "unpaid", "incomplete_expired"]);
+          const inactiveStatuses = new Set(["canceled", "unpaid", "incomplete_expired", "past_due"]);
 
           if (activeStatuses.has(subscription.status)) {
             let user = await prisma.user.findFirst({
@@ -1480,7 +1595,7 @@ function buildWebhookHandler(account) {
                     stripeSubscriptionId: subscription.id,
                     subscriptionTier: subscription.metadata?.tierId || user.subscriptionTier,
                     subscriptionBillingCycle: billingCycle,
-                    subscriptionStatus: subscription.status === "past_due" ? "active" : subscription.status,
+                    subscriptionStatus: subscription.status,
                   },
                 });
 
@@ -1514,32 +1629,18 @@ function buildWebhookHandler(account) {
           }
 
           if (user) {
-            const isLegacyOnlyEvent =
-              accountName === "legacy" &&
-              user.legacyStripeSubscriptionId === subscription.id &&
-              user.stripeSubscriptionId &&
-              user.stripeSubscriptionId !== subscription.id;
+            const cancellationUpdate = buildSubscriptionCancelledUpdate(
+              user,
+              accountName,
+              subscription.id,
+            );
 
             await prisma.user.update({
               where: { id: user.id },
-              data: isLegacyOnlyEvent
-                ? { legacyStripeSubscriptionId: null }
-                : {
-                    subscriptionStatus: "cancelled",
-                    stripeSubscriptionId: null,
-                    subscriptionTier: null,
-                    subscriptionBillingCycle: null,
-                    subscriptionCredits: 0,
-                    creditsExpireAt: null,
-                    subscriptionCancelledAt: new Date(),
-                    legacyStripeSubscriptionId:
-                      user.legacyStripeSubscriptionId === subscription.id
-                        ? null
-                        : user.legacyStripeSubscriptionId,
-                  },
+              data: cancellationUpdate.data,
             });
 
-            if (isLegacyOnlyEvent) {
+            if (cancellationUpdate.isLegacyOnlyEvent) {
               console.log(
                 `🧹 Legacy subscription ${subscription.id} (${subscription.status}) cleared — user ${user.id} keeps active NEW subscription`,
               );

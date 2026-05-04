@@ -49,8 +49,65 @@ download_if_missing() {
     fi
 }
 
+# Civitai download with token-from-env. civitai.red 404s — use civitai.com.
+# Token comes from CIVITAI_API_TOKEN (RunPod env). Without it, this skips
+# silently so the worker still boots without these optional NSFW assets.
+download_civitai() {
+    local url="$1"        # full civitai.com /api/download/models/<id>?... URL (no token)
+    local dest="$2"
+    local name="$(basename "$dest")"
+
+    if [ -f "$dest" ]; then
+        local sz=$(stat -c%s "$dest" 2>/dev/null || echo 0)
+        if [ "$sz" -gt 1000000 ]; then
+            echo "  [OK] Already exists: $name ($(du -h "$dest" | cut -f1))"
+            return 0
+        fi
+        echo "  [FIX] Replacing corrupt/empty $name (${sz} bytes)..."
+        rm -f "$dest"
+    fi
+
+    if [ -z "${CIVITAI_API_TOKEN:-}" ]; then
+        echo "  [SKIP] $name — CIVITAI_API_TOKEN not set in worker env."
+        return 0
+    fi
+
+    echo "  [DL] Civitai: $name ..."
+    mkdir -p "$(dirname "$dest")"
+    # -c          — resume partial downloads on retry
+    # --max-redirect=50 — civitai redirects to a presigned R2/B2 URL
+    # --tries=3   — transient 502s from civitai are common
+    # Authorization header is preferred over inline ?token= so the secret
+    # never lands in process listings or proxy logs.
+    if wget -q --show-progress \
+        -c \
+        --max-redirect=50 \
+        --tries=3 \
+        --user-agent="ModelClone-Worker/1.0" \
+        --header="Authorization: Bearer ${CIVITAI_API_TOKEN}" \
+        -O "${dest}.tmp" \
+        "$url" 2>&1; then
+        mv "${dest}.tmp" "$dest"
+        echo "  [OK] Downloaded: $name ($(du -h "$dest" | cut -f1))"
+    else
+        echo "  [!!] FAILED Civitai download: $name (will retry next boot)"
+        rm -f "${dest}.tmp"
+    fi
+}
+
 setup_models() {
     local target_dir="$1"
+
+    # RunPod S3-backed network volumes can persist symlink INODEs as tiny placeholder objects.
+    # Those land in checkpoints/ with the same basename as real UNETs and Comfy may load them
+    # → safetensors shape errors. Set SKIP_CHECKPOINT_WEIGHT_SYMLINKS=1 on those endpoints.
+    link_ckpt_weight() {
+        if [ "${SKIP_CHECKPOINT_WEIGHT_SYMLINKS:-0}" = "1" ]; then
+            echo "  [SKIP] checkpoints/ symlink (SKIP_CHECKPOINT_WEIGHT_SYMLINKS=1): $2"
+            return 0
+        fi
+        ln -sfn "$1" "$2"
+    }
 
     mkdir -p "${target_dir}/checkpoints"
     mkdir -p "${target_dir}/clip"
@@ -59,17 +116,28 @@ setup_models() {
     mkdir -p "${target_dir}/loras"
     mkdir -p "${target_dir}/diffusion_models"
     mkdir -p "${target_dir}/model_patches"
+    mkdir -p "${target_dir}/depthanything3"
     mkdir -p "${target_dir}/depthanything"
+    if [ -f "${target_dir}/depthanything/da3_base.safetensors" ] && [ ! -f "${target_dir}/depthanything3/da3_base.safetensors" ]; then
+        echo "  [MIGRATE] depthanything/da3_base.safetensors -> depthanything3/ (DepthAnything V3 expects depthanything3/)"
+        mv "${target_dir}/depthanything/da3_base.safetensors" "${target_dir}/depthanything3/da3_base.safetensors"
+    fi
+    if [ -f "${target_dir}/depthanything/model.safetensors" ] && [ ! -f "${target_dir}/depthanything3/da3_base.safetensors" ]; then
+        echo "  [MIGRATE] depthanything/model.safetensors -> depthanything3/da3_base.safetensors"
+        mv "${target_dir}/depthanything/model.safetensors" "${target_dir}/depthanything3/da3_base.safetensors"
+    fi
     mkdir -p "${target_dir}/unet"
+    mkdir -p "${target_dir}/ultralytics/bbox"
+    mkdir -p "${target_dir}/sams"
 
     echo ""
-    echo "--- [1/7] VAE: ae.safetensors (335MB) ---"
+    echo "--- [1/9] VAE: ae.safetensors (335MB) ---"
     download_if_missing \
         "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors" \
         "${target_dir}/vae/ae.safetensors"
 
     echo ""
-    echo "--- [2/7] Text encoder: qwen_3_4b.safetensors (8GB) ---"
+    echo "--- [2/9] Text encoder: qwen_3_4b.safetensors (8GB) ---"
     download_if_missing \
         "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/text_encoders/qwen_3_4b.safetensors" \
         "${target_dir}/text_encoders/qwen_3_4b.safetensors"
@@ -78,22 +146,22 @@ setup_models() {
             "${target_dir}/clip/qwen_3_4b.safetensors"
 
     echo ""
-    echo "--- [3/7] Diffusion model: z_image_turbo_bf16.safetensors (~12.3GB) ---"
+    echo "--- [3/9] Diffusion model: z_image_turbo_bf16.safetensors (~12.3GB) ---"
     download_if_missing \
         "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/diffusion_models/z_image_turbo_bf16.safetensors" \
         "${target_dir}/diffusion_models/z_image_turbo_bf16.safetensors"
     # Also expose as a classic checkpoint for CheckpointLoaderSimple workflows.
-    ln -sfn "${target_dir}/diffusion_models/z_image_turbo_bf16.safetensors" \
-            "${target_dir}/checkpoints/z_image_turbo_bf16.safetensors"
+    link_ckpt_weight "${target_dir}/diffusion_models/z_image_turbo_bf16.safetensors" \
+        "${target_dir}/checkpoints/z_image_turbo_bf16.safetensors"
 
     echo ""
-    echo "--- [4/7] ControlNet patch: Z-Image-Turbo-Fun-Controlnet-Union (~3.1GB) ---"
+    echo "--- [4/9] ControlNet patch: Z-Image-Turbo-Fun-Controlnet-Union (~3.1GB) ---"
     download_if_missing \
         "https://huggingface.co/alibaba-pai/Z-Image-Turbo-Fun-Controlnet-Union/resolve/main/Z-Image-Turbo-Fun-Controlnet-Union.safetensors" \
         "${target_dir}/model_patches/Z-Image-Turbo-Fun-Controlnet-Union.safetensors"
 
     echo ""
-    echo "--- [5/7] UNet: zImageTurboNSFW_62BF16.safetensors (network volume / S3) ---"
+    echo "--- [5/9] UNet: zImageTurboNSFW_62BF16.safetensors (network volume / S3) ---"
     echo "  (No public HuggingFace auto-download for this file — place it under unet/ on the volume.)"
     if [ ! -f "${target_dir}/unet/zImageTurboNSFW_62BF16.safetensors" ]; then
         echo ""
@@ -112,22 +180,22 @@ setup_models() {
 
     # Symlink UNet into checkpoints/ so CheckpointLoaderSimple (refiner) finds the same file
     if [ -f "${target_dir}/unet/zImageTurboNSFW_62BF16.safetensors" ]; then
-        ln -sf "${target_dir}/unet/zImageTurboNSFW_62BF16.safetensors" \
-               "${target_dir}/checkpoints/zImageTurboNSFW_62BF16.safetensors"
+        link_ckpt_weight "${target_dir}/unet/zImageTurboNSFW_62BF16.safetensors" \
+            "${target_dir}/checkpoints/zImageTurboNSFW_62BF16.safetensors"
         echo "  [OK] Symlinked UNet into checkpoints/"
     fi
 
     echo ""
-    echo "--- [6/7] Upscaler: 4xFaceUpDAT.pth ---"
+    echo "--- [6/9] Upscaler: 4xFaceUpDAT.pth ---"
     mkdir -p "${target_dir}/upscale_models"
     download_if_missing \
         "https://huggingface.co/Acly/Upscaler/resolve/main/4xFaceUpDAT.pth" \
         "${target_dir}/upscale_models/4xFaceUpDAT.pth"
 
     echo ""
-    echo "--- [7/7] DepthAnythingV3 cache: da3_base.safetensors (~1.1GB) ---"
-    if [ ! -f "${target_dir}/depthanything/da3_base.safetensors" ]; then
-        TARGET_DEPTH_DIR="${target_dir}/depthanything" python3 - <<'PYEOF'
+    echo "--- [7/9] DepthAnythingV3 cache: da3_base.safetensors (~1.1GB) ---"
+    if [ ! -f "${target_dir}/depthanything3/da3_base.safetensors" ]; then
+        TARGET_DEPTH_DIR="${target_dir}/depthanything3" python3 - <<'PYEOF'
 import os
 try:
     from huggingface_hub import hf_hub_download
@@ -136,12 +204,20 @@ except Exception:
 
 depth_dir = os.environ["TARGET_DEPTH_DIR"]
 os.makedirs(depth_dir, exist_ok=True)
-hf_hub_download(
-    repo_id="depth-anything/DA3-BASE",
-    filename="da3_base.safetensors",
-    local_dir=depth_dir,
-    local_dir_use_symlinks=False,
-)
+repo_id = "depth-anything/DA3-BASE"
+target_name = "da3_base.safetensors"
+hf_name = "model.safetensors"
+target_path = os.path.join(depth_dir, target_name)
+if not os.path.isfile(target_path):
+    hf_hub_download(
+        repo_id=repo_id,
+        filename=hf_name,
+        local_dir=depth_dir,
+        local_dir_use_symlinks=False,
+    )
+    hf_default = os.path.join(depth_dir, hf_name)
+    if os.path.isfile(hf_default) and not os.path.isfile(target_path):
+        os.rename(hf_default, target_path)
 print("DepthAnythingV3 cache ready.")
 PYEOF
         if [ $? -eq 0 ]; then
@@ -152,6 +228,63 @@ PYEOF
     else
         echo "  [OK] Already exists: da3_base.safetensors"
     fi
+
+    echo ""
+    echo "--- [8/9] zImageTurboNSFW_43BF16AIO.safetensors (diffusion_models, ~6GB) ---"
+    # Prefer a direct HTTPS mirror when set — no Civitai token.
+    # Use only if this URL is the same artifact as Civitai model 2682644 (e.g. your mirror or presigned copy).
+    #   ZIT_43BF16_MIRROR_URL="https://..."
+    # Otherwise Civitai model 2682644 (requires CIVITAI_API_TOKEN on the worker).
+    Z43="${target_dir}/diffusion_models/zImageTurboNSFW_43BF16AIO.safetensors"
+    if [ -n "${ZIT_43BF16_MIRROR_URL:-}" ]; then
+        echo "  [INFO] ZIT_43BF16_MIRROR_URL set — downloading without Civitai."
+        download_if_missing "${ZIT_43BF16_MIRROR_URL}" "${Z43}"
+    else
+        download_civitai \
+            "https://civitai.com/api/download/models/2682644?type=Model&format=SafeTensor&size=pruned&fp=fp16" \
+            "${Z43}"
+    fi
+    # Mirror into checkpoints/ so CheckpointLoaderSimple workflows resolve it.
+    if [ -f "${Z43}" ]; then
+        link_ckpt_weight "${Z43}" \
+            "${target_dir}/checkpoints/zImageTurboNSFW_43BF16AIO.safetensors"
+    fi
+
+    echo ""
+    echo "--- [9/9] Civitai: pornworksRealPorn_Illustrious_v4_04.safetensors (checkpoints, ~6GB) ---"
+    # Civitai model 2114370, Illustrious base, full FP16 build.
+    download_civitai \
+        "https://civitai.com/api/download/models/2114370?type=Model&format=SafeTensor&size=full&fp=fp16" \
+        "${target_dir}/checkpoints/pornworksRealPorn_Illustrious_v4_04.safetensors"
+
+    echo ""
+    echo "--- [Extra] Impact FaceDetailer: face_yolov8m.pt (ultralytics bbox) ---"
+    download_if_missing \
+        "https://huggingface.co/Bingsu/adetailer/resolve/main/face_yolov8m.pt" \
+        "${target_dir}/ultralytics/bbox/face_yolov8m.pt"
+
+    echo ""
+    echo "--- [Extra] Impact SAMLoader: sam_vit_b_01ec64.pth (~375MB) ---"
+    download_if_missing \
+        "https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth" \
+        "${target_dir}/sams/sam_vit_b_01ec64.pth"
+
+    # Object-backed volumes sometimes persist symlinks as tiny stub files in checkpoints/
+    # with the same basename as real UNETs → Comfy loads garbage and safetensors crashes.
+    for stub in \
+        zImageTurboNSFW_62BF16.safetensors \
+        z_image_turbo_bf16.safetensors \
+        zImageTurboNSFW_43BF16AIO.safetensors \
+        zImageTurboNSFW_20BF16AIO.safetensors; do
+        p="${target_dir}/checkpoints/${stub}"
+        if [ -f "$p" ]; then
+            sz=$(stat -c%s "$p" 2>/dev/null || echo 0)
+            if [ "$sz" -lt 1048576 ]; then
+                echo "  [FIX] Removing checkpoints stub ${stub} (${sz} bytes; real weights live in unet/ or diffusion_models/)"
+                rm -f "$p"
+            fi
+        fi
+    done
 }
 
 # -----------------------------------------------
@@ -167,7 +300,7 @@ if [ -d "$VOLUME_DIR" ]; then
 
     echo ""
     echo ">>> Symlinking network volume models into ComfyUI..."
-    for subdir in checkpoints clip loras vae unet diffusion_models text_encoders model_patches depthanything upscale_models; do
+    for subdir in checkpoints clip loras vae unet diffusion_models text_encoders model_patches depthanything3 upscale_models ultralytics sams; do
         mkdir -p "${VOLUME_MODELS}/${subdir}"
         rm -rf "${MODELS_DIR}/${subdir}"
         ln -sfn "${VOLUME_MODELS}/${subdir}" "${MODELS_DIR}/${subdir}"
@@ -256,10 +389,13 @@ if [ -d "${DEPTHANYTHING_DIR}" ]; then
 else
     echo "  [!!] ComfyUI-DepthAnythingV3 missing — installing..."
     git clone --depth 1 "https://github.com/PozzettiAndrea/ComfyUI-DepthAnythingV3.git" "${DEPTHANYTHING_DIR}"
-    if [ -f "${DEPTHANYTHING_DIR}/requirements.txt" ]; then
-        pip install -q --no-cache-dir -r "${DEPTHANYTHING_DIR}/requirements.txt" || true
-    fi
-    echo "  [OK] ComfyUI-DepthAnythingV3 installed!"
+fi
+# comfy-env must be on Comfy's Python (3.10); plain `pip` on this image targets another interpreter.
+if [ -f "${DEPTHANYTHING_DIR}/requirements.txt" ]; then
+    python3 -m pip install -q --no-cache-dir -r "${DEPTHANYTHING_DIR}/requirements.txt" || true
+fi
+if [ -f "${DEPTHANYTHING_DIR}/install.py" ]; then
+    (cd "${DEPTHANYTHING_DIR}" && python3 install.py) || true
 fi
 
 echo ""
@@ -304,6 +440,34 @@ else
     echo "  [OK] comfy-image-saver installed!"
 fi
 
+echo ""
+echo "--- Checking crystian/ComfyUI-Crystools ---"
+CRYSTOOLS_DIR="${COMFYUI_DIR}/custom_nodes/ComfyUI-Crystools"
+if [ -d "${CRYSTOOLS_DIR}" ]; then
+    echo "  [OK] ComfyUI-Crystools already installed"
+else
+    echo "  [!!] ComfyUI-Crystools missing — installing..."
+    git clone --depth 1 "https://github.com/crystian/ComfyUI-Crystools.git" "${CRYSTOOLS_DIR}"
+    if [ -f "${CRYSTOOLS_DIR}/requirements.txt" ]; then
+        pip install -q --no-cache-dir -r "${CRYSTOOLS_DIR}/requirements.txt" || true
+    fi
+    echo "  [OK] ComfyUI-Crystools installed!"
+fi
+
+echo ""
+echo "--- Checking WASasquatch/was-node-suite-comfyui ---"
+WAS_SUITE_DIR="${COMFYUI_DIR}/custom_nodes/was-node-suite-comfyui"
+if [ -d "${WAS_SUITE_DIR}" ]; then
+    echo "  [OK] was-node-suite-comfyui already installed"
+else
+    echo "  [!!] was-node-suite-comfyui missing — installing..."
+    git clone --depth 1 "https://github.com/WASasquatch/was-node-suite-comfyui.git" "${WAS_SUITE_DIR}"
+    if [ -f "${WAS_SUITE_DIR}/requirements.txt" ]; then
+        pip install -q --no-cache-dir -r "${WAS_SUITE_DIR}/requirements.txt" || true
+    fi
+    echo "  [OK] was-node-suite-comfyui installed!"
+fi
+
 # Remove old node packages if they exist (superseded)
 rm -rf "${COMFYUI_DIR}/custom_nodes/ComfyUI-EasyCivitai-XTNodes" 2>/dev/null || true
 
@@ -319,6 +483,94 @@ else
         pip install -q --no-cache-dir -r "${ULTIMATESD_DIR}/requirements.txt" || true
     fi
     echo "  [OK] ComfyUI_UltimateSDUpscale installed!"
+fi
+
+echo ""
+echo "--- Checking ltdrdata/ComfyUI-Impact-Pack ---"
+IMPACT_PACK_DIR="${COMFYUI_DIR}/custom_nodes/ComfyUI-Impact-Pack"
+if [ -d "${IMPACT_PACK_DIR}" ]; then
+    echo "  [OK] ComfyUI-Impact-Pack already installed"
+else
+    echo "  [!!] ComfyUI-Impact-Pack missing — installing..."
+    git clone --depth 1 "https://github.com/ltdrdata/ComfyUI-Impact-Pack.git" "${IMPACT_PACK_DIR}"
+    if [ -f "${IMPACT_PACK_DIR}/requirements.txt" ]; then
+        pip install -q --no-cache-dir -r "${IMPACT_PACK_DIR}/requirements.txt" || true
+    fi
+    if [ -f "${IMPACT_PACK_DIR}/install.py" ]; then
+        ( cd "${IMPACT_PACK_DIR}" && python3 install.py ) || true
+    fi
+    echo "  [OK] ComfyUI-Impact-Pack installed!"
+fi
+
+echo ""
+echo "--- Checking ltdrdata/ComfyUI-Impact-Subpack ---"
+IMPACT_SUB_DIR="${COMFYUI_DIR}/custom_nodes/ComfyUI-Impact-Subpack"
+if [ -d "${IMPACT_SUB_DIR}" ]; then
+    echo "  [OK] ComfyUI-Impact-Subpack already installed"
+else
+    echo "  [!!] ComfyUI-Impact-Subpack missing — installing..."
+    git clone --depth 1 "https://github.com/ltdrdata/ComfyUI-Impact-Subpack.git" "${IMPACT_SUB_DIR}"
+    if [ -f "${IMPACT_SUB_DIR}/requirements.txt" ]; then
+        pip install -q --no-cache-dir -r "${IMPACT_SUB_DIR}/requirements.txt" || true
+    fi
+    if [ -f "${IMPACT_SUB_DIR}/install.py" ]; then
+        ( cd "${IMPACT_SUB_DIR}" && python3 install.py ) || true
+    fi
+    echo "  [OK] ComfyUI-Impact-Subpack installed!"
+fi
+
+echo ""
+echo "--- Checking cubiq/ComfyUI_essentials ---"
+ESSENTIALS_DIR="${COMFYUI_DIR}/custom_nodes/ComfyUI_essentials"
+if [ -d "${ESSENTIALS_DIR}" ]; then
+    echo "  [OK] ComfyUI_essentials already installed"
+else
+    echo "  [!!] ComfyUI_essentials missing — installing..."
+    git clone --depth 1 "https://github.com/cubiq/ComfyUI_essentials.git" "${ESSENTIALS_DIR}"
+    if [ -f "${ESSENTIALS_DIR}/requirements.txt" ]; then
+        pip install -q --no-cache-dir -r "${ESSENTIALS_DIR}/requirements.txt" || true
+    fi
+    echo "  [OK] ComfyUI_essentials installed!"
+fi
+
+echo ""
+echo "--- Checking CoiiChan/comfyui-every-person-seg-coii ---"
+EVERY_PERSON_DIR="${COMFYUI_DIR}/custom_nodes/comfyui-every-person-seg-coii"
+if [ -d "${EVERY_PERSON_DIR}" ]; then
+    echo "  [OK] comfyui-every-person-seg-coii already installed"
+else
+    echo "  [!!] comfyui-every-person-seg-coii missing — installing..."
+    git clone --depth 1 "https://github.com/CoiiChan/comfyui-every-person-seg-coii.git" "${EVERY_PERSON_DIR}"
+    if [ -f "${EVERY_PERSON_DIR}/requirements.txt" ]; then
+        pip install -q --no-cache-dir -r "${EVERY_PERSON_DIR}/requirements.txt" || true
+    fi
+    echo "  [OK] comfyui-every-person-seg-coii installed!"
+fi
+
+echo ""
+echo "--- Checking gateway/ComfyUI-Kie-API ---"
+KIE_DIR="${COMFYUI_DIR}/custom_nodes/ComfyUI-Kie-API"
+if [ -d "${KIE_DIR}" ]; then
+    echo "  [OK] ComfyUI-Kie-API already installed"
+else
+    echo "  [!!] ComfyUI-Kie-API missing — installing..."
+    git clone --depth 1 "https://github.com/gateway/ComfyUI-Kie-API.git" "${KIE_DIR}"
+    echo "  [OK] ComfyUI-Kie-API installed!"
+fi
+
+# Kie.ai API key for KIE_NanoBananaPro_Image (optional; omit if workflows skip KIE nodes)
+if [ -n "${KIE_API_KEY:-}" ] && [ -d "${KIE_DIR}" ]; then
+    mkdir -p "${KIE_DIR}/config"
+    printf '%s' "${KIE_API_KEY}" > "${KIE_DIR}/config/kie_key.txt"
+    chmod 600 "${KIE_DIR}/config/kie_key.txt" 2>/dev/null || true
+    echo ""
+    echo ">>> Wrote KIE API key to ComfyUI-Kie-API/config/kie_key.txt (from env KIE_API_KEY)"
+elif [ -n "${KIE_API_KEY:-}" ]; then
+    echo ""
+    echo ">>> [WARN] KIE_API_KEY set but ${KIE_DIR} is missing — install ComfyUI-Kie-API first"
+else
+    echo ""
+    echo ">>> [INFO] KIE_API_KEY unset — Kie.ai nodes require kie_key.txt for API calls"
 fi
 
 # Clean up old SeedVR2/JoyCaption nodes from previous builds
@@ -363,7 +615,7 @@ COMFYUI_PID=$!
 echo ">>> ComfyUI PID: ${COMFYUI_PID}"
 
 echo ">>> Waiting for ComfyUI to be ready..."
-MAX_WAIT=300
+MAX_WAIT=540
 WAITED=0
 while [ $WAITED -lt $MAX_WAIT ]; do
     if curl -s http://127.0.0.1:8188/system_stats > /dev/null 2>&1; then
@@ -415,6 +667,28 @@ if missing:
         print(f"    - {n}")
 else:
     print(">>> All required node types validated OK")
+
+mcx_extended = {
+    "FaceDetailer",
+    "SAMLoader",
+    "UltralyticsDetectorProvider",
+    "ImpactImageInfo",
+    "MaskPreview+",
+    "EveryPersonSegDetail",
+    "KIE_NanoBananaPro_Image",
+    "QwenImageDiffsynthControlnet",
+    "ModelPatchLoader",
+    "ImageScaleToTotalPixels",
+    "ResizeImageMaskNode",
+    "DepthAnything_V3",
+}
+mx_missing = sorted([n for n in mcx_extended if n not in data])
+if mx_missing:
+    print(">>> WARN: MCX / FaceDetailer / KIE workflow nodes missing:")
+    for n in mx_missing:
+        print(f"    - {n}")
+else:
+    print(">>> Extended MCX / Impact / KIE / DA3 node types OK")
 
 REQUIRED_UPSCALE = "4xFaceUpDAT.pth"
 

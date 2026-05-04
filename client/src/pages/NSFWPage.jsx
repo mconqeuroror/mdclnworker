@@ -103,6 +103,9 @@ const PREVIEW_BADGE_STYLE = {
 /** On by default. Set `VITE_NUDES_PACK_ENABLED=false` at build time to hide the nudes pack CTA. */
 const NUDES_PACK_UI_ENABLED = import.meta.env.VITE_NUDES_PACK_ENABLED !== "false";
 
+/** Full nudes-pack batch generation. Off unless `VITE_NUDES_PACK_AVAILABLE=true`. When off, the CTA opens a coming-soon dialog instead. */
+const NUDES_PACK_AVAILABLE = import.meta.env.VITE_NUDES_PACK_AVAILABLE === "true";
+
 /** Off by default. Set `VITE_NSFW_MOTION_STUDIO_ENABLED=true` to show Motion Control assets + copy in the Videos tab. */
 const NSFW_MOTION_STUDIO_ENABLED = import.meta.env.VITE_NSFW_MOTION_STUDIO_ENABLED === "true";
 
@@ -145,6 +148,8 @@ const NSFW_COPY = {
     sectionNegativePrompt: "Negative Prompt",
     sectionResolution: "Resolution",
     sectionQuantity: "Quantity",
+    workflowBeta: "Beta 2.0",
+    workflowBetaHint: "Dual-UNET + refine stack (experimental).",
     modeQuality: "Quality",
     modeSpeed: "Speed",
     modeCustom: "Custom",
@@ -244,6 +249,13 @@ const NSFW_COPY = {
     creditsPanelFaceSwap: "+ Face Swap",
     nudesPackCta: "Nudes pack",
     nudesPackCtaSub: `${NUDES_PACK_MAX_POSES} curated poses — one approval, same JSON prompt engine as Generate`,
+    nudesPackCtaSubComingSoon:
+      "Batch curated poses for your model — same prompt engine as Generate when this goes live.",
+    nudesPackComingSoonBadge: "Coming soon",
+    nudesPackComingSoonTitle: "Nudes pack — coming soon",
+    nudesPackComingSoonBody:
+      "Curated batch poses for your model are not available yet. We are finishing improvements; thank you for your patience.",
+    nudesPackComingSoonOk: "Got it",
     creditsPanelNsfwVideo: "NSFW Video",
     creditsPanelRetryFailed: "Retry Failed",
     yourVideos: "Your Videos",
@@ -380,6 +392,8 @@ const NSFW_COPY = {
     sectionNegativePrompt: "Негативный промпт",
     sectionResolution: "Разрешение",
     sectionQuantity: "Количество",
+    workflowBeta: "Бета 2.0",
+    workflowBetaHint: "Два UNET + доработка (экспериментально).",
     modeQuality: "Качество",
     modeSpeed: "Скорость",
     modeCustom: "Пользовательский",
@@ -479,6 +493,13 @@ const NSFW_COPY = {
     creditsPanelFaceSwap: "+ Замена лица",
     nudesPackCta: "Набор ню",
     nudesPackCtaSub: `${NUDES_PACK_MAX_POSES} поз — одно подтверждение, тот же JSON-движок промптов, что и в генерации`,
+    nudesPackCtaSubComingSoon:
+      "Пакет курируемых поз для вашей модели — тот же движок промптов, что и в генерации, после запуска.",
+    nudesPackComingSoonBadge: "Скоро",
+    nudesPackComingSoonTitle: "Набор ню — скоро",
+    nudesPackComingSoonBody:
+      "Пакет курируемых поз для вашей модели пока недоступен — мы дорабатываем функцию. Спасибо за терпение.",
+    nudesPackComingSoonOk: "Понятно",
     creditsPanelNsfwVideo: "NSFW видео",
     creditsPanelRetryFailed: "Повтор ошибки",
     yourVideos: "Ваши видео",
@@ -2868,6 +2889,62 @@ function NsfwUnlockModal({ isOpen, onClose, sidebarCollapsed = false }) {
   );
 }
 
+function NudesPackComingSoonModal({
+  isOpen,
+  onClose,
+  sidebarCollapsed = false,
+  title,
+  body,
+  okLabel,
+}) {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[60]">
+      <div
+        className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+        onClick={onClose}
+      />
+      <div
+        className={`fixed top-0 right-0 bottom-0 z-[60] overflow-y-auto p-4 left-0 ${
+          sidebarCollapsed ? "md:left-[80px]" : "md:left-[260px]"
+        }`}
+      >
+        <div className="relative min-h-full flex items-center justify-center">
+          <div
+            className="relative w-full max-w-md rounded-2xl panel-strong p-5 max-h-[calc(100dvh-48px)] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={onClose}
+              className="absolute top-3 right-3 sm:top-4 sm:right-4 text-gray-500 hover:text-white transition-colors z-10"
+              aria-label="Close"
+            >
+              <X className="w-6 h-6" />
+            </button>
+
+            <div className="text-center pt-1">
+              <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-rose-500/15 border border-rose-500/25 mb-4">
+                <Clock className="w-6 h-6 text-rose-400" />
+              </div>
+              <h3 className="text-xl font-bold text-white mb-2">{title}</h3>
+              <p className="text-sm text-slate-400 mb-6">{body}</p>
+              <button
+                type="button"
+                onClick={onClose}
+                className="w-full py-3 rounded-xl bg-white text-black text-sm font-semibold border border-white/30 hover:bg-white/90 transition-colors"
+              >
+                {okLabel}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ============================================
 // NSFW Model Selector - Searchable with shadcn/Phosphor
 // ============================================
@@ -4024,7 +4101,9 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
   const [sceneDescription, setSceneDescription] = useState("");
   const [generatedPrompt, setGeneratedPrompt] = useState("");
   const [isGeneratingNsfw, setIsGeneratingNsfw] = useState(false);
+  const [nsfwWorkflowBeta, setNsfwWorkflowBeta] = useState(false);
   const [nudesPackModalOpen, setNudesPackModalOpen] = useState(false);
+  const [nudesPackComingSoonOpen, setNudesPackComingSoonOpen] = useState(false);
   const [isSubmittingNudesPack, setIsSubmittingNudesPack] = useState(false);
   const [nudesPackPoses, setNudesPackPoses] = useState(NUDES_PACK_POSES);
   const [nudesPackPricing, setNudesPackPricing] = useState(null);
@@ -4091,7 +4170,7 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
   const [isGeneratingAiPrompt, setIsGeneratingAiPrompt] = useState(false);
 
   useEffect(() => {
-    if (!NUDES_PACK_UI_ENABLED) return;
+    if (!NUDES_PACK_UI_ENABLED || !NUDES_PACK_AVAILABLE) return;
     api.get("/nsfw/nudes-pack-poses")
       .then((r) => {
         const poses = Array.isArray(r.data?.poses) ? r.data.poses : [];
@@ -4985,6 +5064,7 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
         options: {
           quickFlow: nsfwGenerateMode === "simple",
           loraStrength: genConfig.loraStrength || null,
+          nsfwWorkflowBeta,
           ...(user?.role === "admin" && adminSamplerTest.enabled
             ? {
                 adminNsfwOverrides: {
@@ -5041,6 +5121,7 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
   };
 
   const handleNudesPackApprove = async (poseIds) => {
+    if (!NUDES_PACK_AVAILABLE) return;
     if (!selectedModel || !poseIds?.length) {
       toast.error(copy.toastSelectModelAndPose);
       return;
@@ -5273,7 +5354,7 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
           sidebarCollapsed={layoutSidebarNarrow}
         />
 
-        {NUDES_PACK_UI_ENABLED && (
+        {NUDES_PACK_UI_ENABLED && NUDES_PACK_AVAILABLE && (
           <NudesPackModal
             isOpen={nudesPackModalOpen}
             onClose={() => setNudesPackModalOpen(false)}
@@ -5282,6 +5363,17 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
             sidebarCollapsed={layoutSidebarNarrow}
             poses={nudesPackPoses}
             nudesPackPricing={nudesPackPricing}
+          />
+        )}
+
+        {NUDES_PACK_UI_ENABLED && !NUDES_PACK_AVAILABLE && (
+          <NudesPackComingSoonModal
+            isOpen={nudesPackComingSoonOpen}
+            onClose={() => setNudesPackComingSoonOpen(false)}
+            sidebarCollapsed={layoutSidebarNarrow}
+            title={copy.nudesPackComingSoonTitle}
+            body={copy.nudesPackComingSoonBody}
+            okLabel={copy.nudesPackComingSoonOk}
           />
         )}
 
@@ -5734,20 +5826,32 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
                 {NUDES_PACK_UI_ENABLED && isLoraReady && selectedModel && (
                   <div className="mb-5 p-3 rounded-xl border border-rose-500/20 bg-rose-500/[0.06] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="flex items-center gap-2 text-white font-medium text-sm">
+                      <div className="flex flex-wrap items-center gap-2 text-white font-medium text-sm">
                         <Layers className="w-4 h-4 text-rose-400 shrink-0" />
                         {copy.nudesPackCta}
-                        <span className="text-[10px] text-slate-500 font-normal">({nudesPackPoseCount} poses)</span>
+                        {!NUDES_PACK_AVAILABLE ? (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-white/10 border border-white/15 text-slate-300 font-normal">
+                            {copy.nudesPackComingSoonBadge}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-slate-500 font-normal">({nudesPackPoseCount} poses)</span>
+                        )}
                       </div>
-                      <p className="text-[11px] text-slate-500 mt-1">{copy.nudesPackCtaSub}</p>
+                      <p className="text-[11px] text-slate-500 mt-1">
+                        {NUDES_PACK_AVAILABLE ? copy.nudesPackCtaSub : copy.nudesPackCtaSubComingSoon}
+                      </p>
                     </div>
                     <button
                       type="button"
-                      onClick={() => setNudesPackModalOpen(true)}
+                      onClick={() =>
+                        NUDES_PACK_AVAILABLE
+                          ? setNudesPackModalOpen(true)
+                          : setNudesPackComingSoonOpen(true)
+                      }
                       className="shrink-0 px-4 py-2.5 rounded-xl bg-white text-black text-sm font-semibold border border-white/30 hover:bg-white/90 transition-colors"
                       data-testid="button-open-nudes-pack"
                     >
-                      {copy.nudesPackCta}
+                      {NUDES_PACK_AVAILABLE ? copy.nudesPackCta : copy.nudesPackComingSoonBadge}
                     </button>
                   </div>
                 )}
@@ -6392,6 +6496,23 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
                       </span>
                     </button>
                   </div>
+                </div>
+
+                {/* Beta 2.0 workflow (dual UNET + refine) */}
+                <div className="flex items-center gap-3 mb-4">
+                  <button
+                    type="button"
+                    data-testid="button-nsfw-workflow-beta"
+                    onClick={() => setNsfwWorkflowBeta((v) => !v)}
+                    className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all border ${
+                      nsfwWorkflowBeta
+                        ? "bg-violet-500/25 border-violet-400/50 text-violet-100"
+                        : "bg-slate-800/50 border-slate-600/40 text-slate-400 hover:bg-slate-700/50"
+                    }`}
+                  >
+                    {copy.workflowBeta}
+                  </button>
+                  <span className="text-xs text-slate-500 max-w-[220px] leading-snug">{copy.workflowBetaHint}</span>
                 </div>
 
                 {/* Generate Button */}

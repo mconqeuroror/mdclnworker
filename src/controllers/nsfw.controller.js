@@ -3734,8 +3734,8 @@ async function runNsfwPromptGenerationForModel(
 
     const defaultUserWrapper =
       mode === "nudes-pack"
-        ? "Compose the final ZiT 6.2 NSFW prompt as ONE plain-English string (not JSON, not a field dump). The structured JSON below is the source of truth for identity, pose, and scene: weave every non-empty part of `main_subject` into natural prose, respect `lora_triggers` / `trigger_word` as Rule 1, and if `nsfw_meta.is_partnered` is true, follow the partnered POV appendix in the system prompt.\n\n{{REQUEST_JSON}}\n\nExtra context (reference only; scene is already in the JSON above):\n{{REQUEST}}"
-        : "The structured JSON below is the full variable bundle. Assemble a single final Z-Image NSFW positive prompt per the system rules: plain text only, no JSON object in your reply, no backticks, no key:value lists.\n\n{{REQUEST_JSON}}\n\nReference only — raw user request (also embedded in the JSON as scene.user_request):\n{{REQUEST}}";
+        ? "Compose the final ZiT 6.2 NSFW prompt as ONE raw string (not JSON, not a field dump). Follow the system bilingual rule: triggers (Latin) → English identity from main_subject → Simplified Chinese scene body (slot order in system prompt) → last line exactly: Photorealistic, sharp focus, natural skin texture. The structured JSON is source of truth. If nsfw_meta.is_partnered, use the partnered appendix.\n\n{{REQUEST_JSON}}\n\nExtra context (reference only):\n{{REQUEST}}"
+        : "The structured JSON below is the full variable bundle. Assemble one Z-Image NSFW positive string per the system rules: triggers → English identity → Simplified Chinese scene → final English quality line exactly as specified. Plain text only, no JSON in your reply, no backticks.\n\n{{REQUEST_JSON}}\n\nReference only — raw user request:\n{{REQUEST}}";
     const wrapperTemplate =
       mode === "nudes-pack"
         ? await getPromptTemplateValue("nudesPackPromptGeneratorUserWrapper", defaultUserWrapper)

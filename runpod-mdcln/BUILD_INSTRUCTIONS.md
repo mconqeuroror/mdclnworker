@@ -18,11 +18,28 @@ Repo: [mconqeuroror/mdclnworker](https://github.com/mconqeuroror/mdclnworker)
 | `diffusion_models/z_image_turbo_bf16.safetensors` | `Comfy-Org/z_image_turbo` | ~12.3GB | Z-Image Turbo diffusion model |
 | `checkpoints/z_image_turbo_bf16.safetensors` (symlink) | local symlink to `diffusion_models/z_image_turbo_bf16.safetensors` | ~12.3GB | Classic checkpoint loader compatibility |
 | `model_patches/Z-Image-Turbo-Fun-Controlnet-Union.safetensors` | `alibaba-pai/Z-Image-Turbo-Fun-Controlnet-Union` | ~3.1GB | ControlNet patch for Z-Image Turbo |
-| `depthanything/da3_base.safetensors` | `depth-anything/DA3-BASE` | ~1.1GB | DepthAnythingV3 cache (optional prefetch) |
+| `depthanything3/da3_base.safetensors` | `depth-anything/DA3-BASE` (`model.safetensors` on HF, renamed locally) | ~1.1GB | DepthAnythingV3 / MCX i2i |
 | `unet/zImageTurboNSFW_62BF16.safetensors` | Place on network volume / S3 (same basename in `checkpoints/`) | ~12–23GB | UNETLoader `247` + CheckpointLoaderSimple `304` |
 | `upscale_models/4xFaceUpDAT.pth` | `Acly/Upscaler` | 148MB | UpscaleModelLoader (UltimateSDUpscale) |
+| `diffusion_models/zImageTurboNSFW_43BF16AIO.safetensors` (+ symlink in `checkpoints/`) | Civitai `2682644` (auth required, env `CIVITAI_API_TOKEN`) | ~6GB | Optional smaller NSFW UNET — **not** used by `modelclonex_*_api.json` (those merge `unet/zImageTurboNSFW_62BF16.safetensors` + `z_image_turbo_bf16` so volume-only pods pass UNETLoader validation) |
+| `checkpoints/pornworksRealPorn_Illustrious_v4_04.safetensors` | Civitai `2114370` (auth required, env `CIVITAI_API_TOKEN`) | ~6GB | Illustrious-base NSFW checkpoint (debug) |
+| `ultralytics/bbox/face_yolov8m.pt` | `Bingsu/adetailer` (HF) | ~50MB | Impact / FaceDetailer bbox |
+| `sams/sam_vit_b_01ec64.pth` | Meta Segment Anything | ~375MB | Impact SAMLoader (typical default) |
+
+### Civitai downloads (optional)
+
+The two files above are pulled at runtime by `start.sh` via `download_civitai`,
+which uses `https://civitai.com/api/download/models/<id>` (the `civitai.red`
+mirror returns 404 and was retired). Auth is sent as
+`Authorization: Bearer ${CIVITAI_API_TOKEN}` — set this env var on the RunPod
+endpoint/template (Civitai → Account → API Keys). If the token is missing the
+worker logs `[SKIP]` for these files and continues to boot normally.
 
 User/pose LoRAs are loaded **by URL** via `LoadLoraFromUrlOrPath` (no bake needed).
+
+### Kie.ai (optional)
+
+For workflows using **KIE_NanoBananaPro_Image**, set RunPod env **`KIE_API_KEY`**. `start.sh` writes `custom_nodes/ComfyUI-Kie-API/config/kie_key.txt` at boot.
 
 ## Custom nodes (NSFW workflows)
 
@@ -40,9 +57,16 @@ User/pose LoRAs are loaded **by URL** via `LoadLoraFromUrlOrPath` (no bake neede
 | `UltimateSDUpscale` | `ssitu/ComfyUI_UltimateSDUpscale` |
 | `DepthAnythingV3` nodes | `PozzettiAndrea/ComfyUI-DepthAnythingV3` |
 | `easy loraStackApply` helpers | `yolain/ComfyUI-Easy-Use` |
-| Core samplers / loaders | ComfyUI built-in |
+| Core samplers / loaders / **ModelPatchLoader**, **QwenImageDiffsynthControlnet**, etc. | ComfyUI **v0.17.2** (pinned in `Dockerfile`) |
+| `FaceDetailer`, `SAMLoader`, `UltralyticsDetectorProvider`, `ImpactImageInfo` | `ltdrdata/ComfyUI-Impact-Pack` + `ltdrdata/ComfyUI-Impact-Subpack` |
+| `MaskPreview+`, essentials | `cubiq/ComfyUI_essentials` |
+| `EveryPersonSegDetail` | `CoiiChan/comfyui-every-person-seg-coii` |
+| `KIE_NanoBananaPro_Image` | `gateway/ComfyUI-Kie-API` (+ RunPod env **`KIE_API_KEY`** → `kie_key.txt`; Kie.ai credits) |
 
-## Quick deploy
+**First cold boot:** `ComfyUI-Crystools`, `ComfyUI-DepthAnythingV3`, `ComfyUI-Easy-Use`,
+`was-node-suite-comfyui`, and `ComfyUI_UltimateSDUpscale` are **not** in the Docker
+layer — `start.sh` clones them and runs `pip install -r requirements.txt` before
+ComfyUI starts (shrinks build/export time; adds one-time startup latency on a fresh volume).
 
 ### 1. Build & push image
 ```bash
@@ -67,7 +91,7 @@ docker push yourdockerhub/modelclone-worker:latest
 | `setup_custom_nodes.sh` | Clone list during image build |
 | `setup_models.sh` | Bake VAE/CLIP/upscaler; UNet must be copied separately |
 | `workflow_api.json` | Reference workflow (keep UNET filename in sync) |
-| `workflows/mcx_i2i.json` | Z-Image Turbo i2i **UI** workflow (reference). Some nodes were saved with Comfy **0.17.x** metadata; the image may pin an older Comfy — if Comfy reports unknown nodes (e.g. `ImageScaleToTotalPixels`, `QwenImageDiffsynthControlnet`), bump the ComfyUI tag in `Dockerfile` to match. |
+| `workflows/mcx_i2i.json` | Z-Image Turbo i2i **UI** workflow (reference). Requires Comfy **≥ v0.17.x** for nodes such as `ImageScaleToTotalPixels` / `QwenImageDiffsynthControlnet` (image pins **v0.17.2**). |
 
 ## Troubleshooting
 

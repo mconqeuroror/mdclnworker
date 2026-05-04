@@ -871,7 +871,7 @@ class GenerationPollerService {
     // RunningHub typically returns a taskId within ~1s; start polling after a brief grace
     // period so we don't hammer the query endpoint for in-flight submissions.
     const MIN_AGE_MS = 20 * 1000;
-    const HARD_TIMEOUT_MS = 75 * 60 * 1000; // 75 min cap (video generation)
+    const HARD_TIMEOUT_MS = 120 * 60 * 1000; // 2h cap (Motion X / long RunningHub jobs)
     const now = Date.now();
 
     const stale = await prisma.generation.findMany({
@@ -1048,6 +1048,14 @@ class GenerationPollerService {
           { completedAt: { gt: new Date(now - FAILED_LOOKBACK_MS) } },
         ],
       });
+      orBranches.push({
+        AND: [
+          { type: "nsfw-video-motion" },
+          { status: "failed" },
+          { outputUrl: null },
+          { completedAt: { gt: new Date(now - FAILED_LOOKBACK_MS) } },
+        ],
+      });
     }
 
     const where = { OR: orBranches };
@@ -1061,6 +1069,7 @@ class GenerationPollerService {
         inputImageUrl: true,
         outputUrl: true,
         errorMessage: true,
+        providerTaskId: true,
         userId: true,
         modelId: true,
         createdAt: true,
@@ -1091,7 +1100,13 @@ class GenerationPollerService {
           msg.includes("timed out") ||
           msg.includes("took too long") ||
           msg.includes("temporary") ||
-          msg.includes("unavailable");
+          msg.includes("unavailable") ||
+          (gen.type === "nsfw-video-motion" && (
+            msg.includes("no video") ||
+            msg.includes("no output") ||
+            msg.includes("could not mirror") ||
+            msg.includes("returned no video")
+          ));
         if (!includeTimedOutFailed || !likelyTimedOut) {
           stats.skippedFailedNotTimedOut += 1;
           continue;

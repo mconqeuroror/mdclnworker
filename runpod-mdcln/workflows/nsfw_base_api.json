@@ -1,0 +1,90 @@
+{
+  "1": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "zImageTurboNSFW_43BF16AIO.safetensors",
+      "weight_dtype": "default"
+    }
+  },
+  "3": {
+    "class_type": "ConditioningZeroOut",
+    "inputs": { "conditioning": ["5", 0] }
+  },
+  "5": {
+    "class_type": "CLIPTextEncode",
+    "inputs": { "text": "", "clip": ["15", 1] }
+  },
+  "9": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": ["24", 0],
+      "vae": ["13", 0]
+    }
+  },
+  "13": {
+    "class_type": "VAELoader",
+    "inputs": { "vae_name": "ae.safetensors" }
+  },
+  "14": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen_3_4b.safetensors",
+      "type": "qwen_image",
+      "device": "cpu"
+    }
+  },
+  "15": {
+    "class_type": "easy loraStackApply",
+    "inputs": {
+      "lora_stack": ["20", 0],
+      "model": ["1", 0],
+      "optional_clip": ["14", 0]
+    }
+  },
+  "17": {
+    "class_type": "SaveImage",
+    "inputs": { "filename_prefix": "nsfw_base", "images": ["9", 0] }
+  },
+  "20": {
+    "class_type": "LoadLoraFromUrlOrPath",
+    "inputs": {
+      "toggle": true,
+      "mode": "simple",
+      "num_loras": 1,
+      "lora_1_url": "",
+      "lora_1_strength": 0.75,
+      "lora_1_model_strength": 0.75,
+      "lora_1_clip_strength": 0.75
+    }
+  },
+  "24": {
+    "class_type": "KSampler",
+    "inputs": {
+      "model": ["25", 0],
+      "positive": ["5", 0],
+      "negative": ["3", 0],
+      "latent_image": ["30", 4],
+      "seed": 0,
+      "steps": 30,
+      "cfg": 1.5,
+      "sampler_name": "dpmpp_2m",
+      "scheduler": "beta",
+      "denoise": 1
+    }
+  },
+  "25": {
+    "class_type": "ModelSamplingAuraFlow",
+    "inputs": { "model": ["15", 0], "shift": 5.5 }
+  },
+  "30": {
+    "class_type": "CR SDXL Aspect Ratio",
+    "inputs": {
+      "width": 1024,
+      "height": 1024,
+      "aspect_ratio": "9:16 portrait 768x1344",
+      "swap_dimensions": "Off",
+      "upscale_factor": 1,
+      "batch_size": 1
+    }
+  }
+}

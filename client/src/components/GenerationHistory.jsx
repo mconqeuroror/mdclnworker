@@ -126,6 +126,7 @@ export function GenerationHistory({
       "talking-head",
       "recreate-video",
       "nsfw-video-motion",
+      "creator-studio-video",
     ];
     const isVideo = videoTypes.includes(genType) || lowerUrl.includes(".mp4") || lowerUrl.includes(".webm");
     const ext = isVideo ? (lowerUrl.includes(".webm") ? "webm" : "mp4") : "jpg";
@@ -488,6 +489,7 @@ function isVideoType(type) {
     "talking-head",
     "recreate-video",
     "nsfw-video-motion",
+    "creator-studio-video",
   ].includes(type);
 }
 
@@ -508,6 +510,8 @@ function GenerationHistoryCard({ generation, onPreview, onDownload, index }) {
           return parsed.identityImages[0];
         if (parsed.faceImageUrl) return parsed.faceImageUrl;
         if (parsed.imageUrl) return parsed.imageUrl;
+        if (parsed.referenceImageUrl) return parsed.referenceImageUrl;
+        if (parsed.figure2IdentityImage) return parsed.figure2IdentityImage;
         return generation.inputImageUrl;
       } catch {
         return generation.inputImageUrl;
@@ -681,7 +685,7 @@ function getTypeLabel(generation) {
     "face-swap-image": "Face Swap",
     video: "Video",
     "recreate-video": "Recreate Video",
-    "nsfw-video-motion": "Recreate Video",
+    "nsfw-video-motion": "Motion X",
     faceswap: "Face Swap Video",
     "face-swap": "Face Swap Video",
     "prompt-video": "Prompt Video",

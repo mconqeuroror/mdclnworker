@@ -2200,10 +2200,27 @@ router.post('/cancel-subscription', authMiddleware, async (req, res) => {
       return res.status(500).json({ error: 'Stripe is not configured for this user account' });
     }
 
-    // Cancel at period end (don't immediately revoke access)
+    // Cancel immediately on explicit user request.
     console.log('🔄 Calling Stripe to cancel subscription:', activeSubId);
-    const subscription = await stripe.subscriptions.update(activeSubId, {
-      cancel_at_period_end: true
+    const subscription = await stripe.subscriptions.cancel(activeSubId);
+
+    // Revoke local subscription access right away (do not wait for period end).
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        subscriptionStatus: 'cancelled',
+        stripeSubscriptionId:
+          user.stripeSubscriptionId === activeSubId ? null : user.stripeSubscriptionId,
+        legacyStripeSubscriptionId:
+          user.legacyStripeSubscriptionId === activeSubId
+            ? null
+            : user.legacyStripeSubscriptionId,
+        subscriptionTier: null,
+        subscriptionBillingCycle: null,
+        subscriptionCredits: 0,
+        creditsExpireAt: null,
+        subscriptionCancelledAt: new Date(),
+      },
     });
 
     console.log('✅ Subscription cancelled successfully:', {
@@ -2215,7 +2232,7 @@ router.post('/cancel-subscription', authMiddleware, async (req, res) => {
 
     res.json({ 
       success: true,
-      message: 'Subscription will be cancelled at the end of the billing period',
+      message: 'Subscription cancelled immediately',
       currentPeriodEnd: subscription.current_period_end
     });
   } catch (error) {

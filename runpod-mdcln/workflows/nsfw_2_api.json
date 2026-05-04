@@ -13,29 +13,61 @@
       "weight_dtype": "default"
     }
   },
-  "7": {
-    "class_type": "ConditioningZeroOut",
-    "inputs": { "conditioning": ["25", 0] }
+  "5": {
+    "class_type": "LoadLoraFromUrlOrPath",
+    "inputs": {
+      "toggle": true,
+      "mode": "simple",
+      "num_loras": 1,
+      "lora_1_url": "",
+      "lora_1_strength": 0.6,
+      "lora_1_model_strength": 0.6,
+      "lora_1_clip_strength": 0.6
+    }
   },
-  "23": {
+  "8": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen_3_4b.safetensors",
+      "type": "qwen_image",
+      "device": "cpu"
+    }
+  },
+  "9": {
+    "class_type": "ConditioningZeroOut",
+    "inputs": { "conditioning": ["33", 0] }
+  },
+  "29": {
+    "class_type": "ModelSamplingAuraFlow",
+    "inputs": { "model": ["31", 0], "shift": 6 }
+  },
+  "30": {
     "class_type": "EmptyLatentImage",
     "inputs": { "width": 1536, "height": 2688, "batch_size": 1 }
   },
-  "24": {
+  "31": {
+    "class_type": "easy loraStackApply",
+    "inputs": {
+      "lora_stack": ["5", 0],
+      "model": ["32", 0],
+      "optional_clip": ["8", 0]
+    }
+  },
+  "32": {
     "class_type": "ModelMergeSimple",
     "inputs": { "model1": ["2", 0], "model2": ["1", 0], "ratio": 0.5 }
   },
-  "25": {
+  "33": {
     "class_type": "CLIPTextEncode",
-    "inputs": { "text": "", "clip": ["38", 0] }
+    "inputs": { "text": "", "clip": ["31", 1] }
   },
-  "26": {
+  "34": {
     "class_type": "KSamplerAdvanced",
     "inputs": {
-      "model": ["40", 0],
-      "positive": ["25", 0],
-      "negative": ["7", 0],
-      "latent_image": ["23", 0],
+      "model": ["29", 0],
+      "positive": ["33", 0],
+      "negative": ["9", 0],
+      "latent_image": ["30", 0],
       "add_noise": "enable",
       "noise_seed": 0,
       "steps": 10,
@@ -47,24 +79,24 @@
       "return_with_leftover_noise": "enable"
     }
   },
-  "29": {
+  "37": {
     "class_type": "ConditioningZeroOut",
-    "inputs": { "conditioning": ["30", 0] }
+    "inputs": { "conditioning": ["38", 0] }
   },
-  "30": {
+  "38": {
     "class_type": "CLIPTextEncode",
     "inputs": {
       "text": "sharp and realistic skin texture",
-      "clip": ["38", 0]
+      "clip": ["31", 1]
     }
   },
-  "32": {
+  "41": {
     "class_type": "KSamplerAdvanced",
     "inputs": {
-      "model": ["40", 0],
-      "positive": ["25", 0],
-      "negative": ["7", 0],
-      "latent_image": ["26", 0],
+      "model": ["29", 0],
+      "positive": ["33", 0],
+      "negative": ["9", 0],
+      "latent_image": ["34", 0],
       "add_noise": "disable",
       "noise_seed": 0,
       "steps": 10,
@@ -76,17 +108,25 @@
       "return_with_leftover_noise": "disable"
     }
   },
-  "33": {
-    "class_type": "VAEDecode",
-    "inputs": { "samples": ["34", 0], "vae": ["37", 0] }
+  "42": {
+    "class_type": "VAELoader",
+    "inputs": { "vae_name": "ae.safetensors" }
   },
-  "34": {
+  "43": {
+    "class_type": "SaveImage",
+    "inputs": { "filename_prefix": "nsfw_2", "images": ["44", 0] }
+  },
+  "44": {
+    "class_type": "VAEDecode",
+    "inputs": { "samples": ["45", 0], "vae": ["42", 0] }
+  },
+  "45": {
     "class_type": "KSampler",
     "inputs": {
-      "model": ["40", 0],
-      "positive": ["30", 0],
-      "negative": ["29", 0],
-      "latent_image": ["32", 0],
+      "model": ["29", 0],
+      "positive": ["38", 0],
+      "negative": ["37", 0],
+      "latent_image": ["41", 0],
       "seed": 0,
       "steps": 4,
       "cfg": 1,
@@ -94,25 +134,5 @@
       "scheduler": "beta",
       "denoise": 0.2
     }
-  },
-  "37": {
-    "class_type": "VAELoader",
-    "inputs": { "vae_name": "ae.safetensors" }
-  },
-  "38": {
-    "class_type": "CLIPLoader",
-    "inputs": {
-      "clip_name": "qwen_3_4b.safetensors",
-      "type": "qwen_image",
-      "device": "cpu"
-    }
-  },
-  "40": {
-    "class_type": "ModelSamplingAuraFlow",
-    "inputs": { "model": ["24", 0], "shift": 6 }
-  },
-  "42": {
-    "class_type": "SaveImage",
-    "inputs": { "filename_prefix": "modelclone_mcx", "images": ["33", 0] }
   }
 }

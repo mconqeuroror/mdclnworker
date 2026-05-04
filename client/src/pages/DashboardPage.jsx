@@ -2,6 +2,12 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import {
+  parseGenerationOutput,
+  resolveGenerationPoster,
+  isVideoMediaUrl,
+  VIDEO_OUTPUT_TYPES,
+} from "../utils/generationMedia";
+import {
   Zap,
   LogOut,
   Coins,
@@ -38,6 +44,8 @@ import {
   Moon,
   Eye,
   EyeOff,
+  ZoomIn,
+  ShieldOff,
 } from "lucide-react";
 import { SiTelegram, SiDiscord } from "react-icons/si";
 import toast from "react-hot-toast";
@@ -103,6 +111,9 @@ const COPY = {
     mobileNavVoiceStudio: "Voice Studio",
     mobileNavReformatter: "Reformatter",
     mobileNavFirstFrame: "First Frame",
+    mobileNavUpscaler: "Upscaler",
+    mobileNavSynthIdRemover: "SynthID Remover",
+    mobileNavModelCloneX: "ModelClone-X",
     mobileNavHistory: "History",
     mobileNavSettings: "Settings",
     mobileNavCourses: "Courses",
@@ -195,6 +206,9 @@ const COPY = {
     mobileNavVoiceStudio: "╨ô╨╛╨╗╨╛╤ü╨╛╨▓╨░╤Å ╤ü╤é╤â╨┤╨╕╤Å",
     mobileNavReformatter: "╨á╨╡╤ä╨╛╨╝╨░╤é╨╡╤Ç",
     mobileNavFirstFrame: "1-╨╣ ╨║╨░╨┤╤Ç",
+    mobileNavUpscaler: "Апскейлер",
+    mobileNavSynthIdRemover: "SynthID Remover",
+    mobileNavModelCloneX: "ModelClone-X",
     mobileNavHistory: "╨ÿ╤ü╤é╨╛╤Ç╨╕╤Å",
     mobileNavSettings: "╨¥╨░╤ü╤é╤Ç╨╛╨╣╨║╨╕",
     mobileNavCourses: "╨Ü╤â╤Ç╤ü╤ï",
@@ -360,6 +374,9 @@ export default function DashboardPage() {
   const [sidebarDesktopHovered, setSidebarDesktopHovered] = useState(false);
   /** Narrow rail (80px) only when pinned collapsed and not hovering the sidebar on desktop */
   const sidebarNarrow = isSidebarCollapsed && !sidebarDesktopHovered;
+  const isTestingOnlyHost =
+    typeof window !== "undefined" &&
+    !/(^|\.)modelclone\.app$/i.test(window.location.hostname);
   const [voiceStudioInitialModelId, setVoiceStudioInitialModelId] = useState(null);
   const [creatorStudioInitialPrompt, setCreatorStudioInitialPrompt] = useState("");
 
@@ -377,6 +394,9 @@ export default function DashboardPage() {
       const urlParams = new URLSearchParams(window.location.search);
       let tabParam = urlParams.get("tab");
       if (tabParam === "soulx") tabParam = "modelclone-x";
+      if ((tabParam === "gptx" || tabParam === "flows") && !isTestingOnlyHost) {
+        tabParam = "home";
+      }
       if (tabParam === "nsfw") {
         setActiveTab("nsfw");
       } else if (tabParam && ["home", "models", "generate", "creator-studio", "voice-studio", "reformatter", "frame-extractor", "upscaler", "synthid-remove", "modelclone-x", "gptx", "flows", "history", "settings", "course", "repurposer", "reelfinder", "referral"].includes(tabParam)) {
@@ -564,6 +584,9 @@ export default function DashboardPage() {
     { id: 'voice-studio', label: copy.mobileNavVoiceStudio, icon: Mic, premium: true },
     { id: 'reformatter', label: copy.mobileNavReformatter, icon: FileType2 },
     { id: 'frame-extractor', label: copy.mobileNavFirstFrame, icon: ImageIcon },
+    { id: 'upscaler', label: copy.mobileNavUpscaler, icon: ZoomIn },
+    { id: 'synthid-remove', label: copy.mobileNavSynthIdRemover, icon: ShieldOff },
+    { id: 'modelclone-x', label: copy.mobileNavModelCloneX, icon: Wand2 },
     { id: 'history', label: copy.mobileNavHistory, icon: Clock },
     { id: 'settings', label: copy.mobileNavSettings, icon: SettingsIcon },
     ...(hideRestrictedTabs ? [] : [{ id: 'course', label: copy.mobileNavCourses, icon: BookOpen, premium: true }]),
@@ -906,12 +929,9 @@ export default function DashboardPage() {
           {activeTab === "upscaler" && <UpscalerPage />}
           {activeTab === "synthid-remove" && <SynthIDRemoverPage />}
           {activeTab === "modelclone-x" && <ModelCloneXPage />}
-          {activeTab === "gptx" &&
-            typeof window !== "undefined" &&
-            !/(^|\.)modelclone\.app$/i.test(window.location.hostname) && <GPTXTab />}
+          {activeTab === "gptx" && isTestingOnlyHost && <GPTXTab />}
           {activeTab === "flows" &&
-            typeof window !== "undefined" &&
-            !/(^|\.)modelclone\.app$/i.test(window.location.hostname) && (
+            isTestingOnlyHost && (
               <FlowsPage embedded />
             )}
           {activeTab === "history" && <HistoryPage />}
@@ -1703,13 +1723,11 @@ function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, 
           </div>
           <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
             {recentGenerations.map((gen) => {
-              const isVideo = ["video", "prompt-video", "face-swap", "recreate-video", "talking-head", "nsfw-video", "nsfw-video-extend", "creator-studio-video"].includes(gen.type);
               const rawUrl = gen.resultUrl || gen.outputUrl || "";
-              let mediaUrl = rawUrl;
-              try {
-                const parsed = JSON.parse(rawUrl);
-                if (Array.isArray(parsed) && parsed.length > 0) mediaUrl = parsed[0];
-              } catch {}
+              const { primaryUrl: mediaUrl, posterUrl: outPoster } = parseGenerationOutput(rawUrl);
+              const isVideo =
+                VIDEO_OUTPUT_TYPES.includes(gen.type) || isVideoMediaUrl(mediaUrl);
+              const poster = resolveGenerationPoster(gen, outPoster);
               return (
                 <button
                   key={gen.id}
@@ -1718,19 +1736,35 @@ function HomePage({ copy, setActiveTab, setShowEarnModal, setShowReferralModal, 
                   data-testid={`recent-gen-${gen.id}`}
                 >
                   {isVideo ? (
-                    <video
-                      src={mediaUrl}
-                      poster={gen.providerResponse?.thumbnailUrl || gen.providerResponse?.thumbnail || gen.inputImageUrl || undefined}
-                      preload="metadata"
-                      className="w-full h-full object-cover"
-                      muted
-                      playsInline
-                      onMouseEnter={(e) => e.target.play().catch(() => {})}
-                      onMouseLeave={(e) => { e.target.pause(); e.target.currentTime = 0; }}
-                    />
+                    mediaUrl ? (
+                      <video
+                        src={mediaUrl}
+                        poster={poster}
+                        preload="metadata"
+                        className="w-full h-full object-cover"
+                        muted
+                        playsInline
+                        onMouseEnter={(e) => e.target.play().catch(() => {})}
+                        onMouseLeave={(e) => {
+                          e.target.pause();
+                          e.target.currentTime = 0;
+                        }}
+                      />
+                    ) : poster ? (
+                      <img
+                        src={poster}
+                        alt=""
+                        className="w-full h-full object-cover"
+                        loading="lazy"
+                      />
+                    ) : (
+                      <div className="w-full h-full bg-slate-900 flex items-center justify-center">
+                        <Video className="w-6 h-6 text-slate-600" />
+                      </div>
+                    )
                   ) : (
                     <img
-                      src={mediaUrl}
+                      src={mediaUrl || poster || ""}
                       alt=""
                       className="w-full h-full object-cover"
                       loading="lazy"

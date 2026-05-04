@@ -60,7 +60,12 @@ import {
 } from "../controllers/generation.controller.js";
 import { processPendingBlobRemirrorQueue } from "../services/blob-remirror-queue.service.js";
 import { runSignupNoPurchaseWinbackCampaign } from "../services/signup-winback-email.service.js";
-import { runPiapiWatchdog, runWavespeedSeedreamWatchdog } from "../services/generation-poller.service.js";
+import {
+  runPiapiWatchdog,
+  runRunpodWatchdog,
+  runRunningHubWatchdog,
+  runWavespeedSeedreamWatchdog,
+} from "../services/generation-poller.service.js";
 import {
   createModel,
   getUserModels,
@@ -262,6 +267,7 @@ import {
 } from "../middleware/rateLimiter.js";
 import { getGenerationPricing, getGenerationPricingContract } from "../services/generation-pricing.service.js";
 import { getPromptTemplateValue } from "../services/prompt-template-config.service.js";
+import { DEFAULT_ENHANCE_PROMPT_NSFW_SYSTEM } from "../lib/defaultPrompts/enhancePromptNsfwSystem.js";
 import {
   isModelCloneXRunpodReady,
   submitModelCloneXJob,
@@ -2038,25 +2044,8 @@ router.post("/generate/enhance-prompt", authMiddleware, async (req, res) => {
       // Advanced ultra-realism — WaveSpeed Nano Banana Pro, identical model
       "ultra-realism": NANO_BANANA_SYSTEM,
 
-      // NSFW — Z-Image Turbo NSFW (LoRA) compact prompt format
-      "nsfw": `You are a prompt engineer for Z-Image Turbo NSFW (LoRA-based checkpoint).
-
-Rewrite the rough NSFW request into one short prompt of 60-110 words across four sentences in this order:
-1. The bare LoRA trigger word (lowercase, exactly as provided in the input) as the very first token, then a concrete subject line: skin tone, hair (color + style), eyes, body type, accessories. No mood adjectives.
-2. The pose / sex act in plain, explicit, anatomical language. If a "Pose prompt fragment" is provided in the input, copy its anatomical terms VERBATIM.
-3. 2-3 concrete environment props or surfaces (e.g. "rumpled white-sheet king bed, wooden headboard, bedside lamp"). No abstract setting language.
-4. One short camera/POV clause (e.g. "POV from above looking down", "smartphone selfie at arm's length", "close-up cropped at hips").
-
-Then append exactly, comma-separated, with no rephrasing:
-highly detailed, extremely detailed textures, perfect realistic skin, shallow depth of field
-
-HARD BANS — never write any of these:
-- Camera-imperfection language: "grain", "film grain", "motion blur", "shaky", "handheld blur", "shallow blur", "lens distortion", "low-light haste".
-- Mood/atmosphere adjectives: "evoking", "breathless", "stolen", "forbidden", "vulnerable", "vulnerability", "hushed", "tender", "raw glimpse", "unpolished", "intimate moment", "private moment", "pulses with", "urgent desire", "candid authenticity", "secluded", "unguarded".
-- Quality tokens / keyword chains: "RAW photo", "8k", "hyperrealistic", "masterpiece", "cinematic", "professional photography".
-- Closing poetry sentence ("this image…", "this glimpse…", "this photo evokes…").
-
-Output ONLY the final prompt text. No markdown, no JSON, no preamble.`,
+      // NSFW — Z-Image Turbo (Qwen3): bilingual ZiT prompt (default in src/lib/defaultPrompts/enhancePromptNsfwSystem.js)
+      "nsfw": DEFAULT_ENHANCE_PROMPT_NSFW_SYSTEM,
     };
 
     const nanoBananaSharedPrompt = (
@@ -2374,6 +2363,17 @@ router.get("/cron/kie-recovery", async (req, res) => {
     await runWavespeedSeedreamWatchdog();
   } catch (error) {
     console.error("[cron/kie-recovery] WaveSpeed Seedream watchdog failed:", error?.message || error);
+  }
+  // Serverless (Vercel): no long-lived generationPoller loop — poll RunningHub + motion recovery here.
+  try {
+    await runRunningHubWatchdog();
+  } catch (error) {
+    console.error("[cron/kie-recovery] RunningHub watchdog failed:", error?.message || error);
+  }
+  try {
+    await runRunpodWatchdog({ limit: 80 });
+  } catch (error) {
+    console.error("[cron/kie-recovery] RunPod/motion reconcile watchdog failed:", error?.message || error);
   }
   return cleanupStuckGenerations(req, res);
 });
@@ -3819,6 +3819,8 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
     inputImageBase64 = "",
     /** When true, `prompt` is already the MCX-optimized string from prompt-from-image (skip second pass). */
     preOptimized = false,
+    /** Text-to-image: skip LLM prompt expansion and send `prompt` as-is (character trigger word may still be prepended in Comfy). */
+    useCustomPrompt = false,
     /**
      * Submit Z-Image img2img on RunPod (reference image + converted prompt + character LoRA).
      * Requires `inputImageUrl` or `inputImageBase64`.
@@ -3855,6 +3857,8 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
 
   const userText = typeof prompt === "string" ? prompt.trim() : "";
   const skipSecondOptimizer = Boolean(preOptimized);
+  const wantsCustomTxtPrompt =
+    !wantsImg2Img && !skipSecondOptimizer && Boolean(useCustomPrompt);
   const ctx = await resolveModelCloneXGenerationContext(userId, modelId, characterLoraId);
   if (!ctx.ok) {
     return res.status(ctx.status).json({ success: false, error: ctx.error });
@@ -3878,13 +3882,6 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
     }
   }
 
-  const defaultStepsForMode = useCharacter ? 50 : 20;
-  const parsedSteps = Number(steps);
-  const safeSteps = Math.max(
-    1,
-    Math.min(100, Math.round(Number.isFinite(parsedSteps) ? parsedSteps : defaultStepsForMode)),
-  );
-  const safeCfg = Math.max(0, Math.min(6, Number(cfg) || 0));
   const safeLoraStrength = Math.max(0, Math.min(1, Number(loraStrength) || 0.8));
 
   const { deductCredits, checkAndExpireCredits, refundCredits } = await import("../services/credit.service.js");
@@ -3892,8 +3889,20 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
 
   await checkAndExpireCredits(userId);
 
+  let safeStepsForImg2 = 20;
+  let safeCfgForImg2 = 2;
+  if (wantsImg2Img) {
+    const defaultStepsForMode = useCharacter ? 50 : 20;
+    const parsedSteps = Number(steps);
+    safeStepsForImg2 = Math.max(
+      1,
+      Math.min(100, Math.round(Number.isFinite(parsedSteps) ? parsedSteps : defaultStepsForMode)),
+    );
+    safeCfgForImg2 = Math.max(0, Math.min(6, Number(cfg) || 0));
+  }
+
   // Determine credit cost
-  let includedStepsForPricing = useCharacter ? 50 : 20;
+  let includedStepsForPricing = 0;
   let extraStepBlocks = 0;
   let extraCostPerImage = 0;
   let costEach = [];
@@ -3910,12 +3919,9 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
       qty === 2
         ? (useCharacter ? Number(pricing.modelcloneXWithModel2 ?? 25) : Number(pricing.modelcloneXNoModel2 ?? 15))
         : (useCharacter ? Number(pricing.modelcloneXWithModel1 ?? 15) : Number(pricing.modelcloneXNoModel1 ?? 10));
-    const extraStepsPer10 = Math.max(0, Number(pricing.modelcloneXExtraStepsPer10 ?? 5));
-    includedStepsForPricing = useCharacter ? 50 : 20;
-    extraStepBlocks = safeSteps > includedStepsForPricing
-      ? Math.ceil((safeSteps - includedStepsForPricing) / 10)
-      : 0;
-    extraCostPerImage = extraStepBlocks * extraStepsPer10;
+    includedStepsForPricing = 0;
+    extraStepBlocks = 0;
+    extraCostPerImage = 0;
     const costEachBase = qty === 2
       ? [Math.ceil(baseCost / 2), Math.floor(baseCost / 2)]
       : [baseCost];
@@ -3942,6 +3948,9 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
     optimizedPrompt = built.optimizedPrompt;
   } else if (skipSecondOptimizer) {
     console.log("[ModelCloneX] generate: using pre-optimized prompt (from build step)");
+  } else if (wantsCustomTxtPrompt) {
+    optimizedPrompt = inputPrompt;
+    console.log("[ModelCloneX] generate: custom prompt (skipping AI optimizer)");
   } else {
     try {
       const identityContext = useCharacter ? buildModelCloneXModelIdentityContext(modelForPrompt, loraForPrompt) : "";
@@ -4004,8 +4013,8 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
           batchSize: 1, // each job generates exactly 1 image; we submit qty jobs separately
           denoise,
           seed: clientSeed != null ? Number(clientSeed) : undefined,
-          steps: safeSteps,
-          cfg: safeCfg,
+          steps: safeStepsForImg2,
+          cfg: safeCfgForImg2,
           webhookUrl: modelcloneXWebhookUrl,
         });
         jobId = out.runpodJobId;
@@ -4018,8 +4027,6 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
             loraUrl,
             loraStrength: safeLoraStrength,
             triggerWord,
-            steps: safeSteps,
-            cfg: safeCfg,
           },
           modelcloneXWebhookUrl,
         );
@@ -4029,7 +4036,9 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
         ? "img2img"
         : skipSecondOptimizer
           ? "txt2img-prompt-from-image"
-          : "txt2img";
+          : wantsCustomTxtPrompt
+            ? "txt2img-custom-prompt"
+            : "txt2img";
 
       await prisma.generation.update({
         where: { id: gen.id },
@@ -4040,6 +4049,7 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
             provider: "runpod-modelclone-x",
             mode: modeMeta,
             preOptimized: skipSecondOptimizer,
+            useCustomPrompt: wantsCustomTxtPrompt,
             modelcloneXImg2Img: wantsImg2Img,
             ...(wantsImg2Img
               ? {
@@ -4074,10 +4084,13 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
         ? "img2img"
         : skipSecondOptimizer
           ? "txt2img-prompt-from-image"
-          : "txt2img",
-      steps: safeSteps,
-      cfg: safeCfg,
+          : wantsCustomTxtPrompt
+            ? "txt2img-custom-prompt"
+            : "txt2img",
+      steps: wantsImg2Img ? safeStepsForImg2 : null,
+      cfg: wantsImg2Img ? safeCfgForImg2 : null,
       loraStrength: safeLoraStrength,
+      useCustomPrompt: wantsCustomTxtPrompt,
       includedStepsForPricing,
       extraStepBlocks,
       extraCostPerImage,

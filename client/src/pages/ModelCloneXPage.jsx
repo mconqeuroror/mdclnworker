@@ -52,8 +52,6 @@ const DEFAULT_MODELCLONE_X_LIMITS = Object.freeze({
   trainingImagesStandard: 15,
   trainingImagesPro: 30,
 });
-const MODELCLONE_X_DEFAULT_CFG = 2;
-
 const ASPECT_OPTIONS = [
   { id: "9:16", label: "9:16", hint: "Portrait" },
   { id: "1:1", label: "1:1", hint: "Square" },
@@ -167,20 +165,6 @@ function authHeader() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-function getDefaultStepsForMode(mode, limits) {
-  if (mode === "character") {
-    return Number(limits?.defaultStepsWithModel ?? limits?.defaultSteps ?? 50);
-  }
-  return Number(limits?.defaultStepsNoModel ?? limits?.defaultSteps ?? 20);
-}
-
-function getIncludedStepsForMode(mode, limits) {
-  if (mode === "character") {
-    return Number(limits?.includedStepsWithModel ?? limits?.includedSteps ?? 50);
-  }
-  return Number(limits?.includedStepsNoModel ?? limits?.includedSteps ?? 20);
-}
-
 function resolveLocale() {
   try {
     const qsLang = new URLSearchParams(window.location.search).get("lang");
@@ -204,7 +188,13 @@ const COPY = {
     characterIdentity: "Character Identity",
     noReadyLora: "No ready LoRA for this model. Train one in Character tab or use existing NSFW LoRA.",
     prompt: "Prompt",
+    promptInputMode: "Prompt style",
+    promptModeAi: "AI-enhanced",
+    promptModeAiHint: "Default — your text is expanded for Z-Image / MCX before generation.",
+    promptModeCustom: "Custom",
+    promptModeCustomHint: "Your text is sent as-is (character mode may still prepend the trigger word if it’s missing).",
     promptPlaceholder: "Describe the scene — lighting, setting, mood, clothing…",
+    promptPlaceholderCustom: "Full prompt as you want it in the graph (tags, weights, long form)…",
     additionalPrompt: "Optional notes for Grok",
     additionalPromptHint: "Optional extra instructions for the background photo-to-prompt process.",
     buildPrompt: "Build prompt from photo",
@@ -214,9 +204,6 @@ const COPY = {
     buildNeedImage: "Add a photo first",
     aspectRatio: "Aspect Ratio",
     images: "Images",
-    advanced: "Advanced",
-    steps: "Steps",
-    cfg: "CFG",
     loraStrength: "LoRA intensity",
     generate: "Generate",
     generating: "Generating…",
@@ -239,7 +226,6 @@ const COPY = {
     p2: "1 image — with character",
     p3: "2 images — no character",
     p4: "2 images — with character",
-    p5: "Extra steps (every +10 over included)",
     p6: "Character training — Standard",
     p7: "Character training — Pro",
     genType: "Output",
@@ -265,7 +251,13 @@ const COPY = {
     characterIdentity: "Идентичность персонажа",
     noReadyLora: "Для этой модели нет готовой LoRA. Обучите её во вкладке Character или используйте существующую NSFW LoRA.",
     prompt: "Промпт",
+    promptInputMode: "Стиль промпта",
+    promptModeAi: "Через ИИ",
+    promptModeAiHint: "По умолчанию — текст дорабатывается для Z-Image / MCX перед генерацией.",
+    promptModeCustom: "Свой текст",
+    promptModeCustomHint: "Текст уходит как есть (для персонажа триггер может быть добавлен автоматически).",
     promptPlaceholder: "Опишите сцену — свет, окружение, настроение, одежду…",
+    promptPlaceholderCustom: "Полный промпт так, как его должна видеть модель…",
     additionalPrompt: "Заметки для Grok (по желанию)",
     additionalPromptHint: "Необязательные дополнительные инструкции для фонового преобразования фото в промпт.",
     buildPrompt: "Собрать промпт с фото",
@@ -275,9 +267,6 @@ const COPY = {
     buildNeedImage: "Сначала загрузите фото",
     aspectRatio: "Соотношение сторон",
     images: "Изображения",
-    advanced: "Расширенные настройки",
-    steps: "Шаги",
-    cfg: "CFG",
     loraStrength: "Интенсивность LoRA",
     generate: "Сгенерировать",
     generating: "Генерация…",
@@ -300,7 +289,6 @@ const COPY = {
     p2: "1 изображение — с персонажем",
     p3: "2 изображения — без персонажа",
     p4: "2 изображения — с персонажем",
-    p5: "Доп. шаги (каждые +10 сверх включенных)",
     p6: "Обучение персонажа — Standard",
     p7: "Обучение персонажа — Pro",
     genType: "Вывод",
@@ -928,9 +916,9 @@ function GenerateTab({ isDark, copy }) {
   const [characters, setCharacters] = useState([]);
   const [aspect, setAspect] = useState("9:16");
   const [qty, setQty] = useState(1);
+  /** "ai" = LLM expand (default); "custom" = POST useCustomPrompt / skip optimizer */
+  const [promptInputMode, setPromptInputMode] = useState("ai");
   const [prompt, setPrompt] = useState("");
-  const [steps, setSteps] = useState(DEFAULT_MODELCLONE_X_LIMITS.defaultStepsNoModel);
-  const [cfg, setCfg] = useState(MODELCLONE_X_DEFAULT_CFG);
   const [loraStrength, setLoraStrength] = useState(0.8);
   const [refImageBase64, setRefImageBase64] = useState(""); // raw base64, no data: prefix
   const [refImagePreview, setRefImagePreview] = useState("");
@@ -939,7 +927,6 @@ function GenerateTab({ isDark, copy }) {
   const [submitInFlight, setSubmitInFlight] = useState(0);
   const [results, setResults] = useState([]); // [{generationId, imageUrl, status}]
   const [pricing, setPricing] = useState(DEFAULT_MODELCLONE_X_PRICING);
-  const [limits, setLimits] = useState(DEFAULT_MODELCLONE_X_LIMITS);
   const [mcxServerEnv, setMcxServerEnv] = useState(null);
   const pollRefs = useRef({});
 
@@ -951,12 +938,7 @@ function GenerateTab({ isDark, copy }) {
     : (qty === 2
       ? (mode === "character" ? pricing.withModel2 : pricing.noModel2)
       : (mode === "character" ? pricing.withModel1 : pricing.noModel1));
-  const includedStepsForPricing = genMode === "img" ? 0 : getIncludedStepsForMode(mode, limits);
-  const extraBlocks = genMode === "img"
-    ? 0
-    : (steps > includedStepsForPricing ? Math.ceil((steps - includedStepsForPricing) / 10) : 0);
-  const extraCost = genMode === "img" ? 0 : (extraBlocks * pricing.extraStepsPer10 * qty);
-  const cost = baseCost + extraCost;
+  const cost = baseCost;
   const hasEnough = credits >= cost;
 
   useEffect(() => {
@@ -973,26 +955,10 @@ function GenerateTab({ isDark, copy }) {
             setMcxServerEnv({ fromImageEnabled: true, runpodForModelCloneX: true });
           }
           if (res.data.pricing) setPricing({ ...DEFAULT_MODELCLONE_X_PRICING, ...res.data.pricing });
-          if (res.data.limits) {
-            const nextLimits = { ...DEFAULT_MODELCLONE_X_LIMITS, ...res.data.limits };
-            setLimits(nextLimits);
-            const suggestedCfg = Number(res.data.limits.defaultCfg ?? MODELCLONE_X_DEFAULT_CFG);
-            setCfg((prev) => {
-              if (prev !== MODELCLONE_X_DEFAULT_CFG) return prev;
-              const parsed = Number.isFinite(suggestedCfg) ? suggestedCfg : MODELCLONE_X_DEFAULT_CFG;
-              return Math.max(nextLimits.minCfg, Math.min(nextLimits.maxCfg, parsed));
-            });
-          }
         }
       })
       .catch(() => {});
   }, []);
-
-  useEffect(() => {
-    const suggested = getDefaultStepsForMode(mode, limits);
-    const safe = Math.max(1, Math.min(limits.maxSteps, Math.round(suggested) || 20));
-    setSteps(safe);
-  }, [mode, limits]);
 
   useEffect(() => {
     if (mode !== "character" && genMode === "img") {
@@ -1098,6 +1064,7 @@ function GenerateTab({ isDark, copy }) {
       const body = {
         prompt: genMode === "img" ? "" : prompt.trim(),
         preOptimized: false,
+        useCustomPrompt: genMode === "txt" && promptInputMode === "custom",
         modelId: mode === "character" ? selectedModelId : null,
         characterLoraId: mode === "character" ? selectedCharacterId : null,
         quantity: qty,
@@ -1106,8 +1073,6 @@ function GenerateTab({ isDark, copy }) {
       if (genMode !== "img") {
         Object.assign(body, {
           aspectRatio: aspect,
-          steps,
-          cfg,
         });
       }
 
@@ -1509,10 +1474,32 @@ function GenerateTab({ isDark, copy }) {
       {/* Main prompt: text-to-image only (image mode uses optional field above) */}
       {genMode === "txt" && (
         <div className={panel}>
-          <label className={labelBase}>{copy.prompt}</label>
+          <label className={labelBase}>{copy.promptInputMode}</label>
+          <div className="flex flex-wrap gap-2">
+            <ControlChip
+              active={promptInputMode === "ai"}
+              onClick={() => setPromptInputMode("ai")}
+              isDark={isDark}
+            >
+              {copy.promptModeAi}
+            </ControlChip>
+            <ControlChip
+              active={promptInputMode === "custom"}
+              onClick={() => setPromptInputMode("custom")}
+              isDark={isDark}
+            >
+              {copy.promptModeCustom}
+            </ControlChip>
+          </div>
+          <p
+            className={`text-[11px] leading-snug mt-1.5 mb-2 ${isDark ? "text-slate-500" : "text-slate-600"}`}
+          >
+            {promptInputMode === "custom" ? copy.promptModeCustomHint : copy.promptModeAiHint}
+          </p>
+          <label className={`${labelBase} mt-1`}>{copy.prompt}</label>
           <textarea
             rows={3}
-            placeholder={copy.promptPlaceholder}
+            placeholder={promptInputMode === "custom" ? copy.promptPlaceholderCustom : copy.promptPlaceholder}
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             className={`w-full px-3 py-2.5 rounded-xl text-sm border outline-none resize-none ${inputBase}`}
@@ -1562,64 +1549,27 @@ function GenerateTab({ isDark, copy }) {
         </div>
       </div>
 
+      {/* LoRA strength (character + LoRA only; same for text and reference img2img) */}
+      {(mode === "character" || genMode === "img") && (
       <div className={`rounded-xl border p-3 space-y-3 ${isDark ? "glass-card border-white/[0.08]" : "bg-slate-50/90 border border-slate-200/90"}`}>
         <p className={`text-xs font-semibold ${isDark ? "text-slate-300" : "text-slate-700"}`}>
-          {genMode === "img" ? copy.loraStrength : copy.advanced}
+          {copy.loraStrength}
         </p>
-        <div className={`grid gap-3 ${genMode === "txt" ? "sm:grid-cols-3" : "sm:grid-cols-1"}`}>
-          {genMode === "txt" && (
-            <>
-              <label className="flex flex-col gap-1.5">
-                <span className={`text-[11px] font-medium ${isDark ? "text-slate-400" : "text-slate-600"}`}>{copy.steps}</span>
-                <input
-                  type="range"
-                  min={1}
-                  max={limits.maxSteps}
-                  step={1}
-                  value={steps}
-                  onChange={(e) =>
-                    setSteps(
-                      Math.max(
-                        1,
-                        Math.min(
-                          limits.maxSteps,
-                          Number(e.target.value) || getDefaultStepsForMode(mode, limits),
-                        ),
-                      ),
-                    )
-                  }
-                />
-                <span className={`text-xs ${isDark ? "text-slate-300" : "text-slate-700"}`}>{steps}</span>
-              </label>
-              <label className="flex flex-col gap-1.5">
-                <span className={`text-[11px] font-medium ${isDark ? "text-slate-400" : "text-slate-600"}`}>{copy.cfg}</span>
-                <input
-                  type="range"
-                  min={limits.minCfg}
-                  max={limits.maxCfg}
-                  step={0.1}
-                  value={cfg}
-                  onChange={(e) => setCfg(Math.max(limits.minCfg, Math.min(limits.maxCfg, Number(e.target.value) || MODELCLONE_X_DEFAULT_CFG)))}
-                />
-                <span className={`text-xs ${isDark ? "text-slate-300" : "text-slate-700"}`}>{cfg.toFixed(1)}</span>
-              </label>
-            </>
-          )}
-          <label className={`flex flex-col gap-1.5 ${mode !== "character" ? "opacity-50" : ""}`}>
-            <span className={`text-[11px] font-medium ${isDark ? "text-slate-400" : "text-slate-600"}`}>{copy.loraStrength}</span>
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.05}
-              value={loraStrength}
-              disabled={mode !== "character"}
-              onChange={(e) => setLoraStrength(Math.max(0, Math.min(1, Number(e.target.value) || 0.8)))}
-            />
-            <span className={`text-xs ${isDark ? "text-slate-300" : "text-slate-700"}`}>{loraStrength.toFixed(2)}</span>
-          </label>
-        </div>
+        <label className={`flex flex-col gap-1.5 ${mode !== "character" ? "opacity-50" : ""}`}>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={loraStrength}
+            disabled={mode !== "character"}
+            onChange={(e) => setLoraStrength(Math.max(0, Math.min(1, Number(e.target.value) || 0.8)))}
+            aria-label={copy.loraStrength}
+          />
+          <span className={`text-xs ${isDark ? "text-slate-300" : "text-slate-700"}`}>{loraStrength.toFixed(2)}</span>
+        </label>
       </div>
+      )}
 
       {/* Cost + Generate */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
@@ -1646,9 +1596,6 @@ function GenerateTab({ isDark, copy }) {
         >
           <Coins className="w-4 h-4 text-[var(--accent)]" />
           <span className={`font-bold tabular-nums ${isDark ? "text-white" : "text-slate-900"}`}>{cost}</span>
-          {extraCost > 0 && (
-            <span className={`text-[11px] ${isDark ? "text-slate-400" : "text-slate-500"}`}>+{extraCost} <Coins className="w-3 h-3 inline" /></span>
-          )}
         </div>
       </div>
 
@@ -1740,7 +1687,6 @@ export default function ModelCloneXPage() {
     [copy.p2, pricing.withModel1],
     [copy.p3, pricing.noModel2],
     [copy.p4, pricing.withModel2],
-    [copy.p5, pricing.extraStepsPer10],
     [copy.p6, pricing.trainingStandard],
     [copy.p7, pricing.trainingPro],
   ];
