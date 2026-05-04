@@ -754,17 +754,27 @@ function App() {
           <Route
             path="/flows"
             element={
-              <ProtectedRouteWithOnboarding>
-                <FlowsPage />
-              </ProtectedRouteWithOnboarding>
+              typeof window !== "undefined" &&
+              /(^|\.)modelclone\.app$/i.test(window.location.hostname) ? (
+                <Navigate to="/dashboard" replace />
+              ) : (
+                <ProtectedRouteWithOnboarding>
+                  <FlowsPage />
+                </ProtectedRouteWithOnboarding>
+              )
             }
           />
           <Route
             path="/flows/:id"
             element={
-              <ProtectedRouteWithOnboarding>
-                <FlowsPage />
-              </ProtectedRouteWithOnboarding>
+              typeof window !== "undefined" &&
+              /(^|\.)modelclone\.app$/i.test(window.location.hostname) ? (
+                <Navigate to="/dashboard" replace />
+              ) : (
+                <ProtectedRouteWithOnboarding>
+                  <FlowsPage />
+                </ProtectedRouteWithOnboarding>
+              )
             }
           />
           <Route

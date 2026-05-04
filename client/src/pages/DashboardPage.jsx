@@ -906,7 +906,9 @@ export default function DashboardPage() {
           {activeTab === "upscaler" && <UpscalerPage />}
           {activeTab === "synthid-remove" && <SynthIDRemoverPage />}
           {activeTab === "modelclone-x" && <ModelCloneXPage />}
-          {activeTab === "gptx" && <GPTXTab />}
+          {activeTab === "gptx" &&
+            typeof window !== "undefined" &&
+            !/(^|\.)modelclone\.app$/i.test(window.location.hostname) && <GPTXTab />}
           {activeTab === "flows" &&
             typeof window !== "undefined" &&
             !/(^|\.)modelclone\.app$/i.test(window.location.hostname) && (
