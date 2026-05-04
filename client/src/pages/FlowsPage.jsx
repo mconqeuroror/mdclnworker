@@ -61,6 +61,7 @@ import VideoMotionNode from "../components/flows/nodes/VideoMotionNode";
 import TalkingHeadNode from "../components/flows/nodes/TalkingHeadNode";
 import NSFWGenNode from "../components/flows/nodes/NSFWGenNode";
 import NSFWVideoNode from "../components/flows/nodes/NSFWVideoNode";
+import NSFWVideoExtendNode from "../components/flows/nodes/NSFWVideoExtendNode";
 import NSFWMotionNode from "../components/flows/nodes/NSFWMotionNode";
 import OutputViewerNode from "../components/flows/nodes/OutputViewerNode";
 import GroupNode from "../components/flows/nodes/GroupNode";
@@ -89,6 +90,7 @@ const NODE_TYPE_MAP = {
   "sfx-gen":            SfxGenNode,
   "nsfw-gen":           NSFWGenNode,
   "nsfw-video":         NSFWVideoNode,
+  "nsfw-video-extend":  NSFWVideoExtendNode,
   "nsfw-motion":        NSFWMotionNode,
   "output-viewer":      OutputViewerNode,
 };
@@ -564,7 +566,7 @@ function FlowCanvas({ flowId, embedded = false }) {
             obscure thin edge strokes at low opacity. */}
         <div
           className="flex-1 relative"
-          style={{ background: "#08080b" }}
+            style={{ background: "#0b0b10" }}
         >
           {/* Aurora background mesh */}
           <div
@@ -572,15 +574,15 @@ function FlowCanvas({ flowId, embedded = false }) {
             style={{
               zIndex: 0,
               background: `
-                radial-gradient(40% 35% at 25% 35%, rgba(124, 58, 237, 0.10) 0%, transparent 60%),
-                radial-gradient(35% 30% at 80% 70%, rgba(245, 158, 11, 0.06) 0%, transparent 60%),
-                radial-gradient(45% 40% at 60% 20%, rgba(34, 211, 238, 0.04) 0%, transparent 70%)
+                radial-gradient(40% 35% at 25% 35%, rgba(124, 58, 237, 0.14) 0%, transparent 60%),
+                radial-gradient(35% 30% at 80% 70%, rgba(245, 158, 11, 0.09) 0%, transparent 60%),
+                radial-gradient(45% 40% at 60% 20%, rgba(34, 211, 238, 0.07) 0%, transparent 70%)
               `,
             }}
           />
           {/* Grain texture overlay */}
           <div
-            className="absolute inset-0 pointer-events-none opacity-[0.018] mix-blend-overlay"
+            className="absolute inset-0 pointer-events-none opacity-[0.03] mix-blend-overlay"
             style={{
               zIndex: 0,
               backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' /%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' /%3E%3C/svg%3E")`,
@@ -865,6 +867,7 @@ export default function FlowsPage({ embedded = false }) {
           --xy-connectionline-stroke-default: #a78bfa;
           --xy-connectionline-stroke-width: 3;
           --xy-connectionline-stroke-width-default: 3;
+          --xy-background-pattern-color-props: rgba(255,255,255,0.08);
         }
 
         /* Edge safety-net: guarantees a visible stroke even before React
@@ -888,7 +891,7 @@ export default function FlowsPage({ embedded = false }) {
         }
         /* Live drag preview while user is pulling a wire. */
         .react-flow__connection-path {
-          opacity: 0.95;
+          opacity: 1;
         }
         /* Defensive: nothing clips or hides the edge SVG. */
         .react-flow svg         { max-width: none !important; max-height: none !important; }
@@ -901,6 +904,7 @@ export default function FlowsPage({ embedded = false }) {
         .react-flow__handle {
           transition: all 0.15s ease;
           cursor: crosshair !important;
+          border-width: 2px !important;
         }
         .react-flow__handle:hover {
           transform: scale(1.6);
@@ -922,8 +926,8 @@ export default function FlowsPage({ embedded = false }) {
         /* Selection box */
         .react-flow__nodesselection-rect,
         .react-flow__selection {
-          background: rgba(167,139,250,0.08) !important;
-          border: 1px dashed rgba(167,139,250,0.4) !important;
+          background: rgba(167,139,250,0.16) !important;
+          border: 1px dashed rgba(167,139,250,0.62) !important;
         }
 
         .line-clamp-2 {

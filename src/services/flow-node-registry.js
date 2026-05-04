@@ -43,7 +43,7 @@ async function pollGeneration(generationId, onProgress) {
     if (!gen) throw new Error("Generation not found");
     if (gen.status === "completed" && gen.outputUrl) return gen.outputUrl;
     if (gen.status === "failed") throw new Error(gen.errorMessage || "Generation failed");
-    onProgress?.({ message: `Waiting for generation ${generationId.slice(0,8)}â€¦ (${gen.status})` });
+    onProgress?.({ message: `Waiting for generation ${generationId.slice(0,8)}... (${gen.status})` });
     await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
   }
   throw new Error("Generation timed out after 8 minutes");
@@ -63,6 +63,90 @@ async function runGeneration({ userId, type, prompt, modelId, replicateModel, cr
     throw err;
   }
   return gen.id;
+}
+
+const CREATOR_STUDIO_IMAGE_MODELS = new Set([
+  "nano-banana-pro",
+  "flux-kontext-pro",
+  "flux-kontext-max",
+  "ideogram-v3-text",
+  "ideogram-v3-edit",
+  "ideogram-v3-remix",
+  "wan-2-7-image",
+  "wan-2-7-image-pro",
+  "seedream-v4-5-edit",
+  "gpt-image-2",
+]);
+
+async function registerKieTaskForGeneration(taskId, generationId, userId, kind = "flow-node") {
+  if (!taskId || !generationId) return;
+  await prisma.kieTask.upsert({
+    where: { taskId },
+    update: {
+      entityType: "generation",
+      entityId: generationId,
+      step: "final",
+      userId: userId || null,
+      status: "processing",
+      payload: { type: kind },
+      errorMessage: null,
+      outputUrl: null,
+      completedAt: null,
+    },
+    create: {
+      taskId,
+      provider: "kie",
+      entityType: "generation",
+      entityId: generationId,
+      step: "final",
+      userId: userId || null,
+      status: "processing",
+      payload: { type: kind },
+    },
+  });
+}
+
+async function maybeEnhancePrompt(prompt, nodeData, userId, onProgress) {
+  const base = String(prompt || "").trim();
+  if (!base) return base;
+  if (!nodeData?.aiEnhancePrompt) return base;
+
+  const { INSTARAW_NANO_BANANA_ENHANCE_SYSTEM } = await import("./nanobanana-prompt.service.js");
+  const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+  if (!OPENROUTER_API_KEY) return base;
+
+  const pricing = await getGenerationPricing();
+  const enhanceCost = Number(pricing.enhancePromptDefault ?? 1);
+  const user = await checkAndExpireCredits(userId);
+  if (getTotalCredits(user) < enhanceCost) {
+    onProgress?.({ message: "AI enhance skipped (insufficient credits)." });
+    return base;
+  }
+
+  await deductCredits(userId, enhanceCost);
+  onProgress?.({ message: "AI enhancing prompt..." });
+  try {
+    const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${OPENROUTER_API_KEY}` },
+      body: JSON.stringify({
+        model: "x-ai/grok-4.1-fast",
+        messages: [
+          { role: "system", content: INSTARAW_NANO_BANANA_ENHANCE_SYSTEM },
+          { role: "user", content: `User's idea: "${base}"\n\nWrite the full INSTARAW image edit instruction now.` },
+        ],
+        max_tokens: 700,
+        temperature: 0.35,
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!resp.ok) return base;
+    const data = await resp.json().catch(() => null);
+    const enhanced = data?.choices?.[0]?.message?.content?.trim();
+    return enhanced || base;
+  } catch {
+    return base;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -162,7 +246,7 @@ export const NODE_REGISTRY = {
       if (getTotalCredits(user) < cost) throw new Error(`Not enough credits (need ${cost})`);
       await deductCredits(userId, cost);
 
-      onProgress?.({ message: "Enhancing prompt with AIâ€¦" });
+      onProgress?.({ message: "Enhancing prompt with AI..." });
       const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
@@ -194,13 +278,13 @@ export const NODE_REGISTRY = {
       { id: "image", type: "image", label: "Ref Photo (optional)" },
     ],
     outputs: [{ id: "image", type: "image", label: "Image" }],
-    defaultData: { resolution: "2K", aspectRatio: "9:16" },
+    defaultData: { resolution: "2K", aspectRatio: "9:16", aiEnhancePrompt: false },
     creditCost: 20,
     execute: async (inputs, nodeData, userId, onProgress) => {
       const { generateImageWithNanoBananaKie } = await import("./kie.service.js");
       const model = inputs.model;
       if (!model) throw new Error("NanaBanana Avatar: model required");
-      const prompt = inputs.text || nodeData.prompt || "";
+      const prompt = await maybeEnhancePrompt(inputs.text || nodeData.prompt || "", nodeData, userId, onProgress);
       const refs = [inputs.image, model.photo1Url, model.photo2Url, model.photo3Url].filter(Boolean).slice(0, 4);
 
       const pricing = await getGenerationPricing();
@@ -209,7 +293,7 @@ export const NODE_REGISTRY = {
       if (getTotalCredits(user) < cost) throw new Error(`Not enough credits (need ${cost})`);
       await deductCredits(userId, cost);
 
-      onProgress?.({ message: "Submitting NanaBanana generationâ€¦" });
+      onProgress?.({ message: "Submitting NanaBanana generation..." });
       let outputUrl = null;
       const result = await generateImageWithNanoBananaKie(refs, prompt, {
         resolution: nodeData.resolution || "2K",
@@ -226,7 +310,7 @@ export const NODE_REGISTRY = {
       if (result.success && result.outputUrl) {
         outputUrl = result.outputUrl;
       } else if (result.deferred && result.taskId) {
-        onProgress?.({ message: "Waiting for resultâ€¦" });
+        onProgress?.({ message: "Waiting for result..." });
         const maxWait = 5 * 60 * 1000;
         const start = Date.now();
         while (Date.now() - start < maxWait) {
@@ -254,13 +338,13 @@ export const NODE_REGISTRY = {
       { id: "text", type: "text", label: "Prompt" },
     ],
     outputs: [{ id: "image", type: "image", label: "Image" }],
-    defaultData: { aspectRatio: "9:16" },
+    defaultData: { aspectRatio: "9:16", aiEnhancePrompt: false },
     creditCost: 10,
     execute: async (inputs, nodeData, userId, onProgress) => {
       const { generateImageWithSeedream5Lite } = await import("./kie.service.js");
       const model = inputs.model;
       if (!model) throw new Error("Seedream Avatar: model required");
-      const prompt = inputs.text || nodeData.prompt || "";
+      const prompt = await maybeEnhancePrompt(inputs.text || nodeData.prompt || "", nodeData, userId, onProgress);
       const refs = [model.photo1Url, model.photo2Url, model.photo3Url].filter(Boolean);
 
       const pricing = await getGenerationPricing();
@@ -269,13 +353,13 @@ export const NODE_REGISTRY = {
       if (getTotalCredits(user) < cost) throw new Error(`Not enough credits (need ${cost})`);
       await deductCredits(userId, cost);
 
-      onProgress?.({ message: "Submitting Seedream generationâ€¦" });
+      onProgress?.({ message: "Submitting Seedream generation..." });
       const result = await generateImageWithSeedream5Lite(refs, prompt, { aspectRatio: nodeData.aspectRatio || "9:16", quality: "basic" });
       if (!result.success && !result.deferred) throw new Error(result.error || "Seedream failed");
 
       let outputUrl = result.outputUrl;
       if (result.deferred && result.taskId) {
-        onProgress?.({ message: "Waiting for Seedream resultâ€¦" });
+        onProgress?.({ message: "Waiting for Seedream result..." });
         const maxWait = 5 * 60 * 1000;
         const start = Date.now();
         while (Date.now() - start < maxWait) {
@@ -304,7 +388,7 @@ export const NODE_REGISTRY = {
       { id: "text", type: "text", label: "Prompt" },
     ],
     outputs: [{ id: "image", type: "image", label: "Output" }],
-    defaultData: { loraStrength: 0.85, denoise: 0.75, steps: 25 },
+    defaultData: { loraStrength: 0.85, denoise: 0.75, steps: 25, aiEnhancePrompt: false },
     creditCost: 15,
     execute: async (inputs, nodeData, userId, onProgress) => {
       const { submitModelCloneXImg2ImgJob, pollModelCloneXJob } = await import("./modelcloneX.service.js");
@@ -315,8 +399,13 @@ export const NODE_REGISTRY = {
       await deductCredits(userId, cost);
 
       const loraUrl = inputs.model?.loraUrl || nodeData.loraUrl;
-      const prompt = inputs.text || nodeData.prompt || "masterpiece, best quality";
-      onProgress?.({ message: "Submitting MCX jobâ€¦" });
+      const prompt = await maybeEnhancePrompt(
+        inputs.text || nodeData.prompt || "masterpiece, best quality",
+        nodeData,
+        userId,
+        onProgress,
+      );
+      onProgress?.({ message: "Submitting MCX job..." });
 
       const gen = await prisma.generation.create({
         data: { userId, type: "mcx-img2img", status: "processing", prompt, creditsCost: cost, replicateModel: "comfyui-mcx-i2i" },
@@ -331,7 +420,7 @@ export const NODE_REGISTRY = {
       });
       await prisma.generation.update({ where: { id: gen.id }, data: { providerTaskId: job.id || job.requestId } });
 
-      onProgress?.({ message: "Waiting for MCX resultâ€¦" });
+      onProgress?.({ message: "Waiting for MCX result..." });
       const images = await pollModelCloneXJob(job.id || job.requestId, gen.id, userId);
       if (!images?.length) throw new Error("MCX: no output images");
       return { output: images[0], outputType: "image", creditsUsed: cost };
@@ -357,7 +446,7 @@ export const NODE_REGISTRY = {
       await deductCredits(userId, cost);
 
       const { submitRunningHubUpscalerJob, queryRunningHubTask, extractRunningHubOutputUrl } = await import("../services/runninghub.service.js");
-      onProgress?.({ message: "Submitting upscale jobâ€¦" });
+      onProgress?.({ message: "Submitting upscale job..." });
 
       const gen = await prisma.generation.create({
         data: { userId, type: "upscaler", status: "processing", prompt: "upscale", creditsCost: cost, replicateModel: "runninghub-upscaler" },
@@ -373,7 +462,7 @@ export const NODE_REGISTRY = {
       const { taskId } = await submitRunningHubUpscalerJob(imageBase64 || imageUrl);
       await prisma.generation.update({ where: { id: gen.id }, data: { providerTaskId: taskId } });
 
-      onProgress?.({ message: "Waiting for upscale resultâ€¦" });
+      onProgress?.({ message: "Waiting for upscale result..." });
       const maxWait = 5 * 60 * 1000;
       const start = Date.now();
       while (Date.now() - start < maxWait) {
@@ -419,7 +508,7 @@ export const NODE_REGISTRY = {
         imageBase64 = Buffer.from(buf).toString("base64");
       } catch { imageBase64 = null; }
 
-      onProgress?.({ message: "Submitting SynthID removal jobâ€¦" });
+      onProgress?.({ message: "Submitting SynthID removal job..." });
       const gen = await prisma.generation.create({
         data: { userId, type: "synthid-remove", status: "processing", prompt: "synthid-remove", creditsCost: cost, replicateModel: "runninghub-synthid" },
       });
@@ -466,7 +555,7 @@ export const NODE_REGISTRY = {
       if (getTotalCredits(user) < cost) throw new Error(`Not enough credits (need ${cost})`);
       await deductCredits(userId, cost);
 
-      onProgress?.({ message: "Submitting face swapâ€¦" });
+      onProgress?.({ message: "Submitting face swap..." });
       const { faceSwapImage } = await import("../controllers/generation.controller.js").catch(() => ({}));
       // Direct wavespeed face swap
       const { generateFaceSwapWithWavespeed } = await import("./wavespeed.service.js").catch(() => ({}));
@@ -483,40 +572,163 @@ export const NODE_REGISTRY = {
     label: "Creator Studio",
     category: "images",
     color: "#a78bfa",
-    description: "Generate with Creator Studio (Flux, Wan, Ideogram, etc.)",
-    inputs: [{ id: "text", type: "text", label: "Prompt" }],
+    description: "Generate with full Creator Studio model lineup",
+    inputs: [
+      { id: "text", type: "text", label: "Prompt" },
+      { id: "image", type: "image", label: "Input Image (opt)" },
+    ],
     outputs: [{ id: "image", type: "image", label: "Image" }],
-    defaultData: { model: "seedream-5-lite", resolution: "1K", aspectRatio: "9:16" },
+    defaultData: {
+      generationModel: "nano-banana-pro",
+      mode: "t2i",
+      resolution: "1K",
+      aspectRatio: "9:16",
+      renderingSpeed: "BALANCED",
+      prompt: "",
+      aiEnhancePrompt: false,
+      numImages: 1,
+    },
     creditCost: 10,
     execute: async (inputs, nodeData, userId, onProgress) => {
-      const prompt = inputs.text || nodeData.prompt || "";
+      const requestedModel = nodeData?.generationModel || nodeData?.model;
+      const generationModel = CREATOR_STUDIO_IMAGE_MODELS.has(requestedModel)
+        ? requestedModel
+        : "nano-banana-pro";
+      const mode = nodeData?.mode === "i2i" ? "i2i" : "t2i";
+      const imageInput = inputs.image || nodeData?.inputImageUrl || "";
+      const requiresImageInput = generationModel === "seedream-v4-5-edit" || generationModel === "ideogram-v3-edit" || generationModel === "ideogram-v3-remix";
+      if ((mode === "i2i" || requiresImageInput) && !imageInput) {
+        throw new Error("Creator Studio i2i mode requires an input image.");
+      }
+
+      const prompt = await maybeEnhancePrompt(inputs.text || nodeData.prompt || "", nodeData, userId, onProgress);
       if (!prompt) throw new Error("Creator Studio: prompt required");
       const pricing = await getGenerationPricing();
-      const cost = Number(pricing.creatorStudioSeedream45Edit ?? 10);
+      const quantity = Math.min(4, Math.max(1, Number(nodeData?.numImages || 1)));
+      const speed = String(nodeData?.renderingSpeed || "BALANCED").toUpperCase();
+      let cost = Number(pricing.creatorStudioSeedream45Edit ?? 10);
+      if (generationModel === "flux-kontext-pro") cost = Number(pricing.creatorStudioFluxKontextPro ?? 10);
+      else if (generationModel === "flux-kontext-max") cost = Number(pricing.creatorStudioFluxKontextMax ?? 20);
+      else if (generationModel === "wan-2-7-image") cost = Number(pricing.creatorStudioWan27Image ?? 5) * quantity;
+      else if (generationModel === "wan-2-7-image-pro") cost = Number(pricing.creatorStudioWan27ImagePro ?? 10) * quantity;
+      else if (generationModel === "gpt-image-2") cost = Number(pricing.creatorStudioGptImage2 ?? 10);
+      else if (generationModel.startsWith("ideogram-v3-")) {
+        cost = speed === "TURBO"
+          ? Number(pricing.creatorStudioIdeogramTurbo ?? 7)
+          : speed === "QUALITY"
+          ? Number(pricing.creatorStudioIdeogramQuality ?? 20)
+          : Number(pricing.creatorStudioIdeogramBalanced ?? 14);
+        cost *= quantity;
+      }
+      cost = Math.ceil(Number(cost) || 0);
       const user = await checkAndExpireCredits(userId);
       if (getTotalCredits(user) < cost) throw new Error(`Not enough credits (need ${cost})`);
       await deductCredits(userId, cost);
 
-      onProgress?.({ message: "Generating with Creator Studioâ€¦" });
-      const { generateImageWithSeedream5Lite } = await import("./kie.service.js");
-      const result = await generateImageWithSeedream5Lite([], prompt, {
-        aspectRatio: nodeData.aspectRatio || "9:16",
-        quality: "basic",
+      const generation = await prisma.generation.create({
+        data: {
+          userId,
+          type: "creator-studio",
+          prompt,
+          status: "processing",
+          creditsCost: cost,
+          provider: generationModel.startsWith("seedream") ? "wavespeed" : "kie",
+          providerFamily: "creator-studio",
+          providerType: "image",
+          providerModel: generationModel,
+          replicateModel: `flow-creator:${generationModel}`,
+        },
       });
+
+      const {
+        generateImageWithNanoBananaKie,
+        generateTextToImageNanoBananaKie,
+        generateFluxKontextKie,
+        generateWan27ImageKie,
+        generateWan27ImageProKie,
+        generateIdeogramV3Kie,
+        generateGptImage2Kie,
+      } = await import("./kie.service.js");
+      const { generateImageWithSeedreamWaveSpeed } = await import("./wavespeed.service.js");
+
+      const onTaskCreated = async (taskId) => {
+        await prisma.generation.update({
+          where: { id: generation.id },
+          data: { replicateModel: `kie-task:${taskId}` },
+        }).catch(() => {});
+        await registerKieTaskForGeneration(taskId, generation.id, userId, "creator-studio");
+      };
+
+      onProgress?.({ message: `Generating with ${generationModel}…` });
+      let result = null;
+      if (generationModel === "nano-banana-pro") {
+        result = mode === "i2i"
+          ? await generateImageWithNanoBananaKie([imageInput], prompt, {
+              aspectRatio: nodeData.aspectRatio || "9:16",
+              resolution: nodeData.resolution || "1K",
+              forcePolling: true,
+            })
+          : await generateTextToImageNanoBananaKie(prompt, {
+              aspectRatio: nodeData.aspectRatio || "9:16",
+              resolution: nodeData.resolution || "1K",
+              forcePolling: true,
+            });
+      } else if (generationModel === "seedream-v4-5-edit") {
+        const seedreamInputs = mode === "i2i" && imageInput ? [imageInput] : [];
+        result = await generateImageWithSeedreamWaveSpeed(seedreamInputs, prompt, { forcePolling: true });
+      } else if (generationModel === "flux-kontext-pro" || generationModel === "flux-kontext-max") {
+        result = await generateFluxKontextKie({
+          model: generationModel,
+          prompt,
+          inputImage: mode === "i2i" ? imageInput : null,
+          aspectRatio: nodeData.aspectRatio || "16:9",
+          outputFormat: "jpeg",
+          promptUpsampling: nodeData?.promptUpsampling === true,
+          onTaskCreated,
+        });
+      } else if (generationModel === "wan-2-7-image" || generationModel === "wan-2-7-image-pro") {
+        const fn = generationModel === "wan-2-7-image-pro" ? generateWan27ImageProKie : generateWan27ImageKie;
+        result = await fn({
+          prompt,
+          inputUrls: mode === "i2i" && imageInput ? [imageInput] : [],
+          aspectRatio: nodeData.aspectRatio || "1:1",
+          n: quantity,
+          resolution: nodeData.resolution || "2K",
+          thinkingMode: nodeData?.thinkingMode === true,
+          onTaskCreated,
+        });
+      } else if (generationModel.startsWith("ideogram-v3-")) {
+        const variant = generationModel.replace("ideogram-v3-", "");
+        result = await generateIdeogramV3Kie({
+          variant,
+          prompt,
+          imageUrl: mode === "i2i" ? imageInput : "",
+          maskUrl: nodeData?.maskUrl || "",
+          renderingSpeed: speed,
+          numImages: quantity,
+          expandPrompt: true,
+          onTaskCreated,
+        });
+      } else if (generationModel === "gpt-image-2") {
+        result = await generateGptImage2Kie({
+          prompt,
+          inputUrls: mode === "i2i" && imageInput ? [imageInput] : [],
+          aspectRatio: nodeData.aspectRatio || "auto",
+          onTaskCreated,
+        });
+      } else {
+        throw new Error(`Creator Studio: unsupported model ${generationModel}`);
+      }
+
       let outputUrl = result.outputUrl;
       if (result.deferred && result.taskId) {
-        const maxWait = 4 * 60 * 1000;
-        const start = Date.now();
-        while (Date.now() - start < maxWait) {
-          await new Promise(r => setTimeout(r, 4000));
-          const gen = await prisma.generation.findFirst({
-            where: { userId, replicateModel: `kie-task:${result.taskId}` }, orderBy: { createdAt: "desc" },
-          });
-          if (gen?.status === "completed" && gen.outputUrl) { outputUrl = gen.outputUrl; break; }
-          if (gen?.status === "failed") throw new Error("Creator Studio generation failed");
-        }
+        outputUrl = await pollGeneration(generation.id, onProgress);
       }
       if (!outputUrl) throw new Error("Creator Studio: no output");
+      await prisma.generation.update({
+        where: { id: generation.id },
+        data: { status: "completed", outputUrl, completedAt: new Date() },
+      }).catch(() => {});
       return { output: outputUrl, outputType: "image", creditsUsed: cost };
     },
   },
@@ -533,34 +745,97 @@ export const NODE_REGISTRY = {
       { id: "image", type: "image", label: "Reference Image (opt)" },
     ],
     outputs: [{ id: "video", type: "video", label: "Video" }],
-    defaultData: { videoModel: "kling-3.0", duration: 5, resolution: "720p" },
+    defaultData: { videoModel: "kling-3.0", mode: "t2v", duration: 5, resolution: "720p", aiEnhancePrompt: false },
     creditCost: 70,
     execute: async (inputs, nodeData, userId, onProgress) => {
-      const prompt = inputs.text || nodeData.prompt || "";
+      const prompt = await maybeEnhancePrompt(inputs.text || nodeData.prompt || "", nodeData, userId, onProgress);
       if (!prompt) throw new Error("Video from Prompt: prompt required");
       const pricing = await getGenerationPricing();
-      const perSec = Number(pricing.kling30StdNoSoundPerSec ?? 14);
+      const videoModel = String(nodeData?.videoModel || "kling-3.0");
+      const mode = nodeData?.mode === "i2v" ? "i2v" : "t2v";
+      if (mode === "i2v" && !inputs.image) {
+        throw new Error("Video i2v mode requires an input image.");
+      }
       const duration = nodeData.duration || 5;
+      let perSec = Number(pricing.kling30StdNoSoundPerSec ?? 14);
+      if (videoModel === "kling-2.6") perSec = Number(pricing.kling26StdNoSoundPerSec ?? 10);
+      if (videoModel === "wan-2.6") perSec = Number(mode === "i2v" ? (pricing.wan26I2v720pPerSec ?? 12.8) : (pricing.wan26T2v720pPerSec ?? 12.8));
+      if (videoModel === "wan-2.7") perSec = Number(mode === "i2v" ? (pricing.wan27I2v720pPerSec ?? 14.4) : (pricing.wan27T2v720pPerSec ?? 14.4));
       const cost = Math.ceil(perSec * duration);
       const user = await checkAndExpireCredits(userId);
       if (getTotalCredits(user) < cost) throw new Error(`Not enough credits (need ${cost})`);
       await deductCredits(userId, cost);
 
-      onProgress?.({ message: "Submitting video generationâ€¦" });
-      const { generateKlingVideoKie } = await import("./kie.service.js").catch(() => ({}));
-      if (!generateKlingVideoKie) throw new Error("Video generation service not available");
+      onProgress?.({ message: `Submitting ${videoModel} video generation…` });
+      const {
+        generateVideoWithKlingTextKie,
+        generateVideoWithKling26Kie,
+        generateVideoWithWanTextOrImageKie,
+        generateVideoWithWan27Kie,
+      } = await import("./kie.service.js").catch(() => ({}));
       const gen = await prisma.generation.create({
-        data: { userId, type: "prompt-video", status: "processing", prompt, creditsCost: cost, replicateModel: "kie-kling" },
+        data: { userId, type: "prompt-video", status: "processing", prompt, creditsCost: cost, replicateModel: `flow-video:${videoModel}` },
       });
-      const result = await generateKlingVideoKie({ prompt, imageUrl: inputs.image, duration, resolution: nodeData.resolution || "720p",
-        onTaskCreated: async (taskId) => {
-          await prisma.generation.update({ where: { id: gen.id }, data: { replicateModel: `kie-task:${taskId}` } });
-        }
-      }).catch(e => { throw e; });
+
+      const onTaskSubmitted = async (taskId) => {
+        await prisma.generation.update({ where: { id: gen.id }, data: { replicateModel: `kie-task:${taskId}` } }).catch(() => {});
+        await registerKieTaskForGeneration(taskId, gen.id, userId, "prompt-video");
+      };
+
+      let result = null;
+      if (videoModel === "kling-3.0") {
+        result = mode === "i2v"
+          ? await generateVideoWithKling26Kie(inputs.image, prompt, {
+              useKling3: true,
+              duration,
+              onTaskCreated: onTaskSubmitted,
+              forcePolling: false,
+            })
+          : await generateVideoWithKlingTextKie(prompt, {
+              useKling3: true,
+              duration,
+              onTaskSubmitted,
+            });
+      } else if (videoModel === "kling-2.6") {
+        result = mode === "i2v"
+          ? await generateVideoWithKling26Kie(inputs.image, prompt, {
+              useKling3: false,
+              duration,
+              onTaskCreated: onTaskSubmitted,
+              forcePolling: false,
+            })
+          : await generateVideoWithKlingTextKie(prompt, {
+              useKling3: false,
+              duration,
+              onTaskSubmitted,
+            });
+      } else if (videoModel === "wan-2.6") {
+        result = await generateVideoWithWanTextOrImageKie({
+          version: "2.6",
+          mode,
+          prompt,
+          imageUrl: inputs.image,
+          duration,
+          resolution: nodeData.resolution || "720p",
+          onTaskSubmitted,
+        });
+      } else if (videoModel === "wan-2.7") {
+        result = await generateVideoWithWan27Kie({
+          mode,
+          prompt,
+          imageUrl: inputs.image,
+          duration,
+          resolution: nodeData.resolution || "720p",
+          aspectRatio: nodeData.aspectRatio || "9:16",
+          onTaskSubmitted,
+        });
+      } else {
+        throw new Error(`Unsupported video model: ${videoModel}`);
+      }
 
       let outputUrl = result?.outputUrl;
       if (result?.deferred && result?.taskId) {
-        onProgress?.({ message: "Waiting for video resultâ€¦" });
+        onProgress?.({ message: "Waiting for video result..." });
         outputUrl = await pollGeneration(gen.id, onProgress);
       }
       if (!outputUrl) throw new Error("Video from Prompt: no output");
@@ -591,7 +866,7 @@ export const NODE_REGISTRY = {
       if (getTotalCredits(user) < cost) throw new Error(`Not enough credits (need ${cost})`);
       await deductCredits(userId, cost);
 
-      onProgress?.({ message: "Submitting motion control videoâ€¦" });
+      onProgress?.({ message: "Submitting motion control video..." });
       const { generateVideoWithMotionKie } = await import("./kie.service.js");
       const gen = await prisma.generation.create({
         data: { userId, type: "recreate-video", status: "processing", prompt: "motion-control", creditsCost: cost, replicateModel: "kie-motion" },
@@ -604,7 +879,7 @@ export const NODE_REGISTRY = {
       });
       let outputUrl = result?.outputUrl;
       if (result?.deferred && result?.taskId) {
-        onProgress?.({ message: "Waiting for motion video resultâ€¦" });
+        onProgress?.({ message: "Waiting for motion video result..." });
         outputUrl = await pollGeneration(gen.id, onProgress);
       }
       if (!outputUrl) throw new Error("Motion Control: no output");
@@ -770,12 +1045,15 @@ export const NODE_REGISTRY = {
       { id: "text", type: "text", label: "Prompt" },
     ],
     outputs: [{ id: "image", type: "image", label: "Image" }],
-    defaultData: { quantity: 1, resolution: "portrait-1" },
+    defaultData: { quantity: 1, resolution: "portrait-1", aiEnhancePrompt: false },
     creditCost: 30,
     execute: async (inputs, nodeData, userId, onProgress) => {
       const model = inputs.model;
       if (!model) throw new Error("NSFW Gen: model required");
-      const prompt = inputs.text || nodeData.prompt || "";
+      if (!model?.loraUrl || !model?.loraTriggerWord) {
+        throw new Error("NSFW Gen: selected model is missing LoRA data.");
+      }
+      const prompt = await maybeEnhancePrompt(inputs.text || nodeData.prompt || "", nodeData, userId, onProgress);
       if (!prompt) throw new Error("NSFW Gen: prompt required");
       const pricing = await getGenerationPricing();
       const cost = Number(pricing.imagePromptNsfw ?? 30);
@@ -783,14 +1061,42 @@ export const NODE_REGISTRY = {
       if (getTotalCredits(user) < cost) throw new Error(`Not enough credits (need ${cost})`);
       await deductCredits(userId, cost);
 
-      onProgress?.({ message: "Submitting NSFW generationâ€¦" });
-      const { generateNsfwImage } = await import("../controllers/nsfw.controller.js").catch(() => ({}));
-      // Create generation and submit via NSFW controller internals
-      const { submitNsfwGeneration } = await import("./modelcloneX.service.js").catch(() => ({ submitNsfwGeneration: null }));
+      onProgress?.({ message: "Submitting NSFW generation..." });
+      const { submitNsfwGeneration } = await import("./fal.service.js");
       const gen = await prisma.generation.create({
         data: { userId, modelId: model.id, type: "nsfw", status: "processing", prompt, creditsCost: cost, replicateModel: "comfyui-nsfw", isNsfw: true },
       });
-      onProgress?.({ message: "Waiting for NSFW resultâ€¦" });
+
+      const submission = await submitNsfwGeneration({
+        loraUrl: model.loraUrl,
+        triggerWord: model.loraTriggerWord,
+        userPrompt: prompt,
+        options: {
+          resolution: nodeData.resolution || "portrait-1",
+        },
+      }, null, gen.id);
+
+      if (!submission?.success || !submission?.requestId) {
+        await prisma.generation.update({
+          where: { id: gen.id },
+          data: { status: "failed", errorMessage: submission?.error || "NSFW submit failed", completedAt: new Date() },
+        }).catch(() => {});
+        await refundCredits(userId, cost).catch(() => {});
+        throw new Error(submission?.error || "NSFW submit failed");
+      }
+
+      await prisma.generation.update({
+        where: { id: gen.id },
+        data: {
+          providerTaskId: submission.requestId,
+          inputImageUrl: JSON.stringify({
+            runpodJobId: submission.requestId,
+            provider: "runpod-nsfw",
+          }),
+        },
+      }).catch(() => {});
+
+      onProgress?.({ message: "Waiting for NSFW result..." });
       const outputUrl = await pollGeneration(gen.id, onProgress);
       return { output: outputUrl, outputType: "image", creditsUsed: cost };
     },
@@ -804,21 +1110,56 @@ export const NODE_REGISTRY = {
     inputs: [
       { id: "image", type: "image", label: "Input Image" },
       { id: "model", type: "model", label: "Model" },
+      { id: "text", type: "text", label: "Prompt (opt)" },
     ],
     outputs: [{ id: "video", type: "video", label: "Video" }],
-    defaultData: { duration: 5 },
+    defaultData: { duration: 5, prompt: "", aiEnhancePrompt: false },
     creditCost: 80,
     execute: async (inputs, nodeData, userId, onProgress) => {
       if (!inputs.image) throw new Error("NSFW Video: input image required");
       const model = inputs.model;
-      const cost = 80;
+      if (!model?.id) throw new Error("NSFW Video: model required");
+      const duration = nodeData.duration === 8 ? 8 : 5;
+      const cost = duration === 8 ? 80 : 50;
       const user = await checkAndExpireCredits(userId);
       if (getTotalCredits(user) < cost) throw new Error(`Not enough credits (need ${cost})`);
       await deductCredits(userId, cost);
+      const prompt = await maybeEnhancePrompt(inputs.text || nodeData.prompt || "cinematic motion, natural movement, high quality", nodeData, userId, onProgress);
+
+      const { submitNsfwVideo } = await import("./wavespeed.service.js");
       const gen = await prisma.generation.create({
-        data: { userId, modelId: model?.id, type: "nsfw-video", status: "processing", prompt: "nsfw-video", creditsCost: cost, replicateModel: "nsfw-video", isNsfw: true },
+        data: {
+          userId,
+          modelId: model.id,
+          type: "nsfw-video",
+          status: "processing",
+          prompt,
+          creditsCost: cost,
+          replicateModel: "nsfw-video",
+          isNsfw: true,
+          inputImageUrl: JSON.stringify({
+            sourceImage: inputs.image,
+            duration,
+            sourceType: "flow",
+          }),
+        },
       });
-      onProgress?.({ message: "Waiting for NSFW videoâ€¦" });
+
+      const submission = await submitNsfwVideo(inputs.image, prompt, { duration });
+      if (!submission?.success || !submission?.requestId) {
+        await prisma.generation.update({
+          where: { id: gen.id },
+          data: { status: "failed", errorMessage: submission?.error || "NSFW video submit failed", completedAt: new Date() },
+        }).catch(() => {});
+        await refundCredits(userId, cost).catch(() => {});
+        throw new Error(submission?.error || "NSFW video submit failed");
+      }
+      await prisma.generation.update({
+        where: { id: gen.id },
+        data: { replicateModel: submission.requestId },
+      }).catch(() => {});
+
+      onProgress?.({ message: "Waiting for NSFW video..." });
       const outputUrl = await pollGeneration(gen.id, onProgress);
       return { output: outputUrl, outputType: "video", creditsUsed: cost };
     },
@@ -831,10 +1172,10 @@ export const NODE_REGISTRY = {
     description: "Extend an NSFW video",
     inputs: [
       { id: "video", type: "video", label: "Video" },
-      { id: "model", type: "model", label: "Model" },
+      { id: "text", type: "text", label: "Prompt (opt)" },
     ],
     outputs: [{ id: "video", type: "video", label: "Extended Video" }],
-    defaultData: { duration: 5 },
+    defaultData: { duration: 5, prompt: "", aiEnhancePrompt: false },
     creditCost: 50,
     execute: async (inputs, nodeData, userId, onProgress) => {
       if (!inputs.video) throw new Error("NSFW Extend: video required");
@@ -842,10 +1183,46 @@ export const NODE_REGISTRY = {
       const user = await checkAndExpireCredits(userId);
       if (getTotalCredits(user) < cost) throw new Error(`Not enough credits (need ${cost})`);
       await deductCredits(userId, cost);
+      const prompt = await maybeEnhancePrompt(
+        inputs.text || nodeData.prompt || "continue the motion naturally, smooth transition",
+        nodeData,
+        userId,
+        onProgress,
+      );
+      const duration = nodeData.duration === 8 ? 8 : 5;
+      const { submitNsfwVideoExtend } = await import("./wavespeed.service.js");
       const gen = await prisma.generation.create({
-        data: { userId, type: "nsfw-video-extend", status: "processing", prompt: "extend", creditsCost: cost, replicateModel: "nsfw-video-extend", isNsfw: true },
+        data: {
+          userId,
+          type: "nsfw-video-extend",
+          status: "processing",
+          prompt,
+          creditsCost: cost,
+          replicateModel: "nsfw-video-extend",
+          isNsfw: true,
+          inputImageUrl: JSON.stringify({
+            sourceVideoUrl: inputs.video,
+            extendDuration: duration,
+            sourceType: "flow",
+          }),
+        },
       });
-      onProgress?.({ message: "Waiting for extended videoâ€¦" });
+
+      const submission = await submitNsfwVideoExtend(inputs.video, prompt, { duration });
+      if (!submission?.success || !submission?.requestId) {
+        await prisma.generation.update({
+          where: { id: gen.id },
+          data: { status: "failed", errorMessage: submission?.error || "NSFW extend submit failed", completedAt: new Date() },
+        }).catch(() => {});
+        await refundCredits(userId, cost).catch(() => {});
+        throw new Error(submission?.error || "NSFW extend submit failed");
+      }
+      await prisma.generation.update({
+        where: { id: gen.id },
+        data: { replicateModel: submission.requestId },
+      }).catch(() => {});
+
+      onProgress?.({ message: "Waiting for extended video..." });
       const outputUrl = await pollGeneration(gen.id, onProgress);
       return { output: outputUrl, outputType: "video", creditsUsed: cost };
     },
@@ -860,21 +1237,68 @@ export const NODE_REGISTRY = {
       { id: "image", type: "image", label: "Source Image" },
       { id: "video", type: "video", label: "Motion Reference" },
       { id: "model", type: "model", label: "Model" },
+      { id: "text", type: "text", label: "Prompt (opt)" },
     ],
     outputs: [{ id: "video", type: "video", label: "Video" }],
-    defaultData: { duration: 5 },
+    defaultData: { duration: 5, skipSeconds: 0, prompt: "", aiEnhancePrompt: false },
     creditCost: 90,
     execute: async (inputs, nodeData, userId, onProgress) => {
       if (!inputs.image || !inputs.video) throw new Error("NSFW Motion: image and motion reference required");
+      if (!inputs.model?.id) throw new Error("NSFW Motion: model required");
+      const prompt = await maybeEnhancePrompt(inputs.text || nodeData.prompt || "", nodeData, userId, onProgress);
+      const duration = Math.max(1, Math.min(30, Number(nodeData.duration || 5)));
+      const skipSeconds = Math.max(0, Math.min(60, Number(nodeData.skipSeconds || 0)));
       const pricing = await getGenerationPricing();
-      const cost = Math.ceil(Number(pricing.motionXPerSec ?? 6.5) * 5);
+      const cost = Math.ceil(Number(pricing.motionXPerSec ?? 6.5) * duration);
       const user = await checkAndExpireCredits(userId);
       if (getTotalCredits(user) < cost) throw new Error(`Not enough credits (need ${cost})`);
       await deductCredits(userId, cost);
+      const { submitNsfwMotionVideo } = await import("./nsfw-motion.service.js");
       const gen = await prisma.generation.create({
-        data: { userId, type: "nsfw-video", status: "processing", prompt: "nsfw-motion", creditsCost: cost, replicateModel: "nsfw-motion", isNsfw: true },
+        data: {
+          userId,
+          modelId: inputs.model.id,
+          type: "nsfw-video-motion",
+          status: "processing",
+          prompt: prompt || "nsfw-motion",
+          creditsCost: cost,
+          replicateModel: "nsfw-motion",
+          isNsfw: true,
+          inputImageUrl: JSON.stringify({
+            imageUrl: inputs.image,
+            videoUrl: inputs.video,
+            duration,
+            skipSeconds,
+          }),
+        },
       });
-      onProgress?.({ message: "Waiting for NSFW motion videoâ€¦" });
+
+      const submission = await submitNsfwMotionVideo({
+        referenceImageUrl: inputs.image,
+        drivingVideoUrl: inputs.video,
+        prompt: prompt || undefined,
+        durationSecs: duration,
+        skipSecs: skipSeconds,
+        seed: Number.isFinite(Number(nodeData.seed)) ? Number(nodeData.seed) : undefined,
+      }, gen.id);
+
+      if (!submission?.success || !submission?.requestId) {
+        await prisma.generation.update({
+          where: { id: gen.id },
+          data: { status: "failed", errorMessage: submission?.error || "NSFW motion submit failed", completedAt: new Date() },
+        }).catch(() => {});
+        await refundCredits(userId, cost).catch(() => {});
+        throw new Error(submission?.error || "NSFW motion submit failed");
+      }
+      await prisma.generation.update({
+        where: { id: gen.id },
+        data: {
+          providerTaskId: submission.requestId,
+          replicateModel: submission.requestId,
+        },
+      }).catch(() => {});
+
+      onProgress?.({ message: "Waiting for NSFW motion video..." });
       const outputUrl = await pollGeneration(gen.id, onProgress);
       return { output: outputUrl, outputType: "video", creditsUsed: cost };
     },

@@ -37,43 +37,62 @@ export default function ModelSelectorNode({ id, data, selected }) {
       outputs={[{ id: "model", type: "model", label: "Model" }]}
       creditCost={0}
     >
-      {/* Currently selected — large preview */}
+      {/* Currently selected — compact preview */}
       {!showPicker && selectedModel && (
         <button
           onClick={() => setShowPicker(true)}
-          className="w-full group relative rounded-lg overflow-hidden border border-white/[0.08] hover:border-blue-400/40 transition-all"
+          className="w-full group relative rounded-lg overflow-hidden border border-white/[0.12] hover:border-blue-400/40 transition-all p-2"
           style={{
             background: "linear-gradient(180deg, #08080b 0%, #0c0c12 100%)",
           }}
           title="Click to change model"
         >
-          {selectedModel.photo1Url ? (
-            <img src={selectedModel.photo1Url} alt={selectedModel.name} className="w-full aspect-square object-cover" />
-          ) : (
-            <div className="w-full aspect-square flex items-center justify-center bg-white/[0.03]">
-              <User size={28} className="text-white/20" strokeWidth={1.4} />
-            </div>
-          )}
-          {/* Caption overlay */}
-          <div
-            className="absolute bottom-0 left-0 right-0 px-2.5 py-1.5"
-            style={{
-              background: "linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.85) 100%)",
-            }}
-          >
-            <div className="flex items-center justify-between gap-1.5">
-              <span className="text-[11px] font-semibold text-white truncate">
+          <div className="flex items-center gap-2 min-w-0">
+            {selectedModel.photo1Url ? (
+              <img
+                src={selectedModel.photo1Url}
+                alt={selectedModel.name}
+                className="w-12 h-12 rounded-md object-cover flex-shrink-0"
+              />
+            ) : (
+              <div className="w-12 h-12 rounded-md flex items-center justify-center bg-white/[0.03] flex-shrink-0">
+                <User size={18} className="text-white/25" strokeWidth={1.4} />
+              </div>
+            )}
+            <div className="min-w-0 text-left">
+              <div className="text-[10px] uppercase tracking-[0.12em] text-blue-300/80" style={{ fontFamily: "var(--font-mono)" }}>
+                Selected model
+              </div>
+              <div className="text-[11px] font-semibold text-white truncate">
                 {selectedModel.name}
-              </span>
-              <span
-                className="text-[7.5px] uppercase tracking-[0.15em] text-blue-300/90 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                style={{ fontFamily: "var(--font-mono)" }}
-              >
-                change
-              </span>
+              </div>
+            </div>
+            <div className="ml-auto text-[8px] uppercase tracking-[0.15em] text-blue-300/90 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" style={{ fontFamily: "var(--font-mono)" }}>
+              change
             </div>
           </div>
         </button>
+      )}
+
+      {!showPicker && (
+        <div className="space-y-1.5">
+          <label className="text-[9px] text-white/70 block">Quick select</label>
+          <select
+            value={data.modelId || ""}
+            onChange={(e) => {
+              const selected = models.find((m) => m.id === e.target.value);
+              if (selected) pickModel(selected);
+            }}
+            className="w-full min-w-0 bg-white/10 border border-white/30 rounded px-1.5 py-1 text-[10px] text-white/90 outline-none"
+          >
+            <option value="" disabled>Select model</option>
+            {models.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name}
+              </option>
+            ))}
+          </select>
+        </div>
       )}
 
       {/* Empty state — open picker */}
@@ -101,7 +120,7 @@ export default function ModelSelectorNode({ id, data, selected }) {
               className="text-[8px] uppercase tracking-[0.18em] font-bold text-white/45"
               style={{ fontFamily: "var(--font-mono)" }}
             >
-              {loading ? "loading…" : `${models.length} models`}
+              {loading ? "loading..." : `${models.length} models`}
             </span>
             {selectedModel && (
               <button

@@ -105,8 +105,8 @@ export function NodePalette() {
         <div
           className="flex items-center gap-2 rounded-md px-2.5 py-1.5 transition-colors focus-within:border-violet-400/40"
           style={{
-            background: "rgba(255,255,255,0.025)",
-            border: "1px solid rgba(255,255,255,0.06)",
+            background: "rgba(255,255,255,0.08)",
+            border: "1px solid rgba(255,255,255,0.22)",
           }}
         >
           <Search size={11} className="text-white/30 flex-shrink-0" strokeWidth={1.8} />
@@ -149,7 +149,7 @@ export function NodePalette() {
                     style={{ background: meta.color, boxShadow: `0 0 6px ${meta.color}66` }}
                   />
                   <span
-                    className="text-[8px] font-bold tracking-[0.18em] uppercase text-white/45 group-hover/cat:text-white/70 transition-colors"
+                    className="text-[8px] font-bold tracking-[0.18em] uppercase text-white/70 group-hover/cat:text-white/95 transition-colors"
                     style={{ fontFamily: "var(--font-mono)" }}
                   >
                     {meta.label}
@@ -179,7 +179,7 @@ export function NodePalette() {
                         draggable
                         onDragStart={(e) => onDragStart(e, node.type)}
                         className="group/node relative flex items-center gap-2 px-2 py-1.5 rounded-md cursor-grab active:cursor-grabbing
-                          hover:bg-white/[0.04] border border-transparent hover:border-white/[0.06]
+                          hover:bg-white/[0.1] border border-transparent hover:border-white/[0.22]
                           transition-all duration-150"
                         title={node.description}
                       >
@@ -195,7 +195,7 @@ export function NodePalette() {
                         </div>
 
                         <div className="min-w-0 flex-1">
-                          <div className="text-[10.5px] font-medium text-white/80 group-hover/node:text-white truncate transition-colors leading-tight">
+                            <div className="text-[10.5px] font-medium text-white/95 group-hover/node:text-white truncate transition-colors leading-tight">
                             {node.label}
                           </div>
                           {node.creditCost > 0 && (

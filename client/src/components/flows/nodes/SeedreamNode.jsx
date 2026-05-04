@@ -21,11 +21,30 @@ export default function SeedreamNode({ id, data, selected }) {
       creditCost={10}
     >
       <div>
-        <label className="text-[9px] text-white/40 block mb-1">Aspect Ratio</label>
+        <label className="text-[9px] text-white/70 block mb-1">Prompt (or connect Prompt node)</label>
+        <textarea
+          value={data.prompt || ""}
+          onChange={(e) => updateNodeData(id, { prompt: e.target.value })}
+          rows={3}
+          className="w-full resize-none bg-white/10 border border-white/30 rounded px-2 py-1 text-[10px] text-white/90 outline-none placeholder:text-white/45"
+          placeholder="Describe your generation..."
+        />
+      </div>
+      <label className="flex items-center justify-between px-2 py-1 rounded border border-white/25 bg-white/10">
+        <span className="text-[9px] text-white/80 font-medium">AI Enhance Prompt</span>
+        <input
+          type="checkbox"
+          checked={data.aiEnhancePrompt === true}
+          onChange={(e) => updateNodeData(id, { aiEnhancePrompt: e.target.checked })}
+          className="accent-violet-400 w-3.5 h-3.5"
+        />
+      </label>
+      <div>
+        <label className="text-[9px] text-white/70 block mb-1">Aspect Ratio</label>
         <select
           value={data.aspectRatio || "9:16"}
           onChange={(e) => updateNodeData(id, { aspectRatio: e.target.value })}
-          className="w-full bg-white/5 border border-white/10 rounded px-1.5 py-1 text-[10px] text-white/80 outline-none"
+          className="w-full bg-white/10 border border-white/30 rounded px-1.5 py-1 text-[10px] text-white/90 outline-none"
         >
           {RATIOS.map((r) => <option key={r} value={r}>{r}</option>)}
         </select>

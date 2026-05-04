@@ -152,7 +152,7 @@ export const BaseNode = memo(function BaseNode({
         className="relative rounded-[12px] backdrop-blur-xl transition-shadow duration-300 w-full h-full flex flex-col"
         style={{
           background:
-            "linear-gradient(180deg, rgba(22,22,28,0.96) 0%, rgba(15,15,20,0.96) 100%)",
+            "linear-gradient(180deg, rgba(26,26,34,0.98) 0%, rgba(18,18,24,0.98) 100%)",
           border: `1px solid ${
             selected
               ? "rgba(167,139,250,0.45)"
@@ -162,7 +162,7 @@ export const BaseNode = memo(function BaseNode({
               ? "rgba(52,211,153,0.30)"
               : status === "failed"
               ? "rgba(248,113,113,0.35)"
-              : "rgba(255,255,255,0.08)"
+              : "rgba(255,255,255,0.16)"
           }`,
           boxShadow: selected
             ? `0 0 0 1px ${headerColor}33, 0 16px 48px -12px rgba(0,0,0,0.7), 0 4px 16px -4px ${headerColor}22`
@@ -175,7 +175,7 @@ export const BaseNode = memo(function BaseNode({
           onClick={() => setCollapsed((c) => !c)}
           style={{
             background: `linear-gradient(180deg, ${headerColor}22 0%, ${headerColor}08 100%)`,
-            borderBottom: "1px solid rgba(255,255,255,0.06)",
+            borderBottom: "1px solid rgba(255,255,255,0.14)",
           }}
         >
           {/* category color stripe */}
@@ -201,7 +201,7 @@ export const BaseNode = memo(function BaseNode({
 
             <div className="min-w-0 flex flex-col leading-none">
               <span
-                className="text-[7.5px] uppercase tracking-[0.18em] text-white/35 font-medium truncate"
+                className="text-[7.5px] uppercase tracking-[0.18em] text-white/60 font-medium truncate"
                 style={{ fontFamily: "var(--font-mono)" }}
               >
                 {type}
@@ -284,7 +284,7 @@ export const BaseNode = memo(function BaseNode({
                       style={{ background: color }}
                     />
                     <span
-                      className="text-[8.5px] uppercase tracking-[0.08em] text-white/55 truncate font-medium"
+                      className="text-[8.5px] uppercase tracking-[0.08em] text-white/80 truncate font-medium"
                       style={{ fontFamily: "var(--font-mono)" }}
                     >
                       {p.label}
@@ -307,7 +307,7 @@ export const BaseNode = memo(function BaseNode({
                     style={{ height: 14 }}
                   >
                     <span
-                      className="text-[8.5px] uppercase tracking-[0.08em] text-white/55 truncate font-medium"
+                      className="text-[8.5px] uppercase tracking-[0.08em] text-white/80 truncate font-medium"
                       style={{ fontFamily: "var(--font-mono)" }}
                     >
                       {p.label}

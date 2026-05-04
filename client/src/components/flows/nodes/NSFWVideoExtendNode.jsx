@@ -1,23 +1,22 @@
 import { useFlowStore } from "../../../store/flowStore";
 import BaseNode from "./BaseNode";
 
-export default function NSFWVideoNode({ id, data, selected }) {
+export default function NSFWVideoExtendNode({ id, data, selected }) {
   const { updateNodeData } = useFlowStore();
   return (
     <BaseNode
       id={id}
-      type="nsfw-video"
+      type="nsfw-video-extend"
       data={data}
       selected={selected}
       headerColor="#f87171"
-      label={data.label || "NSFW Video"}
+      label={data.label || "NSFW Extend Video"}
       inputs={[
-        { id: "image", type: "image", label: "Image" },
-        { id: "model", type: "model", label: "Model" },
+        { id: "video", type: "video", label: "Video" },
         { id: "text", type: "text", label: "Prompt (opt)" },
       ]}
-      outputs={[{ id: "video", type: "video", label: "Video" }]}
-      creditCost={80}
+      outputs={[{ id: "video", type: "video", label: "Extended Video" }]}
+      creditCost={50}
     >
       <div>
         <label className="text-[9px] text-white/70 block mb-1">Prompt (optional)</label>
@@ -26,7 +25,7 @@ export default function NSFWVideoNode({ id, data, selected }) {
           onChange={(e) => updateNodeData(id, { prompt: e.target.value })}
           rows={3}
           className="w-full resize-none bg-white/10 border border-white/30 rounded px-2 py-1 text-[10px] text-white/90 outline-none placeholder:text-white/45"
-          placeholder="Optional motion direction..."
+          placeholder="How should the extension continue?"
         />
       </div>
       <label className="flex items-center justify-between px-2 py-1 rounded border border-white/25 bg-white/10">
@@ -39,7 +38,7 @@ export default function NSFWVideoNode({ id, data, selected }) {
         />
       </label>
       <div>
-        <label className="text-[9px] text-white/70 block mb-1">Duration</label>
+        <label className="text-[9px] text-white/70 block mb-1">Extend By</label>
         <div className="grid grid-cols-2 gap-1">
           {[5, 8].map((d) => (
             <button
@@ -50,7 +49,7 @@ export default function NSFWVideoNode({ id, data, selected }) {
                   ? "bg-rose-500/30 border-rose-300/70 text-rose-100"
                   : "bg-white/10 border-white/25 text-white/70 hover:border-white/45 hover:text-white"}`}
             >
-              {d}s
+              +{d}s
             </button>
           ))}
         </div>
