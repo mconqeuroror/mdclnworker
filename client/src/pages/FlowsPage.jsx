@@ -891,6 +891,7 @@ export default function FlowsPage({ embedded = false }) {
           opacity: 0.95;
         }
         /* Defensive: nothing clips or hides the edge SVG. */
+        .react-flow svg         { max-width: none !important; max-height: none !important; }
         .react-flow__edge       { visibility: visible !important; opacity: 1 !important; pointer-events: stroke; }
         .react-flow__edges      { z-index: 1; overflow: visible !important; }
         .react-flow__edges svg  { overflow: visible !important; }
