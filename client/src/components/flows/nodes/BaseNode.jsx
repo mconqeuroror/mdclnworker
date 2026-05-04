@@ -60,12 +60,14 @@ const STATUS_PILL_COLOR = {
   skipped:   "text-white/40 bg-white/[0.04] border-white/[0.08]",
 };
 
-// Shared Handle base style — position kept inline so React Flow gets a stable
-// DOM position to measure. We deliberately DO NOT set `position: absolute`
-// here: React Flow's built-in `.react-flow__handle` stylesheet already does.
+// Shared Handle base style — keep positioning inline so handle anchors still
+// measure correctly even if global CSS order ever clobbers React Flow defaults.
 function handleStyle(portType) {
   const color = PORT_COLORS[portType] || PORT_COLORS.any;
   return {
+    position: "absolute",
+    top: "50%",
+    transform: "translateY(-50%)",
     background: color,
     width: 10,
     height: 10,

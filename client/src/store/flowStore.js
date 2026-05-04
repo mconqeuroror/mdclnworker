@@ -27,6 +27,8 @@ const PORT_COLORS = {
   any:   "#94a3b8",
 };
 const DEFAULT_WIRE = "#a78bfa";
+const DEFAULT_NODE_WIDTH = 260;
+const DEFAULT_NODE_HEIGHT = 180;
 
 function resolveEdgeColor(state, connection) {
   const srcNode = state.nodes.find((n) => n.id === connection.source);
@@ -37,6 +39,34 @@ function resolveEdgeColor(state, connection) {
     reg?.outputs?.[0];
   if (port?.type && PORT_COLORS[port.type]) return PORT_COLORS[port.type];
   return DEFAULT_WIRE;
+}
+
+function normaliseNodeSize(node) {
+  if (!node || node.type === "group") return node;
+
+  const width =
+    typeof node.width === "number"
+      ? node.width
+      : typeof node.style?.width === "number"
+      ? node.style.width
+      : DEFAULT_NODE_WIDTH;
+  const height =
+    typeof node.height === "number"
+      ? node.height
+      : typeof node.style?.height === "number"
+      ? node.style.height
+      : DEFAULT_NODE_HEIGHT;
+
+  return {
+    ...node,
+    width,
+    height,
+    style: {
+      ...(node.style || {}),
+      width: node.style?.width ?? width,
+      height: node.style?.height ?? height,
+    },
+  };
 }
 
 export const useFlowStore = create((set, get) => ({
@@ -109,7 +139,7 @@ export const useFlowStore = create((set, get) => ({
 
   addNode: (node) => {
     get()._pushHistory();
-    set((state) => ({ nodes: [...state.nodes, node] }));
+    set((state) => ({ nodes: [...state.nodes, normaliseNodeSize(node)] }));
   },
 
   updateNodeData: (nodeId, data) => {
@@ -260,7 +290,7 @@ export const useFlowStore = create((set, get) => ({
       // Normalise loaded edges: ensure every one has a `style.stroke` so
       // the wire is visible even if the flow was saved before we started
       // baking port colours into the edge.
-      const incomingNodes = flow.nodes || [];
+      const incomingNodes = (flow.nodes || []).map(normaliseNodeSize);
       const rawEdges = flow.edges || [];
       const tempState = { ...state, nodes: incomingNodes };
       const normalisedEdges = rawEdges.map((e) => {

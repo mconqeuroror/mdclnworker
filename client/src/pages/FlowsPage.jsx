@@ -200,6 +200,9 @@ function FlowCanvas({ flowId, embedded = false }) {
       id: `${type}-${Date.now()}`,
       type,
       position,
+      width: 260,
+      height: 180,
+      style: { width: 260, height: 180 },
       data: { ...(def?.defaultData || {}), label: def?.label || type },
     };
     addNode(newNode);
