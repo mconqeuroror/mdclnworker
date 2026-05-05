@@ -394,7 +394,7 @@ export default function DashboardPage() {
       const urlParams = new URLSearchParams(window.location.search);
       let tabParam = urlParams.get("tab");
       if (tabParam === "soulx") tabParam = "modelclone-x";
-      if ((tabParam === "gptx" || tabParam === "flows") && !isTestingOnlyHost) {
+      if (tabParam === "gptx" && !isTestingOnlyHost) {
         tabParam = "home";
       }
       if (tabParam === "nsfw") {
@@ -930,10 +930,7 @@ export default function DashboardPage() {
           {activeTab === "synthid-remove" && <SynthIDRemoverPage />}
           {activeTab === "modelclone-x" && <ModelCloneXPage />}
           {activeTab === "gptx" && isTestingOnlyHost && <GPTXTab />}
-          {activeTab === "flows" &&
-            isTestingOnlyHost && (
-              <FlowsPage embedded />
-            )}
+          {activeTab === "flows" && <FlowsPage embedded />}
           {activeTab === "history" && <HistoryPage />}
           {activeTab === "settings" && <SettingsPage />}
           {!hideRestrictedTabs && activeTab === "nsfw" && (
