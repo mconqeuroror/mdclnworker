@@ -13,12 +13,21 @@ export default function ModelSelectorNode({ id, data, selected }) {
     const token = localStorage.getItem("token");
     fetch("/api/models", { headers: token ? { Authorization: `Bearer ${token}` } : {} })
       .then((r) => r.json())
-      .then((d) => setModels(d.models || d || []))
+      .then((d) => {
+        const nextModels = Array.isArray(d?.models)
+          ? d.models
+          : Array.isArray(d)
+          ? d
+          : [];
+        setModels(nextModels);
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
 
-  const selectedModel = models.find((m) => m.id === data.modelId);
+  const selectedModel = Array.isArray(models)
+    ? models.find((m) => m.id === data.modelId)
+    : null;
 
   const pickModel = (model) => {
     updateNodeData(id, { modelId: model.id, modelName: model.name, modelThumb: model.photo1Url });
