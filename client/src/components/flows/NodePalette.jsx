@@ -101,12 +101,15 @@ export function NodePalette() {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Search */}
-      <div className="px-3 py-3 border-b border-white/[0.05]">
+      <div className="px-3 py-3 border-b border-white/[0.08]">
         <div
-          className="flex items-center gap-2 rounded-md px-2.5 py-1.5 transition-colors focus-within:border-violet-400/40"
+          className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 transition-colors focus-within:border-violet-400/55"
           style={{
-            background: "rgba(255,255,255,0.08)",
-            border: "1px solid rgba(255,255,255,0.22)",
+            background: "rgba(255,255,255,0.07)",
+            border: "1px solid rgba(255,255,255,0.18)",
+            backdropFilter: "blur(12px)",
+            WebkitBackdropFilter: "blur(12px)",
+            boxShadow: "inset 0 1px 0 0 rgba(255,255,255,0.06)",
           }}
         >
           <Search size={11} className="text-white/30 flex-shrink-0" strokeWidth={1.8} />
@@ -178,17 +181,19 @@ export function NodePalette() {
                         key={node.type}
                         draggable
                         onDragStart={(e) => onDragStart(e, node.type)}
-                        className="group/node relative flex items-center gap-2 px-2 py-1.5 rounded-md cursor-grab active:cursor-grabbing
-                          hover:bg-white/[0.1] border border-transparent hover:border-white/[0.22]
-                          transition-all duration-150"
+                        className="group/node relative flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-grab active:cursor-grabbing
+                          border border-transparent transition-all duration-150
+                          hover:bg-white/[0.10] hover:border-white/[0.22]
+                          hover:shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)]"
                         title={node.description}
                       >
-                        {/* Icon tile */}
+                        {/* Icon tile (frosted) */}
                         <div
-                          className="relative w-6 h-6 rounded flex items-center justify-center flex-shrink-0 transition-all"
+                          className="relative w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 transition-all"
                           style={{
-                            background: `linear-gradient(135deg, ${meta.color}18 0%, ${meta.color}06 100%)`,
-                            border: `1px solid ${meta.color}25`,
+                            background: `linear-gradient(135deg, ${meta.color}33 0%, ${meta.color}10 100%)`,
+                            border: `1px solid ${meta.color}55`,
+                            boxShadow: `inset 0 1px 0 0 ${meta.color}22`,
                           }}
                         >
                           <Icon size={11} className="transition-colors" style={{ color: meta.color }} strokeWidth={1.8} />

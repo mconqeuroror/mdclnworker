@@ -127,35 +127,38 @@ export const BaseNode = memo(function BaseNode({
         />
       )}
 
-      {/* The node card */}
+      {/* The node card — frosted glass shell */}
       <div
-        className="relative rounded-[12px] backdrop-blur-xl transition-shadow duration-300 w-full h-full flex flex-col"
+        className="relative rounded-[14px] transition-shadow duration-300 w-full h-full flex flex-col"
         style={{
           background:
-            "linear-gradient(180deg, rgba(26,26,34,0.98) 0%, rgba(18,18,24,0.98) 100%)",
+            "linear-gradient(180deg, rgba(34,32,48,0.55) 0%, rgba(18,18,28,0.62) 100%)",
+          backdropFilter: "blur(22px) saturate(170%)",
+          WebkitBackdropFilter: "blur(22px) saturate(170%)",
           border: `1px solid ${
             selected
-              ? "rgba(167,139,250,0.45)"
+              ? "rgba(167,139,250,0.6)"
               : status === "running"
-              ? `${dot.bg}aa`
+              ? `${dot.bg}cc`
               : status === "completed"
-              ? "rgba(52,211,153,0.30)"
+              ? "rgba(52,211,153,0.45)"
               : status === "failed"
-              ? "rgba(248,113,113,0.35)"
-              : "rgba(255,255,255,0.16)"
+              ? "rgba(248,113,113,0.5)"
+              : "rgba(255,255,255,0.22)"
           }`,
           boxShadow: selected
-            ? `0 0 0 1px ${headerColor}33, 0 16px 48px -12px rgba(0,0,0,0.7), 0 4px 16px -4px ${headerColor}22`
-            : "0 12px 32px -12px rgba(0,0,0,0.6), 0 1px 0 0 rgba(255,255,255,0.03) inset",
+            ? `0 0 0 1px ${headerColor}55, 0 18px 56px -12px rgba(0,0,0,0.75), 0 6px 22px -6px ${headerColor}55, inset 0 1px 0 0 rgba(255,255,255,0.08)`
+            : "0 14px 38px -14px rgba(0,0,0,0.7), 0 2px 6px -2px rgba(0,0,0,0.45), inset 0 1px 0 0 rgba(255,255,255,0.07)",
         }}
       >
         {/* ── Header bar ── */}
         <div
-          className="relative flex items-center justify-between px-3 py-2 cursor-pointer rounded-t-[12px]"
+          className="relative flex items-center justify-between px-3 py-2 cursor-pointer rounded-t-[14px]"
           onClick={() => setCollapsed((c) => !c)}
           style={{
-            background: `linear-gradient(180deg, ${headerColor}22 0%, ${headerColor}08 100%)`,
-            borderBottom: "1px solid rgba(255,255,255,0.14)",
+            background: `linear-gradient(180deg, ${headerColor}3a 0%, ${headerColor}10 100%)`,
+            borderBottom: "1px solid rgba(255,255,255,0.18)",
+            boxShadow: "inset 0 1px 0 0 rgba(255,255,255,0.06)",
           }}
         >
           {/* category color stripe */}

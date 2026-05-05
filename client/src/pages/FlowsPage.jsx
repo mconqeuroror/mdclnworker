@@ -316,14 +316,19 @@ function FlowCanvas({ flowId, embedded = false }) {
   const isRunning = runStatus === "running" || runStatus === "pending";
 
   return (
-    <div className="flex h-full w-full overflow-hidden" style={{ background: "#08080b", color: "#f4f4f5" }}>
-      {/* ── Left palette ── */}
+    <div className="flex h-full w-full overflow-hidden" style={{ background: "#06060a", color: "#f4f4f5" }}>
+      {/* ── Left palette (frosted glass rail) ── */}
       <div
-        className={`flex-shrink-0 flex flex-col transition-[width] duration-200 ease-out
-          ${paletteOpen ? "w-[210px]" : "w-0 overflow-hidden"}`}
+        className={`flex-shrink-0 flex flex-col transition-[width] duration-200 ease-out relative z-30
+          ${paletteOpen ? "w-[218px]" : "w-0 overflow-hidden"}`}
         style={{
-          background: "linear-gradient(180deg, #0c0c10 0%, #08080b 100%)",
-          borderRight: "1px solid rgba(255,255,255,0.04)",
+          background:
+            "linear-gradient(180deg, rgba(20,20,30,0.72) 0%, rgba(10,10,16,0.78) 100%)",
+          backdropFilter: "blur(28px) saturate(170%)",
+          WebkitBackdropFilter: "blur(28px) saturate(170%)",
+          borderRight: "1px solid rgba(255,255,255,0.10)",
+          boxShadow:
+            "inset -1px 0 0 0 rgba(255,255,255,0.05), 8px 0 32px -16px rgba(0,0,0,0.6)",
         }}
       >
         <div className="flex items-center justify-between px-3 py-3 border-b border-white/[0.04]">
@@ -351,10 +356,13 @@ function FlowCanvas({ flowId, embedded = false }) {
         <div
           className="flex items-center gap-2 px-3 py-2 flex-shrink-0 z-20 relative"
           style={{
-            background: "rgba(10,10,14,0.85)",
-            backdropFilter: "blur(20px) saturate(150%)",
-            WebkitBackdropFilter: "blur(20px) saturate(150%)",
-            borderBottom: "1px solid rgba(255,255,255,0.05)",
+            background:
+              "linear-gradient(180deg, rgba(20,20,30,0.55) 0%, rgba(10,10,16,0.62) 100%)",
+            backdropFilter: "blur(28px) saturate(170%)",
+            WebkitBackdropFilter: "blur(28px) saturate(170%)",
+            borderBottom: "1px solid rgba(255,255,255,0.10)",
+            boxShadow:
+              "inset 0 1px 0 0 rgba(255,255,255,0.06), 0 8px 28px -16px rgba(0,0,0,0.55)",
           }}
         >
           {!embedded && (
@@ -423,8 +431,17 @@ function FlowCanvas({ flowId, embedded = false }) {
 
           <div className="flex-1" />
 
-          {/* Tech metrics */}
-          <div className="hidden sm:flex items-center gap-3 px-3 py-1 rounded-md bg-white/[0.025] border border-white/[0.05]">
+          {/* Tech metrics — glass chip */}
+          <div
+            className="hidden sm:flex items-center gap-3 px-3 py-1 rounded-md"
+            style={{
+              background: "rgba(255,255,255,0.06)",
+              border: "1px solid rgba(255,255,255,0.14)",
+              backdropFilter: "blur(12px)",
+              WebkitBackdropFilter: "blur(12px)",
+              boxShadow: "inset 0 1px 0 0 rgba(255,255,255,0.06)",
+            }}
+          >
             <div className="flex items-center gap-1.5">
               <span
                 className="text-[8px] uppercase tracking-[0.15em] text-white/30"
@@ -466,8 +483,17 @@ function FlowCanvas({ flowId, embedded = false }) {
             </div>
           </div>
 
-          {/* Undo/Redo */}
-          <div className="flex items-center bg-white/[0.025] border border-white/[0.05] rounded-md overflow-hidden">
+          {/* Undo/Redo — glass chip */}
+          <div
+            className="flex items-center rounded-md overflow-hidden"
+            style={{
+              background: "rgba(255,255,255,0.06)",
+              border: "1px solid rgba(255,255,255,0.14)",
+              backdropFilter: "blur(12px)",
+              WebkitBackdropFilter: "blur(12px)",
+              boxShadow: "inset 0 1px 0 0 rgba(255,255,255,0.06)",
+            }}
+          >
             <button
               onClick={undo}
               title="Undo (Ctrl+Z)"
@@ -487,7 +513,16 @@ function FlowCanvas({ flowId, embedded = false }) {
 
           {/* Group / Ungroup — visible only when relevant selection exists */}
           {(selectedNonGroupCount >= 2 || selectedGroupCount > 0) && (
-            <div className="flex items-center bg-white/[0.025] border border-white/[0.05] rounded-md overflow-hidden">
+            <div
+              className="flex items-center rounded-md overflow-hidden"
+              style={{
+                background: "rgba(255,255,255,0.06)",
+                border: "1px solid rgba(255,255,255,0.14)",
+                backdropFilter: "blur(12px)",
+                WebkitBackdropFilter: "blur(12px)",
+                boxShadow: "inset 0 1px 0 0 rgba(255,255,255,0.06)",
+              }}
+            >
               {selectedNonGroupCount >= 2 && (
                 <button
                   onClick={groupSelection}
@@ -512,14 +547,21 @@ function FlowCanvas({ flowId, embedded = false }) {
             </div>
           )}
 
-          {/* Save */}
+          {/* Save — glass button */}
           <button
             onClick={handleSave}
             disabled={saving || !isDirty}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-white/[0.03] hover:bg-white/[0.06]
-              border border-white/[0.06] text-[10px] font-semibold text-white/65 hover:text-white/90
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md
+              text-[10px] font-semibold text-white/80 hover:text-white
               disabled:opacity-30 disabled:cursor-not-allowed transition-all tracking-[0.05em]"
-            style={{ fontFamily: "var(--font-mono)" }}
+            style={{
+              fontFamily: "var(--font-mono)",
+              background: "rgba(255,255,255,0.06)",
+              border: "1px solid rgba(255,255,255,0.16)",
+              backdropFilter: "blur(12px)",
+              WebkitBackdropFilter: "blur(12px)",
+              boxShadow: "inset 0 1px 0 0 rgba(255,255,255,0.07)",
+            }}
           >
             {saving ? <Loader2 size={11} className="animate-spin" strokeWidth={2} /> : <Save size={11} strokeWidth={1.8} />}
             SAVE
@@ -668,13 +710,17 @@ function FlowCanvas({ flowId, embedded = false }) {
                 style={{
                   fontFamily: "var(--font-mono)",
                   fontSize: 10,
-                  padding: "4px 8px",
-                  borderRadius: 6,
-                  background: "rgba(0,0,0,0.6)",
-                  color: "#a78bfa",
-                  border: "1px solid rgba(167,139,250,0.25)",
+                  padding: "5px 10px",
+                  borderRadius: 8,
+                  background: "rgba(20,20,30,0.55)",
+                  backdropFilter: "blur(14px) saturate(160%)",
+                  WebkitBackdropFilter: "blur(14px) saturate(160%)",
+                  color: "#c4b5fd",
+                  border: "1px solid rgba(167,139,250,0.4)",
                   letterSpacing: "0.08em",
                   textTransform: "uppercase",
+                  boxShadow:
+                    "inset 0 1px 0 0 rgba(255,255,255,0.08), 0 6px 18px -8px rgba(124,58,237,0.35)",
                 }}
               >
                 edges: {edges.length} · nodes: {nodes.length}
@@ -688,9 +734,13 @@ function FlowCanvas({ flowId, embedded = false }) {
                   <div
                     className="w-20 h-20 rounded-2xl flex items-center justify-center relative"
                     style={{
-                      background: "linear-gradient(135deg, rgba(167,139,250,0.08) 0%, rgba(124,58,237,0.02) 100%)",
-                      border: "1px solid rgba(255,255,255,0.06)",
-                      boxShadow: "0 12px 32px -16px rgba(124,58,237,0.4)",
+                      background:
+                        "linear-gradient(135deg, rgba(167,139,250,0.18) 0%, rgba(124,58,237,0.06) 100%)",
+                      backdropFilter: "blur(20px) saturate(160%)",
+                      WebkitBackdropFilter: "blur(20px) saturate(160%)",
+                      border: "1px solid rgba(255,255,255,0.18)",
+                      boxShadow:
+                        "0 16px 40px -16px rgba(124,58,237,0.55), inset 0 1px 0 0 rgba(255,255,255,0.1)",
                     }}
                   >
                     <GitBranch size={28} className="text-white/20" strokeWidth={1.4} />
@@ -725,13 +775,18 @@ function FlowCanvas({ flowId, embedded = false }) {
         </div>
       </div>
 
-      {/* ── Right panel ── */}
+      {/* ── Right panel (frosted glass rail) ── */}
       <div
-        className={`flex-shrink-0 flex flex-col transition-[width] duration-200 ease-out
-          ${rightPanelOpen ? "w-[240px]" : "w-0 overflow-hidden"}`}
+        className={`flex-shrink-0 flex flex-col transition-[width] duration-200 ease-out relative z-30
+          ${rightPanelOpen ? "w-[252px]" : "w-0 overflow-hidden"}`}
         style={{
-          background: "linear-gradient(180deg, #0c0c10 0%, #08080b 100%)",
-          borderLeft: "1px solid rgba(255,255,255,0.04)",
+          background:
+            "linear-gradient(180deg, rgba(20,20,30,0.72) 0%, rgba(10,10,16,0.78) 100%)",
+          backdropFilter: "blur(28px) saturate(170%)",
+          WebkitBackdropFilter: "blur(28px) saturate(170%)",
+          borderLeft: "1px solid rgba(255,255,255,0.10)",
+          boxShadow:
+            "inset 1px 0 0 0 rgba(255,255,255,0.05), -8px 0 32px -16px rgba(0,0,0,0.6)",
         }}
       >
         {/* Tabs */}

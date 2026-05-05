@@ -44,10 +44,15 @@ export function FlowLibrary({ onLoadFlow, onNewFlow, onDeleteFlow, onLoadTemplat
         </div>
         <button
           onClick={onNewFlow}
-          className="flex items-center gap-1 px-2 py-1 rounded text-[9px] font-semibold text-violet-300 hover:text-violet-200
-            border border-violet-400/25 hover:border-violet-400/40 bg-violet-500/[0.06] hover:bg-violet-500/[0.12]
+          className="flex items-center gap-1 px-2 py-1 rounded-md text-[9px] font-semibold text-violet-200 hover:text-white
+            border border-violet-400/45 hover:border-violet-400/65 bg-violet-500/[0.16] hover:bg-violet-500/[0.28]
             transition-all duration-150"
-          style={{ fontFamily: "var(--font-mono)" }}
+          style={{
+            fontFamily: "var(--font-mono)",
+            backdropFilter: "blur(10px)",
+            WebkitBackdropFilter: "blur(10px)",
+            boxShadow: "inset 0 1px 0 0 rgba(255,255,255,0.08)",
+          }}
         >
           <Plus size={10} strokeWidth={2.4} />
           NEW
@@ -79,10 +84,15 @@ export function FlowLibrary({ onLoadFlow, onNewFlow, onDeleteFlow, onLoadTemplat
                 <button
                   key={t.id}
                   onClick={() => onLoadTemplate?.(t)}
-                  className="w-full text-left group/tpl relative rounded-lg p-2.5 border border-white/[0.05] hover:border-violet-400/25
-                    hover:bg-white/[0.025] transition-all duration-200 overflow-hidden"
+                  className="w-full text-left group/tpl relative rounded-xl p-2.5 transition-all duration-200 overflow-hidden
+                    hover:border-violet-400/45"
                   style={{
-                    background: "linear-gradient(135deg, rgba(167,139,250,0.04) 0%, rgba(255,255,255,0.01) 100%)",
+                    background:
+                      "linear-gradient(135deg, rgba(167,139,250,0.10) 0%, rgba(255,255,255,0.03) 100%)",
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    backdropFilter: "blur(14px)",
+                    WebkitBackdropFilter: "blur(14px)",
+                    boxShadow: "inset 0 1px 0 0 rgba(255,255,255,0.06)",
                   }}
                 >
                   {/* corner glow on hover */}
@@ -126,11 +136,11 @@ export function FlowLibrary({ onLoadFlow, onNewFlow, onDeleteFlow, onLoadTemplat
                   key={flow.id}
                   onClick={() => onLoadFlow(flow.id)}
                   className={`
-                    group/flow relative flex items-center gap-2.5 px-2.5 py-2 rounded-md cursor-pointer
+                    group/flow relative flex items-center gap-2.5 px-2.5 py-2 rounded-lg cursor-pointer
                     transition-all duration-150 border
                     ${active
-                      ? "bg-violet-500/[0.08] border-violet-400/25"
-                      : "border-transparent hover:bg-white/[0.03] hover:border-white/[0.05]"}
+                      ? "bg-violet-500/[0.16] border-violet-400/45 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)]"
+                      : "border-transparent hover:bg-white/[0.07] hover:border-white/[0.18]"}
                   `}
                 >
                   {/* active indicator strip */}
@@ -142,16 +152,17 @@ export function FlowLibrary({ onLoadFlow, onNewFlow, onDeleteFlow, onLoadTemplat
                   )}
 
                   {flow.thumbnail ? (
-                    <img src={flow.thumbnail} alt="" className="w-9 h-7 object-cover rounded flex-shrink-0" />
+                    <img src={flow.thumbnail} alt="" className="w-9 h-7 object-cover rounded-md flex-shrink-0" />
                   ) : (
                     <div
-                      className="w-9 h-7 rounded flex items-center justify-center flex-shrink-0"
+                      className="w-9 h-7 rounded-md flex items-center justify-center flex-shrink-0"
                       style={{
-                        background: "rgba(255,255,255,0.025)",
-                        border: "1px solid rgba(255,255,255,0.05)",
+                        background: "rgba(255,255,255,0.07)",
+                        border: "1px solid rgba(255,255,255,0.16)",
+                        boxShadow: "inset 0 1px 0 0 rgba(255,255,255,0.06)",
                       }}
                     >
-                      <GitBranch size={11} className="text-white/25" strokeWidth={1.8} />
+                      <GitBranch size={11} className="text-white/55" strokeWidth={1.8} />
                     </div>
                   )}
 

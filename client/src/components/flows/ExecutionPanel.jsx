@@ -71,7 +71,7 @@ export function ExecutionPanel({ onRun, onCancel, creditEstimate }) {
   return (
     <div className="flex flex-col h-full">
       {/* ── Status bar ── */}
-      <div className="px-3 py-3 border-b border-white/[0.05]">
+      <div className="px-3 py-3 border-b border-white/[0.10]">
         <div className="flex items-center justify-between mb-2.5">
           <div className="flex items-center gap-2">
             <span
@@ -133,7 +133,7 @@ export function ExecutionPanel({ onRun, onCancel, creditEstimate }) {
       </div>
 
       {/* ── Action button ── */}
-      <div className="px-3 py-2.5 border-b border-white/[0.05]">
+      <div className="px-3 py-2.5 border-b border-white/[0.10]">
         {isRunning ? (
           <button
             onClick={onCancel}
@@ -156,8 +156,9 @@ export function ExecutionPanel({ onRun, onCancel, creditEstimate }) {
               background:
                 "linear-gradient(180deg, rgba(167,139,250,0.95) 0%, rgba(124,58,237,0.95) 100%)",
               color: "#fff",
+              border: "1px solid rgba(167,139,250,0.55)",
               boxShadow:
-                "0 4px 16px -4px rgba(124,58,237,0.45), inset 0 1px 0 0 rgba(255,255,255,0.15)",
+                "0 6px 20px -4px rgba(124,58,237,0.55), 0 0 0 1px rgba(167,139,250,0.18), inset 0 1px 0 0 rgba(255,255,255,0.22)",
             }}
           >
             <Play size={10} fill="currentColor" strokeWidth={0} />
@@ -174,7 +175,7 @@ export function ExecutionPanel({ onRun, onCancel, creditEstimate }) {
 
       {/* ── Node timeline ── */}
       {nodeStatusList.length > 0 && (
-        <div className="px-3 py-2.5 border-b border-white/[0.05]">
+        <div className="px-3 py-2.5 border-b border-white/[0.10]">
           <div className="flex items-center gap-1.5 mb-2">
             <span
               className="text-[8px] uppercase tracking-[0.18em] font-bold text-white/40"
@@ -213,7 +214,7 @@ export function ExecutionPanel({ onRun, onCancel, creditEstimate }) {
       )}
 
       {/* ── Log feed (terminal style) ── */}
-      <div className="flex items-center gap-1.5 px-3 py-2 border-b border-white/[0.05] flex-shrink-0">
+      <div className="flex items-center gap-1.5 px-3 py-2 border-b border-white/[0.10] flex-shrink-0">
         <ChevronRight size={9} className="text-emerald-400/60" strokeWidth={2.4} />
         <span
           className="text-[8px] uppercase tracking-[0.18em] font-bold text-white/40"
@@ -231,7 +232,11 @@ export function ExecutionPanel({ onRun, onCancel, creditEstimate }) {
       <div
         ref={logsRef}
         className="flex-1 overflow-y-auto px-3 py-2 space-y-[2px] custom-scrollbar"
-        style={{ background: "rgba(0,0,0,0.18)" }}
+        style={{
+          background:
+            "linear-gradient(180deg, rgba(0,0,0,0.32) 0%, rgba(0,0,0,0.45) 100%)",
+          boxShadow: "inset 0 1px 0 0 rgba(255,255,255,0.04)",
+        }}
       >
         {runLogs.length === 0 && (
           <p
