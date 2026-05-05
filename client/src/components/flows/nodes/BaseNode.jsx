@@ -14,7 +14,7 @@
  */
 
 import { memo, useState, useCallback } from "react";
-import { Handle, Position, NodeResizer } from "@xyflow/react";
+import { Handle, Position } from "@xyflow/react";
 import {
   Copy,
   Trash2,
@@ -113,28 +113,8 @@ export const BaseNode = memo(function BaseNode({
         fontFamily: "var(--font-sans)",
         minWidth: 240,
         minHeight: 120,
-        width: "100%",
-        height: "100%",
       }}
     >
-      {/* Resize handles — only visible/interactive when node is selected */}
-      <NodeResizer
-        isVisible={selected}
-        minWidth={220}
-        minHeight={120}
-        maxWidth={680}
-        maxHeight={900}
-        lineStyle={{ borderColor: "rgba(167,139,250,0.45)", borderWidth: 1 }}
-        handleStyle={{
-          background: "#a78bfa",
-          width: 8,
-          height: 8,
-          border: "1.5px solid #08080b",
-          borderRadius: 2,
-          boxShadow: "0 0 6px rgba(167,139,250,0.6)",
-        }}
-      />
-
       {/* Outer running glow halo */}
       {status === "running" && (
         <div

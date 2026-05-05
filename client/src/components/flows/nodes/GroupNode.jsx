@@ -7,7 +7,6 @@
  */
 
 import { memo, useState, useCallback } from "react";
-import { NodeResizer } from "@xyflow/react";
 import { useFlowStore } from "../../../store/flowStore";
 
 const GroupNode = memo(function GroupNode({ id, data, selected }) {
@@ -33,23 +32,6 @@ const GroupNode = memo(function GroupNode({ id, data, selected }) {
           : "0 6px 24px -12px rgba(0,0,0,0.5)",
       }}
     >
-      <NodeResizer
-        isVisible={selected}
-        minWidth={260}
-        minHeight={180}
-        maxWidth={2400}
-        maxHeight={1800}
-        lineStyle={{ borderColor: "rgba(167,139,250,0.45)", borderWidth: 1 }}
-        handleStyle={{
-          background: "#a78bfa",
-          width: 8,
-          height: 8,
-          border: "1.5px solid #08080b",
-          borderRadius: 2,
-          boxShadow: "0 0 6px rgba(167,139,250,0.6)",
-        }}
-      />
-
       {/* Header strip — the only draggable surface; body click-through to children */}
       <div
         className="absolute top-0 left-0 right-0 px-3 py-1.5 cursor-move flex items-center gap-2"
