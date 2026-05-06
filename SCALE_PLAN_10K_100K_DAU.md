@@ -1,13 +1,24 @@
 # Scale Plan: 10k → 100k DAU
 
 > **Status snapshot (May 2026):** Stack today handles tens to low hundreds of
-> concurrent users comfortably. The errors you pasted (Neon connection pool
+> concurrent users comfortably. The errors you pasted (connection pool
 > timeouts, "Can't reach database server", 30 s post-generation reveal) are
 > the first symptoms of the next bottleneck. This document is the staged
 > roadmap to lift those ceilings without a rewrite.
 >
-> Each phase below is sized so it can be executed independently. The hot-path
-> fixes from Phase 0 are already shipped on `typekpaco/main`.
+> Each phase below is sized so it can be executed independently.
+>
+> **Shipped on `typekpaco/main` as of May 6 2026:**
+>
+> - `fab5b4b` — billing/credit grant gaps + reconciliation safety net
+> - `48b1069` — Prisma pool tuning, batched telemetry, adaptive polling
+> - `de6ee30` — daily telemetry retention prune (Phase 1.4)
+>
+> **Constraint:** the production DB is currently hosted on Replit (not Neon
+> directly), so anything that requires a `prisma migrate deploy` or a
+> `DATABASE_URL` change to a different provider is **deferred** until the
+> migration to Neon happens. Items marked "blocked: DB move" below are in
+> that bucket.
 
 ---
 
@@ -116,7 +127,11 @@ longer return 500 to the user after credits were committed.
 
 ## Phase 1 — DB layer hardening (≈ 1–2 days, target: 5k DAU comfortable)
 
-### 1.1  Switch to Neon pooler URL
+> **Status:** 1.4 shipped (`de6ee30`). 1.1 and 1.3 blocked by the DB-move
+> constraint. 1.2 (Redis read cache) is unblocked and the highest-impact
+> remaining item — see notes inline.
+
+### 1.1  Switch to Neon pooler URL **[blocked: DB move]**
 
 In Neon's console, copy the connection string with `-pooler` in the host. Set
 two env vars in Vercel:
@@ -138,7 +153,7 @@ datasource db {
 
 Re-run `prisma migrate deploy` once after the change.
 
-### 1.2  Hot-path Redis read cache
+### 1.2  Hot-path Redis read cache **[unblocked, not yet shipped]**
 
 Cache the response of `/api/generations` per user for **2 seconds**. At 2 s
 poll interval per tab and 2 s cache TTL, multiple browser tabs / devices for
@@ -154,7 +169,7 @@ const KEY = (userId, qs) => `gen:list:${userId}:${qs}`;
 Same pattern for `/api/auth/me` (TTL 30 s; invalidate on credit change /
 profile update).
 
-### 1.3  Index audit
+### 1.3  Index audit **[blocked: DB move — read-only EXPLAIN is fine, adding indexes needs a migration]**
 
 Run `EXPLAIN ANALYZE` on the top 10 most-frequent queries and add composite
 indexes where missing. Likely candidates:
@@ -164,18 +179,22 @@ indexes where missing. Likely candidates:
 - `CreditTransaction (userId, createdAt DESC)`.
 - `ApiRequestMetric (normalizedPath, createdAt DESC)` — already exists, double-check.
 
-### 1.4  Prune ApiRequestMetric / TelemetryEdgeEvent
+### 1.4  Prune ApiRequestMetric / TelemetryEdgeEvent **[shipped — `de6ee30`]**
 
-Cron job that deletes rows older than **7 days** for `ApiRequestMetric` and
-**30 days** for `TelemetryEdgeEvent`. Without this, both tables grow forever
-and the analytics queries (admin panel) get slower every week.
+`src/services/telemetry-retention.service.js` runs once every 24 h via the
+existing scheduled-tasks runner in `server.js`. Defaults:
 
-```sql
-DELETE FROM "ApiRequestMetric" WHERE "createdAt" < now() - interval '7 days';
-DELETE FROM "TelemetryEdgeEvent" WHERE "createdAt" < now() - interval '30 days';
-```
+- `ApiRequestMetric`     7 days  (`TELEMETRY_REQUEST_METRIC_RETENTION_DAYS`)
+- `TelemetryEdgeEvent`  30 days  (`TELEMETRY_EDGE_EVENT_RETENTION_DAYS`)
+- `SystemHealthMetric`  14 days  (`TELEMETRY_HEALTH_RETENTION_DAYS`)
 
-Schedule via existing scheduled-tasks runner inside `server.js` at 03:00 UTC daily.
+Chunked `deleteMany` with `setImmediate` yields between batches and a
+`TELEMETRY_RETENTION_MAX_CHUNKS` cap (default 50) so a multi-month backlog
+cleanup doesn't run for hours in one shot. Best-effort: errors are logged,
+never thrown, never block other scheduled jobs.
+
+Caps steady-state size of these tables at a few weeks of operational data
+without ever needing manual intervention.
 
 ---
 
@@ -394,13 +413,27 @@ Vercel Pro ($20+ usage), Upstash / Vercel Redis ($30–$200), object storage
 
 ## What to do this week
 
-1. **Validate Phase 0 changes in production.** Watch Vercel logs for the next
-   24 h. The "Timed out fetching a new connection" errors should disappear.
-2. **Set the Neon pooler URL** in Vercel env vars (`DATABASE_URL` → pooler,
-   `DIRECT_URL` → direct).
-3. **Run the index audit** (Section 1.3). Anything missing → add migration.
-4. **Add the 7-day pruning cron** for `ApiRequestMetric` (Section 1.4). Your
-   current table size for that one alone will dominate disk after 6 months.
+| # | Item                                                | Status                  |
+|---|------------------------------------------------------|-------------------------|
+| 1 | Validate Phase 0 in prod (watch logs 24h)           | **needs human eyes**    |
+| 2 | Switch to Neon pooler URL                            | **blocked: DB on Replit** |
+| 3 | Index audit + add missing indexes                    | **blocked: needs migration** |
+| 4 | Telemetry retention cron                             | **done — `de6ee30`**    |
+
+The next unblocked, high-impact step (does not need a DB migration):
+
+5. **Phase 1.2 — Redis read cache for `/api/generations`.** Even with the 2 s
+   adaptive poll, a single user with 4 tabs open still hits Postgres 4× per
+   2 s window. A 2 s Redis TTL collapses that to 1 hit per 2 s per user
+   regardless of tab count. Pure code change, ioredis is already wired.
 
 After that, plan Phase 2 (SSE) — it's the single biggest UX win remaining,
 and it lifts the polling load that's still in the system.
+
+When the DB moves to Neon (or stays on Replit but we're allowed migrations
+again), the deferred items unblock in this order:
+
+1. Set `DATABASE_URL` to the pooler host + add `directUrl` in `schema.prisma`
+   (Section 1.1).
+2. Run the index audit and add the missing composite indexes (Section 1.3).
+3. Then proceed to Phase 2.
