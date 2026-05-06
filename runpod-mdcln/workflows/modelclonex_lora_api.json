@@ -17,7 +17,7 @@
     "class_type": "LoadLoraFromUrlOrPath",
     "inputs": {
       "toggle": true,
-      "mode": "simple",
+      "mode": "advanced",
       "num_loras": 1,
       "lora_1_url": "",
       "lora_1_strength": 0.6,
@@ -43,7 +43,7 @@
   },
   "30": {
     "class_type": "EmptyLatentImage",
-    "inputs": { "width": 768, "height": 1344, "batch_size": 1 }
+    "inputs": { "width": 1152, "height": 2048, "batch_size": 1 }
   },
   "31": {
     "class_type": "easy loraStackApply",

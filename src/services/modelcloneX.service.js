@@ -73,20 +73,21 @@ const ASPECT_RATIO_MAP = {
 };
 
 /**
- * Empty latent size for MCX 5.2 AuraFlow merge graph (1× SDXL-style base).
+ * Empty latent size for MCX 5.2 AuraFlow merge graph.
  *
- * NOTE: an earlier commit (01aab74) doubled these to 2048² / 1536×2688 etc.
- * Combined with this graph's dual UNET merge + AuraFlow + 3 samplers + LoRA
- * stack, the doubled resolution OOM'd / timed out on the RunPod worker, so
- * "Use Character" t2i jobs never returned. Reverted to the 1× base values
- * which fit comfortably in worker VRAM.
+ * Sized to the ~2-3 MP "sweet spot" the dual-UNET-merge + LoRA + AuraFlow +
+ * triple-sampler pipeline targets. Earlier values were either too low
+ * (768×1344 = 1 MP — character micro-detail starves) or too high
+ * (1536×2688 = 4 MP — OOMs on the worker, jobs never return). The values
+ * below come from the canonical 5.2 workflow JSON the pipeline was tuned
+ * against, snapped to multiples of 64 and exact aspect ratios.
  */
 const MCX_T2I_RESOLUTION = {
-  "1:1": { width: 1024, height: 1024 },
-  "9:16": { width: 768, height: 1344 },
-  "16:9": { width: 1344, height: 768 },
-  "3:4": { width: 896, height: 1152 },
-  "4:3": { width: 1152, height: 896 },
+  "1:1": { width: 1408, height: 1408 },
+  "9:16": { width: 1152, height: 2048 },
+  "16:9": { width: 2048, height: 1152 },
+  "3:4": { width: 1536, height: 2048 },
+  "4:3": { width: 2048, height: 1536 },
 };
 
 function loadWorkflow(variant) {
@@ -198,7 +199,14 @@ export function buildModelCloneXPayload({
 
   if (variant === "lora" && wf["5"]?.inputs && loraUrl) {
     const strength = Math.min(1, Math.max(0, Number(loraStrength) || 0.8));
-    wf["5"].inputs.mode = "simple";
+    // The canonical 5.2 workflow runs LoadLoraFromUrlOrPath in `advanced`
+    // mode, which reads model_strength and clip_strength as separate inputs
+    // and applies them through the easy-loraStackApply node correctly. In
+    // `simple` mode the node collapses to the single `lora_1_strength`
+    // value, which subtly changes how the LoRA is grafted onto the merged
+    // model (model1 = 43BF16AIO, model2 = z_image_turbo_bf16, ratio 0.5)
+    // and visibly degrades character identity. Always force advanced.
+    wf["5"].inputs.mode = "advanced";
     wf["5"].inputs.num_loras = 1;
     wf["5"].inputs.lora_1_url = loraUrl;
     wf["5"].inputs.lora_1_strength = strength;
