@@ -265,6 +265,17 @@ export async function getGenerationPricing({ forceRefresh = false } = {}) {
       migrated = true;
     }
 
+    // NSFW single image: old default was 10, new default is 30 (commit
+    // c43a875 changed the code default but didn't add a DB migration, so
+    // every existing prod row stuck at 10 forever and undercharged users
+    // by 20 credits per NSFW image. Snap the legacy value back to 30.
+    // Admins who deliberately want a different price will set anything
+    // other than 10 and this branch leaves them alone.
+    if (Number(raw.imagePromptNsfw) === 10) {
+      raw = { ...raw, imagePromptNsfw: 30 };
+      migrated = true;
+    }
+
     if (migrated && row) {
       try {
         await prisma.generationPricingConfig.update({
