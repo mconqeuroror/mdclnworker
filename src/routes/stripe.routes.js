@@ -29,6 +29,7 @@ import {
   awardFirstPaidModelCompletionBonus,
   rolloverSubPoolToPurchasedUpdate,
 } from "../services/credit.service.js";
+import { reconcileUserCredits } from "../services/stripe-credit-reconcile.service.js";
 
 // DEPRECATED - keeping for reference but not used
 async function generatePosesAsyncDEPRECATED(modelId, referenceUrl, aiConfig) {
@@ -1321,15 +1322,9 @@ router.post('/confirm-payment', authMiddleware, async (req, res) => {
       if (!userRow) {
         return res.status(404).json({ error: "User not found" });
       }
-      if (userRow.stripeSubscriptionId === subId) {
-        return res.json({
-          success: true,
-          message: "Subscription already active",
-          alreadyProcessed: true,
-          credits: normalizeCreditUnits(subscription.metadata.credits),
-          totalCredits: (userRow.credits || 0) + (userRow.subscriptionCredits || 0) + userRow.purchasedCredits,
-        });
-      }
+      // Do NOT short-circuit on userRow.stripeSubscriptionId === subId — that field
+      // can be set by customer.subscription.updated webhook BEFORE any credits were
+      // granted. Real idempotency is the UNIQUE constraint inside grantNewEmbeddedSubscriptionCredits.
       const grant = await grantNewEmbeddedSubscriptionCredits(userId, subscription);
       if (grant.ok === false && grant.duplicate) {
         const u2 = await prisma.user.findUnique({ where: { id: userId } });
@@ -1344,12 +1339,16 @@ router.post('/confirm-payment', authMiddleware, async (req, res) => {
       if (!grant.ok) {
         throw new Error("Unexpected grant result");
       }
-      await runEmbeddedSubscriptionSideEffects({
-        userId,
-        userBefore: userRow,
-        subscription,
-        stripe,
-      });
+      try {
+        await runEmbeddedSubscriptionSideEffects({
+          userId,
+          userBefore: userRow,
+          subscription,
+          stripe,
+        });
+      } catch (sideEffectErr) {
+        console.error('⚠️ confirm-payment side-effects failed (credits already granted):', sideEffectErr?.message);
+      }
       return res.json({
         success: true,
         subscriptionId: subId,
@@ -1400,28 +1399,33 @@ router.post('/confirm-payment', authMiddleware, async (req, res) => {
     }
 
     console.log("✅ Credits added successfully:", { userId, credits, paymentIntentId });
-    const referrerUserId = paymentIntent.metadata.referrerUserId || null;
-    if (referrerUserId) {
-      await linkReferrerOnFirstPurchase(userId, referrerUserId);
-    }
-    await recordReferralCommissionFromPayment({
-      referredUserId: userId,
-      purchaseAmountCents: paymentIntent.amount_received || paymentIntent.amount || 0,
-      sourceType: "stripe_payment_intent",
-      sourceId: paymentIntentId,
-    });
-
-    const discountCodeId = paymentIntent.metadata.discountCodeId;
-    if (discountCodeId) {
-      try {
-        await prisma.discountCode.update({
-          where: { id: discountCodeId },
-          data: { currentUses: { increment: 1 } },
-        });
-        console.log(`🏷️ Discount code usage incremented (confirm-payment): ${discountCodeId}`);
-      } catch (dcErr) {
-        console.warn("⚠️ Failed to increment discount code usage (non-fatal):", dcErr.message);
+    // Side-effects must never poison the success response — credits already committed.
+    try {
+      const referrerUserId = paymentIntent.metadata.referrerUserId || null;
+      if (referrerUserId) {
+        await linkReferrerOnFirstPurchase(userId, referrerUserId);
       }
+      await recordReferralCommissionFromPayment({
+        referredUserId: userId,
+        purchaseAmountCents: paymentIntent.amount_received || paymentIntent.amount || 0,
+        sourceType: "stripe_payment_intent",
+        sourceId: paymentIntentId,
+      });
+
+      const discountCodeId = paymentIntent.metadata.discountCodeId;
+      if (discountCodeId) {
+        try {
+          await prisma.discountCode.update({
+            where: { id: discountCodeId },
+            data: { currentUses: { increment: 1 } },
+          });
+          console.log(`🏷️ Discount code usage incremented (confirm-payment): ${discountCodeId}`);
+        } catch (dcErr) {
+          console.warn("⚠️ Failed to increment discount code usage (non-fatal):", dcErr.message);
+        }
+      }
+    } catch (sideEffectErr) {
+      console.error('⚠️ confirm-payment side-effects failed (credits already granted):', sideEffectErr?.message);
     }
 
     res.json({
@@ -1503,39 +1507,50 @@ router.post('/confirm-subscription', authMiddleware, async (req, res) => {
     const tierId = subscription.metadata.tierId;
     const billingCycle = resolveSubscriptionBillingCycle(subscription);
     const credits = normalizeCreditUnits(subscription.metadata.credits);
-    
-    // Check if this subscription was already processed
+
+    // Snapshot user BEFORE the grant. We deliberately do NOT short-circuit on
+    // `user.stripeSubscriptionId === subscriptionId`: that field can be set by the
+    // `customer.subscription.updated` webhook BEFORE any credits are granted, which
+    // would cause this endpoint to lie ("alreadyProcessed: true") while the user's
+    // balance still has 0 subscription credits. The actual idempotency guard is the
+    // UNIQUE constraint on CreditTransaction.paymentSessionId inside
+    // grantNewEmbeddedSubscriptionCredits — that is the single source of truth.
     const user = await prisma.user.findUnique({
       where: { id: userId }
     });
-    
-    if (user.stripeSubscriptionId === subscriptionId) {
-      console.log('⚠️ Subscription already confirmed:', subscriptionId);
-      return res.json({ 
-        success: true, 
-        message: 'Subscription already active',
-        alreadyProcessed: true,
-        credits: normalizeCreditUnits(subscription.metadata.credits),
-      });
-    }
-    
+
     const grant = await grantNewEmbeddedSubscriptionCredits(userId, subscription);
     if (grant.ok === false && grant.duplicate) {
-      console.log("⚠️ Subscription already confirmed (P2002):", subscriptionId);
+      console.log("✅ Subscription already credited (P2002 idempotent):", subscriptionId);
+      const refreshed = await prisma.user.findUnique({ where: { id: userId } });
       return res.json({
         success: true,
         message: "Subscription already active",
         alreadyProcessed: true,
         credits,
+        totalCredits:
+          (refreshed?.credits || 0) +
+          (refreshed?.subscriptionCredits || 0) +
+          (refreshed?.purchasedCredits || 0),
       });
     }
     if (!grant.ok) {
       throw new Error("Unexpected grant result");
     }
     const { updatedUser } = grant;
-    
+
     console.log('✅ Subscription confirmed:', { userId, subscriptionId, tierId, billingCycle, credits });
-    await runEmbeddedSubscriptionSideEffects({ userId, userBefore: user, subscription, stripe });
+    // Side-effects (referral commission, discount usage, legacy cancel) MUST NOT poison
+    // the response after credits have been committed. Wrap so a referral/discount glitch
+    // never causes the frontend to think the payment failed.
+    try {
+      await runEmbeddedSubscriptionSideEffects({ userId, userBefore: user, subscription, stripe });
+    } catch (sideEffectError) {
+      console.error(
+        '⚠️ confirm-subscription side-effects failed (credits already granted):',
+        sideEffectError?.message,
+      );
+    }
     
     res.json({ 
       success: true, 
@@ -2355,19 +2370,24 @@ router.post('/verify-session', authMiddleware, async (req, res) => {
         });
 
         console.log('✅ One-time credits added! New purchased balance:', updatedUser.purchasedCredits);
-        const referrerUserId = session.metadata.referrerUserId || null;
-        if (referrerUserId) {
-          await linkReferrerOnFirstPurchase(userId, referrerUserId);
+        // Side-effects must not poison the success response — credits are committed.
+        try {
+          const referrerUserId = session.metadata.referrerUserId || null;
+          if (referrerUserId) {
+            await linkReferrerOnFirstPurchase(userId, referrerUserId);
+          }
+          await recordReferralCommissionFromPayment({
+            referredUserId: userId,
+            purchaseAmountCents: session.amount_total || 0,
+            sourceType: "stripe_checkout_session",
+            sourceId: sessionId,
+          });
+        } catch (sideEffectErr) {
+          console.error('⚠️ verify-session one-time side-effects failed (credits already granted):', sideEffectErr?.message);
         }
-        await recordReferralCommissionFromPayment({
-          referredUserId: userId,
-          purchaseAmountCents: session.amount_total || 0,
-          sourceType: "stripe_checkout_session",
-          sourceId: sessionId,
-        });
 
-        res.json({ 
-          success: true, 
+        res.json({
+          success: true,
           credits: (updatedUser.credits || 0) + (updatedUser.subscriptionCredits || 0) + (updatedUser.purchasedCredits || 0),
           addedCredits: credits,
           paymentType: 'one-time'
@@ -2450,36 +2470,41 @@ router.post('/verify-session', authMiddleware, async (req, res) => {
         });
 
         console.log('✅ Subscription credits added! New subscription pool:', updatedUser.subscriptionCredits);
-        const referrerUserId = session.metadata.referrerUserId || null;
-        if (referrerUserId) {
-          await linkReferrerOnFirstPurchase(userId, referrerUserId);
-        }
-        await recordReferralCommissionFromPayment({
-          referredUserId: userId,
-          purchaseAmountCents: session.amount_total || 0,
-          sourceType: "stripe_checkout_session",
-          sourceId: sessionId,
-        });
-
-        // NOW cancel the old subscription (AFTER new payment succeeded).
-        // Old sub may live on the LEGACY account when migrating off the legacy platform.
-        if (oldSubscriptionId) {
-          const cancelStripe = getStripeForAccount(
-            accountForUserSubscription(user, oldSubscriptionId),
-          );
-          try {
-            if (cancelStripe) {
-              await cancelStripe.subscriptions.cancel(oldSubscriptionId);
-              console.log(`✅ Cancelled old subscription ${oldSubscriptionId} after successful upgrade`);
-            }
-          } catch (cancelError) {
-            console.error(`⚠️ Failed to cancel old subscription ${oldSubscriptionId}:`, cancelError.message);
-            // Don't fail the response - the new subscription is already active
+        // Side-effects below MUST NOT block the success response — credits are
+        // already committed. A failure in referral/discount/old-sub cancel
+        // should never make the user think their payment failed.
+        try {
+          const referrerUserId = session.metadata.referrerUserId || null;
+          if (referrerUserId) {
+            await linkReferrerOnFirstPurchase(userId, referrerUserId);
           }
+          await recordReferralCommissionFromPayment({
+            referredUserId: userId,
+            purchaseAmountCents: session.amount_total || 0,
+            sourceType: "stripe_checkout_session",
+            sourceId: sessionId,
+          });
+
+          // Cancel old subscription only after new payment is committed.
+          if (oldSubscriptionId) {
+            const cancelStripe = getStripeForAccount(
+              accountForUserSubscription(user, oldSubscriptionId),
+            );
+            try {
+              if (cancelStripe) {
+                await cancelStripe.subscriptions.cancel(oldSubscriptionId);
+                console.log(`✅ Cancelled old subscription ${oldSubscriptionId} after successful upgrade`);
+              }
+            } catch (cancelError) {
+              console.error(`⚠️ Failed to cancel old subscription ${oldSubscriptionId}:`, cancelError.message);
+            }
+          }
+        } catch (sideEffectErr) {
+          console.error('⚠️ verify-session side-effects failed (credits already granted):', sideEffectErr?.message);
         }
 
-        res.json({ 
-          success: true, 
+        res.json({
+          success: true,
           credits: (updatedUser.credits || 0) + (updatedUser.subscriptionCredits || 0) + (updatedUser.purchasedCredits || 0),
           addedCredits: credits,
           paymentType: 'subscription'
@@ -2585,6 +2610,62 @@ router.get('/sync-subscription', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('❌ Sync subscription error:', error.message);
     res.status(500).json({ error: 'Failed to sync subscription status' });
+  }
+});
+
+/**
+ * USER-FACING SAFETY VALVE.
+ * "I paid but my credits never showed up."
+ *
+ * Walks every Stripe invoice + checkout session this user has on BOTH the NEW
+ * and LEGACY Stripe accounts in the last 90 days, and ensures every paid
+ * invoice has a matching CreditTransaction. Idempotent — already-credited
+ * invoices silently no-op via the UNIQUE constraint on paymentSessionId.
+ *
+ * Safe to call repeatedly. This is the canonical recovery path when the
+ * primary webhook chain (checkout.session.completed → invoice.payment_succeeded)
+ * fails for any reason (delivery failure, missing metadata, race with
+ * customer.subscription.updated, etc.).
+ */
+router.post('/recover-credits', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const lookbackDays = Math.max(1, Math.min(365, parseInt(req.body?.lookbackDays || '90', 10) || 90));
+
+    console.log(`🔧 [recover-credits] starting for user ${userId} (lookback=${lookbackDays}d)`);
+    const result = await reconcileUserCredits(userId, { lookbackDays });
+
+    const refreshed = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        credits: true,
+        subscriptionCredits: true,
+        purchasedCredits: true,
+        subscriptionTier: true,
+        subscriptionStatus: true,
+      },
+    });
+
+    res.json({
+      success: true,
+      summary: {
+        invoicesAndSessionsScanned: result.results.length,
+        grantsCreated: result.totalGranted,
+        creditsGranted: result.creditsGranted,
+        customers: result.customers,
+      },
+      details: result.results,
+      currentBalance: {
+        ...refreshed,
+        totalCredits:
+          (refreshed?.credits || 0) +
+          (refreshed?.subscriptionCredits || 0) +
+          (refreshed?.purchasedCredits || 0),
+      },
+    });
+  } catch (error) {
+    console.error('❌ [recover-credits] failed:', error?.message);
+    res.status(500).json({ error: error?.message || 'Failed to recover credits' });
   }
 });
 

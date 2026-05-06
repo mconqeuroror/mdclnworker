@@ -10,6 +10,7 @@ import {
   inferSubscriptionCreditsFromAmount,
   normalizeCreditUnits,
   resolveSubscriptionBillingCycle,
+  getSubscriptionPricing,
 } from "../utils/creditUnits.js";
 import { sendCreditPurchaseEmail, sendSpecialOfferConfirmationEmail } from "../services/email.service.js";
 import { recordReferralCommissionFromPayment, linkReferrerOnFirstPurchase } from "../services/referral.service.js";
@@ -1274,7 +1275,7 @@ function buildWebhookHandler(account) {
             }
           }
 
-          // Fallback: if metadata.credits missing (e.g. legacy subscription), use amount from first grant for this subscription
+          // Fallback A: if metadata.credits missing (e.g. legacy subscription), use amount from first grant for this subscription
           if ((credits == null || credits === "") && !parsedCredits) {
             const firstGrant = await prisma.creditTransaction.findFirst({
               where: { paymentSessionId: subscriptionId, amount: { gt: 0 } },
@@ -1283,6 +1284,33 @@ function buildWebhookHandler(account) {
             if (firstGrant) {
               credits = String(firstGrant.amount);
               console.log(`🔄 invoice.payment_succeeded: no metadata.credits for ${subscriptionId}, using renewal amount from first grant: ${credits}`);
+            }
+          }
+
+          // Fallback B: also try amount-based inference for first-cycle (subscription_create)
+          // — Stripe occasionally drops metadata or the subscription was created externally
+          // (legacy Stripe Dashboard, billing portal upgrade etc).
+          if ((credits == null || credits === "") && !parsedCredits && billingReason !== "subscription_cycle") {
+            const inferred = inferSubscriptionCreditsFromAmount(billedAmountCents, billingCycle);
+            if (inferred > 0) {
+              parsedCredits = inferred;
+              credits = String(inferred);
+              console.log(
+                `🔄 invoice.payment_succeeded (${billingReason || "unknown"}): inferred ${inferred} credits from amount ${billedAmountCents} cents for sub ${subscriptionId}`,
+              );
+            }
+          }
+
+          // Fallback C: derive from user's stored subscriptionTier + billingCycle when known.
+          // Catches grandfathered legacy subs whose price doesn't match current pricing exactly.
+          if ((credits == null || credits === "") && !parsedCredits && resolvedTierId) {
+            const tierPricing = getSubscriptionPricing(resolvedTierId, billingCycle || "monthly");
+            if (tierPricing?.credits) {
+              parsedCredits = tierPricing.credits;
+              credits = String(parsedCredits);
+              console.log(
+                `🔄 invoice.payment_succeeded: derived ${parsedCredits} credits from tier=${resolvedTierId} (${billingCycle}) for sub ${subscriptionId}`,
+              );
             }
           }
 
@@ -1390,7 +1418,9 @@ function buildWebhookHandler(account) {
             }
           } else {
             console.error(
-              `❌ invoice.payment_succeeded: no credits for subscription ${subscriptionId} (invoice ${invoice.id}, user ${user.id}, billing_reason=${billingReason}, billed=${billedAmountCents}, tier=${resolvedTierId || "unknown"}). Check subscription metadata or first grant.`,
+              `❌ invoice.payment_succeeded: NO CREDITS GRANTED for sub ${subscriptionId} (invoice ${invoice.id}, user ${user.id}, billing_reason=${billingReason}, billed=${billedAmountCents}, paid=${paidAmountCents}, tier=${resolvedTierId || "unknown"}, cycle=${billingCycle}). ` +
+              `metadata.credits=${JSON.stringify(subscription.metadata?.credits)} metadata.tierId=${JSON.stringify(subscription.metadata?.tierId)}. ` +
+              `User can self-recover via POST /api/stripe/recover-credits, or admin via /api/admin/stripe/reconcile-user/${user.id}.`,
             );
           }
           break;

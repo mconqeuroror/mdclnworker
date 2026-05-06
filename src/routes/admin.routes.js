@@ -2,6 +2,7 @@ import express from "express";
 import jwt from "jsonwebtoken";
 import { randomUUID } from "crypto";
 import prisma from "../lib/prisma.js";
+import { reconcileUserCredits } from "../services/stripe-credit-reconcile.service.js";
 import { authMiddleware, setAuthCookie, setRefreshCookie } from "../middleware/auth.middleware.js";
 import { adminMiddleware } from "../middleware/admin.middleware.js";
 import { BackupService } from "../services/backup.service.js";
@@ -1329,6 +1330,77 @@ router.post("/models/:modelId/fix-photos", async (req, res) => {
   } catch (error) {
     console.error("Error fixing model photos:", error);
     res.status(500).json({ success: false, error: "Failed to fix model photos" });
+  }
+});
+
+/**
+ * POST /api/admin/stripe/reconcile-user/:userId
+ * Force a Stripe → CreditTransaction reconciliation for a single user.
+ *
+ * Walks every Stripe invoice and checkout session on both NEW + LEGACY
+ * accounts (lookback default 90 days) and inserts any missing CreditTransaction
+ * + grants the matching credits. Idempotent (UNIQUE constraint).
+ *
+ * Use when a user reports "I paid but my credits never showed up" and you
+ * want to force-fix from the admin panel.
+ */
+router.post("/stripe/reconcile-user/:userId", async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const lookbackDays = Math.max(
+      1,
+      Math.min(365, parseInt(req.body?.lookbackDays || "90", 10) || 90),
+    );
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    console.log(
+      `🔧 [admin/reconcile] starting for ${userId} (${user.email}) lookback=${lookbackDays}d`,
+    );
+
+    const result = await reconcileUserCredits(userId, { lookbackDays });
+
+    const refreshed = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        email: true,
+        credits: true,
+        subscriptionCredits: true,
+        purchasedCredits: true,
+        subscriptionTier: true,
+        subscriptionStatus: true,
+        stripeSubscriptionId: true,
+        legacyStripeSubscriptionId: true,
+      },
+    });
+
+    res.json({
+      success: true,
+      user: {
+        id: userId,
+        email: refreshed?.email,
+      },
+      summary: {
+        invoicesAndSessionsScanned: result.results.length,
+        grantsCreated: result.totalGranted,
+        creditsGranted: result.creditsGranted,
+        customers: result.customers,
+      },
+      details: result.results,
+      currentBalance: {
+        ...refreshed,
+        totalCredits:
+          (refreshed?.credits || 0) +
+          (refreshed?.subscriptionCredits || 0) +
+          (refreshed?.purchasedCredits || 0),
+      },
+    });
+  } catch (error) {
+    console.error("❌ [admin/reconcile] failed:", error?.message);
+    res
+      .status(500)
+      .json({ error: error?.message || "Failed to reconcile user credits" });
   }
 });
 

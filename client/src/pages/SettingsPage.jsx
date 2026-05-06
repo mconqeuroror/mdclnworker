@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { User, Shield, FileText, Cookie, CreditCard, AlertTriangle, X, TrendingUp, Lock, Eye, EyeOff, ShieldCheck, Smartphone, CheckCircle, ExternalLink, Key } from 'lucide-react';
+import { User, Shield, FileText, Cookie, CreditCard, AlertTriangle, X, TrendingUp, Lock, Eye, EyeOff, ShieldCheck, Smartphone, CheckCircle, ExternalLink, Key, Coins } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuthStore } from '../store';
 import { useQuery, useMutation } from '@tanstack/react-query';
@@ -37,6 +37,9 @@ export default function SettingsPage() {
   
   // Portal loading state
   const [openingPortal, setOpeningPortal] = useState(false);
+
+  // Credit recovery state ("I paid but credits never showed up")
+  const [recoveringCredits, setRecoveringCredits] = useState(false);
   
   // 2FA state
   const [show2FASetup, setShow2FASetup] = useState(false);
@@ -1071,6 +1074,42 @@ export default function SettingsPage() {
                       {t.cancelAction}
                     </button>
                   )}
+                </div>
+
+                <div className="pt-3 border-t border-white/10 space-y-2">
+                  <p className="text-xs sm:text-sm text-gray-400">
+                    Paid but credits never showed up? Force a Stripe sync of your last 90 days of payments. Safe to run multiple times — already-credited invoices are skipped.
+                  </p>
+                  <button
+                    onClick={async () => {
+                      if (recoveringCredits) return;
+                      setRecoveringCredits(true);
+                      try {
+                        const data = await stripeAPI.recoverCredits(90);
+                        const granted = data?.summary?.grantsCreated || 0;
+                        const credits = data?.summary?.creditsGranted || 0;
+                        if (granted > 0) {
+                          toast.success(
+                            `Recovered ${credits} credits across ${granted} missed payment${granted === 1 ? '' : 's'}.`,
+                          );
+                        } else {
+                          toast.success('No missing credits found — your account is up to date.');
+                        }
+                        try { await refreshUserCredits?.(); } catch {}
+                      } catch (error) {
+                        console.error('Recover credits failed:', error);
+                        toast.error(error?.response?.data?.error || 'Could not recover credits. Please contact support.');
+                      } finally {
+                        setRecoveringCredits(false);
+                      }
+                    }}
+                    disabled={recoveringCredits}
+                    className="text-sm flex items-center gap-2 px-4 py-2 rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 transition disabled:opacity-60 disabled:cursor-not-allowed"
+                    data-testid="button-recover-credits"
+                  >
+                    <Coins className="w-4 h-4" />
+                    {recoveringCredits ? 'Syncing with Stripe…' : 'Recover missing credits'}
+                  </button>
                 </div>
               </div>
             )}

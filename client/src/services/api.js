@@ -618,6 +618,13 @@ export const stripeAPI = {
     const response = await api.post("/stripe/create-portal-session");
     return response.data;
   },
+
+  // Last-resort safety valve when "I paid but credits never arrived".
+  // Idempotent — already-credited invoices are silently skipped.
+  recoverCredits: async (lookbackDays = 90) => {
+    const response = await api.post("/stripe/recover-credits", { lookbackDays });
+    return response.data;
+  },
 };
 
 export const referralAPI = {
