@@ -5,16 +5,21 @@ import api from "../services/api";
 
 /**
  * UNIFIED generation hook - single source of truth for all generation data
- * 
+ *
  * Architecture:
  * - React Query cache is the ONLY source of truth
  * - No localStorage, no custom events, no local state
- * - Polls every 5s when page is visible
- * - Detects completions and shows toast notifications
- * 
+ * - Adaptive polling cadence:
+ *     • 2 s  while a generation is processing (so finishes appear ASAP)
+ *     • 30 s while everything is idle (saves DB pressure at scale)
+ *     • paused entirely when the tab is hidden
+ * - Detects completions and surfaces them to the rest of the UI
+ *
  * @param {string} type - Generation type filter: 'image' | 'video' | 'talking-head' | 'all'
  * @returns {object} Generation data and helpers
  */
+const ACTIVE_POLL_MS = 2000;   // tight loop while a job is running
+const IDLE_POLL_MS = 30000;    // slow heartbeat when nothing is processing
 
 // Groups for LivePreviewPanel - shows all related types together
 const TYPE_GROUPS = {
@@ -48,10 +53,24 @@ export function useGenerations(type = "all") {
       const response = await api.get("/generations");
       return response.data;
     },
-    refetchInterval: 5000,
+    // Adaptive interval: tight while processing, slow while idle.
+    // React Query passes the latest `query` to this callback so we can
+    // inspect the cached data without holding it in component state.
+    refetchInterval: (query) => {
+      if (!isPageVisible) return false;
+      const list = Array.isArray(query?.state?.data?.generations)
+        ? query.state.data.generations
+        : [];
+      const hasProcessing = list.some(
+        (g) => g.status === "processing" || g.status === "pending",
+      );
+      return hasProcessing ? ACTIVE_POLL_MS : IDLE_POLL_MS;
+    },
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: false,
-    staleTime: 10000, // 10s - prevents refetch on tab switch
+    // Drop staleTime so a manual refetch (after submitting a new job) hits
+    // the network instead of returning a cached "no processing" snapshot.
+    staleTime: 0,
   });
 
   // Force refetch when page becomes visible

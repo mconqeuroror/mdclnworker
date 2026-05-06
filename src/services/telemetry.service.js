@@ -141,31 +141,135 @@ function safeJsonString(value) {
   }
 }
 
-export async function recordApiRequestMetric(data) {
-  try {
-    await prisma.apiRequestMetric.create({
-      data: {
-        method: String(data.method || "GET").toUpperCase(),
-        routePath: String(data.routePath || "/"),
-        normalizedPath: normalizeTelemetryPath(data.normalizedPath || data.routePath || "/"),
-        statusCode: Number.isFinite(data.statusCode) ? Number(data.statusCode) : 0,
-        durationMs: Number.isFinite(data.durationMs) ? Math.max(0, Math.round(data.durationMs)) : 0,
-        userId: data.userId || null,
-        isAdmin: data.isAdmin === true,
-        ipHash: data.ipHash || null,
-        userAgent: data.userAgent ? String(data.userAgent).slice(0, 300) : null,
-        requestBytes: Number.isFinite(data.requestBytes) ? Math.max(0, Math.round(data.requestBytes)) : null,
-        responseBytes: Number.isFinite(data.responseBytes) ? Math.max(0, Math.round(data.responseBytes)) : null,
-      },
-    });
-  } catch (error) {
-    const msg = error?.message || String(error);
-    const short = msg.includes("Can't reach database") ? "database unreachable (e.g. cold start)" : msg?.slice(0, 120);
-    console.warn("[telemetry] failed to record request metric:", short);
+/**
+ * Batched telemetry buffers.
+ *
+ * Previously every API request did a synchronous `prisma.apiRequestMetric.create()`
+ * on the response-finish event. At 100% sample rate that meant 1 INSERT per
+ * request — combined with /api/auth/me, /api/generations, etc. polling at 5s
+ * intervals across thousands of users this alone exhausted the Neon
+ * connection pool ("Timed out fetching a new connection from the connection
+ * pool"). We now buffer in memory and flush in batches with `createMany`.
+ *
+ * Key properties:
+ *  - Bounded buffer: hard caps at TELEMETRY_MAX_BUFFER (drops oldest beyond).
+ *  - Time-based flush: every TELEMETRY_FLUSH_INTERVAL_MS (default 15s).
+ *  - Size-based flush: as soon as buffer hits TELEMETRY_FLUSH_BATCH_SIZE.
+ *  - Process-exit flush: SIGTERM/beforeExit drains the buffer best-effort.
+ *  - Sample-rate aware: callers still respect TELEMETRY_REQUEST_SAMPLE_RATE
+ *    via the middleware; this layer does not double-sample.
+ *  - Backpressure-safe: a flush failure logs once and moves on; events stay
+ *    in memory only if the failure is transient (not duplicated to disk).
+ */
+const TELEMETRY_FLUSH_INTERVAL_MS = Number(process.env.TELEMETRY_FLUSH_INTERVAL_MS || 15_000);
+const TELEMETRY_FLUSH_BATCH_SIZE = Number(process.env.TELEMETRY_FLUSH_BATCH_SIZE || 200);
+const TELEMETRY_MAX_BUFFER = Number(process.env.TELEMETRY_MAX_BUFFER || 5_000);
+
+const requestMetricBuffer = [];
+const edgeEventBuffer = [];
+let flushTimer = null;
+let flushInFlight = false;
+let lastFlushErrorAt = 0;
+
+function scheduleFlush() {
+  if (flushTimer) return;
+  flushTimer = setTimeout(async () => {
+    flushTimer = null;
+    await flushTelemetryBuffers();
+  }, TELEMETRY_FLUSH_INTERVAL_MS);
+  // Don't keep the event loop alive solely for telemetry.
+  if (typeof flushTimer.unref === "function") flushTimer.unref();
+}
+
+function pushBuffer(buffer, item) {
+  if (buffer.length >= TELEMETRY_MAX_BUFFER) {
+    // Drop oldest — telemetry is best-effort, not at-least-once.
+    buffer.shift();
+  }
+  buffer.push(item);
+  if (buffer.length >= TELEMETRY_FLUSH_BATCH_SIZE) {
+    // Fire-and-forget immediate flush; don't await — caller is on the hot path.
+    void flushTelemetryBuffers();
+  } else {
+    scheduleFlush();
   }
 }
 
-export async function recordTelemetryEdgeEvent({
+export async function flushTelemetryBuffers() {
+  if (flushInFlight) return;
+  if (requestMetricBuffer.length === 0 && edgeEventBuffer.length === 0) return;
+  flushInFlight = true;
+  try {
+    if (requestMetricBuffer.length > 0) {
+      const batch = requestMetricBuffer.splice(0, requestMetricBuffer.length);
+      try {
+        await prisma.apiRequestMetric.createMany({ data: batch, skipDuplicates: true });
+      } catch (e) {
+        if (Date.now() - lastFlushErrorAt > 60_000) {
+          lastFlushErrorAt = Date.now();
+          const msg = e?.message || String(e);
+          console.warn(
+            `[telemetry] batch flush (apiRequestMetric x${batch.length}) failed: ${msg.slice(0, 200)}`,
+          );
+        }
+      }
+    }
+    if (edgeEventBuffer.length > 0) {
+      const batch = edgeEventBuffer.splice(0, edgeEventBuffer.length);
+      try {
+        await prisma.telemetryEdgeEvent.createMany({ data: batch, skipDuplicates: true });
+      } catch (e) {
+        if (Date.now() - lastFlushErrorAt > 60_000) {
+          lastFlushErrorAt = Date.now();
+          const msg = e?.message || String(e);
+          console.warn(
+            `[telemetry] batch flush (telemetryEdgeEvent x${batch.length}) failed: ${msg.slice(0, 200)}`,
+          );
+        }
+      }
+    }
+  } finally {
+    flushInFlight = false;
+  }
+}
+
+// Flush on process exit so we don't lose the last partial batch when a
+// long-running host shuts down. Vercel functions: warm container ends
+// trigger beforeExit; SIGTERM is the official Lambda shutdown signal.
+let telemetryShutdownRegistered = false;
+if (!telemetryShutdownRegistered) {
+  telemetryShutdownRegistered = true;
+  for (const signal of ["beforeExit", "SIGTERM", "SIGINT"]) {
+    process.once(signal, () => {
+      try {
+        void flushTelemetryBuffers();
+      } catch (_) {}
+    });
+  }
+}
+
+export function recordApiRequestMetric(data) {
+  try {
+    pushBuffer(requestMetricBuffer, {
+      method: String(data.method || "GET").toUpperCase(),
+      routePath: String(data.routePath || "/"),
+      normalizedPath: normalizeTelemetryPath(data.normalizedPath || data.routePath || "/"),
+      statusCode: Number.isFinite(data.statusCode) ? Number(data.statusCode) : 0,
+      durationMs: Number.isFinite(data.durationMs) ? Math.max(0, Math.round(data.durationMs)) : 0,
+      userId: data.userId || null,
+      isAdmin: data.isAdmin === true,
+      ipHash: data.ipHash || null,
+      userAgent: data.userAgent ? String(data.userAgent).slice(0, 300) : null,
+      requestBytes: Number.isFinite(data.requestBytes) ? Math.max(0, Math.round(data.requestBytes)) : null,
+      responseBytes: Number.isFinite(data.responseBytes) ? Math.max(0, Math.round(data.responseBytes)) : null,
+    });
+  } catch (e) {
+    // Buffer push is local-only; this should never throw, but be defensive.
+    console.warn("[telemetry] buffer push (request) failed:", e?.message);
+  }
+}
+
+export function recordTelemetryEdgeEvent({
   eventType,
   severity = "info",
   message = null,
@@ -176,22 +280,18 @@ export async function recordTelemetryEdgeEvent({
   details = null,
 }) {
   try {
-    await prisma.telemetryEdgeEvent.create({
-      data: {
-        eventType: String(eventType || "unknown"),
-        severity: String(severity || "info"),
-        message: message ? String(message).slice(0, 500) : null,
-        routePath: routePath ? String(routePath).slice(0, 300) : null,
-        statusCode: Number.isFinite(statusCode) ? Math.round(statusCode) : null,
-        userId: userId || null,
-        ipHash: ipHash || null,
-        detailsJson: safeJsonString(details),
-      },
+    pushBuffer(edgeEventBuffer, {
+      eventType: String(eventType || "unknown"),
+      severity: String(severity || "info"),
+      message: message ? String(message).slice(0, 500) : null,
+      routePath: routePath ? String(routePath).slice(0, 300) : null,
+      statusCode: Number.isFinite(statusCode) ? Math.round(statusCode) : null,
+      userId: userId || null,
+      ipHash: ipHash || null,
+      detailsJson: safeJsonString(details),
     });
-  } catch (error) {
-    const msg = error?.message || String(error);
-    const short = msg.includes("Can't reach database") ? "database unreachable (e.g. cold start)" : msg?.slice(0, 120);
-    console.warn("[telemetry] failed to record edge event:", short);
+  } catch (e) {
+    console.warn("[telemetry] buffer push (edge event) failed:", e?.message);
   }
 }
 

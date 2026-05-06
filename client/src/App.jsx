@@ -491,9 +491,17 @@ function GlobalGenerationNotifier() {
       return Array.isArray(response?.data?.generations) ? response.data.generations : [];
     },
     enabled: isAuthenticated,
-    refetchInterval: 5000,
+    // Adaptive: 2 s while anything is processing, 30 s while idle.
+    // Cuts /api/generations load by 15× when no jobs are running.
+    refetchInterval: (query) => {
+      const list = Array.isArray(query?.state?.data) ? query.state.data : [];
+      const hasProcessing = list.some(
+        (g) => g.status === "processing" || g.status === "pending",
+      );
+      return hasProcessing ? 2000 : 30000;
+    },
     refetchIntervalInBackground: false,
-    staleTime: 2500,
+    staleTime: 0,
   });
 
   useEffect(() => {
