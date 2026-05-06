@@ -72,13 +72,21 @@ const ASPECT_RATIO_MAP = {
   "4:3": "4:3 landscape 1152x896",
 };
 
-/** Empty latent size for MCX 5.2 AuraFlow merge graph — 2× the former 1× base (1:1 = 2048²). */
+/**
+ * Empty latent size for MCX 5.2 AuraFlow merge graph (1× SDXL-style base).
+ *
+ * NOTE: an earlier commit (01aab74) doubled these to 2048² / 1536×2688 etc.
+ * Combined with this graph's dual UNET merge + AuraFlow + 3 samplers + LoRA
+ * stack, the doubled resolution OOM'd / timed out on the RunPod worker, so
+ * "Use Character" t2i jobs never returned. Reverted to the 1× base values
+ * which fit comfortably in worker VRAM.
+ */
 const MCX_T2I_RESOLUTION = {
-  "1:1": { width: 2048, height: 2048 },
-  "9:16": { width: 1536, height: 2688 },
-  "16:9": { width: 2688, height: 1536 },
-  "3:4": { width: 1792, height: 2304 },
-  "4:3": { width: 2304, height: 1792 },
+  "1:1": { width: 1024, height: 1024 },
+  "9:16": { width: 768, height: 1344 },
+  "16:9": { width: 1344, height: 768 },
+  "3:4": { width: 896, height: 1152 },
+  "4:3": { width: 1152, height: 896 },
 };
 
 function loadWorkflow(variant) {
