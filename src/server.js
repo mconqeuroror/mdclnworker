@@ -22,6 +22,7 @@ import {
   runEndpointHealthChecks,
 } from './services/telemetry.service.js';
 import { processPendingBlobRemirrorQueue } from "./services/blob-remirror-queue.service.js";
+import { pruneOldTelemetry } from "./services/telemetry-retention.service.js";
 import { runSignupNoPurchaseWinbackCampaign } from "./services/signup-winback-email.service.js";
 import { seedBuiltInSextingScripts } from "./seeds/sexting-scripts.seed.js";
 
@@ -159,6 +160,8 @@ const BLOB_REMIRROR_QUEUE_INTERVAL_MS =
   readIntervalMs(process.env.BLOB_REMIRROR_QUEUE_INTERVAL_MS, 60 * 1000);
 const SIGNUP_WINBACK_EMAIL_INTERVAL_MS =
   readIntervalMs(process.env.SIGNUP_WINBACK_EMAIL_INTERVAL_MS, 30 * 60 * 1000);
+const TELEMETRY_RETENTION_INTERVAL_MS =
+  readIntervalMs(process.env.TELEMETRY_RETENTION_INTERVAL_MS, 24 * 60 * 60 * 1000);
 
 // Middleware - strict origin allowlist for production
 const allowedOrigins = new Set(
@@ -854,6 +857,36 @@ if (!process.env.VERCEL) {
     }
   }, ENDPOINT_HEALTHCHECK_INTERVAL_MS);
   console.log(`🩺 Endpoint health checks enabled (${Math.round(ENDPOINT_HEALTHCHECK_INTERVAL_MS / 1000)}s interval)`);
+
+  // Daily telemetry retention prune — caps row growth on hot tables
+  // (ApiRequestMetric, TelemetryEdgeEvent, SystemHealthMetric). Best-effort:
+  // never throws, just logs when it deletes anything, so a slow prune never
+  // blocks other scheduled jobs.
+  let telemetryRetentionInProgress = false;
+  setInterval(async () => {
+    if (telemetryRetentionInProgress) return;
+    telemetryRetentionInProgress = true;
+    try {
+      const summary = await pruneOldTelemetry();
+      const total =
+        (summary.apiRequestMetric || 0) +
+        (summary.telemetryEdgeEvent || 0) +
+        (summary.systemHealthMetric || 0);
+      if (total > 0) {
+        console.log(
+          `🗑️  Telemetry retention pruned ${total} rows in ${summary.elapsedMs}ms ` +
+            `(req=${summary.apiRequestMetric}, edge=${summary.telemetryEdgeEvent}, health=${summary.systemHealthMetric})`,
+        );
+      }
+    } catch (error) {
+      console.error('Telemetry retention prune failed (non-fatal):', error?.message || error);
+    } finally {
+      telemetryRetentionInProgress = false;
+    }
+  }, TELEMETRY_RETENTION_INTERVAL_MS);
+  console.log(
+    `🗑️  Telemetry retention enabled (${Math.round(TELEMETRY_RETENTION_INTERVAL_MS / 1000)}s interval)`,
+  );
   console.log('');
 
   // Graceful shutdown on SIGTERM/SIGINT (Heroku, Docker, etc.)
