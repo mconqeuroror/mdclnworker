@@ -231,8 +231,18 @@ async function captionSingleImage(imageUrl, triggerWord, index, captionSubjectCl
     maxRetries: 0,
   });
 
-  const MAX_ATTEMPTS = 10;
-  const BASE_DELAY_MS = 2_500;
+  // Per-image retry budget. Tuned to fail fast on persistent OpenRouter
+  // outages (so the streaming pool can move on and use a fallback caption
+  // for that image) instead of letting one bad image consume minutes of
+  // serverless background time.
+  //
+  // Math: 4 attempts with 2.5s base delay and pow(2, min(attempt-1, 3))
+  // backoff -> 2.5s, 5s, 10s, 20s -> at most ~37.5s of sleep across one
+  // image's failure path. Combined with the 60s per-call timeout and the
+  // image fetch step, an "all retries exhausted" image consumes <5min.
+  const MAX_ATTEMPTS = Number(process.env.LORA_CAPTION_MAX_ATTEMPTS || 4);
+  const BASE_DELAY_MS = Number(process.env.LORA_CAPTION_RETRY_BASE_MS || 2_500);
+  const MAX_BACKOFF_MS = Number(process.env.LORA_CAPTION_RETRY_MAX_MS || 20_000);
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
@@ -260,7 +270,10 @@ async function captionSingleImage(imageUrl, triggerWord, index, captionSubjectCl
       const caption = (completion.choices?.[0]?.message?.content || "").trim();
       if (!caption) {
         if (attempt < MAX_ATTEMPTS) {
-          const delay = BASE_DELAY_MS * Math.pow(2, Math.min(attempt - 1, 5));
+          const delay = Math.min(
+            MAX_BACKOFF_MS,
+            BASE_DELAY_MS * Math.pow(2, Math.min(attempt - 1, 3)),
+          );
           console.warn(
             `  ⚠️ Empty caption for image ${index + 1}, attempt ${attempt}/${MAX_ATTEMPTS}. Retrying in ${delay / 1000}s…`,
           );
@@ -298,10 +311,16 @@ async function captionSingleImage(imageUrl, triggerWord, index, captionSubjectCl
         msg.toLowerCase().includes("rate limit");
 
       if (isTransient && attempt < MAX_ATTEMPTS) {
+        // 429 rate-limit gets a slightly longer backoff cap because retrying
+        // sooner just hits the same limiter; everyone else uses the bounded
+        // exponential schedule so a serial of 502s can't burn minutes per image.
         const delay =
           status === 429
-            ? Math.min(90_000, BASE_DELAY_MS * Math.pow(2, attempt))
-            : BASE_DELAY_MS * Math.pow(2, Math.min(attempt - 1, 6));
+            ? Math.min(MAX_BACKOFF_MS * 2, BASE_DELAY_MS * Math.pow(2, attempt))
+            : Math.min(
+                MAX_BACKOFF_MS,
+                BASE_DELAY_MS * Math.pow(2, Math.min(attempt - 1, 3)),
+              );
         console.warn(
           `  ⚠️ Caption attempt ${attempt}/${MAX_ATTEMPTS} failed for image ${index + 1} (${msg.slice(0, 80)}). Retrying in ${delay / 1000}s…`,
         );
@@ -320,8 +339,35 @@ async function captionSingleImage(imageUrl, triggerWord, index, captionSubjectCl
 }
 
 /**
- * Caption all training images in parallel batches, with extra rounds for misses and fallbacks.
- * Returns caption strings for every index (fallback used only if vision API never succeeds).
+ * Caption all training images using a streaming worker pool.
+ *
+ * Why a streaming pool (not a blocking batch):
+ *   The previous implementation ran 4 captions in parallel, then awaited
+ *   ALL FOUR to complete before starting the next 4. With OpenRouter's
+ *   p99 ~30s and the occasional 502, ONE slow image inside a batch
+ *   stalls 3 already-completed siblings — so a single 15-image pass
+ *   could burn 5–10 minutes of `waitUntil` budget on Vercel and risk
+ *   running into the platform max (the LoRA submit then never happens
+ *   and credits stay deducted).
+ *
+ *   A worker pool keeps a constant `concurrency` number of in-flight
+ *   requests at all times: the moment one resolves, the pool starts
+ *   the next image. Slow images no longer block fast siblings.
+ *
+ * Wall-clock budget:
+ *   Vercel `waitUntil` has a finite max (5 min Pro, 15 min Enterprise),
+ *   and after captioning we still need to download every image, build
+ *   the ZIP, upload it to fal.ai, and submit the training job. If the
+ *   captioner can't finish all images by `LORA_CAPTION_DEADLINE_MS`
+ *   (default 4 min), remaining images get a fallback caption and
+ *   training proceeds anyway — better to train with a few generic
+ *   captions than to never submit at all.
+ *
+ * Concurrency tuning:
+ *   `LORA_CAPTION_CONCURRENCY` (default 8). OpenRouter does not publish
+ *   strict per-key concurrency limits but rate-limits aggressively; 8
+ *   parallel image+vision requests per training is a comfortable spot
+ *   that doesn't trip 429s in practice.
  */
 async function captionAllTrainingImages(imageUrls, triggerWord, captionSubjectClass = null) {
   console.log(`\n📝 ============================================`);
@@ -332,29 +378,81 @@ async function captionAllTrainingImages(imageUrls, triggerWord, captionSubjectCl
   }
   console.log(`📝 ============================================`);
 
-  const BATCH_SIZE = 4;
+  const concurrency = Math.max(1, Number(process.env.LORA_CAPTION_CONCURRENCY || 8));
+  const deadlineMs = Math.max(
+    30_000,
+    Number(process.env.LORA_CAPTION_DEADLINE_MS || 4 * 60 * 1000),
+  );
+  const startedAt = Date.now();
   const results = new Array(imageUrls.length).fill(null);
 
-  for (let batch = 0; batch < imageUrls.length; batch += BATCH_SIZE) {
-    const slice = imageUrls.slice(batch, batch + BATCH_SIZE);
-    const batchPromises = slice.map((url, i) =>
-      captionSingleImage(url, triggerWord, batch + i, captionSubjectClass),
-    );
-    const batchResults = await Promise.all(batchPromises);
-    batchResults.forEach((caption, i) => {
-      results[batch + i] = caption;
-    });
-    console.log(
-      `  ✅ Batch ${Math.floor(batch / BATCH_SIZE) + 1} done (${Math.min(batch + BATCH_SIZE, imageUrls.length)}/${imageUrls.length})`,
-    );
-
-    if (batch + BATCH_SIZE < imageUrls.length) {
-      await sleep(1000);
+  /**
+   * Streaming worker pool. We don't use Promise.all on slices because that
+   * blocks each batch on the slowest member. Instead, every worker pulls
+   * the next pending index off a shared cursor as soon as its previous
+   * task resolves, keeping `concurrency` jobs in flight continuously.
+   */
+  let cursor = 0;
+  const captionOnce = async (idx) => {
+    if (Date.now() - startedAt > deadlineMs) {
+      // Past the wall-clock deadline. Skip remaining captioning so
+      // training submission still has time to run after this returns.
+      return;
     }
+    try {
+      results[idx] = await captionSingleImage(
+        imageUrls[idx],
+        triggerWord,
+        idx,
+        captionSubjectClass,
+      );
+    } catch (err) {
+      // captionSingleImage already swallows transients internally and
+      // returns null on hard failure. Defensive guard: never let one
+      // image throw and tear down the pool.
+      console.warn(
+        `  ⚠️ Caption pool: image ${idx + 1} threw outside retry layer: ${err?.message}`,
+      );
+      results[idx] = null;
+    }
+  };
+
+  const worker = async () => {
+    while (true) {
+      const idx = cursor++;
+      if (idx >= imageUrls.length) return;
+      if (Date.now() - startedAt > deadlineMs) return;
+      await captionOnce(idx);
+    }
+  };
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, imageUrls.length) }, () => worker()),
+  );
+
+  const firstPassMissing = results
+    .map((c, i) => (c == null ? i : -1))
+    .filter((i) => i >= 0);
+  if (firstPassMissing.length > 0) {
+    console.log(
+      `📝 First pass left ${firstPassMissing.length}/${imageUrls.length} without caption (elapsed ${Math.round((Date.now() - startedAt) / 1000)}s)`,
+    );
   }
 
-  const MAX_EXTRA_ROUNDS = 8;
+  // Bounded extra retry round(s) for stragglers, still through the same
+  // pool so they don't serialize. Capped tightly because by this point
+  // we've already retried each image MAX_ATTEMPTS times internally.
+  const MAX_EXTRA_ROUNDS = Math.max(
+    0,
+    Number(process.env.LORA_CAPTION_EXTRA_ROUNDS || 2),
+  );
   for (let round = 0; round < MAX_EXTRA_ROUNDS; round++) {
+    if (Date.now() - startedAt > deadlineMs) {
+      console.warn(
+        `📝 Caption deadline reached at round ${round} — falling back for remaining images`,
+      );
+      break;
+    }
     const missing = results
       .map((c, i) => (c == null ? i : -1))
       .filter((i) => i >= 0);
@@ -362,16 +460,18 @@ async function captionAllTrainingImages(imageUrls, triggerWord, captionSubjectCl
     console.log(
       `📝 Caption retry round ${round + 1}/${MAX_EXTRA_ROUNDS}: ${missing.length} image(s) still without caption`,
     );
-    for (const idx of missing) {
-      const c = await captionSingleImage(
-        imageUrls[idx],
-        triggerWord,
-        idx,
-        captionSubjectClass,
-      );
-      results[idx] = c;
-      await sleep(500);
-    }
+    let retryCursor = 0;
+    const retryWorker = async () => {
+      while (true) {
+        const slot = retryCursor++;
+        if (slot >= missing.length) return;
+        if (Date.now() - startedAt > deadlineMs) return;
+        await captionOnce(missing[slot]);
+      }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(concurrency, missing.length) }, () => retryWorker()),
+    );
   }
 
   let fallbackUsed = 0;
@@ -383,9 +483,10 @@ async function captionAllTrainingImages(imageUrls, triggerWord, captionSubjectCl
     }
   }
 
+  const elapsedSec = Math.round((Date.now() - startedAt) / 1000);
   const captionedCount = results.filter(Boolean).length;
   console.log(
-    `📝 Caption pass complete: ${captionedCount}/${imageUrls.length} images (${fallbackUsed} fallback)`,
+    `📝 Caption pass complete in ${elapsedSec}s: ${captionedCount}/${imageUrls.length} images (${fallbackUsed} fallback, concurrency=${concurrency})`,
   );
 
   return results;
@@ -420,10 +521,20 @@ async function createTrainingZip(imageUrls, captions = []) {
   const hasCaptions = captions.length > 0 && captions.some(Boolean);
   console.log(`📦 Creating training ZIP with ${imageUrls.length} images${hasCaptions ? " + captions" : ""}...`);
 
-  for (let i = 0; i < imageUrls.length; i++) {
-    const MAX_FETCH_ATTEMPTS = 8;
+  // Streaming fetch pool. Previously these 15+ image downloads ran serially
+  // and any one slow / retrying image stalled the whole ZIP step. With a
+  // pool we keep N downloads in flight at all times, bringing typical wall
+  // time from ~10–30s down to a few seconds.
+  const concurrency = Math.max(
+    1,
+    Number(process.env.LORA_ZIP_FETCH_CONCURRENCY || 8),
+  );
+  const MAX_FETCH_ATTEMPTS = Number(process.env.LORA_ZIP_FETCH_MAX_ATTEMPTS || 4);
+  const buffers = new Array(imageUrls.length).fill(null);
+  const formats = new Array(imageUrls.length).fill(null);
+
+  const fetchOne = async (i) => {
     let lastErr;
-    let added = false;
     for (let attempt = 1; attempt <= MAX_FETCH_ATTEMPTS; attempt++) {
       try {
         const response = await fetch(imageUrls[i], { signal: AbortSignal.timeout(120_000) });
@@ -440,25 +551,49 @@ async function createTrainingZip(imageUrls, captions = []) {
           );
         }
 
-        const baseName = `image_${String(i + 1).padStart(2, "0")}`;
-        zip.file(`${baseName}.${detectedFormat}`, buffer);
-        if (captions[i]) zip.file(`${baseName}.txt`, captions[i]);
-
-        console.log(`  ✓ Added image ${i + 1}/${imageUrls.length} (${detectedFormat}, ${(buffer.byteLength / 1024).toFixed(0)}KB)${captions[i] ? " + caption" : ""}`);
-        added = true;
-        break;
+        buffers[i] = buffer;
+        formats[i] = detectedFormat;
+        return;
       } catch (err) {
         lastErr = err;
         if (attempt < MAX_FETCH_ATTEMPTS) {
-          console.warn(`  ⚠️ Image ${i + 1} attempt ${attempt} failed (${err.message}), retrying…`);
-          await new Promise(r => setTimeout(r, 1500 * attempt));
+          // Linear backoff per-image; the pool is the main throughput lever.
+          await new Promise((r) => setTimeout(r, 1000 * attempt));
         }
       }
     }
-    if (!added) {
-      console.error(`  ✗ Failed to add image ${i + 1}:`, lastErr?.message);
-      throw lastErr;
+    throw new Error(
+      `Image ${i + 1} fetch failed after ${MAX_FETCH_ATTEMPTS} attempts: ${lastErr?.message || "unknown"}`,
+    );
+  };
+
+  let cursor = 0;
+  const worker = async () => {
+    while (true) {
+      const idx = cursor++;
+      if (idx >= imageUrls.length) return;
+      await fetchOne(idx);
     }
+  };
+
+  await Promise.all(
+    Array.from(
+      { length: Math.min(concurrency, imageUrls.length) },
+      () => worker(),
+    ),
+  );
+
+  // Sequential add-to-zip is fine — JSZip operations are sync/in-memory.
+  // Only the network I/O above benefits from parallelism.
+  for (let i = 0; i < imageUrls.length; i++) {
+    const buffer = buffers[i];
+    const detectedFormat = formats[i];
+    const baseName = `image_${String(i + 1).padStart(2, "0")}`;
+    zip.file(`${baseName}.${detectedFormat}`, buffer);
+    if (captions[i]) zip.file(`${baseName}.txt`, captions[i]);
+    console.log(
+      `  ✓ Added image ${i + 1}/${imageUrls.length} (${detectedFormat}, ${(buffer.byteLength / 1024).toFixed(0)}KB)${captions[i] ? " + caption" : ""}`,
+    );
   }
 
   const zipBuffer = await zip.generateAsync({ type: "nodebuffer" });
