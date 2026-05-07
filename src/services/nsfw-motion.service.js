@@ -978,7 +978,7 @@ export async function submitNsfwMotionVideo(opts, generationId = null) {
  * @param {string} st
  * @returns {"success" | "failed" | "in_progress" | "unknown"}
  */
-function mapRunningHubQueryStatus(st) {
+export function mapRunningHubQueryStatus(st) {
   const u = String(st || "").toUpperCase();
   if (u === "SUCCESS" || u === "COMPLETED" || u === "SUCCEEDED" || u === "DONE")
     return "success";
@@ -987,6 +987,56 @@ function mapRunningHubQueryStatus(st) {
     return "in_progress";
   if (!u) return "unknown";
   return "in_progress";
+}
+
+/**
+ * Resolve the status string from any RunningHub response shape.
+ * Flat: `{ status: "SUCCESS", results: [...] }`
+ * Wrapped: `{ code: 0, msg: "ok", data: { status, results } }`
+ * Webhook-ish: `{ eventData: { status, ... } }`
+ * Returns the first non-empty status string we find or null.
+ */
+export function pickRunningHubStatus(data) {
+  if (!data || typeof data !== "object") return null;
+  const candidates = [
+    data.status,
+    data.taskStatus,
+    data.data?.status,
+    data.eventData?.status,
+    data.eventData?.data?.status,
+    data.body?.status,
+  ];
+  for (const c of candidates) {
+    const s = typeof c === "string" ? c.trim() : "";
+    if (s) return s;
+  }
+  return null;
+}
+
+export function pickRunningHubError(data) {
+  if (!data || typeof data !== "object") return null;
+  const candidates = [
+    data.errorMessage,
+    data.error,
+    data.failedReason?.message,
+    data.failedReason,
+    data.data?.errorMessage,
+    data.data?.error,
+    data.data?.failedReason?.message,
+    data.eventData?.errorMessage,
+    data.eventData?.error,
+    data.eventData?.data?.errorMessage,
+    data.errorCode,
+    data.data?.errorCode,
+  ];
+  for (const c of candidates) {
+    if (typeof c === "string" && c.trim()) return c.trim();
+    if (c && typeof c === "object") {
+      const j = JSON.stringify(c).slice(0, 240);
+      if (j && j !== "{}") return j;
+    }
+  }
+  return null;
 }
 
 /**
@@ -1008,19 +1058,24 @@ export async function checkNsfwMotionStatus(jobId) {
   } catch (e) {
     return { status: "in_progress", error: e.message, _transient: true };
   }
-  const mapped = mapRunningHubQueryStatus(data.status);
-  if (mapped === "success") {
+  const rawStatus = pickRunningHubStatus(data);
+  const mapped = mapRunningHubQueryStatus(rawStatus);
+  // Cross-check: even if the wrapper says "queued", a results[] full of
+  // video URLs means the job is done. RH has been observed to lag the
+  // status flip by a poll cycle in some regions.
+  const hasResults = Boolean(findResultsArray(data));
+  if (mapped === "success" || (hasResults && mapped !== "failed")) {
     return { ...data, status: "success" };
   }
   if (mapped === "failed") {
     return {
       ...data,
       status: "failed",
-      error: data.errorMessage || data.error || data.failedReason || "RunningHub task failed",
+      error: pickRunningHubError(data) || "RunningHub task failed",
     };
   }
-  if (mapped === "unknown" && (data.errorMessage || data.errorCode)) {
-    return { ...data, status: "failed", error: data.errorMessage || data.errorCode || "Failed" };
+  if (mapped === "unknown" && pickRunningHubError(data)) {
+    return { ...data, status: "failed", error: pickRunningHubError(data) || "Failed" };
   }
   return { ...data, status: "in_progress" };
 }
@@ -1055,9 +1110,35 @@ function resultLooksLikeVideo(row, url = resultHttpUrl(row)) {
   return /\.(mp4|mov|webm|m4v)(?:[?#]|$)/i.test(haystack);
 }
 
+/**
+ * RunningHub responses arrive in several shapes depending on the API version
+ * and whether they come from /openapi/v2/query (flat) vs the TASK_END
+ * webhook (sometimes wrapped). Walk the common candidate paths and return
+ * the first results[] we find. Without this, a wrapped payload silently
+ * loses the video URL and we mark the gen failed even though RH succeeded.
+ */
+function findResultsArray(rp) {
+  if (!rp || typeof rp !== "object") return null;
+  const candidates = [
+    rp.results,
+    rp.data?.results,
+    rp.eventData?.results,
+    rp.eventData?.data?.results,
+    rp.body?.results,
+    rp.output?.results,
+    rp.outputs,
+    rp.data?.outputs,
+  ];
+  for (const c of candidates) {
+    if (Array.isArray(c) && c.length > 0) return c;
+  }
+  return null;
+}
+
 function motionXPreferredResultUrl(queryLike) {
-  if (!queryLike || !Array.isArray(queryLike.results)) return null;
-  const row = queryLike.results[MOTION_X_FINAL_RESULT_INDEX];
+  const results = findResultsArray(queryLike);
+  if (!results) return null;
+  const row = results[MOTION_X_FINAL_RESULT_INDEX];
   if (!row) return null;
   const url = resultHttpUrl(row);
   return resultLooksLikeVideo(row, url) ? url : null;
@@ -1067,10 +1148,26 @@ function motionXPreferredResultUrl(queryLike) {
  * Pick first mp4 (or any video) URL from a RunningHub query `results` array.
  */
 function firstVideoResultUrl(queryLike) {
-  if (!queryLike || !Array.isArray(queryLike.results)) return null;
-  for (const r of queryLike.results) {
+  const results = findResultsArray(queryLike);
+  if (!results) return null;
+  for (const r of results) {
     const url = resultHttpUrl(r);
     if (resultLooksLikeVideo(r, url)) return url;
+  }
+  return null;
+}
+
+/**
+ * Last-resort fallback: any HTTP url anywhere in the response that looks
+ * like media. Used when the row metadata (outputType, fileName) doesn't
+ * tag it as a video but the URL itself does.
+ */
+function anyMediaUrl(queryLike) {
+  const results = findResultsArray(queryLike);
+  if (!results) return null;
+  for (const r of results) {
+    const u = resultHttpUrl(r);
+    if (u) return u;
   }
   return null;
 }
@@ -1129,7 +1226,13 @@ export function extractNsfwMotionVideo(_raw) {
 }
 
 /**
- * Finalize output: RunningHub `query` body with `results[].url`, or legacy RunPod nested shapes.
+ * Finalize output. Accepts every shape RunningHub has been observed to
+ * send — flat `query` response, wrapped `data: {results}`, webhook
+ * `eventData` envelope, and legacy nested RunPod shapes. We search hard
+ * because returning null here causes the webhook handler to mark the
+ * generation FAILED and refund credits, so a single missed result path
+ * costs the user a video they actually rendered on the GPU.
+ *
  * @returns {Promise<string | null>}
  */
 export async function materializeNsfwMotionOutputFromRunpodResponse(rp) {
@@ -1141,12 +1244,28 @@ export async function materializeNsfwMotionOutputFromRunpodResponse(rp) {
     const mirrored = await mirrorHttpVideoToOurStorage(vUrl);
     return mirrored || vUrl;
   }
-  if (Array.isArray(rp.results) && rp.results[0]?.text && typeof rp.results[0].text === "string") {
-    const textUrl = rp.results[0].text.trim();
-    if (textUrl.startsWith("http") && resultLooksLikeVideo(rp.results[0], textUrl)) {
+
+  // Some RH variants put the URL in `text` instead of `url` (legacy).
+  const results = findResultsArray(rp);
+  if (results && results[0]?.text && typeof results[0].text === "string") {
+    const textUrl = results[0].text.trim();
+    if (textUrl.startsWith("http") && resultLooksLikeVideo(results[0], textUrl)) {
       const mirrored = await mirrorHttpVideoToOurStorage(textUrl);
       return mirrored || textUrl;
     }
+  }
+
+  // Last-resort: any media URL in the response, even if metadata doesn't
+  // tag it as video. Better to mirror a possibly-wrong asset than to
+  // refund a user who actually got their generation done on RH's side.
+  const anyUrl = anyMediaUrl(rp);
+  if (anyUrl) {
+    console.warn(
+      "[NSFW/motion] materialize: falling back to first media URL (no tagged video). url=",
+      anyUrl.slice(0, 120),
+    );
+    const mirrored = await mirrorHttpVideoToOurStorage(anyUrl);
+    return mirrored || anyUrl;
   }
   return null;
 }
