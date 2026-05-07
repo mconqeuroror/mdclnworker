@@ -95,14 +95,52 @@ function userWhereForCustomer(account, stripeCustomerId) {
   return { stripeCustomerId };
 }
 
-function buildSubscriptionCancelledUpdate(user, accountName, subscriptionId) {
-  const isLegacyOnlyEvent =
+/**
+ * Classify a subscription event against the user's currently-tracked state.
+ *
+ *   "primary"     — this subscription IS the user's current active primary
+ *                   subscription on this Stripe account. Updates / cancels
+ *                   for this sub should mutate the user's primary fields.
+ *
+ *   "legacy-slot" — legacy-account event for a subscription that the user
+ *                   has migrated away from (legacyStripeSubscriptionId
+ *                   still points at it but stripeSubscriptionId now points
+ *                   at the active NEW-account sub). Only clear the legacy
+ *                   slot, never touch primary fields.
+ *
+ *   "stale"       — this subscription is NOT in the user's records anymore.
+ *                   This is the upgrade-cancel race: when the user upgrades
+ *                   from Starter → Pro, we cancel the old Starter sub.
+ *                   Stripe then fires customer.subscription.deleted /
+ *                   customer.subscription.updated(canceled) for the Starter
+ *                   sub. The user lookup falls back to metadata.userId and
+ *                   finds the (already-upgraded) user. Wiping their state
+ *                   here would erase the brand-new Pro credits. Stale events
+ *                   must be IGNORED.
+ */
+function classifySubscriptionForUser(user, accountName, subscriptionId) {
+  if (!user || !subscriptionId) return "stale";
+  if (user.stripeSubscriptionId === subscriptionId) return "primary";
+  if (
     accountName === "legacy" &&
-    user.legacyStripeSubscriptionId === subscriptionId &&
-    user.stripeSubscriptionId &&
-    user.stripeSubscriptionId !== subscriptionId;
+    user.legacyStripeSubscriptionId === subscriptionId
+  ) {
+    return "legacy-slot";
+  }
+  return "stale";
+}
+
+function buildSubscriptionCancelledUpdate(user, accountName, subscriptionId) {
+  const role = classifySubscriptionForUser(user, accountName, subscriptionId);
+
+  if (role === "stale") {
+    return { role, isLegacyOnlyEvent: false, data: null };
+  }
+
+  const isLegacyOnlyEvent = role === "legacy-slot";
 
   return {
+    role,
     isLegacyOnlyEvent,
     data: isLegacyOnlyEvent
       ? {
@@ -1536,37 +1574,37 @@ function buildWebhookHandler(account) {
           }
 
           if (user) {
-            // If this delete event came from the LEGACY account but the user has since
-            // moved their primary IDs to NEW (legacyStripeSubscriptionId still points at this),
-            // do NOT wipe their NEW-account subscription. Just clear the legacy slots.
-            const isLegacyOnlyEvent =
-              accountName === "legacy" &&
-              user.legacyStripeSubscriptionId === subscription.id &&
-              user.stripeSubscriptionId &&
-              user.stripeSubscriptionId !== subscription.id;
+            const role = classifySubscriptionForUser(user, accountName, subscription.id);
+
+            if (role === "stale") {
+              // CRITICAL: do not wipe the user's subscription. The cancelled
+              // sub is not the user's current active sub — this typically
+              // happens during an upgrade flow (we cancel the old plan, then
+              // Stripe fires this delete event for the OLD subscription
+              // while the user already has a fresh NEW subscription with
+              // credits). The metadata-userId fallback can find the user,
+              // but applying the cancellation update would erase those new
+              // credits. See classifySubscriptionForUser() for context.
+              console.log(
+                `🧹 customer.subscription.deleted for ${subscription.id} is STALE for user ${user.id} (current sub=${user.stripeSubscriptionId || "none"}, legacy=${user.legacyStripeSubscriptionId || "none"}) — ignoring to protect upgraded subscription credits`,
+              );
+              break;
+            }
+
+            const cancellationUpdate = buildSubscriptionCancelledUpdate(
+              user,
+              accountName,
+              subscription.id,
+            );
+
+            if (!cancellationUpdate.data) break;
 
             await prisma.user.update({
               where: { id: user.id },
-              data: isLegacyOnlyEvent
-                ? {
-                    legacyStripeSubscriptionId: null,
-                  }
-                : {
-                    subscriptionStatus: "cancelled",
-                    stripeSubscriptionId: null,
-                    subscriptionTier: null,
-                    subscriptionBillingCycle: null,
-                    subscriptionCredits: 0,
-                    creditsExpireAt: null,
-                    subscriptionCancelledAt: new Date(),
-                    legacyStripeSubscriptionId:
-                      user.legacyStripeSubscriptionId === subscription.id
-                        ? null
-                        : user.legacyStripeSubscriptionId,
-                  },
+              data: cancellationUpdate.data,
             });
 
-            if (isLegacyOnlyEvent) {
+            if (cancellationUpdate.isLegacyOnlyEvent) {
               console.log(
                 `🧹 Legacy subscription ${subscription.id} cancelled — user ${user.id} keeps active NEW-account subscription`,
               );
@@ -1607,32 +1645,41 @@ function buildWebhookHandler(account) {
             }
 
             if (user) {
-              // For LEGACY events when user has migrated to NEW, only repair legacy slot.
-              const isLegacyOnlyEvent =
-                accountName === "legacy" &&
-                user.legacyStripeSubscriptionId === subscription.id &&
-                user.stripeSubscriptionId &&
-                user.stripeSubscriptionId !== subscription.id;
+              const role = classifySubscriptionForUser(user, accountName, subscription.id);
 
-              if (isLegacyOnlyEvent) {
+              if (role === "stale") {
+                // CRITICAL: do not point primary fields back at this old sub.
+                // The metadata-userId fallback can find a user whose current
+                // primary sub is something else entirely (typical upgrade
+                // race where the OLD sub fires customer.subscription.updated
+                // shortly after we already activated the NEW sub).
+                console.log(
+                  `🔄 customer.subscription.updated active for ${subscription.id} is STALE for user ${user.id} (current sub=${user.stripeSubscriptionId || "none"}) — ignoring to keep newer subscription intact`,
+                );
+                break;
+              }
+
+              if (role === "legacy-slot") {
                 console.log(
                   `🔄 Legacy subscription ${subscription.id} status=${subscription.status} — user ${user.id} already migrated to NEW, no primary fields touched`,
                 );
-              } else {
-                await prisma.user.update({
-                  where: { id: user.id },
-                  data: {
-                    stripeSubscriptionId: subscription.id,
-                    subscriptionTier: subscription.metadata?.tierId || user.subscriptionTier,
-                    subscriptionBillingCycle: billingCycle,
-                    subscriptionStatus: subscription.status,
-                  },
-                });
-
-                console.log(
-                  `🔄 Subscription sync repaired for user ${user.id}: ${subscription.id} (${subscription.status})`,
-                );
+                break;
               }
+
+              // role === "primary": this IS the user's current sub; safe to repair primary fields.
+              await prisma.user.update({
+                where: { id: user.id },
+                data: {
+                  stripeSubscriptionId: subscription.id,
+                  subscriptionTier: subscription.metadata?.tierId || user.subscriptionTier,
+                  subscriptionBillingCycle: billingCycle,
+                  subscriptionStatus: subscription.status,
+                },
+              });
+
+              console.log(
+                `🔄 Subscription sync repaired for user ${user.id}: ${subscription.id} (${subscription.status})`,
+              );
             }
             break;
           }
@@ -1664,6 +1711,17 @@ function buildWebhookHandler(account) {
               accountName,
               subscription.id,
             );
+
+            if (cancellationUpdate.role === "stale" || !cancellationUpdate.data) {
+              // Same protection as customer.subscription.deleted: a metadata-
+              // userId fallback can match a user whose current primary sub is
+              // something else (typical upgrade race). Wiping their state
+              // would erase the brand-new sub credits.
+              console.log(
+                `⚠️ customer.subscription.updated ${subscription.status} for ${subscription.id} is STALE for user ${user.id} (current sub=${user.stripeSubscriptionId || "none"}, legacy=${user.legacyStripeSubscriptionId || "none"}) — ignoring to protect upgraded subscription credits`,
+              );
+              break;
+            }
 
             await prisma.user.update({
               where: { id: user.id },
