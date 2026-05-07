@@ -857,11 +857,17 @@ class GenerationPollerService {
   }
 
   /**
-   * Reconcile RunningHub (Seedance 2.0 Global + Sora rhart-video-s-official) generations.
+   * Reconcile RunningHub (Seedance 2.0 Global + Sora rhart-video-s-official + Motion X) generations.
    * Primary completion is `POST /api/runninghub/callback` when `webhookUrl` is sent on submit;
    * this watchdog polls POST /openapi/v2/query for stuck or missed webhooks.
    *
-   * Polls for each processing gen whose replicateModel is `runninghub-task:<taskId>`.
+   * Picks up two row shapes:
+   *  - Creator Studio (Seedance/Sora):  replicateModel = "runninghub-task:<taskId>"
+   *  - Motion X (`type=nsfw-video-motion`): replicateModel = raw `<taskId>` (legacy shape)
+   *    + `providerTaskId = <taskId>`. Without this branch motion-x rows would only be
+   *    reconciled by `reconcileStaleRunpodGenerations`, so a missed callback + failure of
+   *    that watchdog would leave them stuck in `processing` forever.
+   *
    * On SUCCESS the output URL (valid ~24h) is mirrored to persistent storage.
    */
   async reconcileStaleRunningHubGenerations() {
@@ -877,23 +883,41 @@ class GenerationPollerService {
     const stale = await prisma.generation.findMany({
       where: {
         status: "processing",
-        replicateModel: { startsWith: "runninghub-task:" },
         createdAt: { lt: new Date(now - MIN_AGE_MS) },
+        OR: [
+          { replicateModel: { startsWith: "runninghub-task:" } },
+          {
+            AND: [
+              { type: "nsfw-video-motion" },
+              { providerTaskId: { not: null } },
+            ],
+          },
+        ],
       },
-      select: { id: true, replicateModel: true, createdAt: true, type: true },
-      take: 30,
+      select: { id: true, replicateModel: true, providerTaskId: true, createdAt: true, type: true },
+      take: 50,
       orderBy: { createdAt: "asc" },
     });
 
     if (stale.length === 0) return;
-    console.log(`[RunningHub Watchdog] Checking ${stale.length} RunningHub task(s)…`);
+    const motionCount = stale.filter((g) => g.type === "nsfw-video-motion").length;
+    console.log(
+      `[RunningHub Watchdog] Checking ${stale.length} RunningHub task(s)` +
+        (motionCount ? ` (incl. ${motionCount} motion-x)` : "") +
+        "…",
+    );
 
     const { queryRunningHubTask, extractRunningHubOutputUrl } = await import("./runninghub.service.js");
     const { mirrorProviderOutputUrl } = await import("../utils/kieUpload.js");
 
     for (const gen of stale) {
       const ageMs = now - new Date(gen.createdAt).getTime();
-      const taskId = gen.replicateModel.replace(/^runninghub-task:/, "").trim();
+      // Motion-x stores the raw RH task id in both `providerTaskId` and `replicateModel`
+      // (no prefix). Creator Studio stores it as `runninghub-task:<taskId>`. Accept both.
+      const rawModel = String(gen.replicateModel || "").trim();
+      const taskId = rawModel.startsWith("runninghub-task:")
+        ? rawModel.replace(/^runninghub-task:/, "").trim()
+        : (typeof gen.providerTaskId === "string" ? gen.providerTaskId.trim() : rawModel);
       if (!taskId) continue;
 
       try {
@@ -1092,6 +1116,18 @@ class GenerationPollerService {
 
     if (rows.length === 0) return stats;
 
+    // Observability: until now this watchdog scanned silently and only logged on per-row
+    // failures, which made it impossible to tell from production logs whether motion-x
+    // rows were even being picked up. Log a one-line summary per cron tick.
+    const motionRows = rows.filter((g) => g.type === "nsfw-video-motion").length;
+    if (motionRows > 0 || rows.length > 0) {
+      console.log(
+        `[RunPod Watchdog] scanning ${rows.length} row(s)` +
+          (motionRows ? ` (incl. ${motionRows} motion-x)` : "") +
+          ` limit=${safeLimit}`,
+      );
+    }
+
     for (const gen of rows) {
       // For failed rows we only retry likely timeout-style failures.
       if (gen.status === "failed") {
@@ -1140,6 +1176,9 @@ class GenerationPollerService {
               (typeof rp?.output === "string" ? rp.output : null) ||
               (typeof rp?.errorMessage === "string" ? rp.errorMessage : null) ||
               `Motion ${status}`;
+            console.warn(
+              `[RunPod Watchdog] motion ${gen.id.slice(0, 8)} task=${runpodJobId} status=${status} → marking failed: ${String(msg).slice(0, 160)}`,
+            );
             await this.markFailed(gen.id, msg, { refund: gen.status === "processing" });
             stats.failedMarked += 1;
             continue;
@@ -1150,6 +1189,9 @@ class GenerationPollerService {
           }
           const outputUrl = await materializeNsfwMotionOutputFromRunpodResponse(rp);
           if (!outputUrl) {
+            console.warn(
+              `[RunPod Watchdog] motion ${gen.id.slice(0, 8)} task=${runpodJobId} completed on RH but no video URL — refunding`,
+            );
             await this.markFailed(
               gen.id,
               "Motion job completed but returned no video (could not mirror output)",
@@ -1166,6 +1208,9 @@ class GenerationPollerService {
           }
           stats.completedRecovered += 1;
           if (gen.status === "failed") stats.completedRecoveredFromFailed += 1;
+          console.log(
+            `[RunPod Watchdog] ✅ motion ${gen.id.slice(0, 8)} task=${runpodJobId} recovered → ${String(outputUrl).slice(0, 80)}`,
+          );
           continue;
         }
 
@@ -1238,6 +1283,14 @@ class GenerationPollerService {
       }
     }
 
+    // One-line summary so the cron tail tells the whole story without grepping per-row logs.
+    if (stats.completedRecovered || stats.failedMarked || stats.errors || stats.completedRecoveredFromFailed) {
+      console.log(
+        `[RunPod Watchdog] done scanned=${stats.scanned} recovered=${stats.completedRecovered}` +
+          ` recoveredFromFailed=${stats.completedRecoveredFromFailed} markedFailed=${stats.failedMarked}` +
+          ` stillRunning=${stats.stillRunning} errors=${stats.errors}`,
+      );
+    }
     return stats;
   }
 

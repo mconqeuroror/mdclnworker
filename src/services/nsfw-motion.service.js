@@ -490,7 +490,15 @@ async function finalizeWorkerTranscodedMp4(buf, probeLabel) {
 
 /**
  * VHS-friendly transcode via the external ffmpeg worker (`POST /transcode`).
- * Tries returnBytes first; if that fails (older worker), uses R2 presigned PUT when R2 is configured.
+ *
+ * Order of attempts (skips obviously-broken ones to avoid wasting a known-failing call):
+ *   1. R2 presigned PUT (preferred — works against the currently deployed worker).
+ *   2. returnBytes mode — only attempted when R2 is *not* configured, OR when explicitly
+ *      forced via `NSFW_MOTION_TRANSCODE_USE_RETURN_BYTES=true`. The deployed worker
+ *      requires `outputPutUrl` even with `returnBytes:true` (returns HTTP 400), so we
+ *      stopped trying it first to remove a known-noisy failure on every motion-x
+ *      submission. See logs: `Worker HTTP 400: inputUrl and outputPutUrl … are required`.
+ *
  * @param {string} workerInputUrl - http(s) URL the worker can fetch (use {@link resolveDrivingVideoUrlForFfmpegWorker})
  * @returns {Promise<Buffer | null>}
  */
@@ -506,27 +514,13 @@ async function transcodeDrivingVideoViaFfmpegWorker(workerInputUrl) {
       ` codec=${codec} cfrFpsOut=${getMotionVhsCfrFps() || "off"} vf=${vf.slice(0, 64)}… extraOptions=${outOpts.join(" ")}`,
   );
 
-  try {
-    const { buffer, bytes } = await postTranscodeJobToWorkerReturnBytes({
-      inputUrl: u,
-      vfFilter: vf,
-      extraOptions: [...outOpts],
-      outputContainerExt: ".mp4",
-    });
-    if (!Buffer.isBuffer(buffer) || buffer.length < 256) {
-      console.warn(`[NSFW/motion] worker returnBytes: output too small (${bytes} B)`);
-    } else {
-      console.log(
-        `[NSFW/motion] worker returnBytes ok outBytes=${buffer.length} outSha16=${shortBufferSha16(buffer)}`,
-      );
-      const ok = await finalizeWorkerTranscodedMp4(buffer, "worker-returnbytes");
-      if (ok) return ok;
-    }
-  } catch (e) {
-    console.warn("[NSFW/motion] ffmpeg worker transcode (returnBytes) failed:", e?.message || e);
-  }
+  const r2Available = isR2Configured();
+  const forceReturnBytes = String(process.env.NSFW_MOTION_TRANSCODE_USE_RETURN_BYTES || "")
+    .toLowerCase()
+    .trim() === "true";
 
-  if (isR2Configured()) {
+  // Preferred: R2 presigned PUT (works against the currently deployed worker).
+  if (r2Available) {
     try {
       const id = randomBytes(8).toString("hex");
       const key = `nsfw-motion-vhs/${Date.now()}-${id}.mp4`;
@@ -548,6 +542,30 @@ async function transcodeDrivingVideoViaFfmpegWorker(workerInputUrl) {
       return await finalizeWorkerTranscodedMp4(buf, "worker-r2-put");
     } catch (e) {
       console.warn("[NSFW/motion] ffmpeg worker transcode (R2 PUT) failed:", e?.message || e);
+    }
+  }
+
+  // returnBytes path — only when R2 is unavailable OR explicitly forced.
+  // Deployed worker currently 400s on this; keep as a fallback for older / self-hosted setups.
+  if (!r2Available || forceReturnBytes) {
+    try {
+      const { buffer, bytes } = await postTranscodeJobToWorkerReturnBytes({
+        inputUrl: u,
+        vfFilter: vf,
+        extraOptions: [...outOpts],
+        outputContainerExt: ".mp4",
+      });
+      if (!Buffer.isBuffer(buffer) || buffer.length < 256) {
+        console.warn(`[NSFW/motion] worker returnBytes: output too small (${bytes} B)`);
+      } else {
+        console.log(
+          `[NSFW/motion] worker returnBytes ok outBytes=${buffer.length} outSha16=${shortBufferSha16(buffer)}`,
+        );
+        const ok = await finalizeWorkerTranscodedMp4(buffer, "worker-returnbytes");
+        if (ok) return ok;
+      }
+    } catch (e) {
+      console.warn("[NSFW/motion] ffmpeg worker transcode (returnBytes) failed:", e?.message || e);
     }
   }
 
@@ -926,10 +944,21 @@ export async function submitNsfwMotionVideo(opts, generationId = null) {
     usePersonalQueue: "false",
     ...runningHubWorkflowRunBodyExtras(),
   };
-  if (RUNNINGHUB_MOTION_WEBHOOK_URL) {
+  // Log the webhook URL we'll actually send so missing-callback bugs are obvious in logs.
+  // Without this it's impossible to tell from production logs whether `webhookUrl` was
+  // included in the run/workflow body or which public base RunningHub is supposed to hit.
+  const effectiveWebhookUrl = typeof runBody.webhookUrl === "string" ? runBody.webhookUrl : null;
+  if (effectiveWebhookUrl) {
+    const src = RUNNINGHUB_MOTION_WEBHOOK_URL ? "env-override" : "auto-derived";
     console.log(
-      "[NSFW/motion] run/workflow including webhookUrl=",
-      `${RUNNINGHUB_MOTION_WEBHOOK_URL.slice(0, 100)}${RUNNINGHUB_MOTION_WEBHOOK_URL.length > 100 ? "…" : ""}`,
+      `[NSFW/motion] run/workflow webhookUrl(${src})=`,
+      `${effectiveWebhookUrl.slice(0, 120)}${effectiveWebhookUrl.length > 120 ? "…" : ""}`,
+    );
+  } else {
+    console.warn(
+      "[NSFW/motion] run/workflow has NO webhookUrl — RunningHub cannot push completion. " +
+        "Set CALLBACK_BASE_URL (or RUNNINGHUB_WEBHOOK_URL / RUNNINGHUB_MOTION_WEBHOOK_URL). " +
+        "Polling watchdog (cron/kie-recovery) is the only completion path until this is fixed.",
     );
   }
   let submitRes;
