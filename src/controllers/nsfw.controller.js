@@ -5648,7 +5648,7 @@ export async function generateNsfwMotionVideo(req, res) {
     });
 
     console.log(
-      `🎬 NSFW motion video submitted gen=${generation.id} task=${submission.requestId} dur=${dur}s seed=${submission.seed}`,
+      `🎬 [Motion-X] submitted gen=${generation.id} task=${submission.requestId} dur=${dur}s seed=${submission.seed}`,
     );
 
     const updatedUser = await prisma.user.findUnique({ where: { id: userId } });
@@ -5661,7 +5661,7 @@ export async function generateNsfwMotionVideo(req, res) {
       seed: submission.seed,
     });
   } catch (error) {
-    console.error("❌ NSFW motion video error:", error);
+    console.error("❌ [Motion-X] motion video error:", error);
     try {
       if (creditsDeducted > 0 && generationId) {
         await refundGeneration(generationId);
@@ -5669,7 +5669,7 @@ export async function generateNsfwMotionVideo(req, res) {
         await refundCredits(req.user.userId, creditsDeducted);
       }
     } catch (refundErr) {
-      console.error("🚨 NSFW motion refund failed:", refundErr.message);
+      console.error("🚨 [Motion-X] refund failed:", refundErr.message);
     }
     if (generationId) {
       try {

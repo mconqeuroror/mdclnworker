@@ -276,7 +276,7 @@ async function validateVhsTranscodedBufferWithFfprobe(buffer, where) {
       return { ok: false, reason: "nb_frames=0", probeJson: s };
     }
     const out = { codec_name, r_frame_rate, nb_frames, pix_fmt };
-    console.log(`[NSFW/motion] ffprobe ok [${where}]`, JSON.stringify(out));
+    console.log(`[Motion-X] ffprobe ok [${where}]`, JSON.stringify(out));
     return { ok: true, probeJson: out };
   } catch (e) {
     const errText = e?.message || String(e);
@@ -288,14 +288,14 @@ async function validateVhsTranscodedBufferWithFfprobe(buffer, where) {
       if (!__ffprobeUnavailableLogged) {
         __ffprobeUnavailableLogged = true;
         console.log(
-          "[NSFW/motion] local ffprobe unavailable on this host (expected on Vercel — " +
+          "[Motion-X] local ffprobe unavailable on this host (expected on Vercel — " +
             "remote ffmpeg worker handles transcoding). Skipping client-side VHS probe " +
             "for the rest of this process. Set FFPROBE_PATH to enable it locally.",
         );
       }
       return { ok: true, skipped: true, ffprobeError: true, warn: errText };
     }
-    console.warn(`[NSFW/motion] ffprobe failed [${where}]:`, errText);
+    console.warn(`[Motion-X] ffprobe failed [${where}]:`, errText);
     return { ok: true, warn: errText, ffprobeError: true, skipped: true };
   } finally {
     await fs.unlink(tmp).catch(() => {});
@@ -337,7 +337,7 @@ if (!RUNNINGHUB_API_KEY) {
   console.warn("⚠️ RUNNINGHUB_API_KEY not set — NSFW motion control (Motion X) will not work");
 } else {
   console.log(
-    `[NSFW/motion] provider=runninghub workflowId=${RUNNINGHUB_MOTION_WORKFLOW_ID} uploadBase=${RUNNINGHUB_MEDIA_UPLOAD_BASE}`,
+    `[Motion-X] provider=runninghub workflowId=${RUNNINGHUB_MOTION_WORKFLOW_ID} uploadBase=${RUNNINGHUB_MEDIA_UPLOAD_BASE}`,
   );
 }
 
@@ -407,7 +407,7 @@ async function transcodeDrivingVideoForVhsLocally(inputBuffer, sourceExt) {
   const inBytes = inputBuffer.length;
   const inSha = shortBufferSha16(inputBuffer);
   console.log(
-    `[NSFW/motion] local transcode start inBytes=${inBytes} inSha16=${inSha} ext=${safeExt} ` +
+    `[Motion-X] local transcode start inBytes=${inBytes} inSha16=${inSha} ext=${safeExt} ` +
       `codec=${getMotionVhsVideoCodec()} cfrOutFps=${getMotionVhsCfrFps() || "off"}`,
   );
   try {
@@ -425,7 +425,7 @@ async function transcodeDrivingVideoForVhsLocally(inputBuffer, sourceExt) {
       outPath,
     ];
     console.log(
-      "[NSFW/motion] local transcode running ffmpeg (first args): -y -i … -vf " +
+      "[Motion-X] local transcode running ffmpeg (first args): -y -i … -vf " +
         getMotionVhsVf().slice(0, 50) +
         "… " +
         getMotionVhsFfmpegOutputOpts().join(" "),
@@ -433,26 +433,26 @@ async function transcodeDrivingVideoForVhsLocally(inputBuffer, sourceExt) {
     await execFileAsync(ff, args, { maxBuffer: 50 * 1024 * 1024, timeout: 15 * 60 * 1000 });
     const out = await fs.readFile(outPath);
     if (out.length < 256) {
-      console.warn(`[NSFW/motion] local transcode: output too small (${out.length} B)`);
+      console.warn(`[Motion-X] local transcode: output too small (${out.length} B)`);
       return null;
     }
     if (!bufferContainsFtypMp4(out)) {
-      console.warn("[NSFW/motion] local transcode output missing ftyp — treating as failed");
+      console.warn("[Motion-X] local transcode output missing ftyp — treating as failed");
       return null;
     }
     const outSha = shortBufferSha16(out);
     console.log(
-      `[NSFW/motion] local transcode done outBytes=${out.length} outSha16=${outSha} ` +
+      `[Motion-X] local transcode done outBytes=${out.length} outSha16=${outSha} ` +
         `sameShaAsInput=${outSha === inSha} (if true, input may already be same-bytes; still re-encode)`,
     );
     const vProbe = await validateVhsTranscodedBufferWithFfprobe(out, "local-ffmpeg");
     if (!vProbe.ok) {
-      console.warn("[NSFW/motion] local transcode failed ffprobe gate:", vProbe.reason, vProbe.probeJson);
+      console.warn("[Motion-X] local transcode failed ffprobe gate:", vProbe.reason, vProbe.probeJson);
       return null;
     }
     return out;
   } catch (e) {
-    console.warn("[NSFW/motion] ffmpeg transcode failed:", e?.message || e);
+    console.warn("[Motion-X] ffmpeg transcode failed:", e?.message || e);
     return null;
   } finally {
     await fs.unlink(inPath).catch(() => {});
@@ -483,11 +483,11 @@ async function resolveDrivingVideoUrlForFfmpegWorker(originalUrl, vid) {
     try {
       const mirrored = await mirrorToBlob(u, "kie-media");
       if (mirrored && String(mirrored).startsWith("http")) {
-        console.log("[NSFW/motion] ffmpeg worker input: mirrorToBlob (same as reformatter)");
+        console.log("[Motion-X] ffmpeg worker input: mirrorToBlob (same as reformatter)");
         return mirrored.trim();
       }
     } catch (e) {
-      console.warn("[NSFW/motion] mirrorToBlob for ffmpeg worker failed:", e?.message || e);
+      console.warn("[Motion-X] mirrorToBlob for ffmpeg worker failed:", e?.message || e);
     }
   }
   try {
@@ -497,10 +497,10 @@ async function resolveDrivingVideoUrlForFfmpegWorker(originalUrl, vid) {
       vid.extension,
       vid.contentType,
     );
-    console.log("[NSFW/motion] ffmpeg worker input: published copy for worker fetch");
+    console.log("[Motion-X] ffmpeg worker input: published copy for worker fetch");
     return String(published).trim();
   } catch (e) {
-    console.warn("[NSFW/motion] could not publish driving video for worker, using original URL:", e?.message || e);
+    console.warn("[Motion-X] could not publish driving video for worker, using original URL:", e?.message || e);
     return u;
   }
 }
@@ -508,12 +508,12 @@ async function resolveDrivingVideoUrlForFfmpegWorker(originalUrl, vid) {
 async function finalizeWorkerTranscodedMp4(buf, probeLabel) {
   if (!Buffer.isBuffer(buf) || buf.length < 256) return null;
   if (!bufferContainsFtypMp4(buf)) {
-    console.warn(`[NSFW/motion] worker ${probeLabel}: output missing ftyp`);
+    console.warn(`[Motion-X] worker ${probeLabel}: output missing ftyp`);
     return null;
   }
   const vProbe = await validateVhsTranscodedBufferWithFfprobe(buf, probeLabel);
   if (!vProbe.ok) {
-    console.warn(`[NSFW/motion] worker ${probeLabel} failed ffprobe (VHS):`, vProbe.reason);
+    console.warn(`[Motion-X] worker ${probeLabel} failed ffprobe (VHS):`, vProbe.reason);
     return null;
   }
   return buf;
@@ -540,7 +540,7 @@ async function transcodeDrivingVideoViaFfmpegWorker(workerInputUrl) {
   const vf = getMotionVhsVf();
   const outOpts = getMotionVhsFfmpegOutputOpts();
   console.log(
-    `[NSFW/motion] worker transcode start inputUrl=${u.slice(0, 100)}` +
+    `[Motion-X] worker transcode start inputUrl=${u.slice(0, 100)}` +
       (u.length > 100 ? "…" : "") +
       ` codec=${codec} cfrFpsOut=${getMotionVhsCfrFps() || "off"} vf=${vf.slice(0, 64)}… extraOptions=${outOpts.join(" ")}`,
   );
@@ -568,11 +568,11 @@ async function transcodeDrivingVideoViaFfmpegWorker(workerInputUrl) {
       }
       const buf = Buffer.from(await outResp.arrayBuffer());
       console.log(
-        `[NSFW/motion] worker transcode (R2 PUT) ok outBytes=${buf.length} outSha16=${shortBufferSha16(buf)}`,
+        `[Motion-X] worker transcode (R2 PUT) ok outBytes=${buf.length} outSha16=${shortBufferSha16(buf)}`,
       );
       return await finalizeWorkerTranscodedMp4(buf, "worker-r2-put");
     } catch (e) {
-      console.warn("[NSFW/motion] ffmpeg worker transcode (R2 PUT) failed:", e?.message || e);
+      console.warn("[Motion-X] ffmpeg worker transcode (R2 PUT) failed:", e?.message || e);
     }
   }
 
@@ -587,16 +587,16 @@ async function transcodeDrivingVideoViaFfmpegWorker(workerInputUrl) {
         outputContainerExt: ".mp4",
       });
       if (!Buffer.isBuffer(buffer) || buffer.length < 256) {
-        console.warn(`[NSFW/motion] worker returnBytes: output too small (${bytes} B)`);
+        console.warn(`[Motion-X] worker returnBytes: output too small (${bytes} B)`);
       } else {
         console.log(
-          `[NSFW/motion] worker returnBytes ok outBytes=${buffer.length} outSha16=${shortBufferSha16(buffer)}`,
+          `[Motion-X] worker returnBytes ok outBytes=${buffer.length} outSha16=${shortBufferSha16(buffer)}`,
         );
         const ok = await finalizeWorkerTranscodedMp4(buffer, "worker-returnbytes");
         if (ok) return ok;
       }
     } catch (e) {
-      console.warn("[NSFW/motion] ffmpeg worker transcode (returnBytes) failed:", e?.message || e);
+      console.warn("[Motion-X] ffmpeg worker transcode (returnBytes) failed:", e?.message || e);
     }
   }
 
@@ -731,7 +731,7 @@ export async function uploadBufferToRunningHub(
         ? JSON.stringify(j.data).slice(0, 400)
         : String(j.data ?? "").slice(0, 200);
     console.warn(
-      `[NSFW/motion] RunningHub upload/binary [${logLabel}]: cannot derive workflow fieldValue — ` +
+      `[Motion-X] RunningHub upload/binary [${logLabel}]: cannot derive workflow fieldValue — ` +
         "expected `data.fileName` (full path, e.g. openapi/…) or parseable `data.download_url`. " +
         `data=${dataPreview || "(none)"}`,
     );
@@ -827,12 +827,12 @@ export async function submitNsfwMotionVideo(opts, generationId = null) {
   const imageFilename = `ref-${generationId || "g"}.${img.extension}`;
 
   console.log(
-    `[NSFW/motion] VHS trace [gen=${generationId || "—"}] downloaded: drivingBytes=${vid.bytes} drivingSha16=${shortBufferSha16(vid.buffer)} refImageBytes=${img.bytes}`,
+    `[Motion-X] VHS trace [gen=${generationId || "—"}] downloaded: drivingBytes=${vid.bytes} drivingSha16=${shortBufferSha16(vid.buffer)} refImageBytes=${img.bytes}`,
   );
 
   if (NSFW_MOTION_LOG_ENV) {
     console.log(
-      `[NSFW/motion] env: FFMPEG_WORKER_URL=${Boolean(getFfmpegWorkerBaseUrls().length)} ` +
+      `[Motion-X] env: FFMPEG_WORKER_URL=${Boolean(getFfmpegWorkerBaseUrls().length)} ` +
         `FFMPEG_WORKER_API_KEY=${Boolean(String(process.env.FFMPEG_WORKER_API_KEY || "").trim())} ` +
         `FFMPEG_PATH=${String(process.env.FFMPEG_PATH || "(unset)")} ` +
         `codec=${getMotionVhsVideoCodec()} cfrFps=${getMotionVhsCfrFps() || "off"} ` +
@@ -850,12 +850,12 @@ export async function submitNsfwMotionVideo(opts, generationId = null) {
       : drvStr;
     let workerOut = await transcodeDrivingVideoViaFfmpegWorker(workerInputUrl);
     if (workerOut && !bufferContainsFtypMp4(workerOut)) {
-      console.warn("[NSFW/motion] worker transcode not a valid MP4; trying local ffmpeg");
+      console.warn("[Motion-X] worker transcode not a valid MP4; trying local ffmpeg");
       workerOut = null;
     }
     let tc = workerOut || (await transcodeDrivingVideoForVhsLocally(vid.buffer, vid.extension));
     if (tc && !bufferContainsFtypMp4(tc)) {
-      console.warn("[NSFW/motion] local transcode not a valid MP4");
+      console.warn("[Motion-X] local transcode not a valid MP4");
       tc = null;
     }
     if (tc) {
@@ -865,7 +865,7 @@ export async function submitNsfwMotionVideo(opts, generationId = null) {
       transcodeSource = workerOut ? "ffmpeg worker" : "local ffmpeg";
       const mb = videoBufferToUpload.length / (1024 * 1024);
       console.log(
-        `[NSFW/motion] driving video transcoded (${transcodeSource}, ${getMotionVhsVideoCodec()}) for VHS MP4 ≈${mb.toFixed(2)} MiB (was ${vid.extension})`,
+        `[Motion-X] driving video transcoded (${transcodeSource}, ${getMotionVhsVideoCodec()}) for VHS MP4 ≈${mb.toFixed(2)} MiB (was ${vid.extension})`,
       );
     } else {
       return {
@@ -887,7 +887,7 @@ export async function submitNsfwMotionVideo(opts, generationId = null) {
   const outSha = shortBufferSha16(videoBufferToUpload);
   const bytesDiffer = outSha !== sourceSha;
   console.log(
-    `[NSFW/motion] VHS trace [gen=${generationId || "—"}] pre-RunningHub upload: ` +
+    `[Motion-X] VHS trace [gen=${generationId || "—"}] pre-RunningHub upload: ` +
       `videoOutBytes=${videoBufferToUpload.length} videoOutSha16=${outSha} ` +
       `sourceSha16=${sourceSha} bytesDiffer=${bytesDiffer} transcodeSource=${transcodeSource || "none"} ` +
       `ext=${videoUploadExt} ftypHeadHex=${videoBufferToUpload.subarray(0, 32).toString("hex")}`,
@@ -902,10 +902,10 @@ export async function submitNsfwMotionVideo(opts, generationId = null) {
         "video/mp4",
       );
       console.log(
-        `[NSFW/motion] DEBUG transcoded clip mirrored to Blob for inspection: ${debugUrl}`,
+        `[Motion-X] DEBUG transcoded clip mirrored to Blob for inspection: ${debugUrl}`,
       );
     } catch (e) {
-      console.warn("[NSFW/motion] DEBUG upload to Blob failed:", e?.message || e);
+      console.warn("[Motion-X] DEBUG upload to Blob failed:", e?.message || e);
     }
   }
   if (NSFW_MOTION_TRANSCODE && !bytesDiffer && !NSFW_MOTION_ALLOW_UNTRANSCODED) {
@@ -933,7 +933,7 @@ export async function submitNsfwMotionVideo(opts, generationId = null) {
   try {
     imageFieldValue = await uploadBufferToRunningHub(img.buffer, imageFilename, img.contentType, "image");
     console.log(
-      `[NSFW/motion] RunningHub upload/binary (image) clientName=${imageFilename} bytes=${img.bytes} fieldValue=${imageFieldValue}`,
+      `[Motion-X] RunningHub upload/binary (image) clientName=${imageFilename} bytes=${img.bytes} fieldValue=${imageFieldValue}`,
     );
     videoFieldValue = await uploadBufferToRunningHub(
       videoBufferToUpload,
@@ -942,7 +942,7 @@ export async function submitNsfwMotionVideo(opts, generationId = null) {
       "video",
     );
     console.log(
-      `[NSFW/motion] RunningHub upload/binary (video) clientName=${videoFilename} contentType=${videoContentType} ` +
+      `[Motion-X] RunningHub upload/binary (video) clientName=${videoFilename} contentType=${videoContentType} ` +
         `bodyBytes=${videoBufferToUpload.length} bodySha16=${outSha} fieldValue=${videoFieldValue} ` +
         `(use full path from API in workflow; identical fieldValue ⇒ identical file bytes)`,
     );
@@ -982,12 +982,12 @@ export async function submitNsfwMotionVideo(opts, generationId = null) {
   if (effectiveWebhookUrl) {
     const src = RUNNINGHUB_MOTION_WEBHOOK_URL ? "env-override" : "auto-derived";
     console.log(
-      `[NSFW/motion] run/workflow webhookUrl(${src})=`,
+      `[Motion-X] run/workflow webhookUrl(${src})=`,
       `${effectiveWebhookUrl.slice(0, 120)}${effectiveWebhookUrl.length > 120 ? "…" : ""}`,
     );
   } else {
     console.warn(
-      "[NSFW/motion] run/workflow has NO webhookUrl — RunningHub cannot push completion. " +
+      "[Motion-X] run/workflow has NO webhookUrl — RunningHub cannot push completion. " +
         "Set CALLBACK_BASE_URL (or RUNNINGHUB_WEBHOOK_URL / RUNNINGHUB_MOTION_WEBHOOK_URL). " +
         "Polling watchdog (cron/kie-recovery) is the only completion path until this is fixed.",
     );
@@ -1022,7 +1022,7 @@ export async function submitNsfwMotionVideo(opts, generationId = null) {
   }
 
   console.log(
-    `[NSFW/motion] RunningHub task=${requestId} genId=${generationId || "—"} ` +
+    `[Motion-X] RunningHub task=${requestId} genId=${generationId || "—"} ` +
       `up≈${((img.bytes + videoBufferToUpload.length) / (1024 * 1024)).toFixed(2)} MiB`,
   );
 
@@ -1260,12 +1260,12 @@ async function mirrorHttpVideoToOurStorage(publicUrl) {
     r = await fetch(publicUrl, { signal: c.signal });
   } catch (e) {
     clearTimeout(t);
-    console.warn("[NSFW/motion] output mirror fetch failed:", e?.message || e);
+    console.warn("[Motion-X] output mirror fetch failed:", e?.message || e);
     return null;
   }
   clearTimeout(t);
   if (!r.ok) {
-    console.warn(`[NSFW/motion] output mirror fetch HTTP ${r.status}`);
+    console.warn(`[Motion-X] output mirror fetch HTTP ${r.status}`);
     return null;
   }
   try {
@@ -1279,7 +1279,7 @@ async function mirrorHttpVideoToOurStorage(publicUrl) {
     }
     return uploadBufferToBlobOrR2(buf, "nsfw-video-motion", "mp4", "video/mp4");
   } catch (e) {
-    console.warn("[NSFW/motion] output mirror upload failed:", e?.message || e);
+    console.warn("[Motion-X] output mirror upload failed:", e?.message || e);
     return null;
   }
 }
@@ -1333,7 +1333,7 @@ export async function materializeNsfwMotionOutputFromRunpodResponse(rp) {
   const anyUrl = anyMediaUrl(rp);
   if (anyUrl) {
     console.warn(
-      "[NSFW/motion] materialize: falling back to first media URL (no tagged video). url=",
+      "[Motion-X] materialize: falling back to first media URL (no tagged video). url=",
       anyUrl.slice(0, 120),
     );
     const mirrored = await mirrorHttpVideoToOurStorage(anyUrl);

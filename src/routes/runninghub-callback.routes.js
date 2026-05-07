@@ -19,7 +19,7 @@
  */
 import express from "express";
 import prisma from "../lib/prisma.js";
-import { refundGeneration } from "../services/credit.service.js";
+import { deductCredits, refundGeneration } from "../services/credit.service.js";
 import { getErrorMessageForDb } from "../lib/userError.js";
 import { mirrorProviderOutputUrl } from "../utils/kieUpload.js";
 import {
@@ -35,6 +35,24 @@ import {
 import { enqueueCleanupOldGenerations } from "../controllers/generation.controller.js";
 
 const router = express.Router();
+
+/** Max JSON body size for RunningHub TASK_END callbacks. */
+const RH_CALLBACK_BODY_LIMIT = "4mb";
+
+/**
+ * Parse webhook JSON without losing Snowflake-scale task ids. If RH sends
+ * `"taskId": 2052460115914858498`, `express.json` decodes it as a IEEE double
+ * and the id no longer matches Postgres — we never find the generation row.
+ * Rewriting large numeric task ids to strings before `JSON.parse` preserves
+ * exact digits.
+ */
+function parseRunningHubWebhookBody(buf) {
+  const raw = Buffer.isBuffer(buf) ? buf.toString("utf8") : String(buf || "");
+  const fixed = raw
+    .replace(/"taskId"\s*:\s*(\d{16,})/g, '"taskId":"$1"')
+    .replace(/"task_id"\s*:\s*(\d{16,})/g, '"task_id":"$1"');
+  return JSON.parse(fixed);
+}
 
 function verifyWebhookSecret(req) {
   const secret = String(process.env.RUNNINGHUB_WEBHOOK_SECRET || "").trim();
@@ -91,7 +109,20 @@ function resolveEventData(body) {
  */
 function resolveTaskId(body) {
   if (!body || typeof body !== "object") return "";
-  return String(
+  const pick = (v) => {
+    if (v == null) return "";
+    if (typeof v === "bigint") return String(v);
+    if (typeof v === "number" && Number.isFinite(v)) {
+      if (!Number.isSafeInteger(v)) {
+        console.warn(
+          "[RunningHub Callback] taskId arrived as unsafe integer — check JSON parsing (large ids must be strings)",
+        );
+      }
+      return String(Math.trunc(v));
+    }
+    return String(v).trim();
+  };
+  return pick(
     body.taskId ||
       body.task_id ||
       body.eventData?.taskId ||
@@ -99,7 +130,7 @@ function resolveTaskId(body) {
       body.eventData?.data?.taskId ||
       body.data?.taskId ||
       "",
-  ).trim();
+  );
 }
 
 /**
@@ -263,7 +294,7 @@ async function mirrorOutputUrlInBackground({ rid, gen, taskId, rawUrl, eventData
   }
 }
 
-router.post("/", express.json({ limit: "4mb" }), async (req, res) => {
+router.post("/", express.raw({ type: "*/*", limit: RH_CALLBACK_BODY_LIMIT }), async (req, res) => {
   const rid = shortId();
   const tStart = Date.now();
   const ack = (extra = {}) => {
@@ -275,7 +306,18 @@ router.post("/", express.json({ limit: "4mb" }), async (req, res) => {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
-  const body = req.body && typeof req.body === "object" ? req.body : {};
+  let body = {};
+  try {
+    body = parseRunningHubWebhookBody(req.body);
+    if (!body || typeof body !== "object") body = {};
+  } catch (e) {
+    console.warn(`[RunningHub Callback ${rid}] invalid JSON body:`, e?.message || e);
+    return ack({ parseError: true });
+  }
+
+  const isMotionXGen = (g) => g?.type === "nsfw-video-motion";
+  const logPfx = (g) =>
+    isMotionXGen(g) ? `[Motion-X/RunningHub ${rid}]` : `[RunningHub Callback ${rid}]`;
   const event = String(body.event || "").toUpperCase();
   const taskId = resolveTaskId(body);
   const eventData = resolveEventData(body);
@@ -284,7 +326,7 @@ router.post("/", express.json({ limit: "4mb" }), async (req, res) => {
   // arrived" and "callback arrived but we ignored it" look identical from
   // production logs.
   console.log(
-    `[RunningHub Callback ${rid}] hit event=${event || "(none)"} taskId=${taskId.slice(0, 12) || "—"} keys=${Object.keys(body).slice(0, 8).join(",")}`,
+    `[RunningHub Callback ${rid}] hit event=${event || "(none)"} taskId=${taskId ? `${taskId.slice(0, 12)}…` : "—"} keys=${Object.keys(body).slice(0, 8).join(",")}`,
   );
 
   if (event && event !== "TASK_END") {
@@ -312,21 +354,55 @@ router.post("/", express.json({ limit: "4mb" }), async (req, res) => {
     return ack();
   }
 
-  if (gen.status !== "processing") {
-    console.log(
-      `[RunningHub Callback ${rid}] duplicate gen=${gen.id.slice(0, 8)} already status=${gen.status}`,
-    );
+  const lp = logPfx(gen);
+
+  // True duplicate — already delivered.
+  if (gen.status === "completed" && gen.outputUrl) {
+    console.log(`${lp} duplicate gen=${gen.id.slice(0, 8)} already completed`);
     return ack({ duplicate: true });
   }
 
   const rawStatus = pickRunningHubStatus(eventData) || pickRunningHubStatus(body);
   const mapped = mapRunningHubQueryStatus(rawStatus);
+
+  const rawUrlEarly = pickRawOutputUrlSync({ gen, eventData, body });
+  const hasTopLevelResults =
+    (Array.isArray(eventData?.results) && eventData.results.length > 0) ||
+    (Array.isArray(body?.results) && body.results.length > 0) ||
+    (Array.isArray(body?.eventData?.results) && body.eventData.results.length > 0);
+
   const looksLikeSuccess =
     mapped === "success" ||
-    (mapped !== "failed" && Array.isArray(eventData?.results) && eventData.results.length > 0);
+    (mapped !== "failed" && (hasTopLevelResults || Boolean(rawUrlEarly)));
+
+  /**
+   * RunPod watchdog polls RunningHub sooner than TASK_END arrives. RH has been
+   * observed to return transient / lagging FAILURE while the workflow is
+   * still finishing; we mark `failed`, then TASK_END succeeds. Without this,
+   * we ack "duplicate" and the user never gets the video (production logs:
+   * "duplicate gen=… already status=failed").
+   */
+  const recoveringFromFalseFailure =
+    gen.status === "failed" &&
+    !gen.outputUrl &&
+    looksLikeSuccess &&
+    Boolean(rawUrlEarly);
+
+  if (gen.status !== "processing" && !recoveringFromFalseFailure) {
+    console.log(
+      `${lp} skip gen=${gen.id.slice(0, 8)} status=${gen.status} (not processing; no late-success recovery)`,
+    );
+    return ack({ duplicate: true });
+  }
+
+  if (recoveringFromFalseFailure) {
+    console.warn(
+      `${lp} 🔁 recovering gen=${gen.id.slice(0, 8)} from status=failed — applying TASK_END success (watchdog/callback race)`,
+    );
+  }
 
   console.log(
-    `[RunningHub Callback ${rid}] gen=${gen.id.slice(0, 8)} type=${gen.type} rawStatus=${rawStatus || "(none)"} mapped=${mapped} success=${looksLikeSuccess}`,
+    `${lp} gen=${gen.id.slice(0, 8)} type=${gen.type} rawStatus=${rawStatus || "(none)"} mapped=${mapped} success=${looksLikeSuccess}`,
   );
 
   if (looksLikeSuccess) {
@@ -340,15 +416,34 @@ router.post("/", express.json({ limit: "4mb" }), async (req, res) => {
     // their finished video the moment RH posts to us (via the 24h-valid
     // COS URL). The background mirror is a best-effort upgrade — if it
     // doesn't finish, the watchdog re-mirrors next cron tick.
-    const rawUrl = pickRawOutputUrlSync({ gen, eventData, body });
+    const rawUrl = rawUrlEarly || pickRawOutputUrlSync({ gen, eventData, body });
     if (!rawUrl) {
       console.warn(
-        `[RunningHub Callback ${rid}] gen=${gen.id.slice(0, 8)} SUCCESS without parseable URL; deferring to poller. body=${JSON.stringify(body).slice(0, 400)}`,
+        `${lp} gen=${gen.id.slice(0, 8)} SUCCESS without parseable URL; deferring to poller. body=${JSON.stringify(body).slice(0, 400)}`,
       );
       return ack({ deferred: true });
     }
 
     try {
+      if (
+        recoveringFromFalseFailure &&
+        gen.creditsRefunded &&
+        gen.userId &&
+        typeof gen.creditsCost === "number" &&
+        gen.creditsCost > 0
+      ) {
+        try {
+          await deductCredits(gen.userId, gen.creditsCost);
+          console.warn(
+            `${lp} 💳 Re-charged ${gen.creditsCost} credits (watchdog had refunded after a false failure; reversing for delivered output)`,
+          );
+        } catch (chargeErr) {
+          console.error(
+            `${lp} 🚨 VIDEO DELIVERED but credit re-charge failed — manual reconcile user=${gen.userId} gen=${gen.id}: ${chargeErr?.message}`,
+          );
+        }
+      }
+
       await prisma.generation.update({
         where: { id: gen.id },
         data: {
@@ -356,26 +451,24 @@ router.post("/", express.json({ limit: "4mb" }), async (req, res) => {
           outputUrl: rawUrl,
           completedAt: new Date(),
           errorMessage: null,
+          creditsRefunded: false,
           pipelinePayload: gen.type === "nsfw-video-motion" ? undefined : null,
           providerResponse: {
             runninghub: {
               taskId,
               usage: eventData?.usage || null,
               sourceUrl: rawUrl,
-              via: "webhook",
+              via: recoveringFromFalseFailure ? "webhook+late-recovery" : "webhook",
             },
             outputUrl: rawUrl,
           },
         },
       });
       console.log(
-        `[RunningHub Callback ${rid}] ✅ completed gen=${gen.id.slice(0, 8)} type=${gen.type} → ${rawUrl.slice(0, 72)}… (${Date.now() - tStart}ms, raw COS)`,
+        `${lp} ✅ completed gen=${gen.id.slice(0, 8)} type=${gen.type} → ${rawUrl.slice(0, 72)}… (${Date.now() - tStart}ms, raw COS)`,
       );
     } catch (e) {
-      console.error(
-        `[RunningHub Callback ${rid}] DB update failed for gen=${gen.id.slice(0, 8)}:`,
-        e?.message || e,
-      );
+      console.error(`${lp} DB update failed for gen=${gen.id.slice(0, 8)}:`, e?.message || e);
       return ack({ error: true });
     }
 
@@ -422,17 +515,15 @@ router.post("/", express.json({ limit: "4mb" }), async (req, res) => {
       } catch {
         /* ignore */
       }
-      console.log(
-        `[RunningHub Callback ${rid}] ❌ ${gen.id.slice(0, 8)}: ${String(errText).slice(0, 160)}`,
-      );
+      console.log(`${lp} ❌ ${gen.id.slice(0, 8)}: ${String(errText).slice(0, 160)}`);
     } catch (e) {
-      console.error(`[RunningHub Callback ${rid}] failure path error:`, e?.message || e);
+      console.error(`${lp} failure path error:`, e?.message || e);
     }
     return ack({ failed: true });
   }
 
   console.log(
-    `[RunningHub Callback ${rid}] gen=${gen.id.slice(0, 8)} status=${rawStatus || "?"} (deferred to poller); body keys=${Object.keys(body).slice(0, 12).join(",")}`,
+    `${lp} gen=${gen.id.slice(0, 8)} status=${rawStatus || "?"} (deferred to poller); body keys=${Object.keys(body).slice(0, 12).join(",")}`,
   );
   return ack({ deferred: true });
 });

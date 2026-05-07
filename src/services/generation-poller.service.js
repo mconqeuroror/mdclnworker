@@ -903,7 +903,7 @@ class GenerationPollerService {
     const motionCount = stale.filter((g) => g.type === "nsfw-video-motion").length;
     console.log(
       `[RunningHub Watchdog] Checking ${stale.length} RunningHub task(s)` +
-        (motionCount ? ` (incl. ${motionCount} motion-x)` : "") +
+        (motionCount ? ` (incl. ${motionCount} Motion-X)` : "") +
         "…",
     );
 
@@ -1210,7 +1210,7 @@ class GenerationPollerService {
     if (motionRows > 0 || rows.length > 0) {
       console.log(
         `[RunPod Watchdog] scanning ${rows.length} row(s)` +
-          (motionRows ? ` (incl. ${motionRows} motion-x)` : "") +
+          (motionRows ? ` (incl. ${motionRows} Motion-X)` : "") +
           ` limit=${safeLimit}`,
       );
     }
@@ -1263,8 +1263,8 @@ class GenerationPollerService {
               (typeof rp?.output === "string" ? rp.output : null) ||
               (typeof rp?.errorMessage === "string" ? rp.errorMessage : null) ||
               `Motion ${status}`;
-            console.warn(
-              `[RunPod Watchdog] motion ${gen.id.slice(0, 8)} task=${runpodJobId} status=${status} → marking failed: ${String(msg).slice(0, 160)}`,
+              console.warn(
+              `[Motion-X watchdog] motion ${gen.id.slice(0, 8)} task=${runpodJobId} status=${status} → marking failed: ${String(msg).slice(0, 160)}`,
             );
             await this.markFailed(gen.id, msg, { refund: gen.status === "processing" });
             stats.failedMarked += 1;
@@ -1277,7 +1277,7 @@ class GenerationPollerService {
           const outputUrl = await materializeNsfwMotionOutputFromRunpodResponse(rp);
           if (!outputUrl) {
             console.warn(
-              `[RunPod Watchdog] motion ${gen.id.slice(0, 8)} task=${runpodJobId} completed on RH but no video URL — refunding`,
+              `[Motion-X watchdog] ${gen.id.slice(0, 8)} task=${runpodJobId} completed on RH but no video URL — refunding`,
             );
             await this.markFailed(
               gen.id,
