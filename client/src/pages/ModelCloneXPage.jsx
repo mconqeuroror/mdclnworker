@@ -500,9 +500,32 @@ function CharacterTab({ isDark, pricing }) {
 
   const handleUpload = async (files) => {
     if (!character) return;
+
+    // Enforce LoRA training photo rules client-side (server enforces too):
+    // PNG only, max 5 MB per image. Reject the whole batch on a single bad
+    // file so the user fixes everything in one round-trip.
+    const LORA_MAX_BYTES = 5 * 1024 * 1024;
+    const incoming = Array.from(files || []);
+    const badType = incoming.find((f) => {
+      const name = (f?.name || "").toLowerCase();
+      const isPngExt = name.endsWith(".png");
+      const isPngMime = (f?.type || "").toLowerCase() === "image/png";
+      return !(isPngExt && isPngMime);
+    });
+    if (badType) {
+      toast.error("Only PNG images are accepted for LoRA training. Re-export your photos as PNG and try again.");
+      return;
+    }
+    const tooBig = incoming.find((f) => Number(f?.size || 0) > LORA_MAX_BYTES);
+    if (tooBig) {
+      const mb = (Number(tooBig.size || 0) / (1024 * 1024)).toFixed(1);
+      toast.error(`"${tooBig.name}" is ${mb} MB — the limit is 5 MB per image. Resize and try again.`);
+      return;
+    }
+
     setUploading(true);
     const formData = new FormData();
-    for (const f of files) formData.append("photos", f);
+    for (const f of incoming) formData.append("photos", f);
     formData.append("loraId", character.id);
     formData.append("modelId", character.modelId);
     formData.append("replaceExistingCustom", "false");
@@ -772,7 +795,7 @@ function CharacterTab({ isDark, pricing }) {
                     ref={fileInputRef}
                     type="file"
                     multiple
-                    accept="image/*"
+                    accept="image/png,.png"
                     className="hidden"
                     onChange={(e) => {
                       const files = Array.from(e.target.files || []);
@@ -781,6 +804,9 @@ function CharacterTab({ isDark, pricing }) {
                     }}
                   />
                 </div>
+                <p className={`text-[10px] mb-2 ${isDark ? "text-slate-500" : "text-slate-400"}`}>
+                  <span className={isDark ? "text-slate-300 font-medium" : "text-slate-600 font-medium"}>Photo rules:</span> PNG only · max 5 MB per image · {activeRequiredTrainingImages} photos required for {character?.trainingMode === "pro" ? "Pro" : "Standard"}.
+                </p>
                 {uploadedImages.length > 0 && (
                   <div className="grid grid-cols-4 gap-1.5">
                     {uploadedImages.slice(0, 8).map((img) => (

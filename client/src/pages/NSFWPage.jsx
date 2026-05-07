@@ -3276,6 +3276,30 @@ function TrainingImagePool({ modelId, loraId, selectedImages, onToggle, onPrevie
       return;
     }
     const toUpload = files.slice(0, remaining);
+
+    // Enforce LoRA training photo rules client-side: PNG only, max 5 MB each.
+    // (Backend enforces the same rules — this is just to give a fast,
+    // friendly error before we burn the upload bandwidth.)
+    const LORA_MAX_BYTES = 5 * 1024 * 1024;
+    const badType = toUpload.find((f) => {
+      const name = (f?.name || "").toLowerCase();
+      const isPngExt = name.endsWith(".png");
+      const isPngMime = (f?.type || "").toLowerCase() === "image/png";
+      return !(isPngExt && isPngMime);
+    });
+    if (badType) {
+      toast.error("Only PNG images are accepted for LoRA training. Re-export your photos as PNG and try again.", { duration: 6000 });
+      e.target.value = "";
+      return;
+    }
+    const tooBig = toUpload.find((f) => Number(f?.size || 0) > LORA_MAX_BYTES);
+    if (tooBig) {
+      const mb = (Number(tooBig.size || 0) / (1024 * 1024)).toFixed(1);
+      toast.error(`"${tooBig.name}" is ${mb} MB — the limit is 5 MB per image. Resize and try again.`, { duration: 7000 });
+      e.target.value = "";
+      return;
+    }
+
     setIsUploading(true);
     try {
       const urls = await Promise.all(toUpload.map((file) => uploadFile(file)));
@@ -3387,7 +3411,7 @@ function TrainingImagePool({ modelId, loraId, selectedImages, onToggle, onPrevie
             )}
             <input
               type="file"
-              accept="image/jpeg,image/png,image/jpg"
+              accept="image/png,.png"
               multiple
               onChange={handleCustomUpload}
               className="hidden"
@@ -3395,6 +3419,9 @@ function TrainingImagePool({ modelId, loraId, selectedImages, onToggle, onPrevie
             />
           </label>
           <p className="text-[10px] text-slate-500 mt-1.5">Your own photos for higher quality LoRA training</p>
+          <p className="text-[10px] text-slate-500 mt-1">
+            <span className="text-slate-400 font-medium">Rules:</span> PNG only · max 5 MB per image · 2048 px on the long edge is ideal
+          </p>
         </div>
       )}
 
@@ -5660,6 +5687,11 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
                                   ))}
                                 </div>
                               </div>
+                              <div className="mt-3 pt-3 border-t border-white/[0.06]">
+                                <p className="text-[10px] text-rose-200/90">
+                                  <span className="text-rose-300 font-medium">Photo rules:</span> PNG only · max 5 MB per image · 30 photos required for Pro · ~2048 px on the long edge is ideal.
+                                </p>
+                              </div>
                             </div>
                           ) : (
                             <div className="mb-3 sm:mb-4 p-3 sm:p-4 rounded-xl border border-white/[0.10] bg-white/[0.03]">
@@ -5667,6 +5699,9 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
                                 Select exactly 15 images showing different angles, poses, and expressions. Include face close-ups, half-body, and full-body shots for best results.
                               </p>
                               <p className="text-[11px] text-slate-500 mt-1.5">{copy.trainingBasicDurationHint}</p>
+                              <p className="text-[10px] text-slate-400 mt-2 pt-2 border-t border-white/[0.06]">
+                                <span className="text-slate-300 font-medium">Photo rules:</span> PNG only · max 5 MB per image · 15 photos required for Standard.
+                              </p>
                             </div>
                           )}
 

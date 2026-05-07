@@ -499,6 +499,25 @@ router.post("/nsfw/register-training-images", authMiddleware, async (req, res) =
     if (!targetLoraId) {
       return res.status(400).json({ success: false, message: "No active LoRA found." });
     }
+
+    // Enforce PNG-only for LoRA training photos. The actual byte payload is
+    // hosted on Vercel Blob (uploaded via presigned URL on the client), so we
+    // can only do a cheap URL-extension check here. The client and the
+    // multipart upload route both already enforce the 5MB cap.
+    const offending = imageUrls.find((u) => {
+      if (typeof u !== "string" || !u) return true;
+      const path = u.split("?")[0].split("#")[0];
+      return !/\.png$/i.test(path);
+    });
+    if (offending) {
+      return res.status(400).json({
+        success: false,
+        code: "INVALID_LORA_TRAINING_FILE_TYPE",
+        message: "Only PNG images are accepted for LoRA training.",
+        solution: "Re-export each training photo as PNG (max 5 MB per file) and upload again.",
+      });
+    }
+
     const maxImages = 30;
     const existingCount = await prisma.loraTrainingImage.count({ where: { loraId: targetLoraId } });
     const available = Math.max(0, maxImages - existingCount);
@@ -595,7 +614,7 @@ router.post("/nsfw/upload-training-images", authMiddleware, upload.array("photos
     }
 
     for (const file of filesToProcess) {
-      const check = validateGenerationUploadSync(file, "modelPhoto");
+      const check = validateGenerationUploadSync(file, "loraTrainingPhoto");
       if (!check.ok) return sendUploadGuardResponse(res, check);
     }
 
@@ -4427,7 +4446,7 @@ router.post(
       }
 
       for (const file of filesToProcess) {
-        const check = validateGenerationUploadSync(file, "modelPhoto");
+        const check = validateGenerationUploadSync(file, "loraTrainingPhoto");
         if (!check.ok) return sendUploadGuardResponse(res, check);
       }
 

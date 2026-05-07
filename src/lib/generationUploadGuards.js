@@ -27,6 +27,11 @@ export const GENERATION_UPLOAD_LIMITS = {
   get genericVideoMinDurationSec() {
     return waveSpeedConstraints.videoFaceSwap.videoMinDurationSec;
   },
+  /** LoRA training photos: PNG-only, hard cap per file (in bytes). */
+  loraTrainingPhotoMaxBytes: 5 * 1024 * 1024,
+  loraTrainingPhotoMaxMb: 5,
+  loraTrainingPhotoMimeTypes: ["image/png"],
+  loraTrainingPhotoExtensions: ["png"],
 };
 
 function uploadMaxBytes() {
@@ -39,6 +44,18 @@ function uploadMaxLabel() {
 
 const MODEL_PHOTO_MIMES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const MODEL_PHOTO_EXT = new Set(["jpg", "jpeg", "png", "webp"]);
+
+/**
+ * LoRA training photos are stricter than regular model photos:
+ *  - Must be PNG (training pipeline expects lossless inputs; JPEG/WebP
+ *    re-encoding artifacts hurt LoRA quality on faces/skin).
+ *  - Hard 5 MB per-file cap. Larger files are usually source-camera RAWs or
+ *    8K screenshots — the trainer downsamples anyway, so big files just
+ *    burn upload bandwidth and our R2 quota.
+ */
+const LORA_TRAINING_PHOTO_MIMES = new Set(["image/png"]);
+const LORA_TRAINING_PHOTO_EXT = new Set(["png"]);
+const LORA_TRAINING_PHOTO_MAX_BYTES = 5 * 1024 * 1024;
 
 const GEN_IMAGE_MIMES = new Set([
   "image/jpeg",
@@ -111,7 +128,7 @@ async function probeVideoDurationSeconds(buffer, extHint) {
 /**
  * Synchronous checks only (size + type).
  * @param {import("multer").File} file
- * @param {"default" | "modelPhoto"} profile
+ * @param {"default" | "modelPhoto" | "loraTrainingPhoto"} profile
  * @returns {{ ok: true, kind: "image"|"video" } | { ok: false, status: number, code: string, message: string, solution: string }}
  */
 export function validateGenerationUploadSync(file, profile = "default") {
@@ -128,6 +145,33 @@ export function validateGenerationUploadSync(file, profile = "default") {
   const mime = String(file.mimetype || "").toLowerCase().split(";")[0].trim();
   const ext = extFromName(file.originalname);
   const size = uploadFileByteLength(file);
+
+  if (profile === "loraTrainingPhoto") {
+    const extOk = ext && LORA_TRAINING_PHOTO_EXT.has(ext);
+    const mimeOk = LORA_TRAINING_PHOTO_MIMES.has(mime);
+    const octetOk = mime === "application/octet-stream" && extOk;
+    if (!mimeOk && !octetOk) {
+      return {
+        ok: false,
+        status: 400,
+        code: "INVALID_LORA_TRAINING_FILE_TYPE",
+        message: "Only PNG images are accepted for LoRA training.",
+        solution:
+          "Re-export each training photo as PNG and try again. JPEG / WebP / HEIC are not supported here.",
+      };
+    }
+    if (size > LORA_TRAINING_PHOTO_MAX_BYTES) {
+      return {
+        ok: false,
+        status: 413,
+        code: "LORA_TRAINING_FILE_TOO_LARGE",
+        message: `Training photo is too large (${formatMb(size)}). The maximum is 5 MB per image.`,
+        solution:
+          "Resize/compress each PNG to under 5 MB (e.g. 2048 px on the long edge is plenty for LoRA training).",
+      };
+    }
+    return { ok: true, kind: "image" };
+  }
 
   if (profile === "modelPhoto") {
     const extOk = ext && MODEL_PHOTO_EXT.has(ext);
