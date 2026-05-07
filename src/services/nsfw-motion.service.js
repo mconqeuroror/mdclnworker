@@ -1073,8 +1073,75 @@ export function pickRunningHubStatus(data) {
   return null;
 }
 
+/**
+ * Build a concise, user-relevant English error from a RunningHub query /
+ * TASK_END failure payload. Prefers `failedReason.exception_message` (VRAM
+ * hints, KSampler failures) over the generic localized `errorMessage`
+ * ("工作流运行失败") so Live Preview doesn't look like an API-key outage.
+ *
+ * @param {object|null|undefined} data
+ * @returns {string|null}
+ */
+export function runningHubFailureUserRawText(data) {
+  if (!data || typeof data !== "object") return null;
+
+  const fr =
+    data.failedReason && typeof data.failedReason === "object"
+      ? data.failedReason
+      : null;
+  const exceptionType = String(fr?.exception_type || "").trim();
+  const exceptionMessage =
+    typeof fr?.exception_message === "string" ? fr.exception_message.trim() : "";
+
+  const codeRaw = String(
+    data.errorCode ?? data.error_code ?? fr?.errorCode ?? "",
+  ).trim();
+  const genericZh = /^工作流运行失败$/;
+
+  const em0 = typeof data.errorMessage === "string" ? data.errorMessage.trim() : "";
+
+  if (exceptionMessage) {
+    const blob = `${exceptionMessage} ${exceptionType}`.toLowerCase();
+    if (
+      /outofmemory|\bout of memory\b|\bVRAM\b|insufficient[^\n]{0,80}VRAM|gpu ran out|\bOOM\b|\bcuda\b.*memory/i.test(
+        blob,
+      )
+    ) {
+      return (
+        "Motion video failed: the AI provider ran out of GPU memory (VRAM). " +
+        "Try a shorter driving video, a smaller reference image, or fewer seconds — then try again."
+      );
+    }
+    if (/[a-zA-Z]{12,}/.test(exceptionMessage) && exceptionMessage.length >= 40) {
+      return exceptionMessage.length > 620
+        ? `${exceptionMessage.slice(0, 617)}…`
+        : exceptionMessage;
+    }
+  }
+
+  if (em0 && !genericZh.test(em0)) {
+    return em0.length > 620 ? `${em0.slice(0, 617)}…` : em0;
+  }
+
+  if (genericZh.test(em0) && codeRaw) {
+    return `Motion workflow failed on the AI provider (error ${codeRaw}). If this repeats, use a shorter video or smaller image.`;
+  }
+
+  if (em0) return em0;
+
+  if (codeRaw) {
+    return `RunningHub task failed (error ${codeRaw}). Try again with lighter inputs or contact support if it persists.`;
+  }
+
+  return null;
+}
+
 export function pickRunningHubError(data) {
   if (!data || typeof data !== "object") return null;
+
+  const summarized = runningHubFailureUserRawText(data);
+  if (summarized) return summarized;
+
   const candidates = [
     data.errorMessage,
     data.error,
@@ -1092,6 +1159,8 @@ export function pickRunningHubError(data) {
   for (const c of candidates) {
     if (typeof c === "string" && c.trim()) return c.trim();
     if (c && typeof c === "object") {
+      const nested = runningHubFailureUserRawText(c);
+      if (nested) return nested;
       const j = JSON.stringify(c).slice(0, 240);
       if (j && j !== "{}") return j;
     }

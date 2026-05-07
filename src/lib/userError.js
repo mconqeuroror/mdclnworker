@@ -27,17 +27,40 @@ export function toUserError(rawMessage) {
     };
   }
 
-  // Auth — only true API-key / 401 problems, NOT every internal "X is not
-  // configured" exception. Without this narrowing, errors like
-  // "FFMPEG_WORKER_URL is not configured" or "RUNNINGHUB_API_KEY not configured"
-  // (which are our own ops issues, not the user's) get rewritten as
-  // "AI service is not configured or the key is invalid" and surface in the
-  // Live Preview pane on Motion X / Recreate, scaring users into thinking
-  // their account is broken.
-  if (/\b401\b|\bunauthorized\b|invalid.*api.*key|api.*key.*invalid/i.test(lower)) {
+  // GPU OOM from video providers (RunningHub traceback, WAVESPEED, RunPod echoes, etc.).
+  // Classify BEFORE auth heuristics so tracebacks mentioning "credential" adjacent to unrelated
+  // words never look like auth failures.
+  if (
+    /torch\.OutOfMemoryError|OutOfMemoryError|\bVRAM\b|CUDA out of memory|insufficient[^\n]{0,40}VRAM|gpu ran out of memory/i.test(lower)
+  ) {
     return {
-      message: "AI service is not configured or the key is invalid.",
-      solution: "Please contact support to fix this.",
+      message:
+        "The video workflow ran out of GPU memory on the provider.",
+      solution:
+        "Use a shorter clip, fewer billed seconds, or a smaller reference image, then try again.",
+    };
+  }
+
+  // Auth — ONLY clear API-key / HTTP-auth failures.
+  //
+  // IMPORTANT: do NOT use broad patterns like `invalid.*api.*key` — giant
+  // upstream tracebacks / JSON blobs can accidentally contain unrelated
+  // substrings ("invalid … application … keyframe") and get misclassified as
+  // "your AI key is invalid" in Motion X / Live Preview (user-reported Nov 2025+).
+  const looksLikeApiKeyOrAuthFailure =
+    /\b401\b/.test(lower) ||
+    (/\b403\b/.test(lower) &&
+      /\b(api|quota|signature|jwt|oauth|credential|authentication|auth)\b/.test(lower)) ||
+    /\bunauthorized\b/.test(lower) ||
+    /\bforbidden\b.*\b(api|quota|credential|authentication)\b/i.test(lower) ||
+    /\b(?:invalid|bad|wrong|missing|expired|revoked|denied)\s+api\s*[-_]?\s*key\b/i.test(lower) ||
+    /\bapi\s*[-_]?\s*key\s+(?:is\s+)?(?:invalid|missing|wrong|expired|revoked|denied|incorrect)\b/i.test(lower) ||
+    /\bpolicy\s+violation.*(?:api\s*[-_]?\s*key|credentials)\b/i.test(lower);
+
+  if (looksLikeApiKeyOrAuthFailure) {
+    return {
+      message: "AI service authentication failed.",
+      solution: "If this persists, contact support — the team may need to refresh provider credentials.",
     };
   }
 
