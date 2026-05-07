@@ -71,6 +71,7 @@ import {
 } from "../services/elevenlabs.service.js";
 import { runRunpodWatchdog } from "../services/generation-poller.service.js";
 import { runDisasterRecovery } from "../services/disaster-recovery.service.js";
+import { getStripeForAccount } from "../lib/stripeClients.js";
 
 const router = express.Router();
 const KIE_API_KEY = process.env.KIE_API_KEY;
@@ -1401,6 +1402,541 @@ router.post("/stripe/reconcile-user/:userId", async (req, res) => {
     res
       .status(500)
       .json({ error: error?.message || "Failed to reconcile user credits" });
+  }
+});
+
+/**
+ * POST /api/admin/users/by-email/audit
+ *
+ * Single-stop diagnostic + recovery for "user lost their data" reports.
+ * Read-only by default. Pass { recover: true } to actually heal.
+ *
+ * Body:
+ *   - email          (required) — user email (trimmed + lowercased before lookup)
+ *   - recover        (optional, default false) — execute recovery actions
+ *   - dryRun         (optional, default true if recover=false) — when recovering, set to false to commit
+ *   - lookbackDays   (optional, default 90) — Stripe history window for reconcile
+ *   - restoreGenerationsLimit (optional, default 200) — cap generations to restore from KieTask history
+ *
+ * Response shape:
+ *   {
+ *     email, normalizedEmail,
+ *     userFound: bool,
+ *     user: { ... } | null,
+ *     credits: { subscription, purchased, legacy, total, expireAt, expired },
+ *     subscription: { tier, status, stripeId, legacyStripeId },
+ *     counts: { generations, models, transactions, kieTasks, kieTasksWithoutGeneration },
+ *     recentTransactions: [...],
+ *     recentGenerations: [...],
+ *     adminAuditLog: [...],   // admin actions targeting this user
+ *     stripe: { customers: [...], invoiceCount, paidUsd, lastPaidAt },
+ *     redFlags: [strings],
+ *     recovery: null | { stripeReconcile: {...}, generationRestore: {...} }
+ *   }
+ */
+router.post("/users/by-email/audit", async (req, res) => {
+  const startedAt = Date.now();
+  try {
+    const rawEmail = String(req.body?.email || "").trim();
+    if (!rawEmail || !rawEmail.includes("@")) {
+      return res.status(400).json({ error: "Valid email is required" });
+    }
+    const email = rawEmail.toLowerCase();
+    const recover = req.body?.recover === true;
+    const dryRun = recover ? req.body?.dryRun === true : true;
+    const lookbackDays = Math.max(
+      1,
+      Math.min(365, parseInt(req.body?.lookbackDays || "90", 10) || 90),
+    );
+    const restoreLimit = Math.max(
+      0,
+      Math.min(2000, parseInt(req.body?.restoreGenerationsLimit || "200", 10) || 200),
+    );
+
+    console.log(
+      `🔎 [admin/by-email/audit] email=${email} recover=${recover} dryRun=${dryRun} lookback=${lookbackDays}d`,
+    );
+
+    const user = await prisma.user.findFirst({
+      where: { email: { equals: email, mode: "insensitive" } },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        isVerified: true,
+        banLocked: true,
+        proAccess: true,
+        authProvider: true,
+        googleId: true,
+        credits: true,
+        subscriptionCredits: true,
+        purchasedCredits: true,
+        creditsExpireAt: true,
+        totalCreditsUsed: true,
+        subscriptionTier: true,
+        subscriptionStatus: true,
+        stripeCustomerId: true,
+        stripeSubscriptionId: true,
+        legacyStripeCustomerId: true,
+        legacyStripeSubscriptionId: true,
+        createdAt: true,
+        updatedAt: true,
+        lastLoginAt: true,
+        region: true,
+      },
+    });
+
+    /** Always look at Stripe both accounts — useful even when user is missing. */
+    const stripeReport = {
+      customers: [],
+      invoiceCount: 0,
+      paidUsd: 0,
+      lastPaidAt: null,
+      sessionsCount: 0,
+      sessionsPaidUsd: 0,
+    };
+
+    for (const account of ["new", "legacy"]) {
+      const client = getStripeForAccount(account);
+      if (!client) continue;
+      try {
+        const customers = await client.customers.list({ email, limit: 10 });
+        for (const c of customers?.data || []) {
+          const invs = await client.invoices.list({
+            customer: c.id,
+            limit: 100,
+            status: "paid",
+          });
+          let paidUsd = 0;
+          let lastPaidAt = null;
+          for (const inv of invs?.data || []) {
+            const amt = (inv.amount_paid || 0) / 100;
+            paidUsd += amt;
+            if (inv.status_transitions?.paid_at) {
+              const d = new Date(inv.status_transitions.paid_at * 1000);
+              if (!lastPaidAt || d > lastPaidAt) lastPaidAt = d;
+            }
+          }
+          let sessionsPaidUsd = 0;
+          let sessionsCount = 0;
+          try {
+            const sessions = await client.checkout.sessions.list({
+              customer: c.id,
+              limit: 100,
+            });
+            for (const s of sessions?.data || []) {
+              if (s.payment_status === "paid") {
+                sessionsCount += 1;
+                sessionsPaidUsd += (s.amount_total || 0) / 100;
+                if (s.created) {
+                  const d = new Date(s.created * 1000);
+                  if (!lastPaidAt || d > lastPaidAt) lastPaidAt = d;
+                }
+              }
+            }
+          } catch (_) { /* best-effort */ }
+
+          stripeReport.customers.push({
+            account,
+            customerId: c.id,
+            name: c.name || null,
+            email: c.email || null,
+            createdAt: c.created ? new Date(c.created * 1000).toISOString() : null,
+            invoicesPaidCount: invs?.data?.length || 0,
+            invoicesPaidUsd: paidUsd,
+            sessionsPaidCount: sessionsCount,
+            sessionsPaidUsd,
+            lastPaidAt: lastPaidAt ? lastPaidAt.toISOString() : null,
+            metadataUserId: c.metadata?.userId || null,
+          });
+          stripeReport.invoiceCount += invs?.data?.length || 0;
+          stripeReport.paidUsd += paidUsd;
+          stripeReport.sessionsCount += sessionsCount;
+          stripeReport.sessionsPaidUsd += sessionsPaidUsd;
+          if (lastPaidAt && (!stripeReport.lastPaidAt || lastPaidAt > new Date(stripeReport.lastPaidAt))) {
+            stripeReport.lastPaidAt = lastPaidAt.toISOString();
+          }
+        }
+      } catch (e) {
+        console.warn(`[audit] stripe ${account} lookup failed:`, e?.message);
+      }
+    }
+
+    const redFlags = [];
+
+    if (!user) {
+      const audit = await prisma.adminAuditLog.findMany({
+        where: {
+          action: "delete_user",
+          detailsJson: { contains: email },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 10,
+      });
+      if (audit.length > 0) {
+        redFlags.push(`User was deleted by admin (${audit.length} delete_user audit entries match this email)`);
+      }
+      const totalSpentUsd = stripeReport.paidUsd + stripeReport.sessionsPaidUsd;
+      if (totalSpentUsd > 0) {
+        redFlags.push(
+          `Stripe shows $${totalSpentUsd.toFixed(2)} paid across ${stripeReport.invoiceCount} invoices + ${stripeReport.sessionsCount} sessions, but no user record exists in the DB`,
+        );
+      }
+
+      return res.json({
+        email: rawEmail,
+        normalizedEmail: email,
+        userFound: false,
+        user: null,
+        credits: null,
+        subscription: null,
+        counts: null,
+        recentTransactions: [],
+        recentGenerations: [],
+        adminAuditLog: audit,
+        stripe: stripeReport,
+        redFlags,
+        recovery: null,
+        elapsedMs: Date.now() - startedAt,
+        hint:
+          stripeReport.customers.length > 0
+            ? "User has Stripe history but no DB row. Use POST /api/admin/disaster-recovery to recreate, or run runCatastropheUserAccountPhase manually."
+            : "No user, no Stripe history. Likely a typo or never registered.",
+      });
+    }
+
+    const userId = user.id;
+
+    const [
+      generationsCount,
+      modelsCount,
+      transactionsCount,
+      kieTasksCount,
+      recentTransactions,
+      recentGenerations,
+      kieTasksOrphan,
+      adminAudit,
+    ] = await Promise.all([
+      prisma.generation.count({ where: { userId } }),
+      prisma.savedModel.count({ where: { userId } }),
+      prisma.creditTransaction.count({ where: { userId } }),
+      prisma.kieTask.count({ where: { userId } }),
+      prisma.creditTransaction.findMany({
+        where: { userId },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+        select: {
+          id: true,
+          amount: true,
+          type: true,
+          description: true,
+          paymentSessionId: true,
+          stripeAccount: true,
+          createdAt: true,
+        },
+      }),
+      prisma.generation.findMany({
+        where: { userId },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+        select: {
+          id: true,
+          type: true,
+          status: true,
+          provider: true,
+          providerModel: true,
+          creditsCost: true,
+          creditsRefunded: true,
+          outputUrl: true,
+          isNsfw: true,
+          createdAt: true,
+          completedAt: true,
+        },
+      }),
+      prisma.kieTask.findMany({
+        where: { userId, entityType: "generation" },
+        orderBy: { createdAt: "desc" },
+        take: Math.max(restoreLimit, 50),
+        select: {
+          taskId: true,
+          entityId: true,
+          status: true,
+          outputUrl: true,
+          createdAt: true,
+        },
+      }),
+      prisma.adminAuditLog.findMany({
+        where: {
+          OR: [
+            { targetId: userId },
+            { detailsJson: { contains: userId } },
+            { detailsJson: { contains: email } },
+          ],
+        },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+      }),
+    ]);
+
+    const orphanGenIds = [];
+    if (kieTasksOrphan.length > 0) {
+      const ids = kieTasksOrphan
+        .map((k) => k.entityId)
+        .filter((x) => typeof x === "string" && x.length >= 8);
+      if (ids.length > 0) {
+        const existing = await prisma.generation.findMany({
+          where: { id: { in: ids } },
+          select: { id: true },
+        });
+        const existingSet = new Set(existing.map((g) => g.id));
+        for (const id of ids) {
+          if (!existingSet.has(id)) orphanGenIds.push(id);
+        }
+      }
+    }
+
+    const totalCredits =
+      (user.subscriptionCredits || 0) +
+      (user.purchasedCredits || 0) +
+      (user.credits || 0);
+    const expireAt = user.creditsExpireAt;
+    const expired =
+      expireAt instanceof Date && expireAt.getTime() < Date.now();
+
+    if (expired && (user.subscriptionCredits || 0) === 0) {
+      redFlags.push(
+        `creditsExpireAt is in the past (${expireAt.toISOString()}) — subscriptionCredits were zeroed out by checkAndExpireCredits`,
+      );
+    }
+
+    const grantTxs = recentTransactions.filter(
+      (t) => ["purchase", "subscription", "subscription_renewal", "credit_grant", "promo"].includes(t.type) && t.amount > 0,
+    );
+    const totalGranted = grantTxs.reduce((s, t) => s + (t.amount || 0), 0);
+    const totalSpentUsd = stripeReport.paidUsd + stripeReport.sessionsPaidUsd;
+    if (totalSpentUsd > 0 && totalGranted === 0) {
+      redFlags.push(
+        `Stripe shows $${totalSpentUsd.toFixed(2)} paid but no positive CreditTransactions exist — credits were never granted`,
+      );
+    }
+
+    if (generationsCount === 0 && orphanGenIds.length > 0) {
+      redFlags.push(
+        `User has 0 Generation rows but ${orphanGenIds.length} KieTask rows reference missing Generation ids — generations were lost (recoverable from KieTask)`,
+      );
+    }
+
+    if (orphanGenIds.length > 0 && generationsCount > 0) {
+      redFlags.push(
+        `${orphanGenIds.length} KieTask rows reference Generation ids that don't exist in the DB — partial generation loss (recoverable)`,
+      );
+    }
+
+    if (totalCredits === 0 && (user.totalCreditsUsed || 0) === 0 && totalSpentUsd > 0) {
+      redFlags.push(
+        "User has zero credits AND totalCreditsUsed=0 AND Stripe payment history — credits never landed on the account",
+      );
+    }
+
+    const deleteAudit = adminAudit.filter((a) => a.action === "delete_user");
+    if (deleteAudit.length > 0) {
+      redFlags.push(
+        `Audit log shows delete_user action against this user (${deleteAudit.length} entries) — admin previously deleted this account`,
+      );
+    }
+
+    /** Recovery phase. */
+    let recovery = null;
+    if (recover) {
+      recovery = {
+        dryRun,
+        stripeReconcile: null,
+        generationRestore: null,
+      };
+
+      try {
+        if (dryRun) {
+          recovery.stripeReconcile = {
+            dryRun: true,
+            note: "Skipped — pass dryRun:false to commit Stripe reconcile",
+          };
+        } else {
+          const reconcile = await reconcileUserCredits(userId, { lookbackDays });
+          recovery.stripeReconcile = {
+            invoicesAndSessionsScanned: reconcile.results?.length || 0,
+            grantsCreated: reconcile.totalGranted || 0,
+            creditsGranted: reconcile.creditsGranted || 0,
+            customers: reconcile.customers,
+            details: reconcile.results,
+          };
+        }
+      } catch (e) {
+        recovery.stripeReconcile = { error: e?.message || String(e) };
+      }
+
+      try {
+        const toRestore = orphanGenIds.slice(0, restoreLimit);
+        const byEntity = new Map(
+          kieTasksOrphan.map((k) => [k.entityId, k]),
+        );
+        const restoreDetails = [];
+        let created = 0;
+        let skipped = 0;
+        for (const genId of toRestore) {
+          const kie = byEntity.get(genId);
+          if (!kie) {
+            skipped += 1;
+            restoreDetails.push({ genId, action: "skip_no_kie" });
+            continue;
+          }
+          if (dryRun) {
+            restoreDetails.push({
+              genId,
+              action: "would_create",
+              outputUrl: kie.outputUrl || null,
+              kieStatus: kie.status,
+            });
+            continue;
+          }
+          try {
+            await prisma.generation.create({
+              data: {
+                id: genId,
+                userId,
+                type: "image",
+                prompt: "Restored from KieTask correlation (admin audit)",
+                creditsCost: 0,
+                status:
+                  kie.status === "completed" || kie.outputUrl
+                    ? "completed"
+                    : (kie.status || "failed"),
+                outputUrl: kie.outputUrl || null,
+                replicateModel: `kie-task:${kie.taskId}`,
+                completedAt: kie.outputUrl ? new Date() : null,
+                provider: "kie",
+              },
+            });
+            created += 1;
+            restoreDetails.push({ genId, action: "created", outputUrl: kie.outputUrl || null });
+          } catch (e) {
+            skipped += 1;
+            restoreDetails.push({ genId, action: "error", error: e?.message });
+          }
+        }
+        recovery.generationRestore = {
+          orphanCount: orphanGenIds.length,
+          attempted: toRestore.length,
+          created,
+          skipped,
+          details: restoreDetails,
+        };
+      } catch (e) {
+        recovery.generationRestore = { error: e?.message || String(e) };
+      }
+
+      if (!dryRun) {
+        try {
+          await prisma.adminAuditLog.create({
+            data: {
+              adminUserId: req.user?.userId || req.user?.id || "unknown",
+              adminEmail: req.user?.email || null,
+              action: "user_audit_recover",
+              targetType: "user",
+              targetId: userId,
+              detailsJson: JSON.stringify({
+                email,
+                lookbackDays,
+                restoreLimit,
+                stripeGrants: recovery.stripeReconcile?.grantsCreated || 0,
+                stripeCredits: recovery.stripeReconcile?.creditsGranted || 0,
+                generationsRestored: recovery.generationRestore?.created || 0,
+              }),
+            },
+          });
+        } catch (auditErr) {
+          console.warn("[audit] failed to write audit log:", auditErr?.message);
+        }
+      }
+    }
+
+    const refreshed = recover && !dryRun
+      ? await prisma.user.findUnique({
+          where: { id: userId },
+          select: {
+            credits: true,
+            subscriptionCredits: true,
+            purchasedCredits: true,
+            creditsExpireAt: true,
+          },
+        })
+      : null;
+
+    res.json({
+      email: rawEmail,
+      normalizedEmail: email,
+      userFound: true,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        isVerified: user.isVerified,
+        banLocked: user.banLocked,
+        proAccess: user.proAccess,
+        authProvider: user.authProvider,
+        hasGoogleId: !!user.googleId,
+        region: user.region,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+        lastLoginAt: user.lastLoginAt,
+      },
+      credits: {
+        subscription: user.subscriptionCredits || 0,
+        purchased: user.purchasedCredits || 0,
+        legacy: user.credits || 0,
+        total: totalCredits,
+        totalUsed: user.totalCreditsUsed || 0,
+        expireAt: expireAt ? expireAt.toISOString() : null,
+        expired,
+      },
+      subscription: {
+        tier: user.subscriptionTier,
+        status: user.subscriptionStatus,
+        stripeCustomerId: user.stripeCustomerId,
+        stripeSubscriptionId: user.stripeSubscriptionId,
+        legacyStripeCustomerId: user.legacyStripeCustomerId,
+        legacyStripeSubscriptionId: user.legacyStripeSubscriptionId,
+      },
+      counts: {
+        generations: generationsCount,
+        models: modelsCount,
+        transactions: transactionsCount,
+        kieTasks: kieTasksCount,
+        kieTasksWithoutGeneration: orphanGenIds.length,
+      },
+      recentTransactions,
+      recentGenerations,
+      adminAuditLog: adminAudit,
+      stripe: stripeReport,
+      redFlags,
+      recovery,
+      newBalanceAfterRecovery: refreshed
+        ? {
+            ...refreshed,
+            total:
+              (refreshed.credits || 0) +
+              (refreshed.subscriptionCredits || 0) +
+              (refreshed.purchasedCredits || 0),
+          }
+        : null,
+      elapsedMs: Date.now() - startedAt,
+    });
+  } catch (error) {
+    console.error("❌ [admin/by-email/audit] failed:", error?.stack || error?.message);
+    res.status(500).json({
+      error: error?.message || "Failed to audit user by email",
+    });
   }
 });
 
