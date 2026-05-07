@@ -3796,7 +3796,7 @@ function LoRAManager({
                     Pro
                   </span>
                   <p className="text-[10px] text-slate-400 flex items-center gap-1">
-                    <span>{NUDES_PACK_MAX_POSES} curated images, {loraProCost}</span>
+                    <span>30 images, {loraProCost}</span>
                     <Coins className="w-3 h-3 text-yellow-400 flex-shrink-0" />
                   </p>
                   <p className="text-[10px] text-slate-500">{copy.loraTime2h}</p>
