@@ -400,7 +400,16 @@ export default function ModelsPage({ sidebarCollapsed = false, openVoiceStudioFo
     }
   };
 
-  const REQUIRED_LOOKS_KEYS = ["gender", "hairColor", "eyeColor", "bodyType", "heritage"];
+  // Required appearance slots. Each entry is a list of acceptable keys for that slot
+  // because the backend (src/utils/appearancePrompt.js) accepts both legacy and current
+  // chip keys (e.g. `heritage` ⇄ `ethnicity`, `faceType` ⇄ `faceShape`).
+  const REQUIRED_LOOKS_GROUPS = [
+    { keys: ["gender"], label: "gender" },
+    { keys: ["hairColor"], label: "hair color" },
+    { keys: ["eyeColor"], label: "eye color" },
+    { keys: ["bodyType"], label: "body type" },
+    { keys: ["ethnicity", "heritage"], label: "ethnicity" },
+  ];
 
   const handleSaveLooks = async () => {
     if (!editingModel) return;
@@ -408,7 +417,9 @@ export default function ModelsPage({ sidebarCollapsed = false, openVoiceStudioFo
       Object.entries(editLooks).filter(([, v]) => v != null && v !== "" && String(v).trim() !== "")
     );
     if (looksRequired) {
-      const missing = REQUIRED_LOOKS_KEYS.filter((k) => !appearance[k]);
+      const missing = REQUIRED_LOOKS_GROUPS
+        .filter((g) => !g.keys.some((k) => appearance[k]))
+        .map((g) => g.label);
       if (missing.length > 0) {
         toast.error(`Please set: ${missing.join(", ")} before saving.`);
         return;
