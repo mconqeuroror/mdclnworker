@@ -87,6 +87,10 @@ import {
   NUDES_PACK_CREDITS_MAX,
   NUDES_PACK_POSES,
 } from "@shared/nudesPackPoses.js";
+import {
+  LORA_TRAINING_TIERS,
+  getLoraTrainingTier,
+} from "@shared/loraTrainingTiers.js";
 import { selectorCategories, buildSelectionsString, buildSelectionsSummary, applyChipConstraints, getBlockedChips, SCENE_PRESETS } from "../data/nsfwSelectors";
 import { NSFW_RESOLUTION_OPTIONS } from "../constants/nsfwResolutions";
 
@@ -301,8 +305,11 @@ const NSFW_COPY = {
     loraNamePlaceholder: "LoRA name (e.g., v2-lingerie)",
     loraTrainingMode: "Training Mode",
     loraStandard: "Standard",
+    loraPro: "Pro",
+    loraUltra: "Ultra",
     loraTime1h: "~1h to finish",
     loraTime2h: "~2h to finish",
+    loraTime6h: "~6h to finish",
     loraDefaultAppearance: "Default Appearance",
     loraAppearanceHint: "Pre-filled from model looks. Edit or add Custom per category.",
     custom: "Custom",
@@ -322,9 +329,11 @@ const NSFW_COPY = {
     loraDetectFailedPrefix: "Auto-detect failed:",
     trainingNeedNewLora: "Please create a New LoRA first before training.",
     trainingRetry: "Retry Training",
-    trainingProModeTitle: "Pro Training Mode - 30 Curated Images",
+    trainingProModeTitle: "Pro Training Mode — 30 Curated Images",
     trainingProDurationHint: "Pro LoRA training takes about 2 hours to finish.",
     trainingBasicDurationHint: "Basic LoRA training takes about 1 hour to finish.",
+    trainingUltraModeTitle: "Ultra Training Mode — 60 Curated Images",
+    trainingUltraDurationHint: "Ultra LoRA training takes about 6 hours to finish — built for the highest likeness fidelity.",
     toastNoActiveLoraTrigger: "No active LoRA with a trigger word found.",
     toastImageAnalysisTimedOut: "Image analysis timed out",
     toastAnalysisFailedPrefix: "Analysis failed:",
@@ -545,8 +554,11 @@ const NSFW_COPY = {
     loraNamePlaceholder: "Название LoRA (напр., v2-lingerie)",
     loraTrainingMode: "Режим обучения",
     loraStandard: "Стандарт",
+    loraPro: "Pro",
+    loraUltra: "Ultra",
     loraTime1h: "~1ч до готовности",
     loraTime2h: "~2ч до готовности",
+    loraTime6h: "~6ч до готовности",
     loraDefaultAppearance: "Базовая внешность",
     loraAppearanceHint: "Предзаполнено из внешности модели. Измените или добавьте \"Другое\" по категориям.",
     custom: "Другое",
@@ -566,9 +578,11 @@ const NSFW_COPY = {
     loraDetectFailedPrefix: "Ошибка автоопределения:",
     trainingNeedNewLora: "Пожалуйста, сначала создайте новую LoRA перед обучением.",
     trainingRetry: "Повторить обучение",
-    trainingProModeTitle: "Режим Pro - 30 отобранных изображений",
+    trainingProModeTitle: "Режим Pro — 30 отобранных изображений",
     trainingProDurationHint: "Обучение Pro LoRA занимает около 2 часов.",
     trainingBasicDurationHint: "Обучение базовой LoRA занимает около 1 часа.",
+    trainingUltraModeTitle: "Режим Ultra — 60 отобранных изображений",
+    trainingUltraDurationHint: "Обучение Ultra LoRA занимает около 6 часов — максимальное качество сходства.",
     toastNoActiveLoraTrigger: "Не найдена активная LoRA с триггерным словом.",
     toastImageAnalysisTimedOut: "Время анализа изображения истекло",
     toastAnalysisFailedPrefix: "Ошибка анализа:",
@@ -3588,8 +3602,9 @@ function LoRAManager({
   isLoading,
   onRefreshLoras,
   modelSavedAppearance,
-  loraStandardCost = 750,
-  loraProCost = 1500,
+  loraStandardCost = LORA_TRAINING_TIERS.standard.defaultCredits,
+  loraProCost = LORA_TRAINING_TIERS.pro.defaultCredits,
+  loraUltraCost = LORA_TRAINING_TIERS.ultra.defaultCredits,
 }) {
   const copy = NSFW_COPY[resolveLocale()] || NSFW_COPY.en;
   const [showCreateInput, setShowCreateInput] = useState(false);
@@ -3760,7 +3775,7 @@ function LoRAManager({
 
           <div>
             <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1.5">{copy.loraTrainingMode}</p>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               <button
                 type="button"
                 onClick={() => setNewLoraMode("standard")}
@@ -3774,7 +3789,7 @@ function LoRAManager({
                 <div className="flex flex-col gap-0.5 leading-tight">
                   <span className="text-xs font-medium text-white">{copy.loraStandard}</span>
                   <p className="text-[10px] text-slate-400 flex items-center gap-1">
-                    <span>15 images, {loraStandardCost}</span>
+                    <span>{LORA_TRAINING_TIERS.standard.requiredImages} images, {loraStandardCost}</span>
                     <Coins className="w-3 h-3 text-yellow-400 flex-shrink-0" />
                   </p>
                   <p className="text-[10px] text-slate-500">{copy.loraTime1h}</p>
@@ -3793,13 +3808,35 @@ function LoRAManager({
                 <div className="flex flex-col gap-0.5 leading-tight">
                   <span className="text-xs font-medium text-rose-300 flex items-center gap-1">
                     <Flame className="w-3 h-3" />
-                    Pro
+                    {copy.loraPro}
                   </span>
                   <p className="text-[10px] text-slate-400 flex items-center gap-1">
-                    <span>30 images, {loraProCost}</span>
+                    <span>{LORA_TRAINING_TIERS.pro.requiredImages} images, {loraProCost}</span>
                     <Coins className="w-3 h-3 text-yellow-400 flex-shrink-0" />
                   </p>
                   <p className="text-[10px] text-slate-500">{copy.loraTime2h}</p>
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setNewLoraMode("ultra")}
+                className={`p-2.5 rounded-lg text-left transition-all relative overflow-visible ${
+                  newLoraMode === "ultra"
+                    ? "bg-purple-500/10 border border-purple-400/40 ring-1 ring-purple-400/25"
+                    : "bg-white/[0.02] border border-white/[0.08] hover:bg-white/[0.05]"
+                }`}
+                data-testid="button-mode-ultra"
+              >
+                <div className="flex flex-col gap-0.5 leading-tight">
+                  <span className="text-xs font-medium text-purple-300 flex items-center gap-1">
+                    <Sparkles className="w-3 h-3" />
+                    {copy.loraUltra}
+                  </span>
+                  <p className="text-[10px] text-slate-400 flex items-center gap-1">
+                    <span>{LORA_TRAINING_TIERS.ultra.requiredImages} images, {loraUltraCost}</span>
+                    <Coins className="w-3 h-3 text-yellow-400 flex-shrink-0" />
+                  </p>
+                  <p className="text-[10px] text-slate-500">{copy.loraTime6h}</p>
                 </div>
               </button>
             </div>
@@ -3936,6 +3973,11 @@ function LoRAManager({
                         {lora.trainingMode === "pro" && (
                           <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium border border-rose-400/30 bg-rose-500/15 text-rose-300 gap-0.5">
                             <Flame className="w-2.5 h-2.5" />Pro
+                          </span>
+                        )}
+                        {lora.trainingMode === "ultra" && (
+                          <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium border border-purple-400/40 bg-purple-500/15 text-purple-300 gap-0.5">
+                            <Sparkles className="w-2.5 h-2.5" />Ultra
                           </span>
                         )}
                         {isActive && (
@@ -4179,10 +4221,13 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
   const nsfwFaceSwapCost = nsfwImageBaseCost + faceSwapExtraCost;
   const loraStandardCost = Number.isFinite(Number(generationPricing.loraTrainingStandard))
     ? Number(generationPricing.loraTrainingStandard)
-    : 750;
+    : LORA_TRAINING_TIERS.standard.defaultCredits;
   const loraProCost = Number.isFinite(Number(generationPricing.loraTrainingPro))
     ? Number(generationPricing.loraTrainingPro)
-    : 1500;
+    : LORA_TRAINING_TIERS.pro.defaultCredits;
+  const loraUltraCost = Number.isFinite(Number(generationPricing.loraTrainingUltra))
+    ? Number(generationPricing.loraTrainingUltra)
+    : LORA_TRAINING_TIERS.ultra.defaultCredits;
   const nsfwImageDoubleCost = Number.isFinite(Number(generationPricing.nsfwImageDouble))
     ? Number(generationPricing.nsfwImageDouble)
     : 50;
@@ -4713,10 +4758,13 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
 
   // Toggle image selection for training
   const selectedLoraForTraining = currentLoraId ? modelLoras.find(l => l.id === currentLoraId) : null;
-  const isProTraining = selectedLoraForTraining?.trainingMode === "pro";
-  const requiredTrainingImages = isProTraining ? 30 : 15;
-  const maxTrainingImages = isProTraining ? 30 : 15;
-  const trainingCreditCost = isProTraining ? loraProCost : loraStandardCost;
+  const trainingTier = getLoraTrainingTier(selectedLoraForTraining?.trainingMode);
+  const isProTraining = trainingTier.id === "pro";
+  const isUltraTraining = trainingTier.id === "ultra";
+  const requiredTrainingImages = trainingTier.requiredImages;
+  const maxTrainingImages = trainingTier.maxImages;
+  const trainingCreditCost =
+    isUltraTraining ? loraUltraCost : isProTraining ? loraProCost : loraStandardCost;
 
   const handleToggleTrainingImage = (gen) => {
     setTrainingSelections(prev => {
@@ -4789,8 +4837,8 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
 
       if (trainResponse.data.success) {
         const lora = modelLoras.find((l) => l.id === loraId);
-        const isPro = lora?.trainingMode === "pro";
-        toast.success(isPro ? "LoRA training started! Pro LoRA takes about 2 hours to finish." : "LoRA training started! Basic LoRA takes about 1 hour to finish.");
+        const startedTier = getLoraTrainingTier(lora?.trainingMode);
+        toast.success(`${startedTier.label} LoRA training started! ${startedTier.label} takes about ${startedTier.durationHours}h to finish.`);
         setTrainingStatus("training");
         setTrainingSelections([]);
         saveTrainingState(selectedModel, "training");
@@ -4835,8 +4883,8 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
 
       if (response.data.success) {
         const lora = modelLoras.find((l) => l.id === loraId);
-        const isPro = lora?.trainingMode === "pro";
-        toast.success(isPro ? "LoRA training started! Pro LoRA takes about 2 hours to finish." : "LoRA training started! Basic LoRA takes about 1 hour to finish.");
+        const startedTier = getLoraTrainingTier(lora?.trainingMode);
+        toast.success(`${startedTier.label} LoRA training started! ${startedTier.label} takes about ${startedTier.durationHours}h to finish.`);
         setTrainingStatus("training");
         // Save to localStorage immediately
         saveTrainingState(selectedModel, "training");
@@ -5509,6 +5557,7 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
                       activeLora={activeLora}
                       loraStandardCost={loraStandardCost}
                       loraProCost={loraProCost}
+                      loraUltraCost={loraUltraCost}
                       currentLoraId={currentLoraId}
                       onCreateLora={handleCreateLora}
                       onSetActive={handleSetActiveLora}
@@ -5578,9 +5627,7 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
                               <div>
                                 <p className="text-sm font-medium text-amber-200">{copy.trainingInProgressTitle}</p>
                                 <p className="text-xs text-amber-300/70">
-                                  {selectedLora?.trainingMode === "pro"
-                                    ? "This may take about 2 hours. You can leave this page and come back later."
-                                    : "This may take about 1 hour. You can leave this page and come back later."}
+                                  {`This may take about ${getLoraTrainingTier(selectedLora?.trainingMode).durationHours} hour${getLoraTrainingTier(selectedLora?.trainingMode).durationHours === 1 ? "" : "s"}. You can leave this page and come back later.`}
                                 </p>
                               </div>
                             </div>
@@ -5621,14 +5668,53 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
                   }
 
                   if (showImagePicker) {
-                    const isProMode = selectedLora?.trainingMode === "pro";
-                    const proCategories = [
-                      { label: "Face Portraits", count: 10, desc: "Different angles showing your face clearly", slots: ["Front facing", "Left 3/4 angle", "Right 3/4 angle", "Left profile", "Right profile", "Looking up", "Looking down", "Slight tilt left", "Slight tilt right", "Neutral expression"] },
-                      { label: "Full Body", count: 5, desc: "Head-to-toe shots in different poses", slots: ["Standing front", "Standing back", "Walking pose", "Seated full view", "Leaning pose"] },
-                      { label: "Half Body", count: 5, desc: "Waist-up shots with varied framing", slots: ["Centered front", "Turned left", "Turned right", "Arms visible", "Over shoulder"] },
-                      { label: "Selfies", count: 5, desc: "Casual self-shot angles", slots: ["High angle", "Eye level", "Low angle", "Mirror selfie", "Outdoor light"] },
-                      { label: "Nude Poses", count: 5, desc: "Unclothed reference shots for NSFW training", slots: ["Front standing", "Side pose", "Seated", "Reclining", "Back view"] },
-                    ];
+                    const tier = getLoraTrainingTier(selectedLora?.trainingMode);
+                    const isUltraMode = tier.id === "ultra";
+                    const isCuratedTier = tier.id === "pro" || isUltraMode;
+                    const proCategoriesByTier = {
+                      pro: [
+                        { label: "Face Portraits", count: 10, desc: "Different angles showing your face clearly", slots: ["Front facing", "Left 3/4 angle", "Right 3/4 angle", "Left profile", "Right profile", "Looking up", "Looking down", "Slight tilt left", "Slight tilt right", "Neutral expression"] },
+                        { label: "Full Body", count: 5, desc: "Head-to-toe shots in different poses", slots: ["Standing front", "Standing back", "Walking pose", "Seated full view", "Leaning pose"] },
+                        { label: "Half Body", count: 5, desc: "Waist-up shots with varied framing", slots: ["Centered front", "Turned left", "Turned right", "Arms visible", "Over shoulder"] },
+                        { label: "Selfies", count: 5, desc: "Casual self-shot angles", slots: ["High angle", "Eye level", "Low angle", "Mirror selfie", "Outdoor light"] },
+                        { label: "Nude Poses", count: 5, desc: "Unclothed reference shots for NSFW training", slots: ["Front standing", "Side pose", "Seated", "Reclining", "Back view"] },
+                      ],
+                      ultra: [
+                        { label: "Face Portraits", count: 20, desc: "Maximum-fidelity face coverage across angles & expressions", slots: ["Front facing", "Left 3/4 angle", "Right 3/4 angle", "Left profile", "Right profile", "Looking up", "Looking down", "Slight tilt left", "Slight tilt right", "Neutral expression", "Smiling", "Serious", "Mouth open", "Eyes closed", "Soft light", "Hard light", "Backlight", "Outdoor portrait", "Studio portrait", "Close-up crop"] },
+                        { label: "Full Body", count: 10, desc: "Head-to-toe variety — outfits, poses, environments", slots: ["Standing front", "Standing back", "Walking pose", "Seated full view", "Leaning pose", "Hands on hips", "Arms crossed", "Casual outfit", "Formal outfit", "Outdoor full body"] },
+                        { label: "Half Body", count: 10, desc: "Waist-up framing across moods & expressions", slots: ["Centered front", "Turned left", "Turned right", "Arms visible", "Over shoulder", "Hands near face", "Looking aside", "Laughing", "Casual top", "Form-fitting top"] },
+                        { label: "Selfies", count: 10, desc: "Self-shot variety in different lighting and locations", slots: ["High angle", "Eye level", "Low angle", "Mirror selfie", "Outdoor light", "Indoor warm light", "Bathroom mirror", "Car selfie", "Bedroom selfie", "Window light"] },
+                        { label: "Nude Poses", count: 10, desc: "Unclothed references — full body + intimate framing", slots: ["Front standing", "Side pose", "Seated", "Reclining", "Back view", "Kneeling", "Bent forward", "Lying on side", "Topless half-body", "Bottomless half-body"] },
+                      ],
+                    };
+                    const proCategories = proCategoriesByTier[tier.id] || proCategoriesByTier.pro;
+                    const tierAccent = isUltraMode
+                      ? {
+                          icon: <Sparkles className="w-3.5 h-3.5 text-purple-400" />,
+                          headerIcon: <Sparkles className="w-4 h-4 text-purple-400 mt-0.5 shrink-0" />,
+                          border: "border-purple-400/25",
+                          bg: "bg-purple-500/[0.04]",
+                          title: copy.trainingUltraModeTitle,
+                          duration: copy.trainingUltraDurationHint,
+                          textTitle: "text-purple-200",
+                          textRule: "text-purple-200/90",
+                          textRuleAccent: "text-purple-300 font-medium",
+                          ctaGradient: "linear-gradient(135deg, #a855f7 0%, #ec4899 100%)",
+                          ctaLabel: "Train Ultra LoRA",
+                        }
+                      : {
+                          icon: <Flame className="w-3.5 h-3.5 text-rose-400" />,
+                          headerIcon: <Flame className="w-4 h-4 text-rose-400 mt-0.5 shrink-0" />,
+                          border: "border-rose-400/20",
+                          bg: "bg-rose-500/[0.04]",
+                          title: copy.trainingProModeTitle,
+                          duration: copy.trainingProDurationHint,
+                          textTitle: "text-rose-200",
+                          textRule: "text-rose-200/90",
+                          textRuleAccent: "text-rose-300 font-medium",
+                          ctaGradient: "linear-gradient(135deg, #f43f5e 0%, #ec4899 100%)",
+                          ctaLabel: "Train Pro LoRA",
+                        };
 
                     return (
                       <>
@@ -5639,23 +5725,23 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
                             </div>
                             <span className="text-sm font-medium text-white flex items-center gap-1.5">
                               ADD IMAGES — {selectedLora?.name || "LoRA"}
-                              {isProMode && <Flame className="w-3.5 h-3.5 text-rose-400" />}
+                              {isCuratedTier && tierAccent.icon}
                             </span>
                             <span className={`text-xs ml-auto ${totalSelectedTrainingImages >= requiredTrainingImages ? "text-emerald-400" : "text-slate-500"}`}>
                               {totalSelectedTrainingImages}/{requiredTrainingImages} selected
                             </span>
                           </div>
 
-                          {isProMode ? (
-                            <div className="mb-3 sm:mb-4 p-3 sm:p-4 rounded-xl border border-rose-400/20 bg-rose-500/[0.04]">
+                          {isCuratedTier ? (
+                            <div className={`mb-3 sm:mb-4 p-3 sm:p-4 rounded-xl border ${tierAccent.border} ${tierAccent.bg}`}>
                               <div className="flex items-start gap-2 mb-3">
-                                <Flame className="w-4 h-4 text-rose-400 mt-0.5 shrink-0" />
+                                {tierAccent.headerIcon}
                                 <div>
-                                  <p className="text-xs text-rose-200 font-medium mb-1">{copy.trainingProModeTitle}</p>
+                                  <p className={`text-xs ${tierAccent.textTitle} font-medium mb-1`}>{tierAccent.title}</p>
                                   <p className="text-[11px] text-slate-400">
                                     For best results, follow the category guide below. Select images that match each category to train a higher-quality model with better likeness and pose accuracy.
                                   </p>
-                                  <p className="text-[11px] text-slate-500 mt-1.5">{copy.trainingProDurationHint}</p>
+                                  <p className="text-[11px] text-slate-500 mt-1.5">{tierAccent.duration}</p>
                                 </div>
                               </div>
                               <div className="space-y-2">
@@ -5688,19 +5774,19 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
                                 </div>
                               </div>
                               <div className="mt-3 pt-3 border-t border-white/[0.06]">
-                                <p className="text-[10px] text-rose-200/90">
-                                  <span className="text-rose-300 font-medium">Photo rules:</span> PNG only · max 5 MB per image · 30 photos required for Pro · ~2048 px on the long edge is ideal.
+                                <p className={`text-[10px] ${tierAccent.textRule}`}>
+                                  <span className={tierAccent.textRuleAccent}>Photo rules:</span> PNG only · max 5 MB per image · {tier.requiredImages} photos required for {tier.label} · ~2048 px on the long edge is ideal.
                                 </p>
                               </div>
                             </div>
                           ) : (
                             <div className="mb-3 sm:mb-4 p-3 sm:p-4 rounded-xl border border-white/[0.10] bg-white/[0.03]">
                               <p className="text-xs text-slate-300 mb-1">
-                                Select exactly 15 images showing different angles, poses, and expressions. Include face close-ups, half-body, and full-body shots for best results.
+                                Select exactly {tier.requiredImages} images showing different angles, poses, and expressions. Include face close-ups, half-body, and full-body shots for best results.
                               </p>
                               <p className="text-[11px] text-slate-500 mt-1.5">{copy.trainingBasicDurationHint}</p>
                               <p className="text-[10px] text-slate-400 mt-2 pt-2 border-t border-white/[0.06]">
-                                <span className="text-slate-300 font-medium">Photo rules:</span> PNG only · max 5 MB per image · 15 photos required for Standard.
+                                <span className="text-slate-300 font-medium">Photo rules:</span> PNG only · max 5 MB per image · {tier.requiredImages} photos required for {tier.label}.
                               </p>
                             </div>
                           )}
@@ -5727,8 +5813,8 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
                             style={{
                               background:
                                 totalSelectedTrainingImages >= requiredTrainingImages
-                                  ? isProMode
-                                    ? "linear-gradient(135deg, #f43f5e 0%, #ec4899 100%)"
+                                  ? isCuratedTier
+                                    ? tierAccent.ctaGradient
                                     : "linear-gradient(135deg, #f43f5e 0%, #f97316 100%)"
                                   : "rgba(255,255,255,0.1)",
                             }}
@@ -5742,7 +5828,7 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
                             ) : (
                               <>
                                 <Zap className="w-5 h-5" />
-                                {isProMode ? "Train Pro LoRA" : "Generate LoRA"}
+                                {isCuratedTier ? tierAccent.ctaLabel : "Generate LoRA"}
                                 <span className="px-2 py-0.5 rounded-full bg-white/20 text-xs inline-flex items-center gap-1">
                                   <Coins className="w-3 h-3 text-yellow-400" />{trainingCreditCost}
                                 </span>
@@ -6655,7 +6741,7 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
           </h3>
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
             <div className="p-3 rounded-xl bg-white/[0.04] border border-white/[0.16] backdrop-blur-xl text-center">
-              <span className="text-yellow-400 font-bold text-lg flex items-center justify-center gap-1">{loraStandardCost}/{loraProCost} <Coins className="w-4 h-4" /></span>
+              <span className="text-yellow-400 font-bold text-lg flex items-center justify-center gap-1">{loraStandardCost}/{loraProCost}/{loraUltraCost} <Coins className="w-4 h-4" /></span>
               <span className="text-slate-400">{copy.creditsPanelLoraTraining}</span>
             </div>
             <div className="p-3 rounded-xl bg-white/[0.04] border border-white/[0.16] backdrop-blur-xl text-center">

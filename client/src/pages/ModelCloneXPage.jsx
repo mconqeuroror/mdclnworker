@@ -24,6 +24,10 @@ import { downloadFromPublicUrl } from "../utils/directDownload";
 import { useAuthStore } from "../store";
 import { useTheme } from "../hooks/useTheme.jsx";
 import { useCachedModels } from "../hooks/useCachedModels";
+import {
+  LORA_TRAINING_TIERS,
+  getLoraTrainingTier,
+} from "@shared/loraTrainingTiers.js";
 
 // Light DB checks until backend status returns completed output URLs.
 const POLL_INTERVAL_MS = 5000;
@@ -37,6 +41,7 @@ const DEFAULT_MODELCLONE_X_PRICING = Object.freeze({
   extraStepsPer10: 5,
   trainingStandard: 750,
   trainingPro: 1500,
+  trainingUltra: 4500,
 });
 const DEFAULT_MODELCLONE_X_LIMITS = Object.freeze({
   includedSteps: 20,
@@ -51,6 +56,7 @@ const DEFAULT_MODELCLONE_X_LIMITS = Object.freeze({
   defaultCfg: 2,
   trainingImagesStandard: 15,
   trainingImagesPro: 30,
+  trainingImagesUltra: 60,
 });
 const MODELCLONE_X_DEFAULT_CFG = 2;
 
@@ -240,8 +246,9 @@ const COPY = {
     p3: "2 images — no character",
     p4: "2 images — with character",
     p5: "Extra steps (every +10 over included)",
-    p6: "Character training — Standard",
-    p7: "Character training — Pro",
+    p6: "Character training — Standard (15 photos · ~1h)",
+    p7: "Character training — Pro (30 photos · ~2h)",
+    p8: "Character training — Ultra (60 photos · ~6h)",
     genType: "Output",
     outputTxt: "Text → image",
     outputImg: "Image → image",
@@ -301,8 +308,9 @@ const COPY = {
     p3: "2 изображения — без персонажа",
     p4: "2 изображения — с персонажем",
     p5: "Доп. шаги (каждые +10 сверх включенных)",
-    p6: "Обучение персонажа — Standard",
-    p7: "Обучение персонажа — Pro",
+    p6: "Обучение персонажа — Standard (15 фото · ~1ч)",
+    p7: "Обучение персонажа — Pro (30 фото · ~2ч)",
+    p8: "Обучение персонажа — Ultra (60 фото · ~6ч)",
     genType: "Вывод",
     outputTxt: "Текст → изображение",
     outputImg: "Изображение → изображение",
@@ -647,11 +655,15 @@ function CharacterTab({ isDark, pricing }) {
 
   const stdCredits = pricing?.trainingStandard ?? DEFAULT_MODELCLONE_X_PRICING.trainingStandard;
   const proCredits = pricing?.trainingPro ?? DEFAULT_MODELCLONE_X_PRICING.trainingPro;
-  const createCost = trainingMode === "pro" ? proCredits : stdCredits;
-  const activeRequiredTrainingImages =
-    character?.trainingMode === "pro"
-      ? DEFAULT_MODELCLONE_X_LIMITS.trainingImagesPro
-      : DEFAULT_MODELCLONE_X_LIMITS.trainingImagesStandard;
+  const ultraCredits = pricing?.trainingUltra ?? DEFAULT_MODELCLONE_X_PRICING.trainingUltra;
+  const tierCreditsByMode = {
+    standard: stdCredits,
+    pro: proCredits,
+    ultra: ultraCredits,
+  };
+  const createCost = tierCreditsByMode[trainingMode] ?? stdCredits;
+  const activeTrainingTier = getLoraTrainingTier(character?.trainingMode);
+  const activeRequiredTrainingImages = activeTrainingTier.requiredImages;
 
   return (
     <div className="space-y-5">
@@ -707,26 +719,29 @@ function CharacterTab({ isDark, pricing }) {
                 />
 
                 <div className="flex gap-2">
-                  {["standard", "pro"].map((m) => (
-                    <button
-                      key={m}
-                      onClick={() => setTrainingMode(m)}
-                      className={`flex-1 py-2 px-2 rounded-xl text-sm font-medium border transition-all flex flex-col items-center gap-0.5
-                        ${trainingMode === m
-                          ? "bg-[var(--accent-soft)] border-[var(--border-medium)] text-[var(--text-primary)] shadow-none"
-                          : neutralBtn
-                        }`}
-                    >
-                      <span>{m.charAt(0).toUpperCase() + m.slice(1)}</span>
-                      <span className={`text-[10px] ${isDark ? "text-slate-400" : "text-slate-500"}`}>
-                        {m === "pro" ? "30 photos" : "15 photos"}
-                      </span>
-                      <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-[var(--accent)]">
-                        {m === "pro" ? proCredits : stdCredits}
-                        <Coins className="w-3 h-3 opacity-90" />
-                      </span>
-                    </button>
-                  ))}
+                  {["standard", "pro", "ultra"].map((m) => {
+                    const t = LORA_TRAINING_TIERS[m];
+                    return (
+                      <button
+                        key={m}
+                        onClick={() => setTrainingMode(m)}
+                        className={`flex-1 py-2 px-2 rounded-xl text-sm font-medium border transition-all flex flex-col items-center gap-0.5
+                          ${trainingMode === m
+                            ? "bg-[var(--accent-soft)] border-[var(--border-medium)] text-[var(--text-primary)] shadow-none"
+                            : neutralBtn
+                          }`}
+                      >
+                        <span>{t.label}</span>
+                        <span className={`text-[10px] ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+                          {t.requiredImages} photos · {t.durationLabel.replace("to finish", "").trim()}
+                        </span>
+                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-[var(--accent)]">
+                          {tierCreditsByMode[m]}
+                          <Coins className="w-3 h-3 opacity-90" />
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
 
                 <button
@@ -805,7 +820,7 @@ function CharacterTab({ isDark, pricing }) {
                   />
                 </div>
                 <p className={`text-[10px] mb-2 ${isDark ? "text-slate-500" : "text-slate-400"}`}>
-                  <span className={isDark ? "text-slate-300 font-medium" : "text-slate-600 font-medium"}>Photo rules:</span> PNG only · max 5 MB per image · {activeRequiredTrainingImages} photos required for {character?.trainingMode === "pro" ? "Pro" : "Standard"}.
+                  <span className={isDark ? "text-slate-300 font-medium" : "text-slate-600 font-medium"}>Photo rules:</span> PNG only · max 5 MB per image · {activeRequiredTrainingImages} photos required for {activeTrainingTier.label} ({activeTrainingTier.durationLabel}).
                 </p>
                 {uploadedImages.length > 0 && (
                   <div className="grid grid-cols-4 gap-1.5">
@@ -908,7 +923,7 @@ function CharacterTab({ isDark, pricing }) {
                           Start Training
                           <span className="inline-flex items-center gap-1 text-xs font-bold text-[var(--accent-foreground)]/95">
                             ·
-                            {character.trainingMode === "pro" ? proCredits : stdCredits}
+                            {tierCreditsByMode[activeTrainingTier.id] ?? stdCredits}
                             <Coins className="w-3.5 h-3.5" />
                           </span>
                         </>
@@ -921,7 +936,7 @@ function CharacterTab({ isDark, pricing }) {
                 <div className="flex items-center gap-2.5 p-3 rounded-xl bg-amber-500/10 border border-amber-500/25">
                   <Loader2 className="w-4 h-4 text-amber-400 animate-spin flex-shrink-0" />
                   <p className="text-xs text-amber-400">
-                    Training in progress — typically {character.trainingMode === "pro" ? "about 2 hours" : "about 1 hour"}.
+                    Training in progress — typically {activeTrainingTier.durationLabel.replace("~", "about ")}.
                   </p>
                 </div>
               )}
@@ -1769,6 +1784,7 @@ export default function ModelCloneXPage() {
     [copy.p5, pricing.extraStepsPer10],
     [copy.p6, pricing.trainingStandard],
     [copy.p7, pricing.trainingPro],
+    [copy.p8, pricing.trainingUltra],
   ];
 
   return (

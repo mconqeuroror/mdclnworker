@@ -267,6 +267,10 @@ import {
   downloadLimiter,
 } from "../middleware/rateLimiter.js";
 import { getGenerationPricing, getGenerationPricingContract } from "../services/generation-pricing.service.js";
+import {
+  getLoraTrainingTier,
+  normalizeLoraTrainingMode,
+} from "../../shared/loraTrainingTiers.js";
 import { getPromptTemplateValue } from "../services/prompt-template-config.service.js";
 import { DEFAULT_ENHANCE_PROMPT_NSFW_SYSTEM } from "../lib/defaultPrompts/enhancePromptNsfwSystem.js";
 import {
@@ -518,7 +522,11 @@ router.post("/nsfw/register-training-images", authMiddleware, async (req, res) =
       });
     }
 
-    const maxImages = 30;
+    const targetLora = await prisma.trainedLora.findUnique({
+      where: { id: targetLoraId },
+      select: { trainingMode: true },
+    });
+    const maxImages = getLoraTrainingTier(targetLora?.trainingMode).maxImages;
     const existingCount = await prisma.loraTrainingImage.count({ where: { loraId: targetLoraId } });
     const available = Math.max(0, maxImages - existingCount);
     const toRegister = imageUrls.slice(0, available);
@@ -538,7 +546,7 @@ router.post("/nsfw/register-training-images", authMiddleware, async (req, res) =
   }
 });
 
-router.post("/nsfw/upload-training-images", authMiddleware, upload.array("photos", 30), async (req, res) => {
+router.post("/nsfw/upload-training-images", authMiddleware, upload.array("photos", 60), async (req, res) => {
   try {
     const { modelId, loraId } = req.body;
     const userId = req.user.userId;
@@ -569,9 +577,9 @@ router.post("/nsfw/upload-training-images", authMiddleware, upload.array("photos
     }
 
     const targetLora = await prisma.trainedLora.findUnique({ where: { id: targetLoraId } });
-    const isProMode = targetLora?.trainingMode === "pro";
-    const maxImages = isProMode ? 30 : 15;
-    const requiredImages = isProMode ? 30 : 15;
+    const tier = getLoraTrainingTier(targetLora?.trainingMode);
+    const maxImages = tier.maxImages;
+    const requiredImages = tier.requiredImages;
 
     // Default behavior: uploading custom photos replaces previous custom uploads
     // for this LoRA to avoid stale image accumulation and misleading counters.
@@ -3814,8 +3822,12 @@ router.get("/modelclone-x/config", authMiddleware, async (_req, res) => {
       const n = Number(value);
       return Number.isFinite(n) ? n : fallback;
     };
-    const trainingStandard = toCredits(pricing.loraTrainingStandard, 750);
-    const trainingPro = toCredits(pricing.loraTrainingPro, 1500);
+    const standardTier = getLoraTrainingTier("standard");
+    const proTier = getLoraTrainingTier("pro");
+    const ultraTier = getLoraTrainingTier("ultra");
+    const trainingStandard = toCredits(pricing.loraTrainingStandard, standardTier.defaultCredits);
+    const trainingPro = toCredits(pricing.loraTrainingPro, proTier.defaultCredits);
+    const trainingUltra = toCredits(pricing.loraTrainingUltra, ultraTier.defaultCredits);
     return res.json({
       success: true,
       fromImageEnabled: Boolean(String(process.env.OPENROUTER_API_KEY || "").trim()),
@@ -3828,11 +3840,14 @@ router.get("/modelclone-x/config", authMiddleware, async (_req, res) => {
         extraStepsPer10: toCredits(pricing.modelcloneXExtraStepsPer10, 5),
         trainingStandard,
         trainingPro,
+        trainingUltra,
         // Legacy aliases for older clients expecting LoRA-specific naming.
         loraTrainingStandard: trainingStandard,
         loraTrainingPro: trainingPro,
+        loraTrainingUltra: trainingUltra,
         standardLoraPrice: trainingStandard,
         proLoraPrice: trainingPro,
+        ultraLoraPrice: trainingUltra,
       },
       limits: {
         includedSteps: 20,
@@ -3845,8 +3860,9 @@ router.get("/modelclone-x/config", authMiddleware, async (_req, res) => {
         defaultStepsNoModel: 20,
         defaultStepsWithModel: 50,
         defaultCfg: 2,
-        trainingImagesStandard: 15,
-        trainingImagesPro: 30,
+        trainingImagesStandard: standardTier.requiredImages,
+        trainingImagesPro: proTier.requiredImages,
+        trainingImagesUltra: ultraTier.requiredImages,
       },
     });
   } catch (error) {
@@ -4260,7 +4276,7 @@ router.post("/modelclone-x/character/create", authMiddleware, generationLimiter,
   try {
     const { modelId, name, trainingMode, defaultAppearance } = req.body;
     const userId = req.user.userId;
-    const mode = trainingMode === "pro" ? "pro" : "standard";
+    const mode = normalizeLoraTrainingMode(trainingMode);
 
     if (!modelId) return res.status(400).json({ success: false, message: "modelId is required" });
 
@@ -4366,7 +4382,7 @@ router.delete("/modelclone-x/character/:loraId", authMiddleware, async (req, res
 router.post(
   "/modelclone-x/character/upload-images",
   authMiddleware,
-  upload.array("photos", 30),
+  upload.array("photos", 60),
   async (req, res) => {
     const { loraId } = req.body;
     const userId = req.user.userId;
@@ -4404,9 +4420,9 @@ router.post(
         });
       }
 
-      const isProMode = lora.trainingMode === "pro";
-      const maxImages = isProMode ? 30 : 15;
-      const requiredImages = isProMode ? 30 : 15;
+      const tier = getLoraTrainingTier(lora.trainingMode);
+      const maxImages = tier.maxImages;
+      const requiredImages = tier.requiredImages;
 
       const replaceExistingCustom =
         String(req.body?.replaceExistingCustom ?? "true").toLowerCase() !== "false";
@@ -4625,11 +4641,12 @@ router.post("/modelclone-x/character/assign-images", authMiddleware, generationL
       return res.status(400).json({ success: false, message: "LoRA already trained" });
     }
 
-    const requiredImages = lora.trainingMode === "pro" ? 30 : 15;
+    const tier = getLoraTrainingTier(lora.trainingMode);
+    const requiredImages = tier.requiredImages;
     if (images.length !== requiredImages) {
       return res.status(400).json({
         success: false,
-        message: `${lora.trainingMode === "pro" ? "Pro mode requires exactly" : "Standard mode requires exactly"} ${requiredImages} images. Got ${images.length}.`,
+        message: `${tier.label} mode requires exactly ${requiredImages} images. Got ${images.length}.`,
       });
     }
 

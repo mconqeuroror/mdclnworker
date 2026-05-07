@@ -91,6 +91,11 @@ import {
   getNudesPackCreditsSplit,
 } from "../../shared/nudesPackPoses.js";
 import {
+  getLoraTrainingTier,
+  normalizeLoraTrainingMode,
+  resolveLoraTrainingCreditsFromPricing,
+} from "../../shared/loraTrainingTiers.js";
+import {
   getEffectiveNudesPackPoses,
   isNudesPackFeatureEnabled,
   validateNudesPackPoseIdsEffective,
@@ -185,17 +190,19 @@ export async function awardFirstLoraTrainingBonus({ userId, modelId, targetLoraI
   });
 }
 
-// Credit costs
+// Credit costs (legacy fallbacks — real values come from shared/loraTrainingTiers + the pricing service)
 const CREDITS_FOR_LORA_TRAINING = 750;
 const CREDITS_FOR_PRO_LORA_TRAINING = 1500;
 
-export async function resolveLoraTrainingCredits(isPro) {
+/**
+ * Resolve the credit cost for a LoRA training run.
+ * Accepts either a tier string ("standard" | "pro" | "ultra") or, for
+ * back-compat, a boolean `isPro` flag (true → pro, false → standard).
+ * Unknown values fall back to standard pricing.
+ */
+export async function resolveLoraTrainingCredits(modeOrIsPro) {
   const pricing = await getGenerationPricing();
-  const raw = isPro
-    ? Number(pricing.loraTrainingPro ?? CREDITS_FOR_PRO_LORA_TRAINING)
-    : Number(pricing.loraTrainingStandard ?? CREDITS_FOR_LORA_TRAINING);
-  const n = Math.ceil(Number.isFinite(raw) ? raw : (isPro ? CREDITS_FOR_PRO_LORA_TRAINING : CREDITS_FOR_LORA_TRAINING));
-  return Math.max(0, n);
+  return resolveLoraTrainingCreditsFromPricing(modeOrIsPro, pricing);
 }
 /**
  * Two-tier LoRA stale recovery:
@@ -532,7 +539,7 @@ async function failLoraAndRefundIfStillTraining({
     console.error(`⚠️ Failed to sync legacy LoRA fields for ${loraId}:`, syncErr?.message);
   }
 
-  const refundAmount = await resolveLoraTrainingCredits(trainingMode === "pro");
+  const refundAmount = await resolveLoraTrainingCredits(trainingMode);
   try {
     await refundCredits(userId, refundAmount);
     console.log(`💰 Refunded ${refundAmount} credits to user ${userId} for stale/failed LoRA ${loraId}`);
@@ -702,7 +709,7 @@ export async function createLora(req, res) {
   try {
     const { modelId, name, defaultAppearance, trainingMode } = req.body;
     const userId = req.user.userId;
-    const mode = trainingMode === "pro" ? "pro" : "standard";
+    const mode = normalizeLoraTrainingMode(trainingMode);
 
     if (!modelId) {
       return res.status(400).json({ success: false, message: "modelId is required" });
@@ -1363,20 +1370,20 @@ export async function assignTrainingImages(req, res) {
       }
     }
 
-    const isProMode = targetLora?.trainingMode === "pro";
-    const requiredImages = isProMode ? 30 : 15;
-    const maxImages = isProMode ? 30 : 15;
+    const tier = getLoraTrainingTier(targetLora?.trainingMode);
+    const requiredImages = tier.requiredImages;
+    const maxImages = tier.maxImages;
 
     if (images.length < requiredImages) {
       return res.status(400).json({
         success: false,
-        message: `${isProMode ? "Pro mode requires exactly" : "Basic mode requires exactly"} ${requiredImages} images. Got ${images.length}.`,
+        message: `${tier.label} mode requires exactly ${requiredImages} images. Got ${images.length}.`,
       });
     }
     if (images.length > maxImages) {
       return res.status(400).json({
         success: false,
-        message: `Maximum ${maxImages} images allowed. Got ${images.length}.`,
+        message: `Maximum ${maxImages} images allowed for ${tier.label} mode. Got ${images.length}.`,
       });
     }
 
@@ -2250,12 +2257,12 @@ export async function trainLora(req, res) {
         return res.status(400).json({ success: false, message: "LoRA is already trained" });
       }
 
-      const isProMode = targetLora.trainingMode === "pro";
-      const requiredImages = isProMode ? 30 : 15;
+      const tier = getLoraTrainingTier(targetLora.trainingMode);
+      const requiredImages = tier.requiredImages;
       if (targetLora.trainingImages.length < requiredImages) {
         return res.status(400).json({
           success: false,
-          message: `Need at least ${requiredImages} training images. Currently have ${targetLora.trainingImages.length} completed.`,
+          message: `${tier.label} training needs at least ${requiredImages} training images. Currently have ${targetLora.trainingImages.length} completed.`,
         });
       }
     } else {
@@ -2279,8 +2286,8 @@ export async function trainLora(req, res) {
       }
     }
 
-    const isProTraining = targetLora?.trainingMode === "pro";
-    const creditsNeeded = await resolveLoraTrainingCredits(isProTraining);
+    const trainingTier = getLoraTrainingTier(targetLora?.trainingMode);
+    const creditsNeeded = await resolveLoraTrainingCredits(trainingTier.id);
 
     if (!isFalConfigured()) {
       return res.status(503).json({
@@ -2378,7 +2385,7 @@ export async function trainLora(req, res) {
       targetLoraId,
       imageUrls: [...imageUrls],
       triggerWord,
-      isProTraining,
+      trainingMode: trainingTier.id,
       captionSubjectClass,
       trainingWebhookUrl,
     };
@@ -2391,15 +2398,16 @@ export async function trainLora(req, res) {
         targetLoraId: lid,
         imageUrls: urls,
         triggerWord: tw,
-        isProTraining: pro,
+        trainingMode: bgMode,
         captionSubjectClass: csc,
         trainingWebhookUrl: wh,
       } = bgPayload;
+      const bgTier = getLoraTrainingTier(bgMode);
 
       try {
         const trainingResult = await startLoraTraining(urls, tw, {
-          steps: pro ? 9000 : 4500,
-          loraRank: pro ? 32 : 16,
+          steps: bgTier.fal.steps,
+          loraRank: bgTier.fal.loraRank,
           captionSubjectClass: csc,
           webhookUrl: wh,
         });
@@ -2647,7 +2655,7 @@ export async function getLoraTrainingStatus(req, res) {
 
           try {
             const loraRecord = await prisma.trainedLora.findUnique({ where: { id: targetLoraId }, select: { trainingMode: true } });
-            const refundAmount = await resolveLoraTrainingCredits(loraRecord?.trainingMode === "pro");
+            const refundAmount = await resolveLoraTrainingCredits(loraRecord?.trainingMode);
             await refundCredits(userId, refundAmount);
             console.log(`💰 Refunded ${refundAmount} credits to user ${userId} for failed LoRA training ${targetLoraId}`);
           } catch (refundErr) {

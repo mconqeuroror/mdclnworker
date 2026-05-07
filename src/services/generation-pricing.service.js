@@ -22,9 +22,10 @@ export const DEFAULT_GENERATION_PRICING = Object.freeze({
   modelcloneXNoModel2: 15,
   modelcloneXWithModel2: 25,
   modelcloneXExtraStepsPer10: 5,
-  /** NSFW + ModelClone-X LoRA training (fal.ai) — standard vs pro dataset / steps */
+  /** NSFW + ModelClone-X LoRA training (fal.ai) — three tiers (see shared/loraTrainingTiers.js for image counts, durations, fal hyper-params) */
   loraTrainingStandard: 750,
   loraTrainingPro: 1500,
+  loraTrainingUltra: 4500,
 
   /** NSFW nudes pack — per-image range (full selection vs single pose); see shared/nudesPackPoses */
   nudesPackCreditsMin: 15,

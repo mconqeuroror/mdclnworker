@@ -188,8 +188,9 @@ const GENERATION_PRICING_GROUPS = [
       { key: 'modelcloneXNoModel2', label: 'ModelClone-X — 2 images (no character)' },
       { key: 'modelcloneXWithModel2', label: 'ModelClone-X — 2 images (with character)' },
       { key: 'modelcloneXExtraStepsPer10', label: 'ModelClone-X — extra cost per +10 steps over default' },
-      { key: 'loraTrainingStandard', label: 'LoRA training — Standard (NSFW + ModelClone-X)' },
-      { key: 'loraTrainingPro', label: 'LoRA training — Pro (NSFW + ModelClone-X)' },
+      { key: 'loraTrainingStandard', label: 'LoRA training — Standard · 15 photos · ~1h (NSFW + ModelClone-X)' },
+      { key: 'loraTrainingPro', label: 'LoRA training — Pro · 30 photos · ~2h (NSFW + ModelClone-X)' },
+      { key: 'loraTrainingUltra', label: 'LoRA training — Ultra · 60 photos · ~6h (NSFW + ModelClone-X)' },
     ],
   },
   {

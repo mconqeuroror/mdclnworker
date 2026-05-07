@@ -153,13 +153,9 @@ router.post(
           // Refund credits on failure
           if (userId) {
             try {
-              const CREDITS_FOR_LORA_TRAINING     = Number(process.env.LORA_TRAINING_COST) || 500;
-              const CREDITS_FOR_PRO_LORA_TRAINING = Number(process.env.PRO_LORA_TRAINING_COST) || 1000;
-              const refundAmount = lora.trainingMode === "pro"
-                ? CREDITS_FOR_PRO_LORA_TRAINING
-                : CREDITS_FOR_LORA_TRAINING;
+              const refundAmount = await resolveLoraTrainingCredits(lora.trainingMode);
               await refundCredits(userId, refundAmount);
-              console.log(`💰 [fal/training webhook] Refunded ${refundAmount} credits to user ${userId}`);
+              console.log(`💰 [fal/training webhook] Refunded ${refundAmount} credits to user ${userId} (${lora.trainingMode || "standard"} tier)`);
             } catch (e) {
               console.error("[fal/training webhook] refund failed:", e?.message);
             }
@@ -193,9 +189,9 @@ router.post(
           }
           if (userId) {
             try {
-              const refundAmount = await resolveLoraTrainingCredits(lora.trainingMode === "pro");
+              const refundAmount = await resolveLoraTrainingCredits(lora.trainingMode);
               await refundCredits(userId, refundAmount);
-              console.log(`💰 [fal/training webhook] Refunded ${refundAmount} credits (no_lora_url) to user ${userId}`);
+              console.log(`💰 [fal/training webhook] Refunded ${refundAmount} credits (no_lora_url) to user ${userId} (${lora.trainingMode || "standard"} tier)`);
             } catch (e) {
               console.error("[fal/training webhook] no_lora_url refund failed:", e?.message);
             }
