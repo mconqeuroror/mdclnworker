@@ -2149,19 +2149,42 @@ NON-NEGOTIABLE QUALITY + CONSISTENCY POLICY:
 
   } catch (error) {
     console.error("Prompt enhancement error:", error.message);
-    // Refund credit if it was deducted before the AI call failed
+
+    // Refund credit if it was deducted before the AI call failed.
+    let refunded = false;
     if (creditDeducted) {
       try {
         const { refundCredits } = await import("../services/credit.service.js");
         await refundCredits(req.user.userId, ENHANCE_CREDIT_COST);
+        refunded = true;
         console.log(`✅ Refunded ${ENHANCE_CREDIT_COST} credit to user ${req.user.userId} after enhancement failure`);
       } catch (refundErr) {
         console.error(`❌ CRITICAL: Failed to refund enhancement credit for user ${req.user.userId}:`, refundErr.message);
       }
     }
-    res.status(500).json({
+
+    // Don't 500 the user just because OpenRouter timed out — that strands
+    // them in the UI with no usable prompt. Return their original prompt
+    // as the "enhanced" value with `fallback:true` so the client can either
+    // use it as-is or surface a soft warning. We log it as a warn (not
+    // 5xx) and the credit is already refunded above.
+    const fallbackPrompt = (req.body?.prompt || "").trim();
+    if (fallbackPrompt) {
+      return res.status(200).json({
+        success: true,
+        fallback: true,
+        refunded,
+        enhancedPrompt: fallbackPrompt,
+        creditsUsed: 0,
+        warning: "AI enhancement temporarily unavailable — used your original prompt. Your credit has been refunded.",
+      });
+    }
+
+    return res.status(503).json({
       success: false,
-      message: "Failed to enhance prompt. Your credit has been refunded.",
+      fallback: true,
+      refunded,
+      message: "AI enhancement is temporarily unavailable. Please try again in a moment. Your credit has been refunded.",
     });
   }
 });
@@ -2309,18 +2332,19 @@ router.post(
   cleanupStuckGenerations,
 );
 
-// Cron-safe watchdog for callback-only KIE flows (no auth, requires CRON_SECRET)
-let warnedMissingCronSecretForKieRecovery = false;
+// Cron-safe watchdog for callback-only KIE flows (no auth, requires CRON_SECRET).
+// Note: when CRON_SECRET is unset we accept Vercel's signed `x-vercel-cron`
+// header as proof of origin. We deliberately do NOT log a warning per-call —
+// every cold start would re-emit it and flood the log; it's a known
+// configuration choice, not an error.
 router.get("/cron/kie-recovery", async (req, res) => {
   const secret = req.query.secret || req.headers["x-cron-secret"];
   const isVercelCron = Boolean(req.headers["x-vercel-cron"]);
-  if (!process.env.CRON_SECRET) {
-    if (!warnedMissingCronSecretForKieRecovery) {
-      warnedMissingCronSecretForKieRecovery = true;
-      console.warn("[cron/kie-recovery] CRON_SECRET is not set; relying on x-vercel-cron header only.");
-    }
-  }
   if (!isVercelCron && process.env.CRON_SECRET && secret !== process.env.CRON_SECRET) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+  if (!isVercelCron && !process.env.CRON_SECRET) {
+    // Neither the trusted Vercel cron header nor a shared secret — refuse.
     return res.status(401).json({ error: "Unauthorized" });
   }
   // Also recover stuck NSFW image/video jobs in serverless deployments where in-memory pollers are ephemeral.

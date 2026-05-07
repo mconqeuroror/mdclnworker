@@ -5,10 +5,6 @@
   "outputDirectory": "dist/public",
   "crons": [
     {
-      "path": "/api/viral-reels/cron-scrape",
-      "schedule": "0 */8 * * *"
-    },
-    {
       "path": "/api/cron/kie-recovery",
       "schedule": "*/5 * * * *"
     }

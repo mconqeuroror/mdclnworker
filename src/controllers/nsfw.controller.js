@@ -189,7 +189,7 @@ export async function awardFirstLoraTrainingBonus({ userId, modelId, targetLoraI
 const CREDITS_FOR_LORA_TRAINING = 750;
 const CREDITS_FOR_PRO_LORA_TRAINING = 1500;
 
-async function resolveLoraTrainingCredits(isPro) {
+export async function resolveLoraTrainingCredits(isPro) {
   const pricing = await getGenerationPricing();
   const raw = isPro
     ? Number(pricing.loraTrainingPro ?? CREDITS_FOR_PRO_LORA_TRAINING)
@@ -197,6 +197,22 @@ async function resolveLoraTrainingCredits(isPro) {
   const n = Math.ceil(Number.isFinite(raw) ? raw : (isPro ? CREDITS_FOR_PRO_LORA_TRAINING : CREDITS_FOR_LORA_TRAINING));
   return Math.max(0, n);
 }
+/**
+ * Two-tier LoRA stale recovery:
+ *
+ * - PREPROCESSING_RECOVERY_MS: row stuck in "training" with NO falRequestId.
+ *   This means our `/api/nsfw/train-lora` background work was killed
+ *   (Vercel function timeout, captioning hang, OpenRouter outage, etc.)
+ *   before it could submit anything to fal. fal hasn't even started any
+ *   work — there's nothing to wait for. Refund quickly so the user can
+ *   retry instead of staring at a 4-hour spinner.
+ *
+ * - LORA_STALE_RECOVERY_MS: row has falRequestId but is past fal's typical
+ *   training window. Used for in-flight training that may have lost its
+ *   webhook delivery; we re-query fal status before deciding to fail.
+ */
+const LORA_PREPROCESSING_RECOVERY_MS =
+  Number(process.env.LORA_PREPROCESSING_RECOVERY_MS) || 30 * 60 * 1000;
 const LORA_STALE_RECOVERY_MS = Number(process.env.LORA_STALE_RECOVERY_MS) || 4 * 60 * 60 * 1000;
 const CREDITS_FOR_TRAINING_SESSION = 750;
 const CREDITS_PER_NSFW_IMAGE = 30;
@@ -529,14 +545,26 @@ async function failLoraAndRefundIfStillTraining({
 
 export async function recoverStaleLoraTrainings({
   staleAfterMs = LORA_STALE_RECOVERY_MS,
+  preprocessingStaleAfterMs = LORA_PREPROCESSING_RECOVERY_MS,
   onlyLoraId = null,
 } = {}) {
-  const cutoff = new Date(Date.now() - staleAfterMs);
-  const where = {
-    status: "training",
-    updatedAt: { lt: cutoff },
-    ...(onlyLoraId ? { id: onlyLoraId } : {}),
-  };
+  const inflightCutoff = new Date(Date.now() - staleAfterMs);
+  const preprocessingCutoff = new Date(Date.now() - preprocessingStaleAfterMs);
+
+  // Two branches in one scan:
+  //   (a) status=training AND falRequestId IS NULL AND old enough for the
+  //       preprocessing tier (Vercel function probably died mid-captioning)
+  //   (b) status=training AND falRequestId IS NOT NULL AND old enough for
+  //       the in-flight tier (fal training webhook may have been lost)
+  const where = onlyLoraId
+    ? { id: onlyLoraId, status: "training" }
+    : {
+        status: "training",
+        OR: [
+          { falRequestId: null, updatedAt: { lt: preprocessingCutoff } },
+          { falRequestId: { not: null }, updatedAt: { lt: inflightCutoff } },
+        ],
+      };
 
   const staleRows = await prisma.trainedLora.findMany({
     where,
@@ -2541,10 +2569,12 @@ export async function getLoraTrainingStatus(req, res) {
       }
 
       // Self-heal stale training rows during user polling (fallback in addition to cron/server intervals).
-      if (
-        lora.status === "training" &&
-        new Date(lora.updatedAt).getTime() < Date.now() - LORA_STALE_RECOVERY_MS
-      ) {
+      // Use the tighter preprocessing cutoff for rows that never made it to fal — those have no
+      // legitimate reason to sit for hours and the user is actively waiting for status here.
+      const updatedMs = new Date(lora.updatedAt).getTime();
+      const stalledPreprocessing = !lora.falRequestId && updatedMs < Date.now() - LORA_PREPROCESSING_RECOVERY_MS;
+      const stalledInflight = !!lora.falRequestId && updatedMs < Date.now() - LORA_STALE_RECOVERY_MS;
+      if (lora.status === "training" && (stalledPreprocessing || stalledInflight)) {
         try {
           await recoverStaleLoraTrainings({ onlyLoraId: lora.id });
           lora = await prisma.trainedLora.findUnique({ where: { id: targetLoraId } });
@@ -5569,6 +5599,24 @@ export async function generateNsfwMotionVideo(req, res) {
           completedAt: new Date(),
         },
       });
+      // Distinguish a transcoder-unavailable failure (transient infra
+      // outage on our ffmpeg worker) from a real "bad request" failure.
+      // Both refund the user, but transcoder issues should surface as
+      // 503 with a short, actionable message — not a 5xx with a
+      // 200-word engineering essay.
+      const rawErr = String(submission.error || "");
+      const isTranscoderFailure =
+        rawErr.includes("Driving video could not be re-encoded") ||
+        rawErr.includes("FFmpeg worker") ||
+        rawErr.includes("ffmpeg") ||
+        rawErr.includes("transcode");
+      if (isTranscoderFailure) {
+        return res.status(503).json({
+          success: false,
+          retryable: true,
+          message: "Motion video service is temporarily unavailable while we re-encode your driving video. Please try again in a moment — your credits have been refunded.",
+        });
+      }
       return res.status(500).json({
         success: false,
         message: submission.error || "Motion video submission failed",

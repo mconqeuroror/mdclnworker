@@ -432,15 +432,18 @@ router.get("/admin/logs", authMiddleware, adminMiddleware, async (_req, res) => 
   } catch (err) { return res.status(500).json({ success: false, error: "Failed" }); }
 });
 
+/**
+ * Reel scraper cron is intentionally retired (cron entry removed from
+ * vercel.json). This handler is kept only to absorb any stale invocations
+ * from cached cron config while the schedule rolls out. It does NOT start
+ * any work and never touches Apify.
+ */
 router.get("/cron-scrape", (req, res) => {
-  const secret = req.headers.authorization?.replace(/^Bearer\s+/i, "") || req.query?.secret;
-  if (process.env.CRON_SECRET && secret !== process.env.CRON_SECRET) return res.status(401).json({ error: "Unauthorized" });
-  if (!isReelScraperConfigured()) {
-    return res.status(503).json({ error: "Reel scraper disabled (REEL_SCRAPER_DISABLED)" });
-  }
-  if (isScraperPipelineRunning()) return res.json({ started: false });
-  res.json({ started: true });
-  runScraperPipeline().catch((e) => console.error("[ReelFinder] cron:", e?.message));
+  return res.status(410).json({
+    started: false,
+    retired: true,
+    message: "Reel scraper cron has been retired. Set REEL_SCRAPER_ENABLED=true and use /admin/trigger-scrape to run on demand.",
+  });
 });
 
 router.post("/admin/assign-groups", authMiddleware, adminMiddleware, (_req, res) => res.json({ success: true }));

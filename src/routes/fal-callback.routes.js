@@ -20,6 +20,7 @@ import {
 import {
   finalizeTrainingCompletion,
   syncLegacyLoraFields,
+  resolveLoraTrainingCredits,
 } from "../controllers/nsfw.controller.js";
 import { enqueueCleanupOldGenerations } from "../controllers/generation.controller.js";
 import { refundCredits } from "../services/credit.service.js";
@@ -179,10 +180,26 @@ router.post(
         }
 
         if (!falUrl) {
+          // Webhook signaled OK but we couldn't extract a LoRA URL —
+          // training effectively failed from the user's perspective.
+          // Refund credits, mark the row failed, and sync legacy fields
+          // so the UI doesn't sit on "training" forever.
           await prisma.trainedLora.update({
             where: { id: lora.id },
             data: { status: "failed", error: "Webhook delivered OK but no LoRA URL in payload" },
           });
+          if (lora.model?.activeLoraId === lora.id) {
+            try { await syncLegacyLoraFields(modelId, lora.id); } catch (e) { void e; }
+          }
+          if (userId) {
+            try {
+              const refundAmount = await resolveLoraTrainingCredits(lora.trainingMode === "pro");
+              await refundCredits(userId, refundAmount);
+              console.log(`💰 [fal/training webhook] Refunded ${refundAmount} credits (no_lora_url) to user ${userId}`);
+            } catch (e) {
+              console.error("[fal/training webhook] no_lora_url refund failed:", e?.message);
+            }
+          }
           console.error("[fal/training webhook] no loraUrl in payload for requestId", requestId);
           return res.status(200).json({ ok: false, reason: "no_lora_url" });
         }
@@ -231,6 +248,18 @@ router.post(
             where: { id: model.id },
             data: { loraStatus: "failed", loraError: "Webhook OK but no LoRA URL in payload" },
           });
+          // Refund the legacy training cost too — same rationale as the
+          // TrainedLora path above. We don't know the trainingMode here
+          // (legacy path predates the field), so we use the standard cost.
+          if (model.userId) {
+            try {
+              const CREDITS_FOR_LORA_TRAINING = Number(process.env.LORA_TRAINING_COST) || 500;
+              await refundCredits(model.userId, CREDITS_FOR_LORA_TRAINING);
+              console.log(`💰 [fal/training webhook] Refunded ${CREDITS_FOR_LORA_TRAINING} credits (legacy no_lora_url) to user ${model.userId}`);
+            } catch (e) {
+              console.error("[fal/training webhook] legacy no_lora_url refund failed:", e?.message);
+            }
+          }
           return res.status(200).json({ ok: false, reason: "no_lora_url" });
         }
 

@@ -168,22 +168,53 @@ function FlowCanvas({ flowId, embedded = false }) {
       .catch(() => {});
   }, [flowId]);
 
-  // SSE
+  // SSE — server caps each connection at ~25s to avoid burning Vercel
+  // function budget; we reconnect on `reconnect` event or onerror as long
+  // as the run is still pending/running. The DB has the truth, so the
+  // worst-case effect of any disconnect is a small visual stall.
   useEffect(() => {
     if (!currentRunId || (runStatus !== "pending" && runStatus !== "running")) {
       sseRef.current?.close();
       sseRef.current = null;
       return;
     }
-    const token = useAuthStore.getState().token;
-    const url = `/api/flows/runs/${currentRunId}/stream`;
-    const es = new EventSource(`${url}?token=${encodeURIComponent(token || "")}`);
-    es.onmessage = (e) => {
-      try { handleSSEEvent(JSON.parse(e.data)); } catch { /* ignore */ }
+
+    let cancelled = false;
+    let es = null;
+    let reconnectTimer = null;
+
+    const open = () => {
+      if (cancelled) return;
+      const token = useAuthStore.getState().token;
+      const url = `/api/flows/runs/${currentRunId}/stream`;
+      es = new EventSource(`${url}?token=${encodeURIComponent(token || "")}`);
+      sseRef.current = es;
+      es.onmessage = (e) => {
+        try { handleSSEEvent(JSON.parse(e.data)); } catch { /* ignore */ }
+      };
+      // Server-initiated lifetime cap: typed event, reconnect immediately.
+      es.addEventListener("reconnect", () => {
+        try { es?.close(); } catch { /* ignore */ }
+        if (!cancelled) open();
+      });
+      es.onerror = () => {
+        try { es?.close(); } catch { /* ignore */ }
+        if (cancelled) return;
+        // Network/timeout error — reconnect with a small backoff so we
+        // don't tight-loop against a degraded connection.
+        if (reconnectTimer) clearTimeout(reconnectTimer);
+        reconnectTimer = setTimeout(() => { if (!cancelled) open(); }, 1500);
+      };
     };
-    es.onerror = () => es.close();
-    sseRef.current = es;
-    return () => { es.close(); sseRef.current = null; };
+
+    open();
+
+    return () => {
+      cancelled = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      try { es?.close(); } catch { /* ignore */ }
+      sseRef.current = null;
+    };
   }, [currentRunId, runStatus]);
 
   const onDragOver = useCallback((e) => {

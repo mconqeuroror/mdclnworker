@@ -33,9 +33,22 @@ function getClient() {
   return new ApifyClient({ token });
 }
 
+/**
+ * Reel scraper is OFF by default — even if APIFY_API_TOKEN is set, the
+ * scraper will not run unless REEL_SCRAPER_ENABLED is explicitly truthy.
+ * This is a safety belt against forgotten cron jobs / stale Vercel cron
+ * config silently burning Apify budget. To run scrapes again, set both
+ * APIFY_API_TOKEN and REEL_SCRAPER_ENABLED=true.
+ *
+ * REEL_SCRAPER_DISABLED is still honored as a hard kill switch.
+ */
 export function isReelScraperConfigured() {
-  const d = String(process.env.REEL_SCRAPER_DISABLED || "").toLowerCase();
-  if (d === "1" || d === "true" || d === "yes") return false;
+  const off = String(process.env.REEL_SCRAPER_DISABLED || "").toLowerCase();
+  if (off === "1" || off === "true" || off === "yes") return false;
+
+  const on = String(process.env.REEL_SCRAPER_ENABLED || "").toLowerCase();
+  if (!(on === "1" || on === "true" || on === "yes")) return false;
+
   return Boolean((process.env.APIFY_API_TOKEN || "").trim());
 }
 

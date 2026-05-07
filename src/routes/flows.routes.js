@@ -182,11 +182,25 @@ router.post("/:id/run", async (req, res) => {
   }
 });
 
-// SSE stream — must come before /:runId to avoid conflict
+/**
+ * SSE stream — must come before /:runId to avoid route conflict.
+ *
+ * Each connection has a hard ~25s lifetime so we never sit on a Vercel
+ * function until the platform's `maxDuration` (800s) kills it. When the
+ * window expires the server emits a `reconnect` event and ends the
+ * stream; the client should reconnect immediately and pick up where
+ * it left off (run state is in the DB, not in the connection).
+ *
+ * Configurable via FLOW_SSE_MAX_DURATION_MS (default 25_000).
+ */
+const FLOW_SSE_MAX_DURATION_MS = Math.max(
+  5_000,
+  Math.min(120_000, Number(process.env.FLOW_SSE_MAX_DURATION_MS) || 25_000),
+);
+
 router.get("/runs/:runId/stream", async (req, res) => {
   const { runId } = req.params;
 
-  // Verify run belongs to user
   const run = await prisma.flowRun.findFirst({ where: { id: runId, userId: req.user.id } });
   if (!run) return res.status(404).json({ error: "Run not found" });
 
@@ -196,7 +210,8 @@ router.get("/runs/:runId/stream", async (req, res) => {
   res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders();
 
-  // Send current state for already-completed runs
+  // Terminal states resolve in a single payload — no need to keep the
+  // connection open at all.
   if (run.status === "completed" || run.status === "failed" || run.status === "cancelled") {
     res.write(`data: ${JSON.stringify({
       type: "flow",
@@ -209,12 +224,25 @@ router.get("/runs/:runId/stream", async (req, res) => {
 
   registerSSEClient(runId, res);
 
-  // Heartbeat every 20 seconds
   const heartbeat = setInterval(() => {
     try { res.write(": heartbeat\n\n"); } catch { clearInterval(heartbeat); }
   }, 20_000);
 
-  res.on("close", () => clearInterval(heartbeat));
+  // Hard-cap connection lifetime. Burning 800s of function time per stream
+  // costs serverless budget and risks Vercel killing the function with a
+  // 504 mid-message. After this window we send a typed `reconnect` event
+  // and close cleanly — clients should reopen the stream immediately.
+  const maxLifetimeTimer = setTimeout(() => {
+    try {
+      res.write(`event: reconnect\ndata: ${JSON.stringify({ reason: "lifetime_cap", afterMs: FLOW_SSE_MAX_DURATION_MS })}\n\n`);
+    } catch { /* connection already gone */ }
+    try { res.end(); } catch { /* ignore */ }
+  }, FLOW_SSE_MAX_DURATION_MS);
+
+  res.on("close", () => {
+    clearInterval(heartbeat);
+    clearTimeout(maxLifetimeTimer);
+  });
 });
 
 router.get("/runs/:runId", async (req, res) => {
