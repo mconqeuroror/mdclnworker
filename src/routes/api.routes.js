@@ -65,6 +65,7 @@ import {
   runRunpodWatchdog,
   runRunningHubWatchdog,
   runWavespeedSeedreamWatchdog,
+  runCosMirrorWatchdog,
 } from "../services/generation-poller.service.js";
 import {
   createModel,
@@ -2398,6 +2399,16 @@ router.get("/cron/kie-recovery", async (req, res) => {
     await runRunpodWatchdog({ limit: 80 });
   } catch (error) {
     console.error("[cron/kie-recovery] RunPod/motion reconcile watchdog failed:", error?.message || error);
+  }
+  // Re-mirror any RunningHub completions still pointing at the temporary
+  // (24h-valid) Tencent COS host. The webhook handler updates outputUrl to
+  // the raw COS URL synchronously and then mirrors in the background, but
+  // on Vercel that background work can be killed before it finishes — so
+  // we sweep here as the safety net.
+  try {
+    await runCosMirrorWatchdog({ limit: 60 });
+  } catch (error) {
+    console.error("[cron/kie-recovery] COS mirror watchdog failed:", error?.message || error);
   }
   return cleanupStuckGenerations(req, res);
 });

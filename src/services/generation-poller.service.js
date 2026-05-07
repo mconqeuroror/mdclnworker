@@ -1027,6 +1027,93 @@ class GenerationPollerService {
   }
 
   /**
+   * Re-mirror RunningHub COS URLs that are still on the temporary
+   * (24h-valid) Tencent COS host onto our permanent blob storage.
+   *
+   * The webhook handler now updates the row to `completed` with the raw
+   * COS URL synchronously and fires off a best-effort mirror in the
+   * background. On Vercel the function process gets terminated immediately
+   * after `res.send()`, so the background mirror often doesn't finish.
+   * This sweep catches those rows on the next cron tick (every 5 min) and
+   * mirrors them before COS expires the URL.
+   *
+   * Match pattern: any HTTP URL containing `.cos.` or `myqcloud.com` (the
+   * RH COS hosts we've observed: rh-images-*.cos.ap-beijing.myqcloud.com,
+   * etc.). False positives are harmless — we'd just re-mirror an already
+   * permanent URL.
+   */
+  async reconcileCosBackedGenerations({ limit = 40 } = {}) {
+    const safeLimit = Math.max(1, Math.min(200, Number.parseInt(limit, 10) || 40));
+    const COS_HOST_HINT = "myqcloud.com";
+
+    // Look at recent (last 26h, slightly more than COS TTL) completed rows.
+    const since = new Date(Date.now() - 26 * 60 * 60 * 1000);
+    const rows = await prisma.generation.findMany({
+      where: {
+        status: "completed",
+        completedAt: { gt: since },
+        outputUrl: { contains: COS_HOST_HINT },
+      },
+      select: {
+        id: true,
+        type: true,
+        outputUrl: true,
+        userId: true,
+        modelId: true,
+        completedAt: true,
+        providerResponse: true,
+      },
+      take: safeLimit,
+      orderBy: { completedAt: "asc" },
+    });
+    if (rows.length === 0) return { scanned: 0, mirrored: 0, errors: 0 };
+
+    console.log(`[COS Mirror] sweeping ${rows.length} completed row(s) with COS URL…`);
+    const { mirrorProviderOutputUrl } = await import("../utils/kieUpload.js");
+
+    let mirrored = 0;
+    let errors = 0;
+    for (const gen of rows) {
+      const rawUrl = String(gen.outputUrl || "").trim();
+      if (!rawUrl || !rawUrl.includes(COS_HOST_HINT)) continue;
+      const IMAGE_GENERATION_TYPES = new Set(["synthid-remove", "upscale"]);
+      const mimeHint = IMAGE_GENERATION_TYPES.has(gen.type) ? "image/png" : "video/mp4";
+      try {
+        const finalUrl = await mirrorProviderOutputUrl(rawUrl, mimeHint);
+        if (!finalUrl || finalUrl === rawUrl) continue;
+        const prev =
+          gen.providerResponse && typeof gen.providerResponse === "object"
+            ? gen.providerResponse
+            : {};
+        await prisma.generation.update({
+          where: { id: gen.id },
+          data: {
+            outputUrl: finalUrl,
+            providerResponse: {
+              ...prev,
+              outputUrl: finalUrl,
+              cosMirroredAt: new Date().toISOString(),
+            },
+          },
+        });
+        mirrored += 1;
+        console.log(
+          `[COS Mirror] 🪞 ${gen.id.slice(0, 8)} ${gen.type} → ${finalUrl.slice(0, 80)}…`,
+        );
+      } catch (e) {
+        errors += 1;
+        console.warn(
+          `[COS Mirror] failed for ${gen.id.slice(0, 8)} (${gen.type}): ${e?.message || e}`,
+        );
+      }
+    }
+    console.log(
+      `[COS Mirror] done scanned=${rows.length} mirrored=${mirrored} errors=${errors}`,
+    );
+    return { scanned: rows.length, mirrored, errors };
+  }
+
+  /**
    * Reconcile RunPod-backed generations that should be completed via callback.
    * Callback remains primary path; polling here is recovery for missed callbacks.
    */
@@ -1335,5 +1422,9 @@ export async function runWavespeedSeedreamWatchdog() {
 
 export async function runRunpodWatchdog(options = {}) {
   return generationPoller.reconcileStaleRunpodGenerations(options);
+}
+
+export async function runCosMirrorWatchdog(options = {}) {
+  return generationPoller.reconcileCosBackedGenerations(options);
 }
 

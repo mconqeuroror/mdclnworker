@@ -1232,7 +1232,19 @@ function anyMediaUrl(queryLike) {
   return null;
 }
 
-const RH_FETCH_TIMEOUT_MS = 60 * 60 * 1000;
+/**
+ * COS download timeout for mirroring RunningHub output to our blob storage.
+ *
+ * Was 60 minutes (60 * 60 * 1000) — that meant a single stalled COS
+ * connection inside a webhook handler could hold the response open for an
+ * hour, blocking the ack to RunningHub. RH then considered the delivery
+ * failed and the user's video silently never landed in the app.
+ *
+ * 5 minutes is more than enough for a finished motion-x mp4 (typical 4-15
+ * MiB). If it's not done in 5m, the COS object is broken or the network is
+ * dead — let the watchdog poller retry instead of hanging the request.
+ */
+const RH_FETCH_TIMEOUT_MS = 5 * 60 * 1000;
 
 /**
  * Download a temporary RunningHub / COS URL and mirror to our blob storage.
