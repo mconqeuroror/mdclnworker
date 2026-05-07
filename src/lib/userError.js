@@ -27,11 +27,27 @@ export function toUserError(rawMessage) {
     };
   }
 
-  // Auth / config
-  if (/401|unauthorized|invalid.*api.*key|not configured/i.test(lower)) {
+  // Auth — only true API-key / 401 problems, NOT every internal "X is not
+  // configured" exception. Without this narrowing, errors like
+  // "FFMPEG_WORKER_URL is not configured" or "RUNNINGHUB_API_KEY not configured"
+  // (which are our own ops issues, not the user's) get rewritten as
+  // "AI service is not configured or the key is invalid" and surface in the
+  // Live Preview pane on Motion X / Recreate, scaring users into thinking
+  // their account is broken.
+  if (/\b401\b|\bunauthorized\b|invalid.*api.*key|api.*key.*invalid/i.test(lower)) {
     return {
       message: "AI service is not configured or the key is invalid.",
       solution: "Please contact support to fix this.",
+    };
+  }
+
+  // Server-side env / dependency missing (FFMPEG_WORKER_URL, RUNNINGHUB_API_KEY,
+  // R2/Blob, FAL endpoint, etc.). Treat as a transient service issue from the
+  // user's perspective — they shouldn't be told their key is invalid.
+  if (/\bnot configured\b|\bnot set\b|missing.*environment/i.test(lower)) {
+    return {
+      message: "This AI service is temporarily unavailable.",
+      solution: "Please try again in a few minutes. If it keeps failing, contact support.",
     };
   }
 
