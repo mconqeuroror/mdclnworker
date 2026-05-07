@@ -205,9 +205,27 @@ function getMotionVhsFfmpegOutputOpts() {
 }
 
 /**
+ * Sticky flag: once we discover ffprobe isn't on the host (the normal state on
+ * Vercel — we exclude the ffmpeg-static / ffprobe-static binaries from the
+ * deployment bundle on purpose), don't keep retrying it on every motion-x
+ * submission. The remote ffmpeg worker already produced a valid MP4 (we
+ * checked for `ftyp` headers), so the local re-probe is just a sanity check.
+ *
+ * Without this flag the API host emitted
+ *   "ffprobe not runnable — skipping VHS pre-upload validation"
+ * for every single transcode, which looked alarming in production logs even
+ * though everything was working correctly via the worker.
+ */
+let __ffprobeUnavailable = false;
+let __ffprobeUnavailableLogged = false;
+
+/**
  * ffprobe gate before RunningHub: reject 0/0 r_frame_rate or nb_frames=0 when possible.
- * If ffprobe is missing, logs a warning and allows (avoids hard-failing on hosts without it).
- * Set NSFW_MOTION_VHS_FFPROBE=false to skip the probe.
+ * If ffprobe is missing on the host, the probe is silently skipped (the remote
+ * ffmpeg worker has already encoded a valid MP4; ffprobe here is only a
+ * defense-in-depth check). A one-time INFO line is emitted on cold start so
+ * operators can still spot the configuration if they need it.
+ * Set NSFW_MOTION_VHS_FFPROBE=false to disable the probe entirely.
  * @param {Buffer} buffer
  * @param {string} where — log label
  * @returns {Promise<{ ok: boolean, reason?: string, probeJson?: object, skipped?: boolean, ffprobeError?: boolean }>}
@@ -215,6 +233,11 @@ function getMotionVhsFfmpegOutputOpts() {
 async function validateVhsTranscodedBufferWithFfprobe(buffer, where) {
   if (String(process.env.NSFW_MOTION_VHS_FFPROBE || "true").toLowerCase() === "false") {
     return { ok: true, skipped: true };
+  }
+  if (__ffprobeUnavailable) {
+    // Already known to be missing on this host; remote worker is the source
+    // of truth. Skip silently.
+    return { ok: true, skipped: true, ffprobeError: true };
   }
   if (!Buffer.isBuffer(buffer) || buffer.length < 256) {
     return { ok: false, reason: "buffer too small" };
@@ -258,10 +281,18 @@ async function validateVhsTranscodedBufferWithFfprobe(buffer, where) {
   } catch (e) {
     const errText = e?.message || String(e);
     if (/ENOENT|spawn|not find|ffprobe/gi.test(errText)) {
-      console.warn(
-        "[NSFW/motion] ffprobe not runnable — skipping VHS pre-upload validation (set FFPROBE_PATH or install):",
-        errText.slice(0, 200),
-      );
+      // Sticky: don't try ffprobe again on this process. We rely on the
+      // remote ffmpeg worker's MP4 (which has already been verified via the
+      // ftyp header check in finalizeWorkerTranscodedMp4).
+      __ffprobeUnavailable = true;
+      if (!__ffprobeUnavailableLogged) {
+        __ffprobeUnavailableLogged = true;
+        console.log(
+          "[NSFW/motion] local ffprobe unavailable on this host (expected on Vercel — " +
+            "remote ffmpeg worker handles transcoding). Skipping client-side VHS probe " +
+            "for the rest of this process. Set FFPROBE_PATH to enable it locally.",
+        );
+      }
       return { ok: true, skipped: true, ffprobeError: true, warn: errText };
     }
     console.warn(`[NSFW/motion] ffprobe failed [${where}]:`, errText);
