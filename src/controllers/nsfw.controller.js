@@ -278,42 +278,79 @@ function buildAttributeList(attrs = {}) {
     .filter((v) => v);
 }
 
+function humanizeUnknownChipKey(key) {
+  return String(key || "")
+    .replace(/([A-Z])/g, " $1")
+    .replace(/_/g, " ")
+    .trim()
+    .replace(/^\w/, (c) => c.toUpperCase());
+}
+
+/**
+ * Plain-text list of chip selections for Grok. Must include every NSFW selector key from
+ * `client/src/data/nsfwSelectors.js` so nothing is dropped before the LLM.
+ */
 function summarizeAttributes(attrs = {}, fallbackString = "") {
   const labelMap = {
+    ethnicity: "Ethnicity",
     hairColor: "Hair",
-    hairType: "Hair Type",
+    hairType: "Hair style",
     skinTone: "Skin",
     eyeColor: "Eyes",
+    eyeShape: "Eye shape",
+    faceShape: "Face shape",
+    noseShape: "Nose",
     lipSize: "Lips",
+    bodyType: "Body type",
+    height: "Height",
     breastSize: "Breast size",
+    buttSize: "Butt",
+    waist: "Waist",
+    hips: "Hips",
+    tattoos: "Tattoos & piercings",
     makeup: "Makeup",
-    outfit: "Outfit",
     expression: "Expression",
-    poseStyle: "Pose style",
-    bodyPose: "Body pose",
+    skinCondition: "Skin detail",
+    nailsColor: "Nail color",
+    nailsLength: "Nail style",
+    accessories: "Accessories",
+    outfit: "Outfit",
+    poseStyle: "Pose",
+    bodyPose: "Body detail",
+    action: "Action",
+    fluids: "Fluids",
+    wetness: "Wet / messy",
+    hairState: "Hair state",
+    cameraDevice: "Camera",
     cameraAngle: "Camera angle",
     shotType: "Shot type",
-    background: "Background",
+    composition: "Composition",
+    focus: "Focus area",
+    background: "Location / background",
+    props: "Scene items",
     lighting: "Lighting",
     flash: "Flash",
     timeOfDay: "Time of day",
     colorMood: "Color mood",
     cameraLens: "Lens",
-    composition: "Composition",
-    nailsColor: "Nail color",
     nailsFinish: "Nail finish",
-    props: "Props",
     extra: "Extra",
   };
 
-  const lines = Object.entries(labelMap)
-    .map(([key, label]) => {
-      const val = attrs?.[key];
-      return typeof val === "string" && val.trim()
-        ? `- ${label}: ${val.trim()}`
-        : null;
-    })
-    .filter(Boolean);
+  const lines = [];
+  const used = new Set();
+  for (const [key, label] of Object.entries(labelMap)) {
+    const val = attrs?.[key];
+    if (typeof val === "string" && val.trim()) {
+      lines.push(`- ${label}: ${val.trim()}`);
+      used.add(key);
+    }
+  }
+  for (const [key, val] of Object.entries(attrs || {})) {
+    if (used.has(key)) continue;
+    if (typeof val !== "string" || !val.trim()) continue;
+    lines.push(`- ${humanizeUnknownChipKey(key)}: ${val.trim()}`);
+  }
 
   if (fallbackString && fallbackString.trim()) {
     lines.push(`- Other: ${fallbackString.trim()}`);
@@ -3323,7 +3360,8 @@ export async function generateNudesPack(req, res) {
             triggerWord: loraTriggerWord,
             userPrompt: finalUserPrompt,
             attributes: attributesString,
-            sceneDescription: userRequestForAi || sceneLine || finalUserPrompt,
+            // Only the user's global pack scene note — not the full Grok request blob (would duplicate noise).
+            sceneDescription: packSceneNote.trim() || "",
             chipSelections: attributesDetail,
             options: {
               nudesPack: true,
@@ -3772,15 +3810,17 @@ async function runNsfwPromptGenerationForModel(
 
     const defaultUserWrapper =
       mode === "nudes-pack"
-        ? "Compose the final ZiT 6.2 NSFW prompt as ONE raw string (not JSON, not a field dump). Follow the system bilingual rule: triggers (Latin) → English identity from main_subject → Simplified Chinese scene body (slot order in system prompt) → last line exactly: Photorealistic, sharp focus, natural skin texture. The structured JSON is source of truth. If nsfw_meta.is_partnered, use the partnered appendix.\n\n{{REQUEST_JSON}}\n\nExtra context (reference only):\n{{REQUEST}}"
-        : "The structured JSON below is the full variable bundle. Assemble one Z-Image NSFW positive string per the system rules: triggers → English identity → Simplified Chinese scene → final English quality line exactly as specified. Plain text only, no JSON in your reply, no backticks.\n\n{{REQUEST_JSON}}\n\nReference only — raw user request:\n{{REQUEST}}";
+        ? "Compose the final ZiT 6.2 NSFW prompt as ONE raw string (not JSON, not a field dump). Follow the system bilingual rule: triggers (Latin) → English identity from main_subject → Simplified Chinese scene body (slot order in system prompt) → last line exactly: Photorealistic, sharp focus, natural skin texture. If nsfw_meta.is_partnered, use the partnered appendix.\n\nLoRA trigger (verbatim at the start of your output string): {{TRIGGER_WORD}}\n\n### Chip selections from UI (binding — reflect every non-empty line)\n{{CHIP_SUMMARY}}\n\n### Structured JSON (source of truth together with the sections above)\n{{REQUEST_JSON}}\n\n### User / pose context (prose)\n{{REQUEST}}"
+        : "LoRA trigger token — must appear verbatim at the very start of your output string:\n{{TRIGGER_WORD}}\n\n### User scene request (binding for location, mood, and explicit details; do not replace with a generic bedroom or indoor default unless this text and the chips clearly call for it)\n{{REQUEST}}\n\n### Chip selections from the UI (binding — every non-empty line must be woven into the final prompt; when a chip conflicts with a vague default, the chip wins)\n{{CHIP_SUMMARY}}\n\n### Structured variable bundle (identity lock, wardrobe, scene, composition)\n{{REQUEST_JSON}}\n\nAssemble one Z-Image NSFW positive string per the system rules. Plain text only — no JSON in your reply, no backticks.";
     const wrapperTemplate =
       mode === "nudes-pack"
         ? await getPromptTemplateValue("nudesPackPromptGeneratorUserWrapper", defaultUserWrapper)
-        : defaultUserWrapper;
+        : await getPromptTemplateValue("nsfwPromptGeneratorUserWrapper", defaultUserWrapper);
     const userMessage = applyPromptTemplatePlaceholders(wrapperTemplate, {
       REQUEST: userRequest,
       REQUEST_JSON: structured.json,
+      TRIGGER_WORD: triggerWord,
+      CHIP_SUMMARY: attributeSummary,
       MODEL_NAME: model?.name || "",
       MODE: mode || "default",
       POSE_ID: context?.pose?.id || "",

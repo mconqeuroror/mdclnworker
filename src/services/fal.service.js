@@ -2611,10 +2611,28 @@ export async function submitNsfwGeneration(params, webhookUrl = null, generation
   // Build prompt: anchor identity with triggerWord, then the AI-generated scene prose — nothing else.
   // Z-Image Turbo is degraded by quality tag dumps ("anatomically correct", "solo girl", etc.).
   // The AI system prompt already produces correctly styled, complete descriptions.
-  const basePrompt = (userPrompt && userPrompt.trim()) || "";
+  let basePrompt = (userPrompt && userPrompt.trim()) || "";
   if (!basePrompt) {
     return { success: false, error: "Prompt is required. Generate a prompt first (Create Prompt)." };
   }
+
+  // Advanced / full NSFW flow: the UI scene field must reach Comfy. Grok's line often drifts to a
+  // generic indoor bedroom; the client still sends `sceneDescription` separately, and the controller
+  // may echo `prompt` here when the field is empty — skip pinning in that case to avoid doubling the prompt.
+  const sceneLineRaw = String(sceneDescription || "").trim();
+  const sceneLine = sceneLineRaw.length > 6000 ? sceneLineRaw.slice(0, 6000) : sceneLineRaw;
+  if (!quickFlow && sceneLine && sceneLine !== basePrompt) {
+    const bl = basePrompt.toLowerCase();
+    const sl = sceneLine.toLowerCase();
+    const redundant =
+      bl === sl ||
+      (sl.length >= 12 && bl.startsWith(sl));
+    if (!redundant) {
+      basePrompt = `Scene and setting (follow exactly): ${sceneLine}. ${basePrompt}`;
+      console.log("📍 Pinned user scene line into Comfy positive prompt (non-quick NSFW flow)");
+    }
+  }
+
   const hasTriggerAnchor = basePrompt.toLowerCase().includes(String(triggerWord || "").toLowerCase());
   let prompt = hasTriggerAnchor ? basePrompt : `${triggerWord}, ${basePrompt}`;
 

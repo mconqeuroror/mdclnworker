@@ -4969,7 +4969,11 @@ export default function NSFWPage({ embedded = false, sidebarCollapsed = false, s
   // Generate prompt with AI (Grok) from selections + scene description
   const handleGeneratePrompt = async () => {
     if (!selectedModel) return;
-    const sceneText = sceneDescription.trim() || "intimate bedroom scene";
+    const sceneText = sceneDescription.trim();
+    if (!sceneText) {
+      toast.error(copy.toastTypeSceneFirst);
+      return;
+    }
 
     setIsGeneratingAiPrompt(true);
 

@@ -195,7 +195,8 @@ function buildScene({ userRequest, context = {} }) {
 
   return pruneEmpty({
     user_request: safeStr(userRequest),
-    setting: safeStr(attrs.setting || attrs.scene || context.setting),
+    // NSFW UI "Location" chip uses key `background` — must map here or Grok never sees setting in JSON.
+    setting: safeStr(pickFirst(attrs.setting, attrs.scene, attrs.background, context.setting)),
     environment_details: Array.isArray(attrs.environmentDetails)
       ? attrs.environmentDetails
       : safeStr(attrs.environmentDetails)
@@ -222,6 +223,7 @@ function buildComposition({ context = {} }) {
   const attrs = context?.attributesDetail || {};
   return pruneEmpty({
     framing: safeStr(attrs.framing || attrs.shotType),
+    camera_device: safeStr(attrs.cameraDevice),
     camera_angle: safeStr(attrs.cameraAngle),
     camera_lens: safeStr(attrs.cameraLens),
     orientation: safeStr(attrs.orientation),
@@ -285,9 +287,15 @@ function buildNsfwMeta({ context = {}, options = {} }) {
     wardrobe_locked: wardrobeLocked,
     sex_act: safeStr(attrs.sexAct || attrs.act),
     pose_intent: safeStr(attrs.poseIntent),
+    action: safeStr(attrs.action),
+    fluids: safeStr(attrs.fluids),
+    wetness: safeStr(attrs.wetness),
+    hair_state: safeStr(attrs.hairState),
+    skin_detail: safeStr(attrs.skinCondition),
     nails: pruneEmpty({
       color: safeStr(attrs.nailsColor),
       finish: safeStr(attrs.nailsFinish),
+      length_style: safeStr(attrs.nailsLength),
     }),
   });
 }
@@ -367,7 +375,8 @@ export const NSFW_ZIT_INPUT_BRIEF = `## STRUCTURED NSFW INPUT (READ CAREFULLY)
 ### INPUT
 The user message includes a **JSON variable bundle** built by the app. It categorizes
 trigger_word, lora_triggers, main_subject, scene, composition, colors, style, and nsfw_meta.
-This JSON is *upstream context only* — you translate it into one photographic prompt string.
+The same message includes explicit **chip selection lines** and the **LoRA trigger** — treat those
+sections as binding together with the JSON. This JSON is *upstream context only* — you translate it into one photographic prompt string.
 
 You MUST read every non-empty field. Do not dump key:value lines into the final prompt. Do
 not return JSON, YAML, or markdown. The diffusion sampler is conditioned on a single
