@@ -141,12 +141,13 @@ export function buildModelCloneXPayload({
       1,
       Math.min(100, Math.round(Number.isFinite(parsedSteps) ? parsedSteps : defaultStepsForMode)),
     );
+    const parsedCfg = Number(cfg);
+    const safeCfg = cfg != null && Number.isFinite(parsedCfg)
+      ? Math.max(0, Math.min(6, parsedCfg))
+      : Math.max(0, Math.min(6, Number(wf["276"].inputs.cfg) || 2));
     wf["276"].inputs.steps = safeSteps;
-    if (cfg != null) {
-      const parsedCfg = Number(cfg);
-      const safeCfg = Math.max(0, Math.min(6, Number.isFinite(parsedCfg) ? parsedCfg : 2));
-      wf["276"].inputs.cfg = safeCfg;
-    }
+    wf["276"].inputs.cfg = safeCfg;
+    console.log(`[ModelCloneX] workflow=${variant} steps=${safeSteps} cfg=${safeCfg} aspect=${aspectRatio}`);
   }
 
   if (variant === "lora" && wf["374"]) {
