@@ -13,7 +13,7 @@ export default function NanaBananaNode({ id, data, selected }) {
       data={data}
       selected={selected}
       headerColor="#a78bfa"
-      label={data.label || "NanaBanana Avatar"}
+      label={data.label || "Avatar Generator"}
       inputs={[
         { id: "model", type: "model", label: "Model" },
         { id: "text", type: "text", label: "Prompt" },

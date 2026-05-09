@@ -268,10 +268,10 @@ export const NODE_REGISTRY = {
   },
 
   "nana-banana-avatar": {
-    label: "NanaBanana Avatar",
+    label: "Avatar Generator",
     category: "images",
     color: "#a78bfa",
-    description: "Generate image using your model with NanaBanana Pro",
+    description: "Generate image using your model",
     inputs: [
       { id: "model", type: "model", label: "Model" },
       { id: "text", type: "text", label: "Prompt" },
@@ -283,7 +283,7 @@ export const NODE_REGISTRY = {
     execute: async (inputs, nodeData, userId, onProgress) => {
       const { generateImageWithNanoBananaKie } = await import("./kie.service.js");
       const model = inputs.model;
-      if (!model) throw new Error("NanaBanana Avatar: model required");
+      if (!model) throw new Error("Avatar Generator: model required");
       const prompt = await maybeEnhancePrompt(inputs.text || nodeData.prompt || "", nodeData, userId, onProgress);
       const refs = [inputs.image, model.photo1Url, model.photo2Url, model.photo3Url].filter(Boolean).slice(0, 4);
 
@@ -293,13 +293,13 @@ export const NODE_REGISTRY = {
       if (getTotalCredits(user) < cost) throw new Error(`Not enough credits (need ${cost})`);
       await deductCredits(userId, cost);
 
-      onProgress?.({ message: "Submitting NanaBanana generation..." });
+      onProgress?.({ message: "Submitting image generation..." });
       let outputUrl = null;
-      const result = await generateImageWithNanoBananaKie(refs, prompt, {
+      const result = await generateImageWithNanaBananaKie(refs, prompt, {
         resolution: nodeData.resolution || "2K",
         aspectRatio: nodeData.aspectRatio || "9:16",
         onTaskCreated: async (taskId) => {
-          onProgress?.({ message: `KIE task created: ${taskId}` });
+          onProgress?.({ message: "Processing..." });
           // Create generation record for tracking
           await prisma.generation.create({
             data: { userId, modelId: model.id, type: "advanced-image", status: "processing",
@@ -320,19 +320,19 @@ export const NODE_REGISTRY = {
             orderBy: { createdAt: "desc" },
           });
           if (gen?.status === "completed" && gen.outputUrl) { outputUrl = gen.outputUrl; break; }
-          if (gen?.status === "failed") throw new Error("NanaBanana generation failed");
+          if (gen?.status === "failed") throw new Error("Image generation failed");
         }
       }
-      if (!outputUrl) throw new Error("NanaBanana: no output URL received");
+      if (!outputUrl) throw new Error("Image generation: no output URL received");
       return { output: outputUrl, outputType: "image", creditsUsed: cost };
     },
   },
 
   "seedream-avatar": {
-    label: "Seedream 5 Avatar",
+    label: "Avatar Generator HD",
     category: "images",
     color: "#a78bfa",
-    description: "Generate image using your model with Seedream 5.0 Lite",
+    description: "Generate image using your model (fast mode)",
     inputs: [
       { id: "model", type: "model", label: "Model" },
       { id: "text", type: "text", label: "Prompt" },
@@ -343,7 +343,7 @@ export const NODE_REGISTRY = {
     execute: async (inputs, nodeData, userId, onProgress) => {
       const { generateImageWithSeedream5Lite } = await import("./kie.service.js");
       const model = inputs.model;
-      if (!model) throw new Error("Seedream Avatar: model required");
+      if (!model) throw new Error("Avatar Generator HD: model required");
       const prompt = await maybeEnhancePrompt(inputs.text || nodeData.prompt || "", nodeData, userId, onProgress);
       const refs = [model.photo1Url, model.photo2Url, model.photo3Url].filter(Boolean);
 
@@ -353,13 +353,13 @@ export const NODE_REGISTRY = {
       if (getTotalCredits(user) < cost) throw new Error(`Not enough credits (need ${cost})`);
       await deductCredits(userId, cost);
 
-      onProgress?.({ message: "Submitting Seedream generation..." });
+      onProgress?.({ message: "Submitting image generation..." });
       const result = await generateImageWithSeedream5Lite(refs, prompt, { aspectRatio: nodeData.aspectRatio || "9:16", quality: "basic" });
-      if (!result.success && !result.deferred) throw new Error(result.error || "Seedream failed");
+      if (!result.success && !result.deferred) throw new Error(result.error || "Image generation failed");
 
       let outputUrl = result.outputUrl;
       if (result.deferred && result.taskId) {
-        onProgress?.({ message: "Waiting for Seedream result..." });
+        onProgress?.({ message: "Waiting for result..." });
         const maxWait = 5 * 60 * 1000;
         const start = Date.now();
         while (Date.now() - start < maxWait) {
@@ -369,10 +369,10 @@ export const NODE_REGISTRY = {
             orderBy: { createdAt: "desc" },
           });
           if (gen?.status === "completed" && gen.outputUrl) { outputUrl = gen.outputUrl; break; }
-          if (gen?.status === "failed") throw new Error("Seedream generation failed");
+          if (gen?.status === "failed") throw new Error("Image generation failed");
         }
       }
-      if (!outputUrl) throw new Error("Seedream: no output received");
+      if (!outputUrl) throw new Error("Image generation: no output received");
       return { output: outputUrl, outputType: "image", creditsUsed: cost };
     },
   },
@@ -659,7 +659,7 @@ export const NODE_REGISTRY = {
         await registerKieTaskForGeneration(taskId, generation.id, userId, "creator-studio");
       };
 
-      onProgress?.({ message: `Generating with ${generationModel}…` });
+      onProgress?.({ message: "Generating image..." });
       let result = null;
       if (generationModel === "nano-banana-pro") {
         result = mode === "i2i"
@@ -717,7 +717,7 @@ export const NODE_REGISTRY = {
           onTaskCreated,
         });
       } else {
-        throw new Error(`Creator Studio: unsupported model ${generationModel}`);
+        throw new Error("Creator Studio: unsupported model selected");
       }
 
       let outputUrl = result.outputUrl;
@@ -766,7 +766,7 @@ export const NODE_REGISTRY = {
       if (getTotalCredits(user) < cost) throw new Error(`Not enough credits (need ${cost})`);
       await deductCredits(userId, cost);
 
-      onProgress?.({ message: `Submitting ${videoModel} video generation…` });
+      onProgress?.({ message: "Submitting video generation..." });
       const {
         generateVideoWithKlingTextKie,
         generateVideoWithKling26Kie,
@@ -830,7 +830,7 @@ export const NODE_REGISTRY = {
           onTaskSubmitted,
         });
       } else {
-        throw new Error(`Unsupported video model: ${videoModel}`);
+        throw new Error("Unsupported video model selected");
       }
 
       let outputUrl = result?.outputUrl;
@@ -891,7 +891,7 @@ export const NODE_REGISTRY = {
     label: "Talking Head",
     category: "video",
     color: "#f59e0b",
-    description: "Lip-sync a portrait to audio (Kling V2 AI Avatar)",
+    description: "Lip-sync a portrait to audio",
     inputs: [
       { id: "image", type: "image", label: "Portrait" },
       { id: "audio", type: "audio", label: "Audio" },
@@ -1024,7 +1024,7 @@ export const NODE_REGISTRY = {
       });
       if (!res.ok) {
         const errText = await res.text().catch(() => "");
-        throw new Error(`SFX: ElevenLabs error ${res.status}: ${errText.slice(0, 200)}`);
+        throw new Error(`SFX: audio service error ${res.status}: ${errText.slice(0, 200)}`);
       }
       const buf = Buffer.from(await res.arrayBuffer());
       const { uploadAudioToR2 } = await import("./elevenlabs.service.js");

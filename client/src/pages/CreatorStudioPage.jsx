@@ -1666,7 +1666,7 @@ function AssetManagerModal({
               {pickerMode ? `Pick a ${pickerMode} asset` : "My Assets"}
             </h2>
             <p className="text-[11px] text-slate-400 mt-0.5 tabular-nums">
-              {usedCount}/{cap} used · stored as KIE volcanic assets
+              {usedCount}/{cap} used · stored in your asset library
             </p>
           </div>
           <button

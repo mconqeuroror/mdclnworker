@@ -12,7 +12,7 @@ export default function SeedreamNode({ id, data, selected }) {
       data={data}
       selected={selected}
       headerColor="#a78bfa"
-      label={data.label || "Seedream 5 Avatar"}
+      label={data.label || "Avatar Generator HD"}
       inputs={[
         { id: "model", type: "model", label: "Model" },
         { id: "text", type: "text", label: "Prompt" },

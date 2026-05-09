@@ -8,7 +8,7 @@ export const FLOW_TEMPLATES = [
   {
     id: "template-portrait-enhancer",
     name: "Portrait Enhancer",
-    description: "Upload a portrait → generate a polished NanaBanana avatar → upscale to max resolution.",
+    description: "Upload a portrait → generate a polished avatar → upscale to max resolution.",
     thumbnail: null,
     nodes: [
       {
@@ -21,7 +21,7 @@ export const FLOW_TEMPLATES = [
         id: "nana-banana-1",
         type: "nana-banana-avatar",
         position: { x: 360, y: 120 },
-        data: { resolution: "2K", aspectRatio: "9:16", label: "NanaBanana Avatar" },
+        data: { resolution: "2K", aspectRatio: "9:16", label: "Avatar Generator" },
       },
       {
         id: "upscaler-1",
