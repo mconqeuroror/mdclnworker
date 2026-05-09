@@ -3959,20 +3959,16 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
 
   await checkAndExpireCredits(userId);
 
-  let safeStepsForImg2 = 20;
-  let safeCfgForImg2 = 2;
-  if (wantsImg2Img) {
-    const defaultStepsForMode = useCharacter ? 50 : 20;
-    const parsedSteps = Number(steps);
-    safeStepsForImg2 = Math.max(
-      1,
-      Math.min(100, Math.round(Number.isFinite(parsedSteps) ? parsedSteps : defaultStepsForMode)),
-    );
-    safeCfgForImg2 = Math.max(0, Math.min(6, Number(cfg) || 0));
-  }
+  const defaultStepsForMode = useCharacter ? 50 : 20;
+  const parsedSteps = Number(steps);
+  const safeSteps = Math.max(
+    1,
+    Math.min(100, Math.round(Number.isFinite(parsedSteps) ? parsedSteps : defaultStepsForMode)),
+  );
+  const safeCfg = Math.max(0, Math.min(6, Number(cfg) || 0));
 
   // Determine credit cost
-  let includedStepsForPricing = 0;
+  let includedStepsForPricing = useCharacter ? 50 : 20;
   let extraStepBlocks = 0;
   let extraCostPerImage = 0;
   let costEach = [];
@@ -3989,9 +3985,12 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
       qty === 2
         ? (useCharacter ? Number(pricing.modelcloneXWithModel2 ?? 25) : Number(pricing.modelcloneXNoModel2 ?? 15))
         : (useCharacter ? Number(pricing.modelcloneXWithModel1 ?? 15) : Number(pricing.modelcloneXNoModel1 ?? 10));
-    includedStepsForPricing = 0;
-    extraStepBlocks = 0;
-    extraCostPerImage = 0;
+    const extraStepsPer10 = Math.max(0, Number(pricing.modelcloneXExtraStepsPer10 ?? 5));
+    includedStepsForPricing = useCharacter ? 50 : 20;
+    extraStepBlocks = safeSteps > includedStepsForPricing
+      ? Math.ceil((safeSteps - includedStepsForPricing) / 10)
+      : 0;
+    extraCostPerImage = extraStepBlocks * extraStepsPer10;
     const costEachBase = qty === 2
       ? [Math.ceil(baseCost / 2), Math.floor(baseCost / 2)]
       : [baseCost];
@@ -4083,8 +4082,8 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
           batchSize: 1, // each job generates exactly 1 image; we submit qty jobs separately
           denoise,
           seed: clientSeed != null ? Number(clientSeed) : undefined,
-          steps: safeStepsForImg2,
-          cfg: safeCfgForImg2,
+          steps: safeSteps,
+          cfg: safeCfg,
           webhookUrl: modelcloneXWebhookUrl,
         });
         jobId = out.runpodJobId;
@@ -4097,6 +4096,8 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
             loraUrl,
             loraStrength: safeLoraStrength,
             triggerWord,
+            steps: safeSteps,
+            cfg: safeCfg,
           },
           modelcloneXWebhookUrl,
         );
@@ -4157,8 +4158,8 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
           : wantsCustomTxtPrompt
             ? "txt2img-custom-prompt"
             : "txt2img",
-      steps: wantsImg2Img ? safeStepsForImg2 : null,
-      cfg: wantsImg2Img ? safeCfgForImg2 : null,
+      steps: safeSteps,
+      cfg: safeCfg,
       loraStrength: safeLoraStrength,
       useCustomPrompt: wantsCustomTxtPrompt,
       includedStepsForPricing,
