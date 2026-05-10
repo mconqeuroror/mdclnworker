@@ -54,19 +54,35 @@ export const MODELCLONE_X_CREDITS = {
   withModel_2: 25,
 };
 
+/** SaveImage node id for the nolora T2I workflow. */
 export const MODELCLONE_X_OUTPUT_NODE = "369";
+/** SaveImage node id for the new lora T2I workflow (5.2 dual-KSampler). */
+const MODELCLONE_X_LORA_OUTPUT_NODE = "23";
 /** ModelClone-X img2img (new mcx_i2i graph) SaveImage node id. */
 const MODELCLONE_X_IMG2IMG_OUTPUT_NODE = "368";
 /** Legacy MCX img2img SaveImage node id from older exports. */
 const MODELCLONE_X_IMG2IMG_OUTPUT_NODE_LEGACY = "289";
 const UPSCALE_NODES_TO_STRIP = ["370", "371", "372", "373"];
 
+/** Aspect-ratio → CR SDXL string (nolora workflow uses CR SDXL Aspect Ratio node). */
 const ASPECT_RATIO_MAP = {
   "1:1": "1:1 square 1024x1024",
   "9:16": "9:16 portrait 768x1344",
   "16:9": "16:9 landscape 1344x768",
   "3:4": "3:4 portrait 896x1152",
   "4:3": "4:3 landscape 1152x896",
+};
+
+/**
+ * Aspect-ratio → pixel dimensions for the lora workflow (EmptyLatentImage).
+ * Base is 1424×2048 (9:16 native), others scaled proportionally (~2.9 MP).
+ */
+const LORA_DIMENSION_MAP = {
+  "9:16": { width: 1424, height: 2048 },
+  "1:1":  { width: 1536, height: 1536 },
+  "16:9": { width: 2048, height: 1152 },
+  "3:4":  { width: 1152, height: 1536 },
+  "4:3":  { width: 1536, height: 1152 },
 };
 
 function loadWorkflow(variant) {
@@ -97,12 +113,97 @@ export function buildModelCloneXPayload({
   loraStrength = 0.8,
   triggerWord = null,
   steps = null,
-  cfg = 2,
+  cfg = null,
 }) {
   const variant = loraUrl ? "lora" : "nolora";
   const wf = loadWorkflow(variant);
   if (!wf) throw new Error("ModelClone-X workflow not found");
 
+  let finalPrompt = (prompt || "").trim();
+  if (triggerWord && finalPrompt && !finalPrompt.toLowerCase().includes(triggerWord.toLowerCase())) {
+    finalPrompt = `${triggerWord}, ${finalPrompt}`;
+  }
+
+  if (variant === "lora") {
+    return _buildLoraPayload(wf, { finalPrompt, aspectRatio, loraUrl, loraStrength, steps, cfg });
+  } else {
+    return _buildNoloraPayload(wf, { finalPrompt, aspectRatio, steps, cfg });
+  }
+}
+
+/**
+ * Inject into the new dual-KSampler lora workflow (5.2 final).
+ * Nodes: 25=prompt, 70=LoRA, 17+18=KSamplerAdvanced, 21=dimensions, 23=SaveImage.
+ */
+function _buildLoraPayload(wf, { finalPrompt, aspectRatio, loraUrl, loraStrength, steps, cfg }) {
+  // Prompt
+  if (wf["25"]?.inputs) {
+    wf["25"].inputs.text = finalPrompt;
+  }
+
+  // LoRA
+  if (wf["70"]?.inputs) {
+    const strength = Math.min(1, Math.max(0, Number(loraStrength) || 0.75));
+    wf["70"].inputs.lora_1_url = loraUrl;
+    wf["70"].inputs.lora_1_model_strength = strength;
+    wf["70"].inputs.lora_1_clip_strength = strength;
+  }
+
+  // Steps / cfg — both KSampler nodes share the same total step count, split 50/50
+  const defaultSteps = 10;
+  const parsedSteps = Number(steps);
+  const safeSteps = Math.max(
+    1,
+    Math.min(100, Math.round(Number.isFinite(parsedSteps) ? parsedSteps : defaultSteps)),
+  );
+  const defaultCfg = wf["18"]?.inputs?.cfg ?? 1.4;
+  const parsedCfg = Number(cfg);
+  const safeCfg = cfg != null && Number.isFinite(parsedCfg)
+    ? Math.max(0, Math.min(20, parsedCfg))
+    : Number(defaultCfg);
+
+  const midStep = Math.ceil(safeSteps / 2);
+  const seed1 = Math.floor(Math.random() * 2 ** 32);
+  const seed2 = Math.floor(Math.random() * 2 ** 32);
+
+  if (wf["18"]?.inputs) {
+    wf["18"].inputs.steps = safeSteps;
+    wf["18"].inputs.cfg = safeCfg;
+    wf["18"].inputs.noise_seed = seed1;
+    wf["18"].inputs.start_at_step = 0;
+    wf["18"].inputs.end_at_step = midStep;
+  }
+  if (wf["17"]?.inputs) {
+    wf["17"].inputs.steps = safeSteps;
+    wf["17"].inputs.cfg = safeCfg;
+    wf["17"].inputs.noise_seed = seed2;
+    wf["17"].inputs.start_at_step = midStep;
+    wf["17"].inputs.end_at_step = safeSteps;
+  }
+
+  // Dimensions
+  const dims = LORA_DIMENSION_MAP[aspectRatio] || LORA_DIMENSION_MAP["9:16"];
+  if (wf["21"]?.inputs) {
+    wf["21"].inputs.width = dims.width;
+    wf["21"].inputs.height = dims.height;
+  }
+
+  console.log(
+    `[ModelCloneX] workflow=lora steps=${safeSteps} cfg=${safeCfg} aspect=${aspectRatio} dims=${dims.width}x${dims.height}`,
+  );
+
+  return {
+    prompt: wf,
+    output_node_id: MODELCLONE_X_LORA_OUTPUT_NODE,
+    output_type: "image",
+  };
+}
+
+/**
+ * Inject into the nolora workflow (single KSampler, CR SDXL Aspect Ratio node).
+ * Nodes: 2/56=prompt, 50=aspect ratio, 276=KSampler, 57=seed.
+ */
+function _buildNoloraPayload(wf, { finalPrompt, aspectRatio, steps, cfg }) {
   for (const nodeId of UPSCALE_NODES_TO_STRIP) {
     delete wf[nodeId];
   }
@@ -111,15 +212,8 @@ export function buildModelCloneXPayload({
     wf["57"].inputs.seed = Math.floor(Math.random() * 2 ** 32);
   }
 
-  let finalPrompt = (prompt || "").trim();
-  if (triggerWord && finalPrompt && !finalPrompt.toLowerCase().includes(triggerWord.toLowerCase())) {
-    finalPrompt = `${triggerWord}, ${finalPrompt}`;
-  }
-
   const negativeFromNode41 =
-    typeof wf["41"]?.inputs?.string === "string"
-      ? wf["41"].inputs.string
-      : "";
+    typeof wf["41"]?.inputs?.string === "string" ? wf["41"].inputs.string : "";
   if (wf["2"]?.inputs) {
     wf["2"].inputs.text = finalPrompt;
   }
@@ -135,11 +229,10 @@ export function buildModelCloneXPayload({
   }
 
   if (wf["276"]?.inputs) {
-    const defaultStepsForMode = loraUrl ? 50 : 20;
     const parsedSteps = Number(steps);
     const safeSteps = Math.max(
       1,
-      Math.min(100, Math.round(Number.isFinite(parsedSteps) ? parsedSteps : defaultStepsForMode)),
+      Math.min(100, Math.round(Number.isFinite(parsedSteps) ? parsedSteps : 20)),
     );
     const parsedCfg = Number(cfg);
     const safeCfg = cfg != null && Number.isFinite(parsedCfg)
@@ -147,15 +240,7 @@ export function buildModelCloneXPayload({
       : Math.max(0, Math.min(6, Number(wf["276"].inputs.cfg) || 2));
     wf["276"].inputs.steps = safeSteps;
     wf["276"].inputs.cfg = safeCfg;
-    console.log(`[ModelCloneX] workflow=${variant} steps=${safeSteps} cfg=${safeCfg} aspect=${aspectRatio}`);
-  }
-
-  if (variant === "lora" && wf["374"]) {
-    const strength = Math.min(1, Math.max(0, Number(loraStrength) || 0.8));
-    wf["374"].inputs.lora_1_url = loraUrl;
-    wf["374"].inputs.lora_1_strength = strength;
-    wf["374"].inputs.lora_1_model_strength = strength;
-    wf["374"].inputs.lora_1_clip_strength = strength;
+    console.log(`[ModelCloneX] workflow=nolora steps=${safeSteps} cfg=${safeCfg} aspect=${aspectRatio}`);
   }
 
   return {
@@ -469,13 +554,16 @@ export function extractModelCloneXImages(runpodOutput) {
   const nodeOutputs = out.outputs;
   if (nodeOutputs && typeof nodeOutputs === "object") {
     const preferred = String(MODELCLONE_X_OUTPUT_NODE);
+    const loraOut = String(MODELCLONE_X_LORA_OUTPUT_NODE);
     const i2i = String(MODELCLONE_X_IMG2IMG_OUTPUT_NODE);
     const i2iLegacy = String(MODELCLONE_X_IMG2IMG_OUTPUT_NODE_LEGACY);
+    const knownIds = new Set([preferred, loraOut, i2i, i2iLegacy]);
     const orderedNodeIds = [
       preferred,
+      loraOut,
       i2i,
       i2iLegacy,
-      ...Object.keys(nodeOutputs).filter((k) => k !== preferred && k !== i2i && k !== i2iLegacy),
+      ...Object.keys(nodeOutputs).filter((k) => !knownIds.has(k)),
     ];
     for (const nodeId of orderedNodeIds) {
       const nodeImages = nodeOutputs?.[nodeId]?.images;
