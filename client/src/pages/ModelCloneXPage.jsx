@@ -1010,23 +1010,11 @@ function GenerateTab({ isDark, copy }) {
           if (res.data.limits) {
             const nextLimits = { ...DEFAULT_MODELCLONE_X_LIMITS, ...res.data.limits };
             setLimits(nextLimits);
-            const suggestedCfg = Number(res.data.limits.defaultCfg ?? MODELCLONE_X_DEFAULT_CFG);
-            setCfg((prev) => {
-              if (prev !== MODELCLONE_X_DEFAULT_CFG) return prev;
-              const parsed = Number.isFinite(suggestedCfg) ? suggestedCfg : MODELCLONE_X_DEFAULT_CFG;
-              return Math.max(nextLimits.minCfg, Math.min(nextLimits.maxCfg, parsed));
-            });
           }
         }
       })
       .catch(() => {});
   }, []);
-
-  useEffect(() => {
-    const suggested = getDefaultStepsForMode(mode, limits);
-    const safe = Math.max(1, Math.min(limits.maxSteps, Math.round(suggested) || 20));
-    setSteps(safe);
-  }, [mode, limits]);
 
   useEffect(() => {
     if (mode !== "character" && genMode === "img") {
