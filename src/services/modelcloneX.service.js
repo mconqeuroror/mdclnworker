@@ -152,7 +152,7 @@ function _buildLoraPayload(wf, { finalPrompt, aspectRatio, loraUrl, loraStrength
 
   return {
     prompt: wf,
-    output_node_id: MODELCLONE_X_LORA_OUTPUT_NODE,
+    output_node_id: MODELCLONE_X_OUTPUT_NODE,
     output_type: "image",
   };
 }
