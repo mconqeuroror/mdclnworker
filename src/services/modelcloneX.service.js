@@ -100,8 +100,6 @@ export function buildModelCloneXPayload({
   loraUrl = null,
   loraStrength = 0.8,
   triggerWord = null,
-  steps = null,
-  cfg = null,
 }) {
   const variant = loraUrl ? "lora" : "nolora";
   const wf = loadWorkflow(variant);
@@ -113,9 +111,9 @@ export function buildModelCloneXPayload({
   }
 
   if (variant === "lora") {
-    return _buildLoraPayload(wf, { finalPrompt, aspectRatio, loraUrl, loraStrength, steps, cfg });
+    return _buildLoraPayload(wf, { finalPrompt, aspectRatio, loraUrl, loraStrength });
   } else {
-    return _buildNoloraPayload(wf, { finalPrompt, aspectRatio, steps, cfg });
+    return _buildNoloraPayload(wf, { finalPrompt, aspectRatio });
   }
 }
 
@@ -123,7 +121,7 @@ export function buildModelCloneXPayload({
  * Inject into the new dual-KSampler lora workflow (5.2 final).
  * Nodes: 25=prompt, 70=LoRA, 17+18=KSamplerAdvanced, 21=dimensions, 23=SaveImage.
  */
-function _buildLoraPayload(wf, { finalPrompt, aspectRatio, loraUrl, loraStrength, steps, cfg }) {
+function _buildLoraPayload(wf, { finalPrompt, aspectRatio, loraUrl, loraStrength }) {
   // Prompt
   if (wf["25"]?.inputs) {
     wf["25"].inputs.text = finalPrompt;
@@ -137,37 +135,11 @@ function _buildLoraPayload(wf, { finalPrompt, aspectRatio, loraUrl, loraStrength
     wf["70"].inputs.lora_1_clip_strength = strength;
   }
 
-  // Steps / cfg — both KSampler nodes share the same total step count, split 50/50
-  const defaultSteps = 10;
-  const parsedSteps = Number(steps);
-  const safeSteps = Math.max(
-    1,
-    Math.min(100, Math.round(Number.isFinite(parsedSteps) ? parsedSteps : defaultSteps)),
-  );
-  const defaultCfg = wf["18"]?.inputs?.cfg ?? 1.4;
-  const parsedCfg = Number(cfg);
-  const safeCfg = cfg != null && Number.isFinite(parsedCfg)
-    ? Math.max(0, Math.min(20, parsedCfg))
-    : Number(defaultCfg);
-
-  const midStep = Math.ceil(safeSteps / 2);
+  // Randomise seeds — steps/cfg stay at workflow defaults
   const seed1 = Math.floor(Math.random() * 2 ** 32);
   const seed2 = Math.floor(Math.random() * 2 ** 32);
-
-  if (wf["18"]?.inputs) {
-    wf["18"].inputs.steps = safeSteps;
-    wf["18"].inputs.cfg = safeCfg;
-    wf["18"].inputs.noise_seed = seed1;
-    wf["18"].inputs.start_at_step = 0;
-    wf["18"].inputs.end_at_step = midStep;
-  }
-  if (wf["17"]?.inputs) {
-    wf["17"].inputs.steps = safeSteps;
-    wf["17"].inputs.cfg = safeCfg;
-    wf["17"].inputs.noise_seed = seed2;
-    wf["17"].inputs.start_at_step = midStep;
-    wf["17"].inputs.end_at_step = safeSteps;
-  }
+  if (wf["18"]?.inputs) wf["18"].inputs.noise_seed = seed1;
+  if (wf["17"]?.inputs) wf["17"].inputs.noise_seed = seed2;
 
   // Dimensions
   const dims = LORA_DIMENSION_MAP[aspectRatio] || LORA_DIMENSION_MAP["9:16"];
@@ -176,9 +148,7 @@ function _buildLoraPayload(wf, { finalPrompt, aspectRatio, loraUrl, loraStrength
     wf["21"].inputs.height = dims.height;
   }
 
-  console.log(
-    `[ModelCloneX] workflow=lora steps=${safeSteps} cfg=${safeCfg} aspect=${aspectRatio} dims=${dims.width}x${dims.height}`,
-  );
+  console.log(`[ModelCloneX] workflow=lora aspect=${aspectRatio} dims=${dims.width}x${dims.height}`);
 
   return {
     prompt: wf,
@@ -191,43 +161,17 @@ function _buildLoraPayload(wf, { finalPrompt, aspectRatio, loraUrl, loraStrength
  * Inject into the nolora 5.2 workflow (same dual-KSampler structure, no LoRA nodes).
  * Nodes: 25=prompt, 17+18=KSamplerAdvanced, 21=dimensions, 23=SaveImage.
  */
-function _buildNoloraPayload(wf, { finalPrompt, aspectRatio, steps, cfg }) {
+function _buildNoloraPayload(wf, { finalPrompt, aspectRatio }) {
   // Prompt
   if (wf["25"]?.inputs) {
     wf["25"].inputs.text = finalPrompt;
   }
 
-  // Steps / cfg — split 50/50 across both KSampler nodes
-  const defaultSteps = 10;
-  const parsedSteps = Number(steps);
-  const safeSteps = Math.max(
-    1,
-    Math.min(100, Math.round(Number.isFinite(parsedSteps) ? parsedSteps : defaultSteps)),
-  );
-  const defaultCfg = wf["18"]?.inputs?.cfg ?? 1.4;
-  const parsedCfg = Number(cfg);
-  const safeCfg = cfg != null && Number.isFinite(parsedCfg)
-    ? Math.max(0, Math.min(20, parsedCfg))
-    : Number(defaultCfg);
-
-  const midStep = Math.ceil(safeSteps / 2);
+  // Randomise seeds — steps/cfg stay at workflow defaults
   const seed1 = Math.floor(Math.random() * 2 ** 32);
   const seed2 = Math.floor(Math.random() * 2 ** 32);
-
-  if (wf["18"]?.inputs) {
-    wf["18"].inputs.steps = safeSteps;
-    wf["18"].inputs.cfg = safeCfg;
-    wf["18"].inputs.noise_seed = seed1;
-    wf["18"].inputs.start_at_step = 0;
-    wf["18"].inputs.end_at_step = midStep;
-  }
-  if (wf["17"]?.inputs) {
-    wf["17"].inputs.steps = safeSteps;
-    wf["17"].inputs.cfg = safeCfg;
-    wf["17"].inputs.noise_seed = seed2;
-    wf["17"].inputs.start_at_step = midStep;
-    wf["17"].inputs.end_at_step = safeSteps;
-  }
+  if (wf["18"]?.inputs) wf["18"].inputs.noise_seed = seed1;
+  if (wf["17"]?.inputs) wf["17"].inputs.noise_seed = seed2;
 
   // Dimensions
   const dims = LORA_DIMENSION_MAP[aspectRatio] || LORA_DIMENSION_MAP["9:16"];
@@ -236,9 +180,7 @@ function _buildNoloraPayload(wf, { finalPrompt, aspectRatio, steps, cfg }) {
     wf["21"].inputs.height = dims.height;
   }
 
-  console.log(
-    `[ModelCloneX] workflow=nolora steps=${safeSteps} cfg=${safeCfg} aspect=${aspectRatio} dims=${dims.width}x${dims.height}`,
-  );
+  console.log(`[ModelCloneX] workflow=nolora aspect=${aspectRatio} dims=${dims.width}x${dims.height}`);
 
   return {
     prompt: wf,

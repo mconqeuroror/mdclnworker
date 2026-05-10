@@ -970,8 +970,6 @@ function GenerateTab({ isDark, copy }) {
   const [aspect, setAspect] = useState("9:16");
   const [qty, setQty] = useState(1);
   const [prompt, setPrompt] = useState("");
-  const [steps, setSteps] = useState(DEFAULT_MODELCLONE_X_LIMITS.defaultStepsNoModel);
-  const [cfg, setCfg] = useState(MODELCLONE_X_DEFAULT_CFG);
   const [loraStrength, setLoraStrength] = useState(0.8);
   const [refImageBase64, setRefImageBase64] = useState(""); // raw base64, no data: prefix
   const [refImagePreview, setRefImagePreview] = useState("");
@@ -992,12 +990,7 @@ function GenerateTab({ isDark, copy }) {
     : (qty === 2
       ? (mode === "character" ? pricing.withModel2 : pricing.noModel2)
       : (mode === "character" ? pricing.withModel1 : pricing.noModel1));
-  const includedStepsForPricing = genMode === "img" ? 0 : getIncludedStepsForMode(mode, limits);
-  const extraBlocks = genMode === "img"
-    ? 0
-    : (steps > includedStepsForPricing ? Math.ceil((steps - includedStepsForPricing) / 10) : 0);
-  const extraCost = genMode === "img" ? 0 : (extraBlocks * pricing.extraStepsPer10 * qty);
-  const cost = baseCost + extraCost;
+  const cost = baseCost;
   const hasEnough = credits >= cost;
 
   useEffect(() => {
@@ -1145,11 +1138,7 @@ function GenerateTab({ isDark, copy }) {
         loraStrength: mode === "character" ? loraStrength : undefined,
       };
       if (genMode !== "img") {
-        Object.assign(body, {
-          aspectRatio: aspect,
-          steps,
-          cfg,
-        });
+        Object.assign(body, { aspectRatio: aspect });
       }
 
       if (genMode === "img" && mode === "character") {
@@ -1603,64 +1592,24 @@ function GenerateTab({ isDark, copy }) {
         </div>
       </div>
 
-      <div className={`rounded-xl border p-3 space-y-3 ${isDark ? "glass-card border-white/[0.08]" : "bg-slate-50/90 border border-slate-200/90"}`}>
-        <p className={`text-xs font-semibold ${isDark ? "text-slate-300" : "text-slate-700"}`}>
-          {genMode === "img" ? copy.loraStrength : copy.advanced}
-        </p>
-        <div className={`grid gap-3 ${genMode === "txt" ? "sm:grid-cols-3" : "sm:grid-cols-1"}`}>
-          {genMode === "txt" && (
-            <>
-              <label className="flex flex-col gap-1.5">
-                <span className={`text-[11px] font-medium ${isDark ? "text-slate-400" : "text-slate-600"}`}>{copy.steps}</span>
-                <input
-                  type="range"
-                  min={1}
-                  max={limits.maxSteps}
-                  step={1}
-                  value={steps}
-                  onChange={(e) =>
-                    setSteps(
-                      Math.max(
-                        1,
-                        Math.min(
-                          limits.maxSteps,
-                          Number(e.target.value) || getDefaultStepsForMode(mode, limits),
-                        ),
-                      ),
-                    )
-                  }
-                />
-                <span className={`text-xs ${isDark ? "text-slate-300" : "text-slate-700"}`}>{steps}</span>
-              </label>
-              <label className="flex flex-col gap-1.5">
-                <span className={`text-[11px] font-medium ${isDark ? "text-slate-400" : "text-slate-600"}`}>{copy.cfg}</span>
-                <input
-                  type="range"
-                  min={limits.minCfg}
-                  max={limits.maxCfg}
-                  step={0.1}
-                  value={cfg}
-                  onChange={(e) => setCfg(Math.max(limits.minCfg, Math.min(limits.maxCfg, Number(e.target.value) || MODELCLONE_X_DEFAULT_CFG)))}
-                />
-                <span className={`text-xs ${isDark ? "text-slate-300" : "text-slate-700"}`}>{cfg.toFixed(1)}</span>
-              </label>
-            </>
-          )}
-          <label className={`flex flex-col gap-1.5 ${mode !== "character" ? "opacity-50" : ""}`}>
-            <span className={`text-[11px] font-medium ${isDark ? "text-slate-400" : "text-slate-600"}`}>{copy.loraStrength}</span>
+      {mode === "character" && (
+        <div className={`rounded-xl border p-3 space-y-3 ${isDark ? "glass-card border-white/[0.08]" : "bg-slate-50/90 border border-slate-200/90"}`}>
+          <p className={`text-xs font-semibold ${isDark ? "text-slate-300" : "text-slate-700"}`}>
+            {copy.loraStrength}
+          </p>
+          <label className="flex flex-col gap-1.5">
             <input
               type="range"
               min={0}
               max={1}
               step={0.05}
               value={loraStrength}
-              disabled={mode !== "character"}
               onChange={(e) => setLoraStrength(Math.max(0, Math.min(1, Number(e.target.value) || 0.8)))}
             />
             <span className={`text-xs ${isDark ? "text-slate-300" : "text-slate-700"}`}>{loraStrength.toFixed(2)}</span>
           </label>
         </div>
-      </div>
+      )}
 
       {/* Cost + Generate */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
@@ -1687,9 +1636,6 @@ function GenerateTab({ isDark, copy }) {
         >
           <Coins className="w-4 h-4 text-[var(--accent)]" />
           <span className={`font-bold tabular-nums ${isDark ? "text-white" : "text-slate-900"}`}>{cost}</span>
-          {extraCost > 0 && (
-            <span className={`text-[11px] ${isDark ? "text-slate-400" : "text-slate-500"}`}>+{extraCost} <Coins className="w-3 h-3 inline" /></span>
-          )}
         </div>
       </div>
 

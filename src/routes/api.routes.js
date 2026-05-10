@@ -3881,8 +3881,6 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
     characterLoraId = null,
     aspectRatio = "9:16",
     quantity = 1,
-    steps = null,
-    cfg = 2,
     loraStrength = 0.8,
     /** @deprecated use POST /api/modelclone-x/prompt-from-image, then this endpoint with `prompt` only. */
     inputImageUrl = "",
@@ -3959,42 +3957,21 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
 
   await checkAndExpireCredits(userId);
 
-  const defaultStepsForMode = useCharacter ? 50 : 20;
-  const parsedSteps = Number(steps);
-  const safeSteps = Math.max(
-    1,
-    Math.min(100, Math.round(Number.isFinite(parsedSteps) ? parsedSteps : defaultStepsForMode)),
-  );
-  const safeCfg = Math.max(0, Math.min(6, Number(cfg) || 0));
-
   // Determine credit cost
-  let includedStepsForPricing = useCharacter ? 50 : 20;
-  let extraStepBlocks = 0;
-  let extraCostPerImage = 0;
   let costEach = [];
   let costPer = 0;
   if (wantsImg2Img) {
-    // i2i pricing is per generated image. We submit N separate single-image jobs
-    // (not one batch job) to avoid RunPod's ~5 MB output-payload size limit.
     const perImage = Number(pricing.modelcloneXWithModel1 ?? 15);
     costEach = Array.from({ length: qty }, () => Math.max(0, perImage));
     costPer = costEach.reduce((sum, c) => sum + c, 0);
-    includedStepsForPricing = 0;
   } else {
     const baseCost =
       qty === 2
         ? (useCharacter ? Number(pricing.modelcloneXWithModel2 ?? 25) : Number(pricing.modelcloneXNoModel2 ?? 15))
         : (useCharacter ? Number(pricing.modelcloneXWithModel1 ?? 15) : Number(pricing.modelcloneXNoModel1 ?? 10));
-    const extraStepsPer10 = Math.max(0, Number(pricing.modelcloneXExtraStepsPer10 ?? 5));
-    includedStepsForPricing = useCharacter ? 50 : 20;
-    extraStepBlocks = safeSteps > includedStepsForPricing
-      ? Math.ceil((safeSteps - includedStepsForPricing) / 10)
-      : 0;
-    extraCostPerImage = extraStepBlocks * extraStepsPer10;
-    const costEachBase = qty === 2
+    costEach = qty === 2
       ? [Math.ceil(baseCost / 2), Math.floor(baseCost / 2)]
       : [baseCost];
-    costEach = costEachBase.map((c) => c + extraCostPerImage);
     costPer = costEach.reduce((sum, c) => sum + c, 0);
   }
 
@@ -4082,8 +4059,6 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
           batchSize: 1, // each job generates exactly 1 image; we submit qty jobs separately
           denoise,
           seed: clientSeed != null ? Number(clientSeed) : undefined,
-          steps: safeSteps,
-          cfg: safeCfg,
           webhookUrl: modelcloneXWebhookUrl,
         });
         jobId = out.runpodJobId;
@@ -4096,8 +4071,6 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
             loraUrl,
             loraStrength: safeLoraStrength,
             triggerWord,
-            steps: safeSteps,
-            cfg: safeCfg,
           },
           modelcloneXWebhookUrl,
         );
@@ -4158,13 +4131,8 @@ router.post("/modelclone-x/generate", authMiddleware, generationLimiter, async (
           : wantsCustomTxtPrompt
             ? "txt2img-custom-prompt"
             : "txt2img",
-      steps: safeSteps,
-      cfg: safeCfg,
       loraStrength: safeLoraStrength,
       useCustomPrompt: wantsCustomTxtPrompt,
-      includedStepsForPricing,
-      extraStepBlocks,
-      extraCostPerImage,
     },
   });
 });
