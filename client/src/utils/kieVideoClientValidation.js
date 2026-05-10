@@ -58,7 +58,7 @@ export function validateKlingMotionDuration(durationSec) {
   if (durationSec + 1e-6 < min) {
     return {
       ok: false,
-      message: `Reference video is too short (${durationSec.toFixed(1)}s). For Kling motion control it must be between ${min}s and ${max}s.`,
+      message: `Reference video is too short (${durationSec.toFixed(1)}s). For motion control it must be between ${min}s and ${max}s.`,
     };
   }
   if (durationSec > max + 1e-6) {

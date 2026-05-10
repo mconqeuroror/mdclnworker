@@ -681,18 +681,30 @@ function GenerationHistoryCard({ generation, onPreview, onDownload, index }) {
 function getTypeLabel(generation) {
   const labels = {
     image: "Identity Recreation",
+    "image-identity": "Identity Recreation",
     "prompt-image": "AI Image",
+    "advanced-image": "AI Image",
     "face-swap-image": "Face Swap",
     video: "Video",
     "recreate-video": "Recreate Video",
     "nsfw-video-motion": "Motion X",
+    "nsfw-video": "NSFW Video",
+    "nsfw-video-extend": "NSFW Video",
     faceswap: "Face Swap Video",
     "face-swap": "Face Swap Video",
     "prompt-video": "Prompt Video",
     "talking-head": "Talking Head",
     nsfw: "NSFW Image",
+    "creator-studio": "Creator Studio",
+    "creator-studio-video": "Creator Studio",
+    "modelclone-x": "AI Image",
+    soulx: "AI Image",
+    upscale: "Upscale",
+    "voice-tts": "Voice",
+    "voice-clone": "Voice Clone",
+    flow: "AI Flow",
   };
-  return labels[generation.type] || generation.type;
+  return labels[generation.type] || "Generation";
 }
 
 function formatTimeAgo(dateString) {

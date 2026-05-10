@@ -255,10 +255,17 @@ function generationTypeLabel(genType, copy) {
     "creator-studio": copy.genTypeCreatorStudio,
     "creator-studio-video": copy.genTypeCreatorStudio,
     "nsfw-video-motion": copy.genTypeMotionX,
+    // internal type aliases — must never show raw provider names
+    "modelclone-x": copy.genTypeImage,
+    soulx: copy.genTypeImage,
+    upscale: "Upscale",
+    "voice-tts": "Voice",
+    "voice-clone": "Voice Clone",
+    flow: "AI Flow",
   };
   const label = map[genType];
   if (label) return label;
-  return String(genType || "").replace(/-/g, " ");
+  return "Generation";
 }
 
 function useMainViewportBounds() {
@@ -1091,8 +1098,6 @@ const GenerationCard = memo(function GenerationCard({ generation, models, isSele
   const primaryUrl = urls[0] || "";
   const isVideo = VIDEO_TYPES.includes(generation.type) || isVideoUrl(primaryUrl);
   const videoPoster = resolveVideoPosterUrl(generation);
-  const providerModelTag = String(generation.providerModel || "").replace(/^kie-/, "").replace(/^piapi-/, "");
-  const providerModeTag = String(generation.providerMode || generation.providerType || "").trim();
 
   return (
     <div
@@ -1183,20 +1188,6 @@ const GenerationCard = memo(function GenerationCard({ generation, models, isSele
         <div className="text-[10px] text-slate-600">
           {new Date(generation.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
         </div>
-        {(providerModelTag || providerModeTag) && (
-          <div className="mt-1.5 flex flex-wrap gap-1">
-            {providerModelTag && (
-              <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-black/35 text-slate-200 border border-white/10">
-                {providerModelTag}
-              </span>
-            )}
-            {providerModeTag && (
-              <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-black/35 text-slate-300 border border-white/10">
-                {providerModeTag}
-              </span>
-            )}
-          </div>
-        )}
 
         {/* Actions */}
         {generation.status === "completed" && generation.outputUrl && (
@@ -1231,9 +1222,6 @@ const GenerationListItem = memo(function GenerationListItem({ generation, models
   const primaryUrl = urls[0] || "";
   const isVideo = VIDEO_TYPES.includes(generation.type) || isVideoUrl(primaryUrl);
   const videoPoster = resolveVideoPosterUrl(generation);
-  const providerModelTag = String(generation.providerModel || "").replace(/^kie-/, "").replace(/^piapi-/, "");
-  const providerModeTag = String(generation.providerMode || generation.providerType || "").trim();
-
   return (
     <div
       className="rounded-lg p-3 flex items-center gap-3"
@@ -1274,20 +1262,6 @@ const GenerationListItem = memo(function GenerationListItem({ generation, models
         <div className="text-[10px] text-slate-600 mt-0.5">
           {new Date(generation.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
         </div>
-        {(providerModelTag || providerModeTag) && (
-          <div className="mt-1 flex flex-wrap gap-1">
-            {providerModelTag && (
-              <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-black/35 text-slate-200 border border-white/10">
-                {providerModelTag}
-              </span>
-            )}
-            {providerModeTag && (
-              <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-black/35 text-slate-300 border border-white/10">
-                {providerModeTag}
-              </span>
-            )}
-          </div>
-        )}
       </div>
 
       {generation.status === "completed" && generation.outputUrl && (

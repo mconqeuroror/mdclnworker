@@ -731,8 +731,6 @@ function ResultCard({ gen, onExpand, isNew }) {
   const isFailed     = gen.status === "failed";
   const outputUrls = parseOutputUrls(gen.outputUrl);
   const previewUrl = outputUrls[0] || null;
-  const modelTag = String(gen.providerModel || gen.providerMode || "").replace(/^kie-/, "");
-  const modeTag = String(gen.providerType || "").trim();
   return (
     <motion.div
       initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
@@ -755,12 +753,6 @@ function ResultCard({ gen, onExpand, isNew }) {
       {gen.status === "completed" && previewUrl ? (
         <>
           <img src={previewUrl} alt="" className="w-full h-full object-cover" />
-          {(modelTag || modeTag) && (
-            <div className="absolute top-2 left-2 flex flex-wrap gap-1 pointer-events-none">
-              {modelTag && <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-black/60 text-white border border-white/20">{modelTag}</span>}
-              {modeTag && <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-black/60 text-slate-200 border border-white/20">{modeTag}</span>}
-            </div>
-          )}
           <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-end p-3 gap-2">
             <button onClick={() => onExpand(gen)}
               className="w-8 h-8 rounded-lg bg-black/50 flex items-center justify-center text-white hover:bg-black/70 backdrop-blur-sm">
@@ -1812,7 +1804,7 @@ function AssetManagerModal({
 
         <div className="px-4 py-3 border-t border-white/[0.06] flex items-center justify-between gap-3">
           <p className="text-[10px] text-slate-500 leading-snug">
-            Reference an asset in your Seedance prompt with <span className="text-slate-300 font-mono">@name</span>; we'll auto-attach it.
+            Reference an asset in your video prompt with <span className="text-slate-300 font-mono">@name</span>; we'll auto-attach it.
           </p>
           <button
             type="button"
@@ -2025,7 +2017,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
       return;
     }
     if (isSeedreamImageModel && !primaryInputImage && filledRefs.length === 0) {
-      toast.error("Seedream 5.0 Lite needs at least one input image.");
+      toast.error("This mode needs at least one input image.");
       return;
     }
     let parsedColorPalette = [];
@@ -2116,7 +2108,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
       return;
     }
     if (videoFamily === "kling30" && videoMode === "i2v" && !videoImageUrl.trim()) {
-      toast.error("Start frame is required for Kling 3.0 image-to-video.");
+      toast.error("Start frame is required for image-to-video.");
       return;
     }
     if (videoFamily === "veo31" && videoMode === "ref2v" && !videoImageUrl.trim()) {
@@ -2156,7 +2148,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
       return;
     }
     if (videoFamily === "seedance2" && videoMode === "multi-ref" && !videoImageUrl.trim() && !videoInputVideoUrl.trim()) {
-      toast.error("Seedance multimodal mode needs at least one image or video reference.");
+      toast.error("Multimodal mode needs at least one image or video reference.");
       return;
     }
     setIsVideoGenerating(true);
@@ -2398,7 +2390,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
           const perSec = toPrice(generationPricing, keyMap[res]);
           return {
             cost: Math.ceil(billable * perSec),
-            details: `${perSec}/sec × min billable ${billable}s (Seedance ${res} · reference video)`,
+            details: `${perSec}/sec × min billable ${billable}s (${res} · reference video)`,
           };
         }
         const baseKey = `seedance2Rh${res === "1080p" ? "1080p" : res === "2k" ? "2k" : "4k"}WithVideoBasePerSec`;
@@ -2407,7 +2399,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
         const addonPerSec = toPrice(generationPricing, addonKey);
         return {
           cost: Math.ceil(billable * basePerSec + duration * addonPerSec),
-          details: `${basePerSec}/s × ${billable}s + ${addonPerSec}/s × ${duration}s (Seedance ${res} · reference video)`,
+          details: `${basePerSec}/s × ${billable}s + ${addonPerSec}/s × ${duration}s (${res} · reference video)`,
         };
       }
       const perSecKey =
@@ -2418,7 +2410,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
         : res === "2k" ? "seedance2Rh2kPerSec"
         : "seedance2Rh4kPerSec";
       const perSec = toPrice(generationPricing, perSecKey);
-      return { cost: Math.ceil(perSec * duration), details: `${perSec}/sec (Seedance ${res})` };
+      return { cost: Math.ceil(perSec * duration), details: `${perSec}/sec (${res})` };
     }
     return { cost: 0, details: "Pricing unavailable" };
   }, [durationConfig.min, generationPricing, kling30Quality, seedanceResolution, soraResolution, soraT2vTier, soundEnabled, videoAspectRatio, videoDuration, videoFamily, videoInputVideoUrl, videoMode, videoSpeed, wanResolution]);
@@ -3146,16 +3138,6 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                 {videoHistory.map((item) => (
                   <div key={item.id} className="relative rounded-2xl border border-white/10 overflow-hidden" style={{ background: "var(--bg-surface)" }}>
-                    {(() => {
-                      const modelTag = String(item.providerModel || "").replace(/^piapi-/, "").replace(/^kie-/, "");
-                      const modeTag = String(item.providerMode || item.providerType || "").trim();
-                      return (modelTag || modeTag) ? (
-                        <div className="absolute top-2 left-2 z-10 flex flex-wrap gap-1 pointer-events-none">
-                          {modelTag && <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-black/60 text-white border border-white/20">{modelTag}</span>}
-                          {modeTag && <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-black/60 text-slate-200 border border-white/20">{modeTag}</span>}
-                        </div>
-                      ) : null;
-                    })()}
                     {item.outputUrl ? (
                       <video
                         src={item.outputUrl}
@@ -3170,7 +3152,7 @@ export default function CreatorStudioPage({ sidebarCollapsed = false, initialTab
                       </div>
                     )}
                     <div className="p-3">
-                      <p className="text-xs text-slate-400">{item.providerFamily || "video"} · {item.providerMode || "mode"}</p>
+                      <p className="text-xs text-slate-400">AI Video</p>
                       <p className="text-sm text-white mt-1 line-clamp-2">{item.prompt || "—"}</p>
                       {item.extendEligible && item.providerTaskId && (
                         <button
