@@ -1769,6 +1769,8 @@ function GenerateTab({ isDark, copy }) {
 // ── Main ModelCloneXPage ────────────────────────────────────────────────────────────
 
 export default function ModelCloneXPage() {
+  const { theme } = useTheme();
+  const isDark = theme !== "light";
   const locale = resolveLocale();
   const copy = COPY[locale] || COPY.en;
   const [activeTab, setActiveTab] = useState("generate");
