@@ -75,23 +75,22 @@ const LORA_DIMENSION_MAP = {
 };
 
 function loadWorkflow(variant) {
-  const primary = variant === "lora" ? "modelclonex_lora_api.json" : "modelclonex_nolora_api.json";
-  const legacy = variant === "lora" ? "soulx_lora_api.json" : "soulx_nolora_api.json";
-  const candidates = [primary, legacy].flatMap((filename) => [
+  const filename = variant === "lora" ? "modelclonex_lora_api.json" : "modelclonex_nolora_api.json";
+  const candidates = [
     path.join(process.cwd(), "runpod-mdcln", "workflows", filename),
     path.join(__dirname, "..", "..", "runpod-mdcln", "workflows", filename),
-  ]);
+  ];
   for (const p of candidates) {
     if (fs.existsSync(p)) {
       try {
         return JSON.parse(fs.readFileSync(p, "utf8"));
       } catch (e) {
-        console.error(`[ModelCloneX] Failed to parse ${path.basename(p)}:`, e.message);
+        console.error(`[ModelCloneX] Failed to parse ${filename}:`, e.message);
         return null;
       }
     }
   }
-  console.error("[ModelCloneX] No workflow JSON found (modelclonex_* or soulx_*)");
+  console.error(`[ModelCloneX] Workflow not found: ${filename}`);
   return null;
 }
 

@@ -1769,27 +1769,6 @@ function GenerateTab({ isDark, copy }) {
 // ── Main ModelCloneXPage ────────────────────────────────────────────────────────────
 
 export default function ModelCloneXPage() {
-  const { theme } = useTheme();
-  const isDark = theme !== "light";
-  const { user } = useAuthStore();
-  const isAdmin = user?.role === "admin";
-
-  if (!isAdmin) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-[var(--bg-page)] text-[var(--text-primary)] px-6">
-        <div className={`max-w-sm w-full text-center rounded-2xl p-10 space-y-5 ${isDark ? "bg-white/5 border border-white/10" : "bg-white border border-slate-200"}`}>
-          <div className="w-14 h-14 mx-auto rounded-full flex items-center justify-center bg-[var(--accent-soft)]">
-            <Sparkles className="w-7 h-7 text-[var(--accent)]" />
-          </div>
-          <h1 className="text-lg font-semibold">Under Reconstruction</h1>
-          <p className={`text-sm leading-relaxed ${isDark ? "text-slate-400" : "text-slate-500"}`}>
-            ModelClone X is currently being updated. Check back soon.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   const locale = resolveLocale();
   const copy = COPY[locale] || COPY.en;
   const [activeTab, setActiveTab] = useState("generate");
