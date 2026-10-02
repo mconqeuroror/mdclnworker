@@ -1,0 +1,2002 @@
+[
+  {
+    "architecture": "amd64",
+    "bytes": 1437190,
+    "package": "coreutils",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "647ae75c608700f7cf144b1076138032ce023680f2d8c16061fb84e3787ae50c",
+    "version": "8.32-4.1ubuntu1.4"
+  },
+  {
+    "architecture": "all",
+    "bytes": 126202,
+    "package": "debconf",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "395a65b3a9539304391456d4d0e5531f4249f297b6e67eb0fcaf2ff77ddc3dc3",
+    "version": "1.5.79ubuntu1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 1238552,
+    "package": "dpkg",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "8759f60fc173cb4ab85599dd66a633dce9473b9c7655128863a214325f52a7bd",
+    "version": "1.21.1ubuntu2.6"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 1695740,
+    "package": "ffmpeg",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "96beb71a9c3904c69a03c500caf9135370beb499e8599d6a544644cd9b909462",
+    "version": "7:4.4.2-0ubuntu0.22.04.1"
+  },
+  {
+    "architecture": "all",
+    "bytes": 29096,
+    "package": "fontconfig-config",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "c40405fa036d1732e269fabd4c5b40076b973a226da1df6921d4b7e7a1e2ff72",
+    "version": "2.13.1-4.2ubuntu5"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 177468,
+    "package": "fontconfig",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "9a844b4e8c27b76f39a00dd36dc833b2c99bfa24959df9b6b0749659c31a5c1c",
+    "version": "2.13.1-4.2ubuntu5"
+  },
+  {
+    "architecture": "all",
+    "bytes": 1041300,
+    "package": "fonts-dejavu-core",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "c33fe8bf33b50d99d6448804a090123b1bbba37d7a8703c630695676d110a47d",
+    "version": "2.37-2build1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 215782,
+    "package": "gcc-12-base",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "7f9253b7e0976f0526fc21346c73ee006e185a7b2f2f865048ea78a2af55bc8d",
+    "version": "12.3.0-1ubuntu1~22.04.3"
+  },
+  {
+    "architecture": "all",
+    "bytes": 953934,
+    "package": "git-man",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "8129d7b87facd50e32f806ad9905dd99435e7b0bb2566d6a33e5b5371c5c36e5",
+    "version": "1:2.34.1-1ubuntu1.17"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 3173622,
+    "package": "git",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "8794fcf2c4606c445df0db3dc963c8fb852772208bfb12727a12717c03767af7",
+    "version": "1:2.34.1-1ubuntu1.17"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 16218,
+    "package": "libacl1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "4db2c64ec74f673ed022e92cce7b83d0cbe0b779e02ca60a56ba59ae07754e05",
+    "version": "2.3.1-1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 1748348,
+    "package": "libaom3",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "e3b7e5438218e5fe9f85327dc95c2a39d10dcf6289344a75c3c5833ae14e7462",
+    "version": "3.3.0-1ubuntu0.1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 39626,
+    "package": "libapparmor1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "800828c6b8597e8798e97d41aa13042b95da6172aa6813a51930266017c19c1e",
+    "version": "3.0.4-2ubuntu2.5"
+  },
+  {
+    "architecture": "all",
+    "bytes": 19318,
+    "package": "libasound2-data",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "e175a0617ae4a35667a9cf159ee5ee226d09ad43ed7719b721a7ea797974f65c",
+    "version": "1.2.6.1-1ubuntu1.2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 390788,
+    "package": "libasound2",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "dce4ce1043cde35f4bc375a4b1bd84badd5dec7e656ea2a8849edf9215bc8c33",
+    "version": "1.2.6.1-1ubuntu1.2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 97546,
+    "package": "libass9",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "e9d388f0bbded6f36704c24280417a9d046abebcf2c6574ed640e3cfd1373d52",
+    "version": "1:0.15.2-1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 12764,
+    "package": "libasyncns0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "6d223a97b434026e50fb9fcb237d45ed26fd272bb139f0bd793315d55a79901a",
+    "version": "0.8-6build2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 13024,
+    "package": "libattr1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "f2b5a86842c411dde933ac2315570ce529ea930cd848258cfd909ef221f8feb1",
+    "version": "1:2.5.1-1ubuntu0.1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 16982,
+    "package": "libavc1394-0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "b627c0427e3ba40406d5951727f320d45740da39234fbaec37636d3a498b1825",
+    "version": "0.5.4-5build2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 5566900,
+    "package": "libavcodec58",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "2704a3c4283008daa293334f102ed2f32d056fc000df618d0ef98380e6ba18a1",
+    "version": "7:4.4.2-0ubuntu0.22.04.1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 87514,
+    "package": "libavdevice58",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "b44a8a7c9e6e96bbb4f3a617c6a421bb42aefe1df6041c4a35f9f0b6b75f2399",
+    "version": "7:4.4.2-0ubuntu0.22.04.1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 1495698,
+    "package": "libavfilter7",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "9a2fc248cc8d3476cf3c134f91eaa0446fd7cbc0e1e3f1b2f83b33daa9a89cdb",
+    "version": "7:4.4.2-0ubuntu0.22.04.1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 1102550,
+    "package": "libavformat58",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "27515c1ceb13be92e4817e806bfb4d35d10d728f1eebcece36edf1fb9c658b47",
+    "version": "7:4.4.2-0ubuntu0.22.04.1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 289650,
+    "package": "libavutil56",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "79993e85a16cab6f8c4820677836fb957a9bcc09b102da472bc93250c531979a",
+    "version": "7:4.4.2-0ubuntu0.22.04.1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 228490,
+    "package": "libblas3",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "70783f07775e4f5297a364f5c1187c6f8103a8c42dff2c593448c6945610da19",
+    "version": "3.10.0-2ubuntu1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 103456,
+    "package": "libblkid1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "bf9ab18457e0a10879951b01c87156bdf503bdeb0f87ae0f0f81ec62cb000279",
+    "version": "2.37.2-4ubuntu3.6"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 158834,
+    "package": "libbluray2",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "2f1d520f30a2cd8b6dd543014f0ff10d4ff615cb4526b999b3fbaab911881ff2",
+    "version": "1:1.3.1-1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 315164,
+    "package": "libbrotli1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "8e6aa2dfd44df287b9fb227862f3b6062ec074dd39a247874edfe12e1dcc3841",
+    "version": "1.0.9-2build6"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 10164,
+    "package": "libbs2b0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "2cf73adeb858f9438d184145875a266f17d881eae5edcf80207cff239c8b1866",
+    "version": "3.1.0+dfsg-2.2build1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 44760,
+    "package": "libbsd0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "09367acdf59f28ffb71ba7bc36c516cff03b2765930cf9be7bb7ea7273e4c312",
+    "version": "0.11.5-1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 34524,
+    "package": "libbz2-1.0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "2fd35bb1ac601fa1bf35da2fa08dba3541766ca791927342b5efcb18ef17aecb",
+    "version": "1.0.8-5ubuntu0.1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 3234380,
+    "package": "libc6",
+    "providedByPinnedUbuntuBase": true,
+    "sha256": "79e35256227e16a607c154cdeb8d76ff12d20e31de286ea7fd9ad3b96fe0452d",
+    "version": "2.35-0ubuntu3.15"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 223992,
+    "package": "libcaca0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "7eabb28c9428f3a011e5f1961ab78a5dc911d92f4423134bc046bb58769188aa",
+    "version": "0.99.beta19-2.2ubuntu4.2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 19460,
+    "package": "libcairo-gobject2",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "1c56e1d49921272ac243ff9c39771da7e37891b1ca0bc30696639e624aaf0443",
+    "version": "1.16.0-5ubuntu2.1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 627714,
+    "package": "libcairo2",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "096c5309b8fb37aeb32636f13c58309005ef4aa73aaa4c4299c2e824c1fbd359",
+    "version": "1.16.0-5ubuntu2.1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 18548,
+    "package": "libcap2",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "c497efb7fa3cd19a7ff297d95c7c5d678063c80c9fc230c9d034a8ee02ca8446",
+    "version": "1:2.44-1ubuntu0.22.04.3"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 16744,
+    "package": "libcdio-cdda2",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "fe997e00ff8bce19be8b9ce40a9c0dd7edcbaaec15863d42026f25a9772881ff",
+    "version": "10.2+2.0.0-1build3"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 15942,
+    "package": "libcdio-paranoia2",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "6ebe35ba93f5fe2145133b9d56a54f2666ea5e15ce4fe475b6555d20412e6515",
+    "version": "10.2+2.0.0-1build3"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 63558,
+    "package": "libcdio19",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "9f0c8372c197ff43d3900fe844f3bf78c7fea67cea9bc0679a400424c63042a4",
+    "version": "2.1.0-3ubuntu0.2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 28418,
+    "package": "libchromaprint1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "5899140e82b42e436d1972f15466210fc21f4d038e0669ad82f635fef71d8d0a",
+    "version": "1.5.1-2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 8435402,
+    "package": "libcodec2-1.0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "1fbf2167aeb9dedea22c68b6166873d6b5ed0e854cbc4383f148fe20cbe7b142",
+    "version": "1.0.1-3"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 9304,
+    "package": "libcom-err2",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "552bc8169451cfdcf174a8da845b13ced0a55777149af5cf47491193161ed791",
+    "version": "1.46.5-2ubuntu1.2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 82004,
+    "package": "libcrypt1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "3fa566e9f861a08736cbc5a97562d9d6e4f0c00450fbeafcb6d7583423b04a98",
+    "version": "1:4.4.27-1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 285994,
+    "package": "libcurl3-gnutls",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "1082b16f576a6a5d2769a79913b982677345fc3d4bab54e607cea2874d817f58",
+    "version": "7.81.0-1ubuntu1.29"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 19886,
+    "package": "libdatrie1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "7203107da01abcaf8f88db41e4ccc949285e20326edacdfe59ebb321a16026a0",
+    "version": "0.2.13-2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 462956,
+    "package": "libdav1d5",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "1f92d5961a84a6d1365e6fc9da9d1fbfb7988a47c7f3bee8403eb57cd67545cf",
+    "version": "0.9.2-1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 721906,
+    "package": "libdb5.3",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "ce60e446c9cb0e94bb4b4d0fe4f969e772edec250deb186bacf955e4d196548b",
+    "version": "5.3.28+dfsg1-0.8ubuntu3"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 188562,
+    "package": "libdbus-1-3",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "6a5171696c3b05aca273d637d9c0501c8033fda64a971e09fd545bc1ab72ca1e",
+    "version": "1.12.20-2ubuntu4.1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 88796,
+    "package": "libdc1394-25",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "5c9ec8b9f75e7d0447e243fbf7ad2860e2481ba15e19b871b6defa0373dc56aa",
+    "version": "2.2.6-4"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 15116,
+    "package": "libdecor-0-0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "52cf70767da9e0b23fa6873c6345811c037084f5c4ffe640e28d5758489da2b2",
+    "version": "0.1.0-3build1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 70884,
+    "package": "libdeflate0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "a64f7f93a487e57e1a01404d378a8ef1428b1c6b0ecf24fc484c89b681a051c9",
+    "version": "1.10-2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 19948,
+    "package": "libdrm-amdgpu1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "a284d1d55956ed2f5f1ece4e2df9104ff87052a6c27a8150574c30c757ecd4b8",
+    "version": "2.4.113-2~ubuntu0.22.04.1"
+  },
+  {
+    "architecture": "all",
+    "bytes": 5450,
+    "package": "libdrm-common",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "35a306712d8b15b30c42ecd73ec087813eb01c0b3125dc8f7ca2b5134e133522",
+    "version": "2.4.113-2~ubuntu0.22.04.1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 66724,
+    "package": "libdrm-intel1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "465de8142e166a59d0c0d6857cd23b76d04ab2680b37fcd16cf4d2ce631f8f92",
+    "version": "2.4.113-2~ubuntu0.22.04.1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 17480,
+    "package": "libdrm-nouveau2",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "75ce233c7120443a15ab3e71829f7bf63258e6d2a025df366f54027d1d3e8d0c",
+    "version": "2.4.113-2~ubuntu0.22.04.1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 21566,
+    "package": "libdrm-radeon1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "579b0d2ccc7800309277fabe517b71a4160b7f26c4745db8e0df25f80576aef7",
+    "version": "2.4.113-2~ubuntu0.22.04.1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 38106,
+    "package": "libdrm2",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "555925f1caedfd98d89bae3bc11b4fe3401c2c4817dbbafcab25e1144582e946",
+    "version": "2.4.113-2~ubuntu0.22.04.1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 96766,
+    "package": "libedit2",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "fb8783bdf0a59aaabf4e9b29192170f6cc17aa2eb94bc672c15add37ff39525b",
+    "version": "3.1-20210910-1build1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 51140,
+    "package": "libelf1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "2cc781614b045b450a1e073ee3b0902f393ee58ede1d2ea4526ad805fcccf538",
+    "version": "0.186-1ubuntu0.1"
+  },
+  {
+    "architecture": "all",
+    "bytes": 26460,
+    "package": "liberror-perl",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "13c044def376282cd2a6a4b21e5ec829a6ac8aecd745183df22570e320cec08e",
+    "version": "0.17029-1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 96926,
+    "package": "libexpat1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "0ee31596316d2275ab351d11290c63e7547fff0ecd7f431e56855cb7c5f18588",
+    "version": "2.4.7-1ubuntu0.9"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 22326,
+    "package": "libffi8",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "b4f88c91fa6f4c942097be6abfc365fb133c5e147640168cbb7704fd855eac10",
+    "version": "3.4.2-4"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 111216,
+    "package": "libflac8",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "46ae4ced3fc67e23e173f5b5d8196f8a9235646a337528f135e6a07d3b206b9e",
+    "version": "1.3.3-2ubuntu0.2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 13676782,
+    "package": "libflite1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "079ec37390feef7b59a099bc0cb56a1fc9f922c17c6415ee813010436ce5840e",
+    "version": "2.2-3"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 131434,
+    "package": "libfontconfig1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "6be0c141aed23d9eb801658d248fd667bea2b8a9ccab4db7b596a69ffe3393fd",
+    "version": "2.13.1-4.2ubuntu5"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 388176,
+    "package": "libfreetype6",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "729f5a3a72069ddcef6a54f6825178667477625574925504594769665897afbc",
+    "version": "2.11.1+dfsg-1ubuntu0.3"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 26096,
+    "package": "libfribidi0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "75d7d833d35a0eef11501c542bd31c0b52fc937be0fcc08384674455439223a1",
+    "version": "1.0.8-2ubuntu3.1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 33678,
+    "package": "libgbm1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "10d37ffd63f8f98fc9a1ad5b32abc7a9da760f4ed85c806d98f10a61c17f8ef5",
+    "version": "23.2.1-1ubuntu3.1~22.04.4"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 53896,
+    "package": "libgcc-s1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "d383e642d83263147f7b4b69fb92cf1036e5246c6be3accf10b77f986684589a",
+    "version": "12.3.0-1ubuntu1~22.04.3"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 521420,
+    "package": "libgcrypt20",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "8f16329a0aabf4900271a3687890721bbef307e60983acae5b92eeff12e799b3",
+    "version": "1.9.4-3ubuntu3.3"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 6606,
+    "package": "libgdbm-compat4",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "58636e2ad6bab216b70f83a114f4e37d1f733fd6eb69e220cb9a4d53c2b5868d",
+    "version": "1.23-1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 33906,
+    "package": "libgdbm6",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "acf9e905a3ecbd4d919938e1cfd4bcd9d861bc794648046a9af1fbbefd0cc495",
+    "version": "1.23-1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 148234,
+    "package": "libgdk-pixbuf-2.0-0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "dc19853a6d8981b6a4ab140f454d7ad4f4688f3de959663f30e18c6327b8a64f",
+    "version": "2.42.8+dfsg-1ubuntu0.5"
+  },
+  {
+    "architecture": "all",
+    "bytes": 5560,
+    "package": "libgdk-pixbuf2.0-common",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "c202d69a7beee5077629cb5fe49ed810911deeafb0a072eb375011b03c623c37",
+    "version": "2.42.8+dfsg-1ubuntu0.5"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 878662,
+    "package": "libgfortran5",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "14dbb269458f60ca64af646c9300b8b85dd962ddbb434ba362062a54c07c4db6",
+    "version": "12.3.0-1ubuntu1~22.04.3"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 8860354,
+    "package": "libgl1-mesa-dri",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "aaa8e52dcfad9c6875cd36207086bba2ab2d95903e83df6ce584053c11fbeb16",
+    "version": "23.2.1-1ubuntu3.1~22.04.4"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 110500,
+    "package": "libgl1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "4fb2bbff94bb1a59bbdb40041e7a8ab58db2a003a151f4055357af03f0b78666",
+    "version": "1.4.0-1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 35558,
+    "package": "libglapi-mesa",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "bb9b515ea17ca816f878501d3b862c4bdfc3501482f96c9bbd8263bb402bc498",
+    "version": "23.2.1-1ubuntu3.1~22.04.4"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 1468764,
+    "package": "libglib2.0-0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "b82973c5d9698e48297000e74d2dc7431e726db8f0f948ea56be7f9e4c9e66fb",
+    "version": "2.72.4-0ubuntu2.10"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 73582,
+    "package": "libglvnd0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "6956d8be93b160b439a043141a061adfd54561d877423a956ace84d2fb3bfb4e",
+    "version": "1.4.0-1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 158058,
+    "package": "libglx-mesa0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "41afc13df2a5ea6e5dd1a9d663cb0af05ef0a38cfd200d2a97210bec3dd614c6",
+    "version": "23.2.1-1ubuntu3.1~22.04.4"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 41024,
+    "package": "libglx0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "950068e8a3ad3905058d21a8c870c37989e48c0a537a7c57231c277af19f5395",
+    "version": "1.4.0-1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 127456,
+    "package": "libgme0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "74949cd9dfd2becc1fb6d1c6799bb2dc572bea9dddec8c29214d51401ab06e6a",
+    "version": "0.6.3-2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 250148,
+    "package": "libgmp10",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "d199a77e11701d4d620dd4f62e05740e3072dce893856ea3bbaa6ae9fa19fef1",
+    "version": "2:6.2.1+dfsg-3ubuntu1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 971454,
+    "package": "libgnutls30",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "65e08f0b5d1e620cc5cc9478cd1035f83ea752a6fae23141afd2d111a8f6c555",
+    "version": "3.7.3-4ubuntu1.9"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 126570,
+    "package": "libgomp1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "870c27299185a5dd4accad3b15bf82a7409fd7073cccaa8025875307da4d0ce2",
+    "version": "12.3.0-1ubuntu1~22.04.3"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 69684,
+    "package": "libgpg-error0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "1fbacdf9bd1e431cee874a697b339f6f925182bc79bba5a112b53669b33265c5",
+    "version": "1.43-3"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 71614,
+    "package": "libgraphite2-3",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "fefc2bc510b80a7a2a8570352be4f0bf9e2d36d122d2c8316cfa008103a2a7e5",
+    "version": "1.3.14-1ubuntu0.1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 27726,
+    "package": "libgsm1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "7dbfc7eb7b990f208993eec5584758bdd5429e4ac014ac8664b56084c9057864",
+    "version": "1.0.19-1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 144666,
+    "package": "libgssapi-krb5-2",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "08e98a3dc74361cdb13c0d68bc73e0352552490546c1ad3ce5bff5426f6a2dfe",
+    "version": "1.19.2-2ubuntu0.10"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 352528,
+    "package": "libharfbuzz0b",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "e895a3c842c60296549d09c2ffafb4098b853e501e28dc8de710b90357007616",
+    "version": "2.7.4-1ubuntu3.2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 199324,
+    "package": "libhogweed6",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "2402ac51ebc760799b01f3fd4933126c5eb446e5b043832601fb589f5e50c363",
+    "version": "3.7.3-1build2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 10581942,
+    "package": "libicu70",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "58a154f6307289813da2276f900498ef536ae7c0522d2cf31a3c3c5cf62dfd9a",
+    "version": "70.1-2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 66396,
+    "package": "libidn2-0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "bc935e1871aa4a75d3f4ff549af32b7316aecfbea2200d85055878767b8398c8",
+    "version": "2.3.2-2build1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 25864,
+    "package": "libiec61883-0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "247692e79de29441e84deb3c0325d7cbea12ba20e203c7eecab22f6f547c6c34",
+    "version": "1.2.0-4build3"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 292754,
+    "package": "libjack-jackd2-0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "8fd0298d320bf8fa0af334367e797c9db930225d26962e89acf46e0fc7975e88",
+    "version": "1.9.20~dfsg-1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 29166,
+    "package": "libjbig0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "4666c37d8620b6d17a2d4acf2cb1459f071e74881dc490a159e90244d7a98cc6",
+    "version": "2.1-3.1ubuntu0.22.04.1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 134436,
+    "package": "libjpeg-turbo8",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "bb9538fa94f06bf6b7907105439f0a0a30e3ec27030832820a6c2cc2dc6578a8",
+    "version": "2.1.2-0ubuntu1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 2264,
+    "package": "libjpeg8",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "869e3e6fbdbe7a645dffcb86b4e285957225a89b6a76840f4aab2bedaf0e4e88",
+    "version": "8c-2ubuntu10"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 86496,
+    "package": "libk5crypto3",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "40429c0099678fbc35045f0c63a10bc3490251d80cf1006095eaa0272c8d5e27",
+    "version": "1.19.2-2ubuntu0.10"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 10376,
+    "package": "libkeyutils1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "940daf78ee0229549b4eabc92ffd79dd038ed96a44e2e912305a23540cf22a0a",
+    "version": "1.6.1-2ubuntu3"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 355538,
+    "package": "libkrb5-3",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "0da3e0df7d6314615160a42f65ff345986783be02cd65a6ce797cfbacc7bcb0d",
+    "version": "1.19.2-2ubuntu0.10"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 32708,
+    "package": "libkrb5support0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "0406052ac2d267f05088ada6d36df61aaa338cbe8d5e13fb1d7f79da560817ed",
+    "version": "1.19.2-2ubuntu0.10"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 2504470,
+    "package": "liblapack3",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "86f7179d7f8550acae14efa2f5b82c8f2b83dc9c658580115c91d37d20a43a72",
+    "version": "3.10.0-2ubuntu1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 183948,
+    "package": "libldap-2.5-0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "a3ee4ac116a2c50c9ddfe9de91c0781a50704244771474334340cdce02f5cd4f",
+    "version": "2.5.20+dfsg-0ubuntu0.22.04.1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 42812,
+    "package": "liblilv-0-0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "a277601fb9875c90acc71b2fa38e8fe856b9e3283bd8341eb1f53ad5ead77977",
+    "version": "0.24.12-2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 25375730,
+    "package": "libllvm15",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "96798f618e4071f7fa684037bd0bb88f15b4e8f2c80cbb64267aa39fe8a8a5ec",
+    "version": "1:15.0.7-0ubuntu0.22.04.3"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 56930,
+    "package": "liblz4-1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "ac9b54d0feb840345060c74fb687675c5e1eb2b195effafae38c5f9991041e98",
+    "version": "1.9.3-2build2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 99630,
+    "package": "liblzma5",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "af77f099e7fa95a31267023535832804382fa66572a6b38002187be6e15116cb",
+    "version": "5.2.5-2ubuntu1.1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 22964,
+    "package": "libmd0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "bcdad5e400aeb660f0337a1c5c1a77e3effa91d0803e64ce2d000e9006f67cdb",
+    "version": "1.0.4-1build1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 3104792,
+    "package": "libmfx1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "a04a16280471ec59405290f6ca85d8252b3476bae5542b5e0a4e442c041f9a4a",
+    "version": "22.3.0-1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 122186,
+    "package": "libmount1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "9f69b37420731477105d94c6bf2139437be04bef7c46ba7ffcaf3741e301bdba",
+    "version": "2.37.2-4ubuntu3.6"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 141442,
+    "package": "libmp3lame0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "799cfeb7f6ab0645c194cc99074407e112eb7b9f3b129409e05f2573c6b85f2b",
+    "version": "3.100-3build2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 172002,
+    "package": "libmpg123-0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "a71e502ddd867536a4dbde5dee9d1154faeca369fc9e274e8b98331641a2dd26",
+    "version": "1.29.3-1ubuntu0.1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 1157126,
+    "package": "libmysofa1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "e3fb04d1c7ddb831cb02ec432eb06744a27f7f1a043207cbfdf047ae787e2a78",
+    "version": "1.2.1~dfsg0-1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 147472,
+    "package": "libncursesw6",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "734107c126c2685508e4186f6be65f4edc0d393f1bc1cb4c307a76d1beb09496",
+    "version": "6.3-2ubuntu0.3"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 158864,
+    "package": "libnettle8",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "6da09e685e5587f8873f662b007de45f75424fb33d2c4a51837380e683d33c7e",
+    "version": "3.7.3-1build2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 76932,
+    "package": "libnghttp2-14",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "6e968d1ed7abb3635a3b0707ebfa20cd368ce784f83cc567b11c0723217a6de4",
+    "version": "1.43.0-1ubuntu0.4"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 221160,
+    "package": "libnorm1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "54289be7e191ff7a63127c147892a72afecc2c49714c35ba2839db30f4303b0f",
+    "version": "1.5.9+dfsg-2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 22478,
+    "package": "libnuma1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "0721c89001fbbd1ada23e89da5d60e762763c1a7b3dc814a2e9a518480a8043d",
+    "version": "2.0.14-3ubuntu2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 22852,
+    "package": "libogg0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "116a95c2ef71057d86f1e20c378247d34a0c8cfa257aecd0f4f36f75fc338de2",
+    "version": "1.3.5-0ubuntu3"
+  },
+  {
+    "architecture": "all",
+    "bytes": 163962,
+    "package": "libopenal-data",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "0fc7b012c00d611b5f5df3d380a80cade877f32a70b893d60409393f9a17f9bb",
+    "version": "1:1.19.1-2build3"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 534604,
+    "package": "libopenal1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "ce3542debf4313c400e232fa8281559b5b2895c33f59897b5876ae5e9580a823",
+    "version": "1:1.19.1-2build3"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 157716,
+    "package": "libopenjp2-7",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "8efb91572f5f02dcb2bd7ccee580411f9065656523210ac9dfdd5b4c5f07c0b3",
+    "version": "2.4.0-6ubuntu0.5"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 592450,
+    "package": "libopenmpt0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "7e2d745b442e2776f8fc563bba20079f0a38fab0ef70ff4c2acdcc96604222a2",
+    "version": "0.6.1-1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 202790,
+    "package": "libopus0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "73225bff2be1b5ef888d00d680f44741e67a096932bd0854db8da7d5488603b5",
+    "version": "1.3.1-0.1build2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 252086,
+    "package": "libp11-kit0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "9d949950970a062a81051a78ec4075b8dba608f063afaa5c8752a612d139a9b5",
+    "version": "0.24.0-6ubuntu0.1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 229548,
+    "package": "libpango-1.0-0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "cbc98b6f1676ea97454639c573f81ac7578224b7733dc80b377eca82d1eb0c86",
+    "version": "1.50.6+ds-2ubuntu1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 39822,
+    "package": "libpangocairo-1.0-0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "112050121990441b7ad72b12fdfd32a52adfb71c2cf8b466634eb925c5076706",
+    "version": "1.50.6+ds-2ubuntu1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 53954,
+    "package": "libpangoft2-1.0-0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "6590177d0dff28a473bee0f7965f3bc12302464f8fb43fdd3b3a1cddd69453b1",
+    "version": "1.50.6+ds-2ubuntu1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 19140,
+    "package": "libpciaccess0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "0f3c826d6cd56b7b46550d952709b8ede9f2636b98698da40a2054768ebdcffc",
+    "version": "0.16-3"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 220512,
+    "package": "libpcre2-8-0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "01a5a74f3d305cad32fffffdc200c2a92fd8e5a01bff97de76ac598fb444d53e",
+    "version": "10.39-3ubuntu0.1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 245530,
+    "package": "libpcre3",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "0d1eb051047eb0c637c893f618f45e1d419863bfa3bc821897ee05ad418ba22e",
+    "version": "2:8.39-13ubuntu0.22.04.1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 4796012,
+    "package": "libperl5.34",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "d942dfda30abea6d621cdd25df1d4bd0a800dcc61718bd4e4fbbd5f30b39e93b",
+    "version": "5.34.0-3ubuntu1.9"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 161180,
+    "package": "libpgm-5.3-0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "5e14963fe9155cabcd2ba6c7d66289b45bbf08db6bc5dfe8107b244becc312c9",
+    "version": "5.3.128~dfsg-2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 264202,
+    "package": "libpixman-1-0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "ebcd65ac9bff8412e07d9d54f754d832169de71f1744bdb2ca10744bb5554e73",
+    "version": "0.40.0-1ubuntu0.22.04.1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 192320,
+    "package": "libpng16-16",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "c50e4291d15bbe3489245f773ad1d2cdb63b1753a1382a393ad34ce1b8d70358",
+    "version": "1.6.37-3ubuntu0.6"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 132264,
+    "package": "libpocketsphinx3",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "3e19eb33065660f6a604d262867ff2217f48befaadb623486ec71d2ae65f38c3",
+    "version": "0.8.0+real5prealpha+1-14ubuntu1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 60142,
+    "package": "libpostproc55",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "de3631cfb6cf3340c3c2364bc3d4237c2562f949a8158e90f09265f8e3d18c57",
+    "version": "7:4.4.2-0ubuntu0.22.04.1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 58388,
+    "package": "libpsl5",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "cd29dee0eac2bdf3f944f47b3926993827dc6b3710251df76006fab2fd09f7e1",
+    "version": "0.21.0-1.2build2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 297522,
+    "package": "libpulse0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "3d8558023cb427e6e1d0b52e604c831261716ba102a0169679652051948fef76",
+    "version": "1:15.99.1+dfsg1-1ubuntu2.2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 153976,
+    "package": "libquadmath0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "c4c59e67e76674c8c494ce5e0415b71d770a759b48893c0d3cbabddceeb690b2",
+    "version": "12.3.0-1ubuntu1~22.04.3"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 39850,
+    "package": "librabbitmq4",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "148e987046214291c760897584c7c3812d24f2f6751b5d2516b55ae56e572d8b",
+    "version": "0.10.0-1ubuntu2.2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 26976,
+    "package": "libraw1394-11",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "d1516af66e5ad3d033444cb4aebd18e4ff30c0dd7fb3809d5f3fc14451f286c5",
+    "version": "2.1.2-2build2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 2973762,
+    "package": "librsvg2-2",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "7bde6c1a908c59456ed21c4d8b518775835dac24125e3c29805a8f1869ad68b2",
+    "version": "2.52.5+dfsg-3ubuntu0.2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 58190,
+    "package": "librtmp1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "c8bdaa1e777d08888914e922f8f76441c26ee36438d3aa59161ecccc2421f77e",
+    "version": "2.4+20151223.gitfa8646d.1-2build4"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 89976,
+    "package": "librubberband2",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "ffe78e254bb3817c70e2bf6986c0aa16533fdc8d0eb7c7db4910ec5df6742f09",
+    "version": "2.0.0-2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 1358842,
+    "package": "libsamplerate0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "89faab8f6a9ca71cb6dd6d9dd604301d3e9f7f534790a8a4bf8156b4da33ccbb",
+    "version": "0.2.2-1build1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 53832,
+    "package": "libsasl2-2",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "391cb48d7e601d5bb590da8d426750acf6c987241ba280a36227873b94f20cee",
+    "version": "2.1.27+dfsg2-3ubuntu1.2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 20476,
+    "package": "libsasl2-modules-db",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "0e222c26d70c2cfd132c8de035bcf9673067b6cbfea0a7421dced7b6256ae774",
+    "version": "2.1.27+dfsg2-3ubuntu1.2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 581580,
+    "package": "libsdl2-2.0-0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "ac3cea9ea66df71445541b2cfd5e07f554ba0f83e3ce4a9dacc311c358100c47",
+    "version": "2.0.20+dfsg-2ubuntu1.22.04.1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 74578,
+    "package": "libselinux1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "b96c6b40ee2388bd51341cb11c0f1d5bcca29b9180b6e3a77a06b881f2913f7e",
+    "version": "3.3-1build2"
+  },
+  {
+    "architecture": "all",
+    "bytes": 5274,
+    "package": "libsensors-config",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "53f08afe04f0f525bccc1ad78e3eb2c7e7bb62b4104535c3680dd76c1e2122b3",
+    "version": "1:3.6.0-7ubuntu1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 26346,
+    "package": "libsensors5",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "8059077962c3109ac789dd16dcd0e68fdfce9e398cded0881803d677963f8d5f",
+    "version": "1:3.6.0-7ubuntu1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 40768,
+    "package": "libserd-0-0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "5e1b679d793faa773411a117192b99b1cfc87c61e521d8d8c71e0046eb5aae2e",
+    "version": "0.30.10-2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 23160,
+    "package": "libshine3",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "318968ed95078eebceb155f19a177667092f6b998ead2e09115133dcc7cd5ddc",
+    "version": "3.1.1-2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 467748,
+    "package": "libslang2",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "94efcae66831cb9a3ac776ec9e9a95d1049e9a76c9a46b9d218f0d4de9553aed",
+    "version": "2.3.2-5build4"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 17486,
+    "package": "libsnappy1v5",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "245a0f6b5a9dda0bee20c6a62f78a88bf885be831b1f1108f19231b2a97a797e",
+    "version": "1.1.8-1build3"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 196374,
+    "package": "libsndfile1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "169b8d8c8c7790586e4a107beda8bf4a5dc397e236744749f11c92f1c0fcd59b",
+    "version": "1.0.31-2ubuntu0.2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 29346,
+    "package": "libsndio7.0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "80cde4ad8d384bf34022b0b40071081c8a211fdca2edd81ca310eb99b46ef742",
+    "version": "1.8.1-1.1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 164192,
+    "package": "libsodium23",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "64bc0959a8ef3dd6d5ad8b347f8aa9a2a0e585e1f696340f9daa2c643ebefd11",
+    "version": "1.0.18-1ubuntu0.22.04.1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 21184,
+    "package": "libsord-0-0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "f871c61f20a45f15ca4fe52a6965da01b0761dfe35595fd20db776198763e384",
+    "version": "0.16.8-2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 79768,
+    "package": "libsoxr0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "6de7fb8a10ec3e88831dc831d03aec24dc0d3df0772e375e9e8d31839a25c9d8",
+    "version": "0.1.3-4build2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 57894,
+    "package": "libspeex1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "a2fa1a19f9f473339c287f89763f78363a6c10490c3836258f4a12e959494bd6",
+    "version": "1.2~rc1.2-1.1ubuntu3"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 126398,
+    "package": "libsphinxbase3",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "af2649a25313f10300ebbd750f81660b69126be0bdc2090f712c9543b495fbba",
+    "version": "0.8+5prealpha+1-13build1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 17008,
+    "package": "libsratom-0-0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "25e9ca5c4d5fc118b7470be65dbcc02dc2709af97555f771c2e73a322aa61abc",
+    "version": "0.6.8-1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 308604,
+    "package": "libsrt1.4-gnutls",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "a9460464081cf15bbf73f09d6a47bb48194cb8c33eaa947248a75bc4271ea6cc",
+    "version": "1.4.4-4"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 188616,
+    "package": "libssh-4",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "ebeff6b7c3777c5ae0a2fd4200c3a946f3e866d102d7c56d46c997af8ebc2138",
+    "version": "0.9.6-2ubuntu0.22.04.8"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 225738,
+    "package": "libssh-gcrypt-4",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "09290b41b847885bc2204ce7b03fd617f1589de9a046b9aa96fa28e8f828f1e5",
+    "version": "0.9.6-2ubuntu0.22.04.8"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 1907006,
+    "package": "libssl3",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "d1b4636e32ac6d3b95d583ac05ac548b1aa248414bae1c51b14f54be0f8fd7bc",
+    "version": "3.0.2-0ubuntu1.30"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 698608,
+    "package": "libstdc++6",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "29ef3d289b272704b75141906c8f683db0f2bdb0942061366691333bfb289bdc",
+    "version": "12.3.0-1ubuntu1~22.04.3"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 62168,
+    "package": "libswresample3",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "3027189b2512eaa841c81593b8c65e0f32ff8117626b7e40f3744a0b3801fec5",
+    "version": "7:4.4.2-0ubuntu0.22.04.1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 180074,
+    "package": "libswscale5",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "c67fa8cde362e67cf6fc7814597b1db3df6fbff7ee2eafb5cb651e4f90a3093a",
+    "version": "7:4.4.2-0ubuntu0.22.04.1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 316392,
+    "package": "libsystemd0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "4fae4644bcfd86f891faae12cedbf30aca280cf76a034768aec3a03fe42ddc25",
+    "version": "249.11-0ubuntu3.22"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 43618,
+    "package": "libtasn1-6",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "a0903b4fae3ac2548a22d8822382e6d23586e42196d83ff67e82df36cd39fc6c",
+    "version": "4.18.0-4ubuntu0.2"
+  },
+  {
+    "architecture": "all",
+    "bytes": 161598,
+    "package": "libthai-data",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "63afa587e6d40d6bc71b0e4d353b0936e2d919e48476418f0a0e3d9542d29714",
+    "version": "0.1.29-1build1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 19228,
+    "package": "libthai0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "cf035ace18e725828442635a90109a05958a2f0941eaddeac863cd0145e47f73",
+    "version": "0.1.29-1build1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 209030,
+    "package": "libtheora0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "549485bfe7ad431b387aa084fd0e088b025feb3dcdb77a5a1d130b29a62875dd",
+    "version": "1.1.1+dfsg.1-15ubuntu4"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 185292,
+    "package": "libtiff5",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "298a778a6a579a556f6bb4e32512cd76e0483b57b4a379ee85397f62fe21f225",
+    "version": "4.3.0-6ubuntu0.13"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 104576,
+    "package": "libtinfo6",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "3b8dff43a31168f5020928f2ab9a97324c5b47ae708311781f6bd01306c96214",
+    "version": "6.3-2ubuntu0.3"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 52480,
+    "package": "libtwolame0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "83ed6b7cbd6c6e79cf9859f29eafa89a914dbf00bf6b3babc89bb7accf5873f5",
+    "version": "0.4.0-2build2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 75888,
+    "package": "libudev1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "48e47354d8d421b59bc2aac1437bc6b22ba04526963e4a73f9313b0dd518556b",
+    "version": "249.11-0ubuntu3.22"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 16248,
+    "package": "libudfread0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "0467e8ad7ab00cac04e5b54cb141daf8c038264e933a468ae2788d5fd650e516",
+    "version": "1.1.2-1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 553602,
+    "package": "libunistring2",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "988fb59de6a0a313844277e8a6e45d3dc16f5ea75a603a46b16b936426f0ac65",
+    "version": "1.0-1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 52688,
+    "package": "libusb-1.0-0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "99b98c9cc9c88c4d7f50e106e9f0cbff868c5d14809f516b1947d3d2c4638aae",
+    "version": "2:1.0.25-1ubuntu2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 23978,
+    "package": "libuuid1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "97eaa1090c2e7ddaad55d58f9d0d7907d64b70f89228405d68a7ce7d56a89d67",
+    "version": "2.37.2-4ubuntu3.6"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 7502,
+    "package": "libva-drm2",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "c409075cc49011919d364cd20a729d02a212fb86fbd617146b47e2243e5ec318",
+    "version": "2.14.0-1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 12600,
+    "package": "libva-x11-2",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "e9331395732187e39117102f0811b1c49b554e8c8b5e50a46788f991b19aa8e9",
+    "version": "2.14.0-1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 64972,
+    "package": "libva2",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "30da2b3d7c066137116cb0c69c68d2709e6352bea0706ae54fadb89af24463fb",
+    "version": "2.14.0-1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 27046,
+    "package": "libvdpau1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "babb1a8e6eec4190d9125f1bf88d5e2e9a6cc0af1f98573cd726d95c982b70b9",
+    "version": "1.4-3build2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 35040,
+    "package": "libvidstab1.1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "477655192eac8eaef3980aa46f5e8b073611827da1476f7c356abefbb89183c3",
+    "version": "1.1.0-2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 99250,
+    "package": "libvorbis0a",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "1c4195ccfe75a82c0989300762124b2371d34d8e1f99a968032fde64395a23ec",
+    "version": "1.3.7-1build2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 82594,
+    "package": "libvorbisenc2",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "3b5c496121c3c06bbda1b01386107c296992ad9b8cc53f5c3b1756382275d40f",
+    "version": "1.3.7-1build2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 17072,
+    "package": "libvorbisfile3",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "e8ccb1bd8dec2c2b9c9a11b4b37ce58356848a6f0fb3e55070bfe563e19212de",
+    "version": "1.3.7-1build2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 1078120,
+    "package": "libvpx7",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "5561f3376bb9232d098a44dabc33eed3b3abfeec751c27893b58b6e6912684e0",
+    "version": "1.11.0-2ubuntu2.5"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 25950,
+    "package": "libwayland-client0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "2c06ef99bc387136e6357014fcb9fa6f47e0cb4e54d9b5ee10c750743a216e5a",
+    "version": "1.20.0-1ubuntu0.1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 10664,
+    "package": "libwayland-cursor0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "23a4253600cd8f75161747d3c4dcfc37c92a0074455b3883c46caef7aade34da",
+    "version": "1.20.0-1ubuntu0.1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 5582,
+    "package": "libwayland-egl1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "1b95b4ed225a6ab3c6a5e35e76eefa6896625e9d6cf139f0ea594ececb8348d0",
+    "version": "1.20.0-1ubuntu0.1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 34268,
+    "package": "libwayland-server0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "b5d514dc17edac6b93ba2476d90806337ca4afcc914952a7e78af2e5cd0c4a7b",
+    "version": "1.20.0-1ubuntu0.1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 206268,
+    "package": "libwebp7",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "c24f4ed7a866aef76652027f07376f00e5e83f308b1f2c4faa1ee6ae8b7f2cfc",
+    "version": "1.2.2-2ubuntu0.22.04.2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 20496,
+    "package": "libwebpmux3",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "9c1cbe1c06be96e91f104d48ac37058ecbc5503bea3e51bd0eb0e6da6462f140",
+    "version": "1.2.2-2ubuntu0.22.04.2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 666946,
+    "package": "libx11-6",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "d382a3064ecd7576f24661a6d234adc737b854a9a0ec1d9f42cb4d007e77d547",
+    "version": "2:1.7.5-1ubuntu0.3"
+  },
+  {
+    "architecture": "all",
+    "bytes": 119766,
+    "package": "libx11-data",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "d2510de2e1aee7c2bcb149c1d8fac53f73efcf33f08664f563612fc16d16d4d9",
+    "version": "2:1.7.5-1ubuntu0.3"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 7802,
+    "package": "libx11-xcb1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "02c7db5d9f32e8c7c766d75ce9e0eb92f88d720c85da0fe506849b4a64f36806",
+    "version": "2:1.7.5-1ubuntu0.3"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 591486,
+    "package": "libx264-163",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "4b6dc88ca9fee6a234b599cfc67ce1042050dd2814f00b5065406bcdc75baf47",
+    "version": "2:0.163.3060+git5db6aa6-2build1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 1170076,
+    "package": "libx265-199",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "8cb4d8ba814357e480c48caa7afba944e9a62f26589ee6d39e498f869bf343d2",
+    "version": "3.5-2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 7634,
+    "package": "libxau6",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "551fa4101394af894f5f401285eeca9756da94bb31ecb08ed36a549ec580cd10",
+    "version": "1:1.0.9-1build5"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 7206,
+    "package": "libxcb-dri2-0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "b407841216a9d36d2f688bc108ff23fca9daeccc763844eb532c4ec3b46379d9",
+    "version": "1.14-3ubuntu3"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 6968,
+    "package": "libxcb-dri3-0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "88f306f8421abb5e0a70057925405b98162e6ade8fa2e9cdf67f798012e39b7f",
+    "version": "1.14-3ubuntu3"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 25934,
+    "package": "libxcb-glx0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "395855609f1ff02208b12aea1ef82f5018c6a262825bda8c9a49ec8cab9deacb",
+    "version": "1.14-3ubuntu3"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 5734,
+    "package": "libxcb-present0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "8039b58072834435f37269416597ca5f09231acad134a9658f3a2ea0386a162c",
+    "version": "1.14-3ubuntu3"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 18300,
+    "package": "libxcb-randr0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "39dc0f73fa3bd43f3f7755cb7d12bfd1cd59dd8966f747d66fba47dfc8652f62",
+    "version": "1.14-3ubuntu3"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 16356,
+    "package": "libxcb-render0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "26d331ed6e1219485dbd6a35b7c9cf552e1470f41bf2158b44a1331405f05250",
+    "version": "1.14-3ubuntu3"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 6158,
+    "package": "libxcb-shape0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "71666977d7aa11877d7af663231cabf4bde60b033947b83358522c6f43873b3d",
+    "version": "1.14-3ubuntu3"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 5780,
+    "package": "libxcb-shm0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "6d86c9ea2666276c862e64e8a1daa6cb1dd3e4da5ad9165eeb2507311c8a09bd",
+    "version": "1.14-3ubuntu3"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 9416,
+    "package": "libxcb-sync1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "81281149575a3e2cfee5629150bd5a7e52b2c16ed0d6c86b96108b520ab154b8",
+    "version": "1.14-3ubuntu3"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 9996,
+    "package": "libxcb-xfixes0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "c5fdfad628e4ccdc663fcb391d72a2510a8788dc680c070c76cea3e501791756",
+    "version": "1.14-3ubuntu3"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 49030,
+    "package": "libxcb1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "9258f04136434e7a0ccd76041505421934284209693373cfa9c24acb3a641ec5",
+    "version": "1.14-3ubuntu3"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 20920,
+    "package": "libxcursor1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "4ea5fa73bc989f5b8cbeecfdb650e142920859837279d0a64891cb80aff9dfc8",
+    "version": "1:1.2.0-2build4"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 10904,
+    "package": "libxdmcp6",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "6f6c869dcfc072fa77d24b72ba127bdf15d606bdffbeba4314fb39f4f324363d",
+    "version": "1:1.1.3-0ubuntu5"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 31808,
+    "package": "libxext6",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "875ec849749511dff61c8cc5a775f6f93427b9c3f392fdcec6925f14428e89cd",
+    "version": "2:1.3.4-1build1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 11656,
+    "package": "libxfixes3",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "f627555440060edf19801d77d369c99547cf47123fe4e30c5bdb8b664f0b4467",
+    "version": "1:6.0.0-1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 32572,
+    "package": "libxi6",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "47662736cca4be456fd42a5f0a9d3bed8a5cfad4ee08b809a95dde6004daf275",
+    "version": "2:1.8-1build1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 7382,
+    "package": "libxinerama1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "be0caa6259a6c8d5ff75d2bd410a4cf6126b1d4dcb6a04b9c33f388d639f7b07",
+    "version": "2:1.1.4-3"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 124684,
+    "package": "libxkbcommon0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "a0470edb237d52b71ad41f755c043164abed01423585ed5ea19525b3baaf84f7",
+    "version": "1.4.0-1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 763892,
+    "package": "libxml2",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "825df4a2c852b4cec058ed3e95648f5c7b41f923af85e15d464ec80c14302edc",
+    "version": "2.9.13+dfsg-1ubuntu0.13"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 20394,
+    "package": "libxrandr2",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "5fbce1f1ec150c715fd83eeef5626363580218db09cedc8ac888b172476b0c82",
+    "version": "2:1.5.2-1build1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 19678,
+    "package": "libxrender1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "a68f6db4320b5963dd499b83b6cc8c7b5cd39b05e84862d5945da9244e4c96d6",
+    "version": "1:0.9.10-1build4"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 5394,
+    "package": "libxshmfence1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "d51ed6fc3932038ebfa0e59065184c715e27ea2cd910cf0a300cfe24cffd744c",
+    "version": "1.3-1build4"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 8476,
+    "package": "libxss1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "9c7de4bbe5ebbae7e351ac31683e56320066e569f18f77b2d7a4a5a5454e7c8f",
+    "version": "1:1.2.3-1build2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 11228,
+    "package": "libxv1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "107c15538491504dabbbe9dfb14cd1767371192d600bde1b7e61c5309a1b4bb8",
+    "version": "2:1.0.11-1build2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 201320,
+    "package": "libxvidcore4",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "626b3e5a46d65df55eddb23037841c9dcb7bde3c8e325da09c9f3528c8416afb",
+    "version": "2:1.3.7-1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 10380,
+    "package": "libxxf86vm1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "2a4bd31dded8481c81bfaa65bd97d61bff1e90cb025c01bcabfc2597c7c7569a",
+    "version": "1:1.1.4-1build3"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 241140,
+    "package": "libzimg2",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "8c31afaea7dbe2a1fb3acaf24f60707daac9136afb99d62a046beb3f186ebeeb",
+    "version": "3.0.3+ds1-1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 256228,
+    "package": "libzmq5",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "6eb106134ac13d4be583a28c2d107edf1e838cf3705ed85b7af0372ae92af3e0",
+    "version": "4.3.4-2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 324024,
+    "package": "libzstd1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "ae7db00ce8b093e50c994518b90203544e063b4bc574836a048bb142b950b2c9",
+    "version": "1.4.8+dfsg-3build1"
+  },
+  {
+    "architecture": "all",
+    "bytes": 35452,
+    "package": "libzvbi-common",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "54d35e9faa0469396e730c5c8f9a73eddc19865118a3262e9b1c69396bcaab97",
+    "version": "0.2.35-19"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 262300,
+    "package": "libzvbi0",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "bf3ad890d20d62977abc24372c60fb436de3685bd19053e21576d39d2671555d",
+    "version": "0.2.35-19"
+  },
+  {
+    "architecture": "all",
+    "bytes": 12350,
+    "package": "lsb-base",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "23ac3e99b0c2cd0179a7f40fa5a24248345e16c515f222164dad2a638b4f04cf",
+    "version": "11.1.0ubuntu4"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 39136,
+    "package": "ocl-icd-libopencl1",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "9c4ecdb6b69f10157796f4eef6ead8f4f42532f9064ccf1e80f9b337719370a9",
+    "version": "2.2.14-3"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 1762088,
+    "package": "perl-base",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "966bbdd49966b37912496526de94cb5d197c6d1ce457b6c330204ef36c9b3a6e",
+    "version": "5.34.0-3ubuntu1.9"
+  },
+  {
+    "architecture": "all",
+    "bytes": 2976512,
+    "package": "perl-modules-5.34",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "2a8600951e595a55f8b7517fe1124ca117ef85f3e4e864593bb25c698248e6fc",
+    "version": "5.34.0-3ubuntu1.9"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 231682,
+    "package": "perl",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "61e0413ec4f1f934b8bed40ffdd8c361beae9b9ab7f6e669559e8b493cc8c423",
+    "version": "5.34.0-3ubuntu1.9"
+  },
+  {
+    "architecture": "all",
+    "bytes": 20076,
+    "package": "sensible-utils",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "68fa82f5a319ffe48f51ea874117be3d6781c5f6b2ac4f172485fa690ebde4a3",
+    "version": "0.0.17"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 453644,
+    "package": "shared-mime-info",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "0c0164e8673e2607ffa16511f595c5060658a06c0ccf784c269d4e9cd2463942",
+    "version": "2.1-2"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 298302,
+    "package": "tar",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "9e7a93d96b2c3ed82aa5959933bec3e5082c264b0ae45e86ab450f83886faace",
+    "version": "1.34+dfsg-1ubuntu0.1.22.04.6"
+  },
+  {
+    "architecture": "all",
+    "bytes": 56080,
+    "package": "ucf",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "a3fad168a58304fa4c9838158440660419a584855e2b2b881f980287c31a4819",
+    "version": "3.0043"
+  },
+  {
+    "architecture": "all",
+    "bytes": 23380,
+    "package": "x11-common",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "c0a20d0b7ba899f00d22b6f18e49a336aace0514f9ef7f3858c1ab689011c559",
+    "version": "1:7.7+23ubuntu2"
+  },
+  {
+    "architecture": "all",
+    "bytes": 394460,
+    "package": "xkb-data",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "26f74d6ac0caf3f7b2926d9c1fca85bc868531c8159f943fb78fbb4b6c5a8c80",
+    "version": "2.33-1"
+  },
+  {
+    "architecture": "amd64",
+    "bytes": 58406,
+    "package": "zlib1g",
+    "providedByPinnedUbuntuBase": false,
+    "sha256": "9dc17e51a1be2d9ed63b7b84ef0e4e29c5abe6f1bc62cb03e7181483cce8a2f2",
+    "version": "1:1.2.11.dfsg-2ubuntu9.2"
+  }
+]

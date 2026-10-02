@@ -1,0 +1,16 @@
+set -euo pipefail
+export PYTHONDONTWRITEBYTECODE=1
+export SSL_CERT_FILE='/runpod-volume/mdcln-runtime/mdcln-v0172-torch28-v2-20261002/venv/lib/python3.12/site-packages/certifi/cacert.pem'
+[ -f "$SSL_CERT_FILE" ] && [ ! -L "$SSL_CERT_FILE" ] || { echo "ERROR: sealed TLS CA bundle is not a regular file" >&2; exit 1; }
+printf '%s  %s\n' '9cc2a774b5198dcff14d9be1e66091f538975d867ce029a96bce15a55dfd730f' "$SSL_CERT_FILE" | sha256sum --check --status || { echo "ERROR: sealed TLS CA bundle checksum failed" >&2; exit 1; }
+echo '>>> Sealed TLS CA bundle verified 9cc2a774b5198dcff14d9be1e66091f538975d867ce029a96bce15a55dfd730f'
+cd '/runpod-volume/mdcln-runtime-addons/cpython-3.12.12-20260211'
+printf '%s  %s\n' '0094be811d2d75291e179b06242d6f3dc86b908231e0bebb702dcd5cf588a5e8' launch_image_thin.sh 'bdc51b6bc447cb9fc7444f84c6eb18c284b3d03b1f38f9ffd12f0aac0e1d40fb' ADDON_SHA256SUMS 'e9d9413fbc4dd4c2364940a5133bf933078ce15b37dcc88baf9040a2fc0ed737' ADDON_SYMLINKS.json | sha256sum --check --status
+echo '>>> Thin addon build verified bdc51b6bc447cb9fc7444f84c6eb18c284b3d03b1f38f9ffd12f0aac0e1d40fb'
+export REQUESTS_CA_BUNDLE="$SSL_CERT_FILE"
+printf '%s  %s\n' '6075de382484385dbb7b03771da780b062233452d6c90add310cd477ac4f6a07' '/runpod-volume/mdcln-runtime-launchers/local-addon-551648aadcafe98f/bootstrap_local_addon.sh' '19b88e0a1096d0225f3b14bfe84712916fe2280bf452083826758ab489586c2a' '/runpod-volume/mdcln-runtime-launchers/local-addon-551648aadcafe98f/checked_comfy.py' '00b3bb022f2d87771bc00bf38501de3fae341248627e12cf410355674dd7b930' '/runpod-volume/mdcln-runtime-launchers/local-addon-551648aadcafe98f/launch_local_image.sh' '96cbe3d153d2ec36fba2429bf67f068c8a1f6c2674d578b8d13aa251f9d867fe' '/runpod-volume/mdcln-runtime-launchers/local-addon-551648aadcafe98f/local_addon.py' | sha256sum --check --status
+echo '>>> Local addon candidate verified 551648aadcafe98f91d9c039848f93273b43995d90b602aeaccc01e5d7e95139'
+bash '/runpod-volume/mdcln-runtime-launchers/local-addon-551648aadcafe98f/bootstrap_local_addon.sh' --prepare-only | tee /tmp/image-local-prepare.log
+MDCLN_LOCAL_ADDON_DIR="$(printf %s 'aW1wb3J0IGpzb24scmU7ZnJvbSBwYXRobGliIGltcG9ydCBQYXRoO3Jvd3M9W2pzb24ubG9hZHMoeCkgZm9yIHggaW4gUGF0aCgnL3RtcC9pbWFnZS1sb2NhbC1wcmVwYXJlLmxvZycpLnJlYWRfdGV4dCgpLnNwbGl0bGluZXMoKSBpZiB4LnN0YXJ0c3dpdGgoJ3snKV07cm93cz1beCBmb3IgeCBpbiByb3dzIGlmIHguZ2V0KCdzdGF0ZScpPT0nTE9DQUxfQURET05fUkVBRFknXTthc3NlcnQgbGVuKHJvd3MpPT0xO3I9cm93c1swXTtwPXJbJ2xvY2FsQWRkb24nXTthc3NlcnQgclsnYXJjaGl2ZVNoYTI1NiddPT0nZjQ1MDk4N2ViZDE4NWFmY2E5MjE4ZDEwNjJmZjFlOWJlZjJmYjdmODYxNzljODA4OTg0MGQxZWZmODIzMTFkZScgYW5kIHJlLmZ1bGxtYXRjaChyJy93b3Jrc3BhY2UvbWRjbG4tbG9jYWwtYWRkb24tdjFcLltBLVphLXowLTldezh9L2FkZG9uJyxwKTthc3NlcnQganNvbi5sb2FkcyhQYXRoKHAsJ0xPQ0FMX1JFQURZLmpzb24nKS5yZWFkX3RleHQoKSk9PXI7cHJpbnQocCk=' | base64 -d | /runpod-volume/mdcln-runtime-addons/cpython-3.12.12-20260211/python/bin/python3.12 -B -S)"
+export MDCLN_LOCAL_ADDON_DIR
+exec env MDCLN_RUNTIME_DIR='/runpod-volume/mdcln-runtime/mdcln-v0172-torch28-v2-20261002' MDCLN_RUNTIME_STATE_DIR='/workspace/mdcln-state' NSFW_COMFY_BYPASS_UPSCALE=0 '/runpod-volume/mdcln-runtime-launchers/local-addon-551648aadcafe98f/launch_local_image.sh'

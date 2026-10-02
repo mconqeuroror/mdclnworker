@@ -1,0 +1,20 @@
+{
+  "state": "PASS",
+  "observedAt": "2026-10-02T17:57:17.925886+00:00",
+  "programs": [
+    {
+      "name": "portable-python",
+      "resolvedLibraries": 6,
+      "unexpectedHostDependencies": []
+    },
+    {
+      "name": "sealed-ffmpeg",
+      "resolvedLibraries": 205,
+      "unexpectedHostDependencies": []
+    }
+  ],
+  "allowedHostScope": "pinned Ubuntu22 glibc libraries and loader only",
+  "otherLibraries": "addon or original sealed native root",
+  "method": "read-only ldd using exact addon launcher native search paths",
+  "noModelContentRead": true
+}

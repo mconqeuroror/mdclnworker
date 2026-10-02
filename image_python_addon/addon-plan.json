@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "state": "LOCAL_PREPARATION_ONLY",
+  "baseImage": "ubuntu:22.04@sha256:08ea48a03a3e78ebc7cd526e6a275053223aadd88bfc09cc49b06d5281525fde",
+  "runtimeId": "mdcln-v0172-torch28-v2-20261002",
+  "runtimeDir": "/runpod-volume/mdcln-runtime/mdcln-v0172-torch28-v2-20261002",
+  "addonDir": "/runpod-volume/mdcln-runtime-addons/cpython-3.12.12-20260211",
+  "release": "20260211",
+  "archive": "cpython-3.12.12+20260211-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz",
+  "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20260211/cpython-3.12.12%2B20260211-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz",
+  "archiveBytes": 33887801,
+  "archiveSha256": "1dbaa624a09e15afe7efbdac08d42993135a68db8d34f986ef6977a6d77bdc3c",
+  "sha256SumsFileSha256": "c1302bf47a26d62f0f84c3af28f81fcdf515851a23928ec0bae84c83688f3a51",
+  "unpackedRegularBytes": 95599575,
+  "fullManifestSha256": "2d4959e2a5fef58adaddd3eee7d0dedf52be612e76e37c4b2c93fc99641ea35a",
+  "criticalManifestSha256": "9dc6c09d9d32349ab7e271641c6dc636441c76390b8dbb697504b4ba58ac1e60",
+  "expectedPython": "3.12.12",
+  "expectedSoabi": "cpython-312-x86_64-linux-gnu",
+  "expectedTargetGlibc": "2.35",
+  "targetCpuPreflightPassed": false
+}
