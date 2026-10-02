@@ -1,0 +1,13 @@
+{
+  "buildSha256": "551648aadcafe98f91d9c039848f93273b43995d90b602aeaccc01e5d7e95139",
+  "directory": "/runpod-volume/mdcln-runtime-launchers/local-addon-551648aadcafe98f",
+  "files": {
+    "bootstrap_local_addon.sh": "6075de382484385dbb7b03771da780b062233452d6c90add310cd477ac4f6a07",
+    "local_addon.py": "96cbe3d153d2ec36fba2429bf67f068c8a1f6c2674d578b8d13aa251f9d867fe",
+    "checked_comfy.py": "19b88e0a1096d0225f3b14bfe84712916fe2280bf452083826758ab489586c2a",
+    "launch_local_image.sh": "00b3bb022f2d87771bc00bf38501de3fae341248627e12cf410355674dd7b930"
+  },
+  "archivePath": "/runpod-volume/mdcln-runtime-addons/cpython-3.12.12-20260211.tar.gz",
+  "archiveSha256": "f450987ebd185afca9218d1062ff1e9bef2fb7f86179c8089840d1eff82311de",
+  "archiveBytes": 386050882
+}

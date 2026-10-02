@@ -1,0 +1,94 @@
+{
+  "addonFiles": 9010,
+  "addonId": "cpython-3.12.12-20260211",
+  "addonManifestSha256": "bdc51b6bc447cb9fc7444f84c6eb18c284b3d03b1f38f9ffd12f0aac0e1d40fb",
+  "addonRegularBytes": 991668302,
+  "addonSymlinkManifestSha256": "e9d9413fbc4dd4c2364940a5133bf933078ce15b37dcc88baf9040a2fc0ed737",
+  "addonSymlinks": 1607,
+  "archiveSha256": "1dbaa624a09e15afe7efbdac08d42993135a68db8d34f986ef6977a6d77bdc3c",
+  "baseImage": "ubuntu:22.04@sha256:08ea48a03a3e78ebc7cd526e6a275053223aadd88bfc09cc49b06d5281525fde",
+  "checks": {
+    "git-command": true,
+    "identity": {
+      "glibc": "2.35",
+      "os": "ubuntu22.04",
+      "python": "3.12.12",
+      "soabi": "cpython-312-x86_64-linux-gnu"
+    },
+    "native:libGL.so.1": true,
+    "native:libgcc_s.so.1": true,
+    "native:libglib-2.0.so.0": true,
+    "native:libgomp.so.1": true,
+    "native:libstdc++.so.6": true,
+    "package:PIL.Image": {
+      "imported": true
+    },
+    "package:cv2": {
+      "imported": true
+    },
+    "package:numpy": {
+      "imported": true
+    },
+    "package:runpod": {
+      "imported": true
+    },
+    "package:safetensors": {
+      "imported": true
+    },
+    "package:tokenizers": {
+      "imported": true
+    },
+    "package:torch": {
+      "imported": true
+    },
+    "package:torchaudio": {
+      "imported": true
+    },
+    "package:torchvision": {
+      "imported": true
+    },
+    "package:transformers": {
+      "imported": true
+    },
+    "sealed-ffmpeg": true,
+    "sealed-runtime-critical-and-manifest-identity": {
+      "criticalFilesVerified": true,
+      "fullManifestIdentityVerified": true,
+      "fullTreeRehashed": false
+    },
+    "stdlib:bz2": true,
+    "stdlib:ctypes": true,
+    "stdlib:lzma": true,
+    "stdlib:multiprocessing": true,
+    "stdlib:sqlite3": true,
+    "stdlib:ssl": true,
+    "stdlib:zlib": true,
+    "torch-cpu-operation": {
+      "cpuTensorOperationPassed": true,
+      "cudaWheel": "12.8",
+      "gpuTested": false,
+      "versions": {
+        "torch": "2.8.0+cu128",
+        "torchaudio": "2.8.0+cu128",
+        "torchvision": "0.23.0+cu128"
+      }
+    }
+  },
+  "cpuNodeRegistrationPassed": true,
+  "criticalManifestSha256": "9dc6c09d9d32349ab7e271641c6dc636441c76390b8dbb697504b4ba58ac1e60",
+  "criticalRuntimeReverified": true,
+  "dataCenterId": "EU-RO-1",
+  "fullManifestSha256": "2d4959e2a5fef58adaddd3eee7d0dedf52be612e76e37c4b2c93fc99641ea35a",
+  "gpuRenderPassed": false,
+  "interpreterNativeChecksPassed": true,
+  "launcherSha256": "0094be811d2d75291e179b06242d6f3dc86b908231e0bebb702dcd5cf588a5e8",
+  "modelMetadataEntries": 489,
+  "modelMetadataUnchanged": true,
+  "optionalFontAliasValidated": true,
+  "registrationLogSha256": "f1445933e1eecc6d2d095c2f64fb7930ebd78dd32cbd18704a6d4bdbe768f05f",
+  "registrationSeconds": 238.02,
+  "runtimeId": "mdcln-v0172-torch28-v2-20261002",
+  "state": "READY",
+  "verifiedAtUnix": 1790962676.783296,
+  "volumeId": "mevpt9ccol"
+}

@@ -1,0 +1,4 @@
+# Shared by the volume-staged runtime and the Docker build. These exact
+# versions are the pair resolved by ComfyUI v0.17.2 on the Python 3.12 build.
+huggingface-hub==1.33.0
+transformers==5.18.0

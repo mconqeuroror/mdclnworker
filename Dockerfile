@@ -1,135 +1,88 @@
-# ============================================
-# ModelClone ComfyUI Worker for RunPod Serverless
-# NSFW generation only — no JoyCaption / SeedVR2
-# Base image has Python, PyTorch 2.6.0, CUDA 12.8.1 pre-installed
-# ============================================
-FROM runpod/pytorch:1.0.3-cu1281-torch260-ubuntu2204
+# ModelClone image worker. Models remain on /runpod-volume; the image contains
+# the exact ComfyUI release, custom nodes, dependencies, and request handler.
+FROM runpod/pytorch:1.0.3-cu1281-torch260-ubuntu2204@sha256:701a9d326604252fdd7d9ae4eb898c4d8f81c888641ef01f25219816ecd21e8d
 
-ENV DEBIAN_FRONTEND=noninteractive
-ENV PYTHONUNBUFFERED=1
-ENV PYTHONFAULTHANDLER=1
-ENV HF_HUB_ENABLE_HF_TRANSFER=1
-# runpod 1.9+ runs startup fitness checks that call sys.exit(1) before heartbeat
-# (GPU test, 10% min free root disk) — pin 1.8.2; see runpod-mdcln-motion notes.
-ENV RUNPOD_MIN_DISK_PERCENT=1
-ENV RUNPOD_GPU_TEST_TIMEOUT=120
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PYTHONFAULTHANDLER=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    RUNPOD_MIN_DISK_PERCENT=1 \
+    RUNPOD_GPU_TEST_TIMEOUT=120
 
-# -----------------------------------------------
-# 1. Extra system deps not in base image
-# -----------------------------------------------
+ENV VIRTUAL_ENV=/workspace/venv
+ENV PATH="${VIRTUAL_ENV}/bin:${PATH}"
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgl1 libglib2.0-0 ffmpeg \
- && rm -rf /var/lib/apt/lists/*
+      ca-certificates ffmpeg git libgl1 libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /workspace
 
-# -----------------------------------------------
-# 2. Clone ComfyUI — v0.17.2 (latest stable patch in 0.17.x; matches workflows
-#    that need core nodes: ModelPatchLoader, QwenImageDiffsynthControlnet,
-#    ImageScaleToTotalPixels, ResizeImageMaskNode, etc.)
-# -----------------------------------------------
-RUN git clone --depth 1 --branch v0.17.2 https://github.com/comfyanonymous/ComfyUI.git /workspace/ComfyUI
+COPY python-constraints.txt /workspace/python-constraints.txt
 
-# -----------------------------------------------
-# 3. ComfyUI requirements + hf_transfer
-# CRITICAL: use `python3 -m pip` so packages land in the SAME Python that
-# `python3 main.py` uses at runtime. On this base image plain `pip` points
-# to Python 3.12 while `python3` is Python 3.10 — installing via plain pip
-# silently put everything in the wrong env and caused mass ModuleNotFoundError
-# at runtime (cv2, numba, runpod, piexif, deepdiff, ...).
-# -----------------------------------------------
-RUN python3 -m pip install --no-cache-dir -r /workspace/ComfyUI/requirements.txt
+# The tagged base's serving interpreter is /usr/bin/python3.12. Its
+# bundled Torch 2.6 CUDA 12.6 predates Blackwell support, so keep it out of the
+# serving environment and install the approved CUDA 12.8 trio in an isolated
+# venv. Do not use /usr/bin/python3 (the apt-managed Python 3.10 interpreter).
+RUN /usr/bin/python3.12 -m venv "${VIRTUAL_ENV}" \
+    && python3 -m pip install --no-cache-dir \
+      --index-url https://download.pytorch.org/whl/cu128 \
+      "torch==2.8.0" "torchvision==0.23.0" "torchaudio==2.8.0" \
+    && test "$(python3 -c 'import torch; print(torch.__version__.split("+")[0])')" = "2.8.0" \
+    && test "$(python3 -c 'import torch; print(torch.version.cuda)')" = "12.8"
 
-# sqlalchemy/aiosqlite: ComfyUI 0.17+ may list these; install explicitly so
-# custom nodes / Manager / caching remain stable on the RunPod 3.10 runtime.
+# Keep the serving ComfyUI line unchanged. v0.17.2 supplies the core Qwen and
+# model-patch nodes used by the shipped workflows.
+RUN git clone --quiet --depth 1 --branch v0.17.2 \
+      https://github.com/comfyanonymous/ComfyUI.git /workspace/ComfyUI \
+    && find /workspace/ComfyUI/models -mindepth 1 -delete \
+    && printf '%s\n' \
+      'torch==2.8.0+cu128' \
+      'torchvision==0.23.0+cu128' \
+      'torchaudio==2.8.0+cu128' > /workspace/torch-constraints.txt \
+    && python3 -m pip install --no-cache-dir \
+      -c /workspace/torch-constraints.txt \
+      -c /workspace/python-constraints.txt \
+      -r /workspace/ComfyUI/requirements.txt \
+    && test "$(python3 -c 'import torch; print(torch.__version__.split("+")[0])')" = "2.8.0"
+
 RUN python3 -m pip install --no-cache-dir \
-    "huggingface-hub>=0.25.0" \
-    hf_transfer \
-    sqlalchemy aiosqlite
+      -c /workspace/torch-constraints.txt \
+      -c /workspace/python-constraints.txt \
+      "huggingface-hub==1.33.0" "transformers==5.18.0" \
+      hf_transfer sqlalchemy aiosqlite
 
-# -----------------------------------------------
-# 4. Patch ComfyUI  [rarely changes → stays cached]
-# -----------------------------------------------
 COPY patch_comfy_sdxl_pooled.py /workspace/patch_comfy_sdxl_pooled.py
 RUN python3 /workspace/patch_comfy_sdxl_pooled.py
 
-# -----------------------------------------------
-# 5. Pre-create model directories (models downloaded at runtime by start.sh)
-# -----------------------------------------------
-RUN mkdir -p /workspace/ComfyUI/models/checkpoints \
-             /workspace/ComfyUI/models/clip \
-             /workspace/ComfyUI/models/text_encoders \
-             /workspace/ComfyUI/models/vae \
-             /workspace/ComfyUI/models/loras \
-             /workspace/ComfyUI/models/unet \
-             /workspace/ComfyUI/models/diffusion_models \
-             /workspace/ComfyUI/models/model_patches \
-             /workspace/ComfyUI/models/depthanything3 \
-             /workspace/ComfyUI/models/ultralytics/bbox \
-             /workspace/ComfyUI/models/sams
+# Clone all workflow node packs and install their Python dependencies during
+# the image build. start.sh contains no git/pip/model-download fallback.
+COPY custom_nodes.list setup_custom_nodes.sh patch_da3_core.py \
+  sync_custom_node_submodules.sh /workspace/
+RUN chmod +x /workspace/setup_custom_nodes.sh /workspace/patch_da3_core.py \
+      /workspace/sync_custom_node_submodules.sh \
+    && HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 /workspace/setup_custom_nodes.sh \
+    && find /workspace/ComfyUI/custom_nodes -type d -name .git -prune -exec rm -rf '{}' + \
+    && test -z "$(find /workspace/ComfyUI/models -type f -print -quit)"
 
-# -----------------------------------------------
-# 6. Custom nodes  [changes occasionally — cached independently of models above]
-# -----------------------------------------------
-COPY custom_nodes.list /workspace/custom_nodes.list
-COPY setup_custom_nodes.sh /workspace/setup_custom_nodes.sh
-RUN chmod +x /workspace/setup_custom_nodes.sh && /workspace/setup_custom_nodes.sh
+# Install the worker SDK after custom-node dependencies so its tested version
+# cannot be replaced by a transitive requirement.
+RUN python3 -m pip install --no-cache-dir \
+      -c /workspace/torch-constraints.txt \
+      -c /workspace/python-constraints.txt \
+      "runpod==1.8.2" requests \
+    && python3 -m pip check \
+    && test "$(python3 -c 'import torch; print(torch.__version__.split("+")[0])')" = "2.8.0" \
+    && test "$(python3 -c 'import torch; print(torch.version.cuda)')" = "12.8"
 
-# Verify required custom nodes cloned correctly
-RUN test -d /workspace/ComfyUI/custom_nodes/ComfyUI-load-lora-from-url || \
-    (echo "ERROR: bollerdominik/ComfyUI-load-lora-from-url failed to clone" && exit 1)
-RUN test -d /workspace/ComfyUI/custom_nodes/ComfyUI-GlifNodes || \
-    (echo "ERROR: glifxyz/ComfyUI-GlifNodes failed to clone (provides 'Load LoRA From URL' used by nsfw_pro workflow)" && exit 1)
-RUN test -d /workspace/ComfyUI/custom_nodes/ComfyUI_Comfyroll_CustomNodes || \
-    (echo "ERROR: Suzie1/ComfyUI_Comfyroll_CustomNodes failed to clone" && exit 1)
-RUN test -d /workspace/ComfyUI/custom_nodes/Derfuu_ComfyUI_ModdedNodes || \
-    (echo "ERROR: Derfuu/Derfuu_ComfyUI_ModdedNodes failed to clone" && exit 1)
-RUN test -d /workspace/ComfyUI/custom_nodes/ComfyUI-Image-Saver || \
-    (echo "ERROR: alexopus/ComfyUI-Image-Saver failed to clone" && exit 1)
-RUN test -d /workspace/ComfyUI/custom_nodes/comfy-image-saver || \
-    (echo "ERROR: giriss/comfy-image-saver failed to clone" && exit 1)
-RUN test -d /workspace/ComfyUI/custom_nodes/rgthree-comfy || \
-    (echo "ERROR: rgthree/rgthree-comfy failed to clone" && exit 1)
-RUN test -d /workspace/ComfyUI/custom_nodes/comfyui-tooling-nodes || \
-    (echo "ERROR: Acly/comfyui-tooling-nodes failed to clone" && exit 1)
-RUN test -d /workspace/ComfyUI/custom_nodes/ComfyUI_LoRA_from_URL || \
-    (echo "ERROR: a-und-b/ComfyUI_LoRA_from_URL failed to clone" && exit 1)
-RUN test -d /workspace/ComfyUI/custom_nodes/ComfyUI-Impact-Pack || \
-    (echo "ERROR: ltdrdata/ComfyUI-Impact-Pack failed to clone" && exit 1)
-RUN test -d /workspace/ComfyUI/custom_nodes/ComfyUI-Impact-Subpack || \
-    (echo "ERROR: ltdrdata/ComfyUI-Impact-Subpack failed to clone" && exit 1)
-RUN test -d /workspace/ComfyUI/custom_nodes/ComfyUI_essentials || \
-    (echo "ERROR: cubiq/ComfyUI_essentials failed to clone" && exit 1)
-RUN test -d /workspace/ComfyUI/custom_nodes/comfyui-every-person-seg-coii || \
-    (echo "ERROR: CoiiChan/comfyui-every-person-seg-coii failed to clone" && exit 1)
-RUN test -d /workspace/ComfyUI/custom_nodes/ComfyUI-Kie-API || \
-    (echo "ERROR: gateway/ComfyUI-Kie-API failed to clone" && exit 1)
-# ComfyUI-Crystools, ComfyUI-DepthAnythingV3, ComfyUI-Easy-Use,
-# was-node-suite-comfyui, ComfyUI_UltimateSDUpscale: cloned at container boot in
-# start.sh (large pip deps — keeps image export under RunPod build timeouts).
-# Install pip requirements for every custom node (python3 -m pip to hit the
-# same 3.10 env ComfyUI runs under).
-RUN for dir in /workspace/ComfyUI/custom_nodes/*/; do \
-      if [ -f "$dir/requirements.txt" ]; then \
-        echo "Installing requirements for $(basename $dir)..." && \
-        python3 -m pip install --no-cache-dir -r "$dir/requirements.txt" || true; \
-      fi; \
-      if [ -f "$dir/install.py" ]; then \
-        echo "Running install.py for $(basename $dir)..." && \
-        cd "$dir" && python3 install.py || true && cd /workspace; \
-      fi; \
-    done
+COPY handler.py runtime_preflight.py start.sh /workspace/
+RUN chmod +x /workspace/start.sh /workspace/runtime_preflight.py \
+    && python3 -m py_compile /workspace/handler.py /workspace/runtime_preflight.py \
+    && test ! -d /workspace/ComfyUI/custom_nodes/ComfyUI-Manager
 
-# -----------------------------------------------
-# 7. RunPod handler + startup  [changes frequently — always last so rebuilds are instant]
-# -----------------------------------------------
-RUN python3 -m pip install --no-cache-dir "runpod==1.8.2" requests
+# Model directories are link targets created by runtime_preflight.py. No model
+# weights or Hugging Face caches are copied into the image.
+RUN mkdir -p /workspace/ComfyUI/models /workspace/ComfyUI/input \
+      /workspace/ComfyUI/output /workspace/ComfyUI/temp /workspace/ComfyUI/user
 
-COPY handler.py /workspace/handler.py
-COPY start.sh /workspace/start.sh
-RUN chmod +x /workspace/start.sh
-
-# -----------------------------------------------
-# 8. Start
-# -----------------------------------------------
 CMD ["/workspace/start.sh"]
